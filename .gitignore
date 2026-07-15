@@ -7,3 +7,8 @@ dist/
 .netlify/
 supabase/.temp/
 coverage/
+
+# Exports Google Sheets (données douanières + hachages de mots de passe) — JAMAIS commités
+*.xlsx
+*.xls
+comptes-provisoires.csv

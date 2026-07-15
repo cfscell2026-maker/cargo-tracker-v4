@@ -15,6 +15,14 @@ export interface Nav { user: User; go: (screen: string, arg?: unknown) => void; 
 type Phase = 'loading' | 'login' | 'enroll' | 'verify' | 'app';
 const emailDe = (u: string) => (u.includes('@') ? u : `${u.toLowerCase()}@agents.cargo-pia.local`);
 
+/**
+ * INTERRUPTEUR 2FA — phase de démarrage « molo molo », double authentification
+ * DÉSACTIVÉE (connexion par mot de passe seul). ⚠ Doit rester cohérent avec
+ * MFA_REQUISE côté Edge Function (supabase/functions/rpc/supa.ts).
+ * ⚠ À remettre à `true` avant la mise en production réelle.
+ */
+const MFA_REQUISE = false;
+
 export function App() {
   const [phase, setPhase] = useState<Phase>('loading');
   const [user, setUser] = useState<User | null>(null);
@@ -32,6 +40,8 @@ export function App() {
   const evaluerSession = useCallback(async () => {
     const { data } = await supabase.auth.getSession();
     if (!data.session) { setPhase('login'); return; }
+    // 2FA désactivé : une session mot de passe valide suffit pour entrer.
+    if (!MFA_REQUISE) { await entrerApp(); return; }
     const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
     if (aal?.currentLevel === 'aal2') { await entrerApp(); return; }
     const { data: f } = await supabase.auth.mfa.listFactors();

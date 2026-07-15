@@ -25,13 +25,21 @@ export function jwtPayload(jwt: string): Record<string, unknown> {
   }
 }
 
-/** Valide le JWT, exige aal2 (2FA), charge le profil actif. Messages alignés v3.6. */
+/**
+ * INTERRUPTEUR 2FA — phase de démarrage « molo molo », double authentification
+ * DÉSACTIVÉE temporairement (connexion par mot de passe seul).
+ * ⚠ À REMETTRE À `true` avant la mise en production réelle (données douanières).
+ * Surcharge possible sans redéploiement via la variable d'env MFA_REQUISE=true.
+ */
+const MFA_REQUISE = (Deno.env.get('MFA_REQUISE') ?? 'false').toLowerCase() === 'true';
+
+/** Valide le JWT, exige aal2 (2FA) si MFA_REQUISE, charge le profil actif. Messages alignés v3.6. */
 export async function exigerSession(db: SupabaseClient, authHeader: string | null): Promise<Session> {
   const jwt = (authHeader ?? '').replace(/^Bearer\s+/i, '');
   if (!jwt) throw new AuthError('Session expirée. Veuillez vous reconnecter.');
   const { data, error } = await db.auth.getUser(jwt);
   if (error || !data?.user) throw new AuthError('Session expirée. Veuillez vous reconnecter.');
-  if (String(jwtPayload(jwt)['aal'] ?? '') !== 'aal2')
+  if (MFA_REQUISE && String(jwtPayload(jwt)['aal'] ?? '') !== 'aal2')
     throw new AuthError('Double authentification requise. Veuillez valider votre code.');
 
   const { data: profil, error: pErr } = await db

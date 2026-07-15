@@ -31,11 +31,22 @@ const db = createClient(URL, KEY, { auth: { persistSession: false } });
 
 const ROLES_VALIDES = ['CFS', 'CHEF_BRIGADE', 'CHEF_BRIGADE_ADJOINT', 'CHEF_VISITE', 'CHEF_DIVISION', 'T1', 'BALISE', 'BON_SORTIE', 'PP', 'ADMIN'];
 
-/** Mot de passe provisoire lisible (12 caractères, sans caractères ambigus). */
+/**
+ * Mot de passe provisoire.
+ * Phase de démarrage « molo molo » : mot de passe FIXE et connu pour tous les
+ * comptes (par défaut « CargoPia2026 »), surchargéable via MOT_DE_PASSE_PROVISOIRE.
+ * ⚠ Temporaire : chaque agent doit le changer, et il faut réactiver le 2FA
+ * (MFA_REQUISE=true côté serveur + client) avant la mise en production réelle.
+ * Pour revenir à des mots de passe aléatoires uniques : MOT_DE_PASSE_PROVISOIRE=ALEATOIRE
+ */
+const MDP_CONFIG = process.env.MOT_DE_PASSE_PROVISOIRE ?? 'CargoPia2026';
 function motDePasseProvisoire(): string {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
-  const b = randomBytes(12);
-  return Array.from(b, (x) => chars[x % chars.length]).join('');
+  if (MDP_CONFIG.toUpperCase() === 'ALEATOIRE') {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
+    const b = randomBytes(12);
+    return Array.from(b, (x) => chars[x % chars.length]).join('');
+  }
+  return MDP_CONFIG;
 }
 
 async function main() {
