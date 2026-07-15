@@ -406,7 +406,9 @@ export async function listerHistorique(ctx: Ctx, opts: Record<string, unknown>) 
   if (opts['username']) q = q.eq('username', String(opts['username']).toLowerCase());
   if (opts['du']) q = q.gte('ts', String(opts['du']) + 'T00:00:00');
   if (opts['au']) q = q.lte('ts', String(opts['au']) + 'T23:59:59');
-  q = q.order('id', { ascending: false }).range((page - 1) * pageSize, page * pageSize - 1);
+  // Tri par horodatage réel (puis id) : les entrées historiques importées
+  // s'intercalent à leur vraie date, pas à leur ordre d'insertion.
+  q = q.order('ts', { ascending: false }).order('id', { ascending: false }).range((page - 1) * pageSize, page * pageSize - 1);
   const { data, error, count } = await q;
   if (error) throw new Error(error.message);
   const rows = (data ?? []).map((r) => ({

@@ -7,7 +7,8 @@
   "scripts": {
     "migrer": "tsx --env-file=.env importer.ts",
     "verifier": "tsx --env-file=.env importer.ts --verifier-seulement",
-    "comptes": "tsx --env-file=.env creer-comptes.ts"
+    "comptes": "tsx --env-file=.env creer-comptes.ts",
+    "historique": "tsx --env-file=.env importer-historique.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.0",
