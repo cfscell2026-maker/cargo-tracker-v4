@@ -11,7 +11,7 @@ import { versCamel } from '../ctx.ts';
 import {
   APP, DEFAUTS, STOCK_STATUTS,
   declKey, maj, type Declaration,
-} from '../../../../supabase/functions/_shared/domaine/src/index.ts';
+} from '../../_shared/domaine/src/index.ts';
 
 /** Ligne cargaison brute (snake_case) + accès camelCase pour la logique. */
 export interface CargoRow {

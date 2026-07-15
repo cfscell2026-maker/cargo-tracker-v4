@@ -10,7 +10,7 @@ import { versCamel } from '../ctx.ts';
 import {
   STOCK_STATUTS, ANNONCE_STATUTS, TRANCHES_SEJOUR, SEUIL_ALERTE_SEJOUR,
   tailleBucket, evpDeTaille, trancheAge, tcValide, maj, parseDateImport,
-} from '../../../../supabase/functions/_shared/domaine/src/index.ts';
+} from '../../_shared/domaine/src/index.ts';
 import { lookupDeclaration } from './helpers.ts';
 
 const normTC = (v: unknown) => String(v ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');

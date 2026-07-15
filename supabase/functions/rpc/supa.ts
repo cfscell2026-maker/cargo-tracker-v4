@@ -5,7 +5,7 @@
  * ============================================================================
  */
 import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2';
-import type { Role } from '../../../supabase/functions/_shared/domaine/src/index.ts';
+import type { Role } from '../_shared/domaine/src/index.ts';
 import { AuthError, type Ctx, type Session } from './ctx.ts';
 
 /** Client service_role — n'existe QUE côté serveur. */

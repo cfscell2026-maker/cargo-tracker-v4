@@ -13,7 +13,7 @@ import {
   alphaNumMaj, maj, txt, tcValide, normaliserConteneur, normaliserDeclaration, parseConteneursDetails,
   declKey, typeDeRoutage, tailleBucket, construireCamion, verifierBinome, apercuConteneurs,
   etapesEnAttente, prochaineEtape, estOui, aFait,
-} from '../../../../supabase/functions/_shared/domaine/src/index.ts';
+} from '../../_shared/domaine/src/index.ts';
 import {
   getCargo, patchCargo, nextId, nextRapportId, ajouterConteneurs, supprimerConteneursDe,
   renommerCamionConteneurs, lierStock, stockDisponible, lookupDeclaration, majApurement,

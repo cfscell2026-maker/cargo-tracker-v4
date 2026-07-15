@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { PERMISSIONS } from '../../../../supabase/functions/_shared/domaine/src/index.ts';
+import { PERMISSIONS } from '../../_shared/domaine/src/index.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const src = readFileSync(join(here, 'registry.ts'), 'utf8');

@@ -15,7 +15,7 @@ import {
   estOui,
   normAlphaNum,
   type Role,
-} from '../../../../supabase/functions/_shared/domaine/src/index.ts';
+} from '../../_shared/domaine/src/index.ts';
 
 /** Résumé (v_cargaisons_resume) en camelCase — équivalent RESUME_KEYS. */
 async function chargerResume(ctx: Ctx): Promise<Record<string, unknown>[]> {

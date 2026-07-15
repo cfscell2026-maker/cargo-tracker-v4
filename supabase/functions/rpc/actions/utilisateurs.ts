@@ -9,7 +9,7 @@
  */
 import type { Ctx } from '../ctx.ts';
 import { createClient } from 'npm:@supabase/supabase-js@2';
-import { ROLES, type Role } from '../../../../supabase/functions/_shared/domaine/src/index.ts';
+import { ROLES, type Role } from '../../_shared/domaine/src/index.ts';
 
 const DOMAINE_TECH = 'agents.cargo-pia.local';
 const emailDe = (username: string) => `${username}@${DOMAINE_TECH}`;

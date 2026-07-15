@@ -9,7 +9,7 @@ import {
   ROLES, STATUTS, OPERATIONS,
   alphaNumMaj, maj, txt, tcValide, parseDateImport,
   normaliserDeclaration, construireCamion, construireVehicule, type CamionConstruit,
-} from '../../../../supabase/functions/_shared/domaine/src/index.ts';
+} from '../../_shared/domaine/src/index.ts';
 import {
   getCargo, patchCargo, nextId, nextRapportId, ajouterConteneurs, lierStock, lookupDeclaration, majApurement,
 } from './helpers.ts';

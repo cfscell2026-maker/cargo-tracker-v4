@@ -9,7 +9,7 @@
  *  Le client ne décide JAMAIS des droits : tout est contrôlé ici.
  * ============================================================================
  */
-import { verifierPermission } from '../../../supabase/functions/_shared/domaine/src/index.ts';
+import { verifierPermission } from '../_shared/domaine/src/index.ts';
 import { AuthError, type Ctx } from './ctx.ts';
 import { dbAdmin, exigerSession, fabriquerLog } from './supa.ts';
 import { ACTIONS } from './actions/registry.ts';

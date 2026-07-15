@@ -7,7 +7,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { STATUTS, etapesEnAttente } from '../../../../supabase/functions/_shared/domaine/src/index.ts';
+import { STATUTS, etapesEnAttente } from '../../_shared/domaine/src/index.ts';
 import { versCamel, type Ctx } from '../ctx.ts';
 import { FakeDB } from './fake-db.ts';
 import * as ecr from './ecriture.ts';

@@ -14,7 +14,7 @@ import { versCamel } from '../ctx.ts';
 import {
   ROLES, STATUTS, OPERATIONS, TRANCHES_SEJOUR, SEUIL_ALERTE_SEJOUR,
   tailleBucket, evpDeTaille, trancheAge, parseConteneursDetails, estOui,
-} from '../../../../supabase/functions/_shared/domaine/src/index.ts';
+} from '../../_shared/domaine/src/index.ts';
 
 /* ------------------------------- Helpers ------------------------------- */
 

@@ -6,7 +6,7 @@
  * ============================================================================
  */
 import type { SupabaseClient } from 'npm:@supabase/supabase-js@2';
-import type { Role } from '../../../supabase/functions/_shared/domaine/src/index.ts';
+import type { Role } from '../_shared/domaine/src/index.ts';
 
 /** Session applicative (équivalent de l'objet session Apps Script). */
 export interface Session {
