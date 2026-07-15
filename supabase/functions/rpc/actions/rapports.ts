@@ -8,7 +8,9 @@
  */
 import type { Ctx } from '../ctx.ts';
 import { versCamel } from '../ctx.ts';
-import * as XLSX from 'npm:xlsx@0.18.5';
+// ⚠ xlsx (SheetJS) est importé PARESSEUSEMENT dans xlsxBase64 : son chargement
+// au niveau module fait planter le démarrage de l'Edge Function (Deno) →
+// BOOT_ERROR / 503 sur toutes les requêtes. Chargé seulement lors d'un export.
 import {
   ROLES, STATUTS, OPERATIONS, TRANCHES_SEJOUR, SEUIL_ALERTE_SEJOUR,
   tailleBucket, evpDeTaille, trancheAge, parseConteneursDetails, estOui,
@@ -39,15 +41,21 @@ function agentForce(ctx: Ctx, cfgRole: Role, pAgent: unknown): string {
   return lc(pAgent);
 }
 
-/** Excel (base64) à partir de feuilles {nom, aoa:[[...]]}. */
-function xlsxBase64(feuilles: { nom: string; aoa: unknown[][] }[]): string {
+/** Excel (base64) à partir de feuilles {nom, aoa:[[...]]}.
+ *  Import DYNAMIQUE de xlsx (voir note en tête de fichier) : chargé ici, à la
+ *  demande, pour ne pas casser le démarrage de l'Edge Function. */
+async function xlsxBase64(feuilles: { nom: string; aoa: unknown[][] }[]): Promise<string> {
+  // deno-lint-ignore no-explicit-any
+  const mod: any = await import('npm:xlsx@0.18.5');
+  // deno-lint-ignore no-explicit-any
+  const XLSX: any = mod.default ?? mod;
   const wb = XLSX.utils.book_new();
   for (const f of feuilles) XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(f.aoa), f.nom.slice(0, 31));
   const b64 = XLSX.write(wb, { type: 'base64', bookType: 'xlsx' });
   return b64 as string;
 }
-function fichier(nomBase: string, format: string, feuilles: { nom: string; aoa: unknown[][] }[]) {
-  return { filename: `${nomBase}.xlsx`, mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', base64: xlsxBase64(feuilles), format };
+async function fichier(nomBase: string, format: string, feuilles: { nom: string; aoa: unknown[][] }[]) {
+  return { filename: `${nomBase}.xlsx`, mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', base64: await xlsxBase64(feuilles), format };
 }
 const libTaille: Record<string, string> = { t20: "20'", t40: "40'", t45: "45'", autres: 'Autre / non précisé' };
 
