@@ -60,8 +60,13 @@ async function main() {
     process.exit(1);
   }
 
+  // Connexions / déconnexions = bruit : jamais importées (elles resteraient
+  // définitivement dans la table append-only et polluent le journal métier).
+  const utiles = lignes.filter((l) => !/connexion/i.test(String(l['action'] ?? '')));
+  console.log(`   ${lignes.length - utiles.length} connexion(s)/déconnexion(s) ignorée(s) → ${utiles.length} à importer.`);
+
   // Ordre chronologique (la feuille l'est déjà, on s'en assure).
-  const rows = lignes
+  const rows = utiles
     .map((l) => ({
       ts: toISO(l['timestamp']),
       username: String(l['username'] ?? '').toLowerCase(),

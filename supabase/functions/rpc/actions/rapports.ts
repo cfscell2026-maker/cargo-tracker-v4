@@ -403,7 +403,10 @@ export async function listerHistorique(ctx: Ctx, opts: Record<string, unknown>) 
   const page = Math.max(1, Number(opts['page'] || 1));
   const pageSize = Math.min(200, Number(opts['pageSize'] || 50));
   let q = ctx.db.from('audit_log').select('*', { count: 'exact' });
+  // Connexions / déconnexions = bruit : toujours exclues de l'historique métier.
+  q = q.not('action', 'ilike', '%connexion%');
   if (opts['username']) q = q.eq('username', String(opts['username']).toLowerCase());
+  if (opts['action']) q = q.eq('action', String(opts['action'])); // filtre par événement
   if (opts['du']) q = q.gte('ts', String(opts['du']) + 'T00:00:00');
   if (opts['au']) q = q.lte('ts', String(opts['au']) + 'T23:59:59');
   // Tri par horodatage réel (puis id) : les entrées historiques importées

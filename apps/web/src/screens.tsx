@@ -480,12 +480,69 @@ SCREENS.users = () => {
   </div>;
 };
 
+// Types d'événements du journal (connexions/déconnexions volontairement exclues).
+const EVENEMENTS = [
+  'Création cargaison', 'Création rapport', 'Modification cargaison', 'Correction N° camion',
+  'Chargement mixte', 'Rapport de chargement', 'Affectation GPS', 'Remplacement GPS',
+  'Étape Balise — sans balise', 'Enregistrement sortie',
+  'Rapport CFS (vue)', 'Rapport Balise (vue)', 'Rapport PP (vue)', 'Rapport séjour (vue)', 'Rapport flux (vue)',
+  'Export XLSX', 'Export PDF', 'Export historique XLSX', 'Export séjour XLSX',
+  'Export Rapport PP XLSX', 'Export Rapport PP PDF', 'Export Rapport Balise XLSX', 'Export Rapport Balise PDF',
+  'Création utilisateur', 'Modification utilisateur', 'Réinitialisation mot de passe', 'Changement mot de passe',
+  'Activation compte', 'Désactivation compte',
+];
+
 SCREENS.history = () => {
+  const [m, setM] = useState('mois');
+  const [duP, setDuP] = useState(''); const [auP, setAuP] = useState('');
+  const [username, setUsername] = useState(''); const [action, setAction] = useState('');
   const [page, setPage] = useState(1);
-  const { data, loading } = useAsync<{ rows: O[]; pages: number }>(() => call('log.list', { page }), [page]);
-  return <div className="card"><h2>Historique</h2>
+  const reset = () => setPage(1); // tout changement de filtre revient à la page 1
+
+  // Bornes de dates selon la période choisie.
+  const now = new Date();
+  let du = '', au = '';
+  if (m === 'perso') { du = duP; au = auP; }
+  else if (m === 'jour') { du = au = isoDate(now); }
+  else if (m === 'semaine') { const d = (now.getDay() + 6) % 7; const l = new Date(now); l.setDate(now.getDate() - d); const s = new Date(l); s.setDate(l.getDate() + 6); du = isoDate(l); au = isoDate(s); }
+  else if (m === 'mois') { du = isoDate(new Date(now.getFullYear(), now.getMonth(), 1)); au = isoDate(new Date(now.getFullYear(), now.getMonth() + 1, 0)); }
+  else if (m === 'annee') { du = isoDate(new Date(now.getFullYear(), 0, 1)); au = isoDate(new Date(now.getFullYear(), 11, 31)); }
+  // m === 'tout' → du/au vides → aucune contrainte de date.
+
+  const users = useAsync<O[]>(() => call('user.list'), []);
+  const { data, loading } = useAsync<{ rows: O[]; pages: number; total: number }>(
+    () => call('log.list', { page, du, au, username, action }), [page, du, au, username, action]);
+
+  return <div className="card">
+    <div className="row" style={{ alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+      <h2 style={{ flex: 1, margin: 0 }}>Historique</h2>
+      <select value={m} onChange={(e) => { setM(e.target.value); reset(); }} style={{ maxWidth: 190 }}>
+        <option value="tout">Toute la période</option>
+        <option value="jour">Aujourd'hui</option>
+        <option value="semaine">Cette semaine</option>
+        <option value="mois">Ce mois-ci</option>
+        <option value="annee">Cette année</option>
+        <option value="perso">Plage personnalisée…</option>
+      </select>
+      {m === 'perso' && <>
+        <input type="date" value={duP} onChange={(e) => { setDuP(e.target.value); reset(); }} />
+        <span className="help">→</span>
+        <input type="date" value={auP} onChange={(e) => { setAuP(e.target.value); reset(); }} />
+      </>}
+      <select value={username} onChange={(e) => { setUsername(e.target.value); reset(); }} style={{ maxWidth: 190 }}>
+        <option value="">Tous les utilisateurs</option>
+        {(users.data ?? []).map((u) => <option key={String(u['username'])} value={String(u['username'])}>{String(u['nomComplet'] || u['username'])}</option>)}
+      </select>
+      <select value={action} onChange={(e) => { setAction(e.target.value); reset(); }} style={{ maxWidth: 210 }}>
+        <option value="">Tous les événements</option>
+        {EVENEMENTS.map((a) => <option key={a} value={a}>{a}</option>)}
+      </select>
+    </div>
+    <div className="help" style={{ marginTop: 6 }}>
+      {m === 'tout' ? 'Toutes dates' : du && au ? `Du ${du} au ${au}` : 'Choisissez une plage de dates'} · {data?.total ?? 0} entrée(s)
+    </div>
     {loading ? <Spinner /> : <>
-      <Table cols={[['timestamp', 'Horodatage'], ['nomComplet', 'Agent'], ['role', 'Rôle'], ['action', 'Action'], ['cargaisonId', 'Cargaison'], ['details', 'Détails']]} rows={data?.rows ?? []} />
+      <Table cols={[['timestamp', 'Horodatage'], ['nomComplet', 'Agent'], ['role', 'Rôle'], ['action', 'Événement'], ['cargaisonId', 'Cargaison'], ['details', 'Détails']]} rows={data?.rows ?? []} />
       {(data?.pages ?? 1) > 1 && <div className="row" style={{ marginTop: 10, justifyContent: 'center' }}>
         <button className="ghost xs" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>‹</button><span>Page {page} / {data?.pages}</span>
         <button className="ghost xs" disabled={page >= (data?.pages ?? 1)} onClick={() => setPage((p) => p + 1)}>›</button></div>}
