@@ -1,0 +1,20 @@
+{
+  "name": "cargo-migration",
+  "private": true,
+  "version": "4.0.0",
+  "type": "module",
+  "description": "Import ponctuel Google Sheets (export .xlsx) → PostgreSQL (Supabase). LECTURE SEULE du Sheet : ne modifie jamais la source.",
+  "scripts": {
+    "migrer": "tsx importer.ts",
+    "verifier": "tsx importer.ts --verifier-seulement",
+    "comptes": "tsx creer-comptes.ts"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.0",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.0",
+    "typescript": "^5.5.0"
+  }
+}

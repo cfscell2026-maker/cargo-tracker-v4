@@ -1,0 +1,2672 @@
+<script>
+/* ============================================================================
+ *  Client.html : Application monopage (SPA) — PIA Dry Port Cargo Tracker
+ *  Toutes les requêtes serveur passent par call() -> google.script.run.rpc.
+ *  La sécurité réelle est côté serveur ; ici on ne fait que l'ergonomie/UI.
+ * ========================================================================== */
+
+/* ----------------------------- État & constantes ------------------------- */
+var STATE = { token: null, user: null, screen: 'dash' };
+var STATUTS = { CAMION:'Camion créé', CHARGEMENT:'En cours de chargement', VEHICULE_OUILLAGE:'Véhicule ouillage créé', CREEE:'Créée', T1:'T1 saisi', GPS:'GPS Installé', BS:'Bon de sortie émis', SORTIE:'Sortie Enregistrée' };
+// Libellés d'affichage (les valeurs stockées restent inchangées pour la compat).
+var STATUT_LABEL = { 'Camion créé':'Camion créé (à compléter)', 'En cours de chargement':'En cours de chargement', 'Véhicule ouillage créé':'Véhicule ouillage créé (décl. à renseigner)', 'Créée':'Fin de chargement / attente T1', 'T1 saisi':'T1 saisi', 'GPS Installé':'Balisé / Dispensé',
+  'Bon de sortie émis':'Bon de sortie émis', 'Sortie Enregistrée':'Sorti' };
+function statutLabel(s){ return STATUT_LABEL[s]||s||'—'; }
+/* Étapes EN ATTENTE — miroir serveur (modèle PARALLÈLE Balise ∥ Bon de Sortie, v2.7). */
+function aFait(v){ return v!=='' && v!=null; }
+function etatCellules(x){
+  var enCharge=(x.statut===STATUTS.CAMION||x.statut===STATUTS.CHARGEMENT||x.statut===STATUTS.VEHICULE_OUILLAGE);
+  return { cfs:!enCharge,
+    valide:(x.sauteValidation==='Oui')||aFait(x.dateValidation),  // v3.0 : signature chef brigade
+    t1:(x.sauteT1==='Oui')||aFait(x.dateT1),
+    balise:(x.sauteBalise==='Oui')||(x.estVehicule==='Oui')||aFait(x.datePoseGPS),
+    bs:(x.sauteBS==='Oui')||aFait(x.bonSortieNumero),             // v3.6 : ouillage saute le bon de sortie
+    sorti:(x.statut===STATUTS.SORTIE) };
+}
+function etapesEnAttente(x){
+  var e=etatCellules(x);
+  if(e.sorti) return [];
+  if(!e.cfs) return ['CFS'];
+  if(!e.valide) return ['VALIDATION'];   // v3.0 : validation chef brigade avant T1/Balise/Bon de sortie
+  if(!e.t1) return ['T1'];
+  var p=[]; if(!e.balise) p.push('BALISE'); if(!e.bs) p.push('BS'); if(e.balise&&e.bs) p.push('PP');
+  return p;
+}
+function nextStep(x){ var p=etapesEnAttente(x); return p.length?p[0]:null; }
+/* Catégorie de taille (miroir serveur) pour la règle du binôme 20'. */
+function tailleBucket(t){ var s=String(t||'').replace(/['’\s]/g,''); if(s.indexOf('20')===0)return 't20'; if(s.indexOf('40')===0)return 't40'; if(s.indexOf('45')===0)return 't45'; return 'autres'; }
+/* Remplit la datalist #stockTC avec les conteneurs disponibles (En stock / Positionné). */
+function loadStockTC(){
+  var dl=document.getElementById('stockTC'); if(!dl) return;
+  call('stock.list',{statut:'tous'}).then(function(r){
+    var avail=(r.rows||[]).filter(function(x){return x.statut==='En stock'||x.statut==='Positionné';});
+    dl.innerHTML=avail.map(function(x){return '<option value="'+esc(x.numeroTC)+'">'+esc((x.taille||'')+' '+(x.typeConteneur||''))+'</option>';}).join('');
+  }).catch(function(){});
+}
+var LS_KEY = 'ct_token_v1';
+
+/* Menus par rôle : [id, label, icône] */
+var MENUS = {
+  // v3.3 — Cellule CFS : CRÉE le camion à l'entrée + fait toute l'OPÉRATION.
+  CFS: [['dash','Tableau de bord','▦'],['creercamion','Créer un camion','＋'],['completer','Saisir / compléter','✎'],['new','Nouveau (Véhic./Conso/MAD)','＋'],
+        ['list','Cargaisons','▤'],['vehicules','Véhicules','🚗'],['search','Recherche','⌕'],
+        ['etatcfs','État camions (sortie CFS)','◨'],['confentree','Confirmer entrée (annoncé)','✔'],['stockjour','Stock CFS journalier','◧'],['stock','Stock conteneurs','▦'],['pointage','Pointage matinal','◉'],['import','Stock initial (import)','⮉'],['annonce','Stock annoncé','⮈'],['magasin','Entrée Magasin/MAD','▥'],
+        ['cfsreport','Rapport CFS','∑'],['vehreport','Rapport véhicules','∑'],['kpi','KPI / EVP','◫'],['dwell','Camions en instance','⏱'],['stockdwell','Séjour conteneurs','⏱'],['account','Mon compte','◔']],
+  // v3.0 — Chef brigade : VALIDE (signature) après le CFS, avant T1/Balise/BS.
+  CHEF_BRIGADE: [['dash','Tableau de bord','▦'],['wait_valid','À valider','✔'],['list','Cargaisons','▤'],['vehicules','Véhicules','🚗'],['search','Recherche','⌕'],['account','Mon compte','◔']],
+  // Superviseurs : consultation de tout + visibilité « Hors gabarit ».
+  CHEF_BRIGADE_ADJOINT: [['dash','Tableau de bord','▦'],['list','Cargaisons','▤'],['vehicules','Véhicules','🚗'],['search','Recherche','⌕'],['kpi','KPI / EVP','◫'],['account','Mon compte','◔']],
+  CHEF_VISITE: [['dash','Tableau de bord','▦'],['list','Cargaisons','▤'],['vehicules','Véhicules','🚗'],['search','Recherche','⌕'],['kpi','KPI / EVP','◫'],['account','Mon compte','◔']],
+  CHEF_DIVISION: [['dash','Tableau de bord','▦'],['list','Cargaisons','▤'],['vehicules','Véhicules','🚗'],['search','Recherche','⌕'],['kpi','KPI / EVP','◫'],['account','Mon compte','◔']],
+  T1: [['dash','Tableau de bord','▦'],['t1','Cellule T1','①'],
+        ['wait_t1','En attente T1','◷'],['search','Recherche','⌕'],['account','Mon compte','◔']],
+  BALISE: [['dash','Tableau de bord','▦'],['gps','Cellule Balise','⊕'],
+        ['wait_gps','En attente Balise','◷'],['dispenses','Dispenses','⚑'],['search','Recherche','⌕'],['baliserep','Rapport Balise','∑'],['account','Mon compte','◔']],
+  BON_SORTIE: [['dash','Tableau de bord','▦'],['bonsortie','Cellule Bon de Sortie','▣'],
+        ['wait_bs','En attente Bon de Sortie','◷'],['search','Recherche','⌕'],['account','Mon compte','◔']],
+  // v3.3 — PP = Porte Principale : pointe les TC annoncés à l'ENTRÉE et valide la SORTIE (+ état). (Ne crée plus le camion.)
+  PP: [['dash','Tableau de bord','▦'],['pointentree','Pointage entrée (annoncé)','◉'],['annonce','Stock annoncé','⮈'],
+        ['sortie','Sortie (checklist)','⇲'],['wait_sortie','En attente sortie','◷'],['vehicules','Véhicules','🚗'],['search','Recherche','⌕'],['pprep','Rapport PP','∑'],['account','Mon compte','◔']],
+  ADMIN: [['dash','Tableau de bord','▦'],['creercamion','Créer un camion','＋'],['completer','Saisir / compléter','✎'],['wait_valid','À valider','✔'],['new','Nouveau (Véhic./Conso/MAD)','＋'],['list','Cargaisons','▤'],['vehicules','Véhicules','🚗'],['search','Recherche','⌕'],
+        ['stock','Stock conteneurs','▦'],['pointage','Pointage matinal','◉'],['import','Stock initial (import)','⮉'],['importannonce','Annonce de transfert','⮈'],['annonce','Stock annoncé','▦'],['pointentree','Pointage entrée','◉'],['confentree','Confirmer entrée','✔'],['etatcfs','État camions (sortie CFS)','◨'],['magasin','Entrée Magasin/MAD','▥'],
+        ['reports','Rapports','⤓'],['kpi','KPI / EVP','◫'],['cfsreport','Rapport CFS','∑'],['vehreport','Rapport véhicules','∑'],['baliserep','Rapport Balise','∑'],['pprep','Rapport PP','∑'],['dispenses','Dispenses','⚑'],
+        ['flux','Analyse des flux','⇄'],['dwell','Délai & instance','⏱'],['stockdwell','Séjour conteneurs','⏱'],
+        ['history','Historique','◵'],['users','Utilisateurs','◑'],['account','Mon compte','◔']]
+};
+
+/* ----------------------------- Utils RPC --------------------------------- */
+function call(action, data){
+  return new Promise(function(resolve, reject){
+    google.script.run
+      .withSuccessHandler(function(res){
+        if(res && res.ok) resolve(res.data);
+        else { if(res && res.auth){ forceLogout(res.error); } reject(new Error(res ? res.error : 'Erreur inconnue')); }
+      })
+      .withFailureHandler(function(err){ reject(err); })
+      .rpc(action, STATE.token, data || {});
+  });
+}
+function loginRequest(u,p){
+  return new Promise(function(resolve,reject){
+    google.script.run.withSuccessHandler(resolve).withFailureHandler(reject).login(u,p);
+  });
+}
+
+/* ----------------------------- UI helpers -------------------------------- */
+function $(s,r){ return (r||document).querySelector(s); }
+function $all(s,r){ return Array.prototype.slice.call((r||document).querySelectorAll(s)); }
+function esc(v){ return String(v==null?'':v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function busy(on){ $('#busy').classList.toggle('hidden', !on); }
+function toast(msg, type){
+  var t=document.createElement('div'); t.className='toast '+(type||''); t.textContent=msg;
+  $('#toasts').appendChild(t); setTimeout(function(){ t.style.opacity='0'; setTimeout(function(){t.remove();},250); }, 3600);
+}
+function fmtDate(v){
+  if(!v) return '—'; var d=new Date(v); if(isNaN(d.getTime())) return esc(v);
+  var p=function(n){return ('0'+n).slice(-2);};
+  return p(d.getDate())+'/'+p(d.getMonth()+1)+'/'+d.getFullYear()+' '+p(d.getHours())+':'+p(d.getMinutes());
+}
+// v2.8 — au statut « GPS Installé », on affiche « Balisé » OU « Dispensé » (plus « Balisé / Dispensé »)
+// dès qu'on dispose de la ligne (numeroGPS posé = Balisé ; sinon dispense).
+function statutLabelRow(s, x){
+  if(s===STATUTS.GPS && x){
+    if(x.numeroGPS) return 'Balisé';
+    if(x.numeroDispense || x.baliseRequise==='Non') return 'Dispensé';
+    if('numeroGPS' in x) return 'Dispensé';
+  }
+  return statutLabel(s);
+}
+function statutTag(s, x){
+  var c = {'Camion créé':'st-camion','En cours de chargement':'st-charge','Véhicule ouillage créé':'st-charge','Créée':'st-creee','T1 saisi':'st-t1','GPS Installé':'st-gps','Bon de sortie émis':'st-bs','Sortie Enregistrée':'st-sortie'}[s]||'';
+  return '<span class="tag '+c+'">'+esc(statutLabelRow(s, x))+'</span>';
+}
+// v2.8 — T1/Bon de sortie peuvent être liés à un conteneur (enlèvement) : tableaux d'objets {conteneur,numero}.
+function t1Display(arr){ return (arr||[]).map(function(o){ return (o&&typeof o==='object')?(o.numero+(o.conteneur?' → '+o.conteneur:'')):o; }).join(', '); }
+function bsParse(v){ if(v==null||v==='') return []; if(typeof v==='string'){ var t=v.trim(); if(t.charAt(0)==='['){ try{ return JSON.parse(t); }catch(e){} } return [{numero:v}]; } return Array.isArray(v)?v:[v]; }
+function bsDisplay(v){ return bsParse(v).map(function(o){ return (o&&typeof o==='object')?(o.numero+(o.conteneur?' → '+o.conteneur:(o.t1?' (T1 '+o.t1+')':''))):o; }).join(', '); }
+
+/* ----------------------------- Modal ------------------------------------- */
+function modal(title, bodyHtml, footHtml){
+  closeModal();
+  var w=document.createElement('div'); w.id='modalWrap';
+  w.innerHTML='<div class="modal"><div class="mh"><span>'+esc(title)+'</span>'+
+    '<button class="x" onclick="closeModal()">×</button></div>'+
+    '<div class="mb">'+bodyHtml+'</div><div class="mf">'+(footHtml||'')+'</div></div>';
+  w.addEventListener('click',function(e){ if(e.target===w) closeModal(); });
+  document.body.appendChild(w);
+}
+function closeModal(){ var w=$('#modalWrap'); if(w) w.remove(); }
+
+/* ----------------------------- Auth -------------------------------------- */
+function doLogin(){
+  var u=$('#li_user').value.trim(), p=$('#li_pass').value;
+  if(!u||!p){ toast('Identifiant et mot de passe requis','warn'); return; }
+  var btn=$('#li_btn'); btn.disabled=true; btn.textContent='Connexion…';
+  loginRequest(u,p).then(function(res){
+    btn.disabled=false; btn.textContent='Se connecter';
+    if(!res || !res.ok){ toast((res&&res.error)||'Échec de connexion','bad'); return; }
+    STATE.token=res.token; STATE.user=res.user;
+    try{ localStorage.setItem(LS_KEY, res.token+'§'+JSON.stringify(res.user)); }catch(e){}
+    enterApp();
+  }).catch(function(){ btn.disabled=false; btn.textContent='Se connecter'; toast('Erreur réseau','bad'); });
+}
+function forceLogout(msg){
+  try{ localStorage.removeItem(LS_KEY); }catch(e){}
+  STATE.token=null; STATE.user=null;
+  $('#app').classList.add('hidden'); $('#login').classList.remove('hidden');
+  if(msg) toast(msg,'warn');
+}
+function doLogout(){
+  if(STATE.token){ try{ google.script.run.logout(STATE.token); }catch(e){} }
+  forceLogout('Vous êtes déconnecté.');
+}
+
+/* ----------------------------- Boot -------------------------------------- */
+function enterApp(){
+  $('#login').classList.add('hidden'); $('#app').classList.remove('hidden');
+  buildShell(); go('dash');
+}
+function tryRestore(){
+  var raw=null; try{ raw=localStorage.getItem(LS_KEY); }catch(e){}
+  if(!raw){ return false; }
+  var i=raw.indexOf('§'); if(i<0) return false;
+  STATE.token=raw.slice(0,i);
+  try{ STATE.user=JSON.parse(raw.slice(i+1)); }catch(e){ return false; }
+  // Entrée optimiste : le premier appel (stats) déclenche forceLogout() si la
+  // session a expiré (géré dans call()). Évite un aller-retour supplémentaire.
+  enterApp();
+  return true;
+}
+
+/* ----------------------------- Shell / nav ------------------------------- */
+function buildShell(){
+  var menu=MENUS[STATE.user.role]||[];
+  $('#nav').innerHTML = menu.map(function(m){
+    return '<a data-screen="'+m[0]+'" onclick="go(\''+m[0]+'\')"><span class="ic">'+m[2]+'</span>'+esc(m[1])+'</a>';
+  }).join('');
+  $('#who').innerHTML='<b>'+esc(STATE.user.nomComplet)+'</b><span class="role">'+esc(roleLabel(STATE.user.role))+'</span>';
+}
+function roleLabel(r){ return {CFS:'Agent CFS',PORTE_CFS:'Agent CFS',CHEF_BRIGADE:'Chef brigade',CHEF_BRIGADE_ADJOINT:'Chef brigade adjoint',CHEF_VISITE:'Chef visite',CHEF_DIVISION:'Chef division',T1:'Agent T1',BALISE:'Agent Balise',BON_SORTIE:'Agent Bon de Sortie',PP:'Agent Porte Principale',ADMIN:'Administrateur'}[r]||r; }
+// v3.0 — rôles « chefs » habilités à voir le champ confidentiel « Hors gabarit ».
+function estChef(r){ return ['CHEF_BRIGADE','CHEF_BRIGADE_ADJOINT','CHEF_VISITE','CHEF_DIVISION','ADMIN'].indexOf(r)>=0; }
+function setActive(s){ $all('#nav a').forEach(function(a){ a.classList.toggle('active', a.getAttribute('data-screen')===s); }); }
+function toggleSide(){ $('#side').classList.toggle('open'); }
+
+var TITLES={dash:'Tableau de bord',new:'Nouveau rapport',list:'Cargaisons',search:'Recherche',
+  creercamion:'Créer un camion (entrée)',completer:'Saisir / compléter les camions',stockjour:'Stock CFS journalier',
+  wait_valid:'À valider — chef brigade',etatcfs:'État camions — sortie CFS',
+  t1:'Cellule T1',wait_t1:'En attente T1',
+  gps:'Cellule Balise',wait_gps:'En attente Balise',bonsortie:'Cellule Bon de Sortie',wait_bs:'En attente Bon de Sortie',
+  sortie:'Sortie (checklist PP)',wait_sortie:'En attente de sortie',
+  reports:'Rapports',history:'Historique',users:'Utilisateurs',account:'Mon compte',detail:'Détail cargaison',
+  edit:'Modifier la cargaison',cfsreport:'Rapport CFS',vehreport:'Rapport véhicules',baliserep:'Rapport Balise',pprep:'Rapport PP',
+  flux:'Analyse des flux',dwell:'Délai & camions en instance',vehicules:'Véhicules',
+  stock:'Stock conteneurs',pointage:'Pointage matinal',import:'Stock initial — import',magasin:'Entrée Magasin / MAD',
+  importannonce:'Annonce de transfert — import',annonce:'Stock annoncé',pointentree:'Pointage entrée (stock annoncé)',confentree:'Confirmer l\'entrée au stock (annoncé)',
+  kpi:'KPI / EVP',dispenses:'Suivi des dispenses',stockdwell:'Séjour & instances conteneurs'};
+
+function go(screen, arg){
+  STATE.screen=screen; setActive(screen);
+  $('#side').classList.remove('open');
+  $('#pageTitle').textContent=TITLES[screen]||'';
+  var c=$('#content'); c.innerHTML='';
+  (SCREENS[screen]||SCREENS.dash)(c, arg);
+}
+
+/* ============================================================================
+ *  ÉCRANS
+ * ========================================================================== */
+var SCREENS={};
+
+/* ---- Tableau de bord ---- */
+SCREENS.dash=function(c){
+  c.innerHTML='<div class="card"><div class="row" style="align-items:center">'+
+      '<h2 style="flex:1;margin:0">Tableau de bord</h2>'+
+      '<label class="help" style="margin-right:6px">Période</label>'+
+      '<select id="db_periode" style="max-width:170px"><option value="jour">Journalier</option><option value="semaine" selected>Hebdomadaire</option><option value="mois">Mensuel</option><option value="annee">Annuel</option></select>'+
+    '</div><div id="db_range" class="help" style="margin-top:6px"></div></div>'+
+    '<div class="stats" id="stwrap"><div class="empty"><div class="spin" style="margin:auto"></div></div></div>'+
+    '<div class="card"><h2>Bienvenue, '+esc(STATE.user.nomComplet)+'</h2>'+
+    '<p style="color:var(--muted)">Profil : <b>'+esc(roleLabel(STATE.user.role))+'</b>. Cliquez sur une carte pour voir la liste correspondante.</p></div>';
+  function periodeRange(m){ var now=new Date();
+    if(m==='jour') return [now, now];
+    if(m==='mois') return monthRange();
+    if(m==='annee') return [new Date(now.getFullYear(),0,1), new Date(now.getFullYear(),11,31)];
+    return weekRange();
+  }
+  function load(){
+    var r=periodeRange($('#db_periode').value); var du=isoDate(r[0]), au=isoDate(r[1]);
+    $('#db_range').textContent='Cargaisons créées du '+du+' au '+au;
+    $('#stwrap').innerHTML='<div class="empty"><div class="spin" style="margin:auto"></div></div>';
+    call('dashboard.stats',{du:du, au:au}).then(function(s){
+      $('#stwrap').innerHTML=
+        stat(s.total,'Total camions','','tous',null)+
+        stat(s.camion||0,'Camions créés (à compléter)','amber',STATUTS.CAMION,null)+
+        stat(s.chargement||0,'En cours / décl. à compléter','amber',STATUTS.CHARGEMENT,null)+
+        stat(s.attValidation||0,'Attente validation','amber',null,'wait_valid')+
+        stat(s.attT1||0,'Attente T1','amber',null,'wait_t1')+
+        stat(s.attBalise||0,'Attente Balise','amber',null,'wait_gps')+
+        stat(s.attBs||0,'Attente Bon de sortie','amber',null,'wait_bs')+
+        stat(s.attPP||0,'Attente sortie (PP)','',null,'wait_sortie')+
+        stat(s.sortie,'Sortis (terminés)','green',STATUTS.SORTIE,null)+
+        stat(s.aujourdHui,"Enregistrés aujourd'hui",'','tous',null)+
+        '<div class="stat green clickable" onclick="go(\'vehicules\')" title="Voir les véhicules en attente de sortie">'+
+          '<div class="n">'+(s.vehiculesAttente||0)+'</div><div class="l">Véhicules en attente de sortie</div></div>';
+    }).catch(err);
+  }
+  // Carte cliquable -> liste par statut, ou file d'attente d'une cellule (écran wait_*)
+  function stat(n,l,cl,filtre,screen){
+    var oc = screen ? ("go('"+screen+"')") : ("go('list','"+filtre+"')");
+    return '<div class="stat '+cl+' clickable" onclick="'+oc+'" title="Voir la liste">'+
+      '<div class="n">'+n+'</div><div class="l">'+l+'</div></div>';
+  }
+  $('#db_periode').addEventListener('change',load); load();
+};
+
+/* ============================================================================
+ *  Formulaire RAPPORT (1 rapport = plusieurs camions) — création & édition
+ * ========================================================================== */
+var TAILLES_CONTENEUR = ['', "20'", "40'", "45'"];
+var TYPES_CONTENEUR   = ['', 'DRY', 'OPEN TOP', 'FLAT RACK'];
+var TYPES_DECL        = ['T','C','S','A','E'];
+var ROUTAGES          = ['Enlèvement','Dépotage']; // v3.3 : le CFS choisit le type d'opération à la création
+var ETATS_SORTIE      = ['En cours de chargement','Fin de chargement','Vide'];      // v2.9 : état du camion à la sortie
+/* Bureaux de destination proposés (autocomplétion T1 — adaptez à votre nomenclature). */
+var BUREAUX = ['TG120','TG121','TG122','TG130','TG140','TG150','TG160','TG200','BF110','NE100','ML100'];
+var CONTENEURS_MAX = 50;   // garde-fou (le nombre de conteneurs est libre)
+var CAMSEQ = 0;
+var OP_VEH = 'Dépotage / Véhicule';
+var OP_CONSO = 'Conso (type C)';
+var OP_MAG = 'Sortie Magasin / MAD';
+var VEH_DESTINATIONS = ['', 'Transit', 'Conso', 'MAD', 'Véhicule abandonné'];
+/* Type d'opération à utiliser pour les CAMIONS du formulaire : en mode
+   « Dépotage / Véhicule » les camions (effets divers) suivent les règles du Dépotage. */
+function camType(){ var t=$('#f_type')?$('#f_type').value:''; if(t===OP_VEH) return 'Dépotage'; if(t===OP_CONSO) return 'Enlèvement'; return t; }
+
+/* arg pour mode édition : un objet cargaison (depuis cargo.get) */
+SCREENS.new  = function(c){ rapportForm(c, 'new', null); };
+SCREENS.edit = function(c, x){
+  if(typeof x==='string'){ // appelé via go('edit', id) -> on recharge
+    c.innerHTML='<div class="card"><div class="empty"><div class="spin" style="margin:auto"></div></div></div>';
+    call('cargo.get',{id:x}).then(function(o){ rapportForm(c,'edit',o); }).catch(function(e){ err(e); });
+  } else { rapportForm(c, 'edit', x); }
+};
+
+function rapportForm(c, mode, data){
+  var edit = (mode==='edit');
+  var type = edit ? data.typeOperation : '';
+  var annee = new Date().getFullYear();
+  var d = (edit && data) ? data : {};
+  c.innerHTML=
+  '<form id="frm" onsubmit="return false">'+
+    '<div class="card"><h2>① Type d\'opération</h2>'+
+      (edit?'<p class="help">Édition de <b>'+esc(data.id)+'</b>'+(data.rapportId?' · rapport '+esc(data.rapportId):'')+'</p>':'')+
+      '<div class="row">'+
+        field("Type d'opération *",'<select id="f_type" '+(edit?'disabled':'')+'>'+
+          '<option value="">— Choisir —</option>'+
+          (edit&&type==='Enlèvement'?'<option selected>Enlèvement</option>':'')+
+          (edit&&type==='Dépotage'?'<option selected>Dépotage</option>':'')+
+          '<option '+(type==='Dépotage / Véhicule'?'selected':'')+'>Dépotage / Véhicule</option>'+
+          '<option '+(type==='Conso (type C)'?'selected':'')+'>Conso (type C)</option>'+
+          '<option '+(type==='Sortie Magasin / MAD'?'selected':'')+'>Sortie Magasin / MAD</option></select>')+
+      '</div>'+
+    '</div>'+
+    '<div id="blkDecl" class="card hidden"><h2>② Déclaration (Informations générales sur la déclaration)</h2>'+
+      '<p class="help">Tous les champs sont obligatoires.</p>'+
+      '<div class="row">'+
+        field('Déclarant *','<input type="text" class="up" id="d_decl" value="'+esc(d.declarant||'')+'">')+
+        field('Contact déclarant (téléphone) *','<input type="text" class="tel" id="d_contact" inputmode="tel" placeholder="Ex : +228 90 00 00 00" value="'+esc(d.contactDeclarant||'')+'">')+'</div>'+
+      '<div class="row">'+
+        field('Destination marchandise *','<input type="text" class="up" id="d_dest" value="'+esc(d.destinationMarchandise||'')+'">')+
+        field('Bureau de déclaration *','<input type="text" class="up" id="d_bureau" value="'+esc(d.bureauDeclaration||'TG120')+'">')+'</div>'+
+      '<div class="row">'+
+        field('Type de déclaration *','<select class="up" id="d_typed">'+TYPES_DECL.map(function(t){
+            var sel=(edit?(d.typeDeclaration===t):(t==='T'))?'selected':''; return '<option '+sel+'>'+esc(t)+'</option>';}).join('')+'</select>')+
+        field('N° de déclaration *','<input type="text" class="up" id="d_numd" value="'+esc(d.numeroDeclaration||'')+'">')+
+        field('Année *','<input type="number" id="d_annee" min="2000" max="2100" value="'+esc(d.anneeDeclaration||annee)+'">')+'</div>'+
+      '<div class="row">'+
+        field('Nombre de conteneurs déclarés *','<input type="number" id="d_nbcont" min="1" max="999" value="'+esc(d.nombreConteneurs||'')+'" placeholder="Saisi au 1er enregistrement">','Sert au suivi d\'apurement de la déclaration.')+
+        '<div class="field col"><label>Apurement</label><div id="d_apure" class="help" style="padding-top:8px">—</div></div>'+'</div>'+
+      '<div id="d_descwrap">'+field('Description de la marchandise (max 600) *','<textarea class="up" id="d_desc" maxlength="600">'+esc(d.descriptionMarchandise||'')+'</textarea>')+'</div>'+
+    '</div>'+
+    '<div id="blkConso" class="card hidden"><h2>Flux Conso / Magasin</h2>'+
+      '<div class="field"><label>Régime de balise *</label><div>'+
+        '<label class="radio"><input type="radio" name="conso_mode" value="balise" checked> À baliser (saute le T1)</label>'+
+        '<label class="radio"><input type="radio" name="conso_mode" value="sansbalise"> Non balisée / dispense (saute Balise + T1)</label>'+
+      '</div></div></div>'+
+    '<div id="blkMag" class="card hidden"><h2>Sortie Magasin / MAD (vrac, sans conteneur)</h2>'+
+      field('N° Camion *','<input type="text" class="up alnum" id="mag_num" maxlength="20" placeholder="Ex : AB1234CD">','Marchandise en vrac : aucun conteneur n\'est lié.')+'</div>'+
+    '<div id="blkVeh" class="card hidden">'+
+      '<h2>③ Véhicules</h2>'+
+      '<p class="help">Les véhicules sautent la balise et ne sont pas comptés comme des camions.</p>'+
+      // v3.6 — régime du dépotage véhicule : Déclaration (flux normal) OU Ouillage (permis d'examiner : on dépote AVANT la déclaration).
+      '<div class="field"><label>Régime *</label><div>'+
+        '<label class="radio"><input type="radio" name="veh_regime" value="declaration" checked> Déclaration (flux normal)</label>'+
+        '<label class="radio"><input type="radio" name="veh_regime" value="ouillage"> Ouillage (permis d\'examiner — déclaration renseignée après)</label>'+
+      '</div></div>'+
+      '<div id="blkOuillage" class="hidden"><div class="row">'+
+        field('N° de l\'ouillage (permis d\'examiner) *','<input type="text" class="up" id="o_num" maxlength="60">')+
+        field('Date de l\'ouillage *','<input type="date" id="o_date">')+
+      '</div><p class="help">Les véhicules seront créés au statut « Véhicule ouillage créé » ; la déclaration sera renseignée ensuite, <b>véhicule par véhicule</b>.</p></div>'+
+      field("N° conteneur d'origine (TC) — facultatif",'<input type="text" class="tc" id="d_ctorigine" maxlength="11" placeholder="MSKU1234567" value="'+esc(d.conteneurOrigine||'')+'">','Le conteneur dépoté d\'où sortent les véhicules.')+
+      '<div class="row" style="align-items:center"><div style="flex:1"></div><button class="btn sm" type="button" id="addVeh">＋ Ajouter un véhicule</button></div>'+
+      '<div id="vehicules"></div></div>'+
+    '<div class="card"><div class="row" style="align-items:center"><h2 style="flex:1;margin:0" id="camTitle">③ Camions</h2>'+
+      (edit?'':'<button class="btn sm" type="button" id="addCam">＋ Ajouter un camion</button>')+'</div>'+
+      // v3.6 — la désignation de la marchandise (véhicule) est portée ici, au niveau des effets divers.
+      '<div id="effetsdesc" class="hidden">'+field('Désignation de la marchandise (effets divers)','<textarea class="up" id="veh_desc" maxlength="600">'+esc(d.descriptionMarchandise||'')+'</textarea>','Décrit les effets divers contenus dans le conteneur du véhicule.')+'</div>'+
+      '<div id="camions"></div></div>'+
+    '<div class="card"><h2>④ Observations</h2>'+
+      '<label id="lblCharge" style="display:flex;gap:10px;align-items:center;margin-bottom:12px"><input type="checkbox" id="f_charge" checked style="width:auto"> <span>Chargement terminé (scellés posés) — sinon « En cours de chargement »</span></label>'+
+      field('Observations','<textarea class="up" id="f_obs" maxlength="1000">'+esc(d.observationsCFS||'')+'</textarea>')+
+      '<button class="btn" id="saveBtn">✔ '+(edit?'Enregistrer les modifications':'Enregistrer le rapport')+'</button> '+
+      (edit?'<button class="btn sec" type="button" onclick="go(\'detail\',\''+esc(data.id)+'\')">Annuler</button>'
+           :'<button class="btn sec" type="button" id="addCam2">＋ Ajouter un camion</button>')+
+    '</div>'+
+  '</form>';
+
+  function vehRegime(){ var r=document.querySelector('input[name=veh_regime]:checked'); return r?r.value:'declaration'; }
+  function refreshType(){
+    type=$('#f_type').value;
+    var isVeh=(type===OP_VEH), isConso=(type===OP_CONSO), isMag=(type===OP_MAG);
+    var isOuil=isVeh && vehRegime()==='ouillage';            // v3.6 : ouillage = pas de déclaration à la création
+    $('#blkDecl').classList.toggle('hidden', !type || isOuil);
+    if($('#blkVeh')) $('#blkVeh').classList.toggle('hidden', !isVeh);
+    if($('#blkOuillage')) $('#blkOuillage').classList.toggle('hidden', !isOuil);
+    if($('#blkConso')) $('#blkConso').classList.toggle('hidden', !(isConso||isMag));
+    if($('#blkMag')) $('#blkMag').classList.toggle('hidden', !isMag);
+    var camCard=$('#camions')?$('#camions').closest('.card'):null;
+    if(camCard) camCard.classList.toggle('hidden', isMag || isOuil);   // Magasin = vrac ; ouillage = pas d'effets divers
+    if($('#camTitle')) $('#camTitle').textContent = isVeh ? '④ Camions (effets divers — facultatif)' : '③ Camions';
+    // v3.6 — Véhicule : la désignation marchandise passe dans les effets divers (pas dans la déclaration).
+    if($('#d_descwrap')) $('#d_descwrap').classList.toggle('hidden', isVeh);
+    if($('#effetsdesc')) $('#effetsdesc').classList.toggle('hidden', !isVeh || isOuil);
+    var ct=camType();
+    if(!isMag) $all('.camion-card').forEach(function(card){ rebuildCamionBody(card, ct); });
+    if($('#addCam'))  $('#addCam').disabled = !type || isMag;
+    if($('#addCam2')) $('#addCam2').disabled = !type || isMag;
+    if(isVeh && $('#vehicules') && !$('#vehicules').children.length) addVehicule();
+  }
+  $('#f_type').addEventListener('change', refreshType);
+  $all('input[name=veh_regime]').forEach(function(rb){ rb.addEventListener('change', refreshType); }); // v3.6 : bascule ouillage
+  ['#d_annee','#d_bureau','#d_typed','#d_numd'].forEach(function(sel){
+    var el=$(sel); if(el){ el.addEventListener('change',lookupDecl); el.addEventListener('blur',lookupDecl); }
+  });
+  if($('#addCam'))  $('#addCam').addEventListener('click', function(){ addCamion(camType()); });
+  if($('#addCam2')) $('#addCam2').addEventListener('click', function(){ addCamion(camType()); });
+  if($('#addVeh'))  $('#addVeh').addEventListener('click', function(){ addVehicule(); });
+  $('#saveBtn').addEventListener('click', edit?function(){submitEdit(data.id);}:submitNew);
+
+  if(edit){
+    refreshType();
+    addCamion(type, camionFromCargo(data), true);   // un seul camion, non supprimable
+  } else {
+    refreshType();
+  }
+}
+
+/* Reconstruit la liste des conteneurs d'un camion quand le type change (création) */
+function rebuildCamionBody(card, type){
+  if(!type) return;
+  var body=$('.cam-body', card);
+  var data = readCamion(card);                 // sauvegarde des valeurs actuelles
+  body.setAttribute('data-type', type);
+  body.innerHTML = camionBodyHtml(type, data.scellesCamion);
+  var conts = (data.conteneurs&&data.conteneurs.length)?data.conteneurs:[{}];
+  conts.forEach(function(ct){ addConteneur(card, ct); });
+  bindCamion(card);
+}
+
+function addCamion(type, data, locked){
+  if(!type){ toast("Choisissez d'abord le type d'opération",'warn'); return; }
+  var uid = ++CAMSEQ;
+  var wrap=document.createElement('div');
+  wrap.className='camion-card'; wrap.setAttribute('data-uid',uid);
+  wrap.innerHTML=
+    '<div class="row" style="align-items:center;margin-bottom:6px">'+
+      '<b class="cam-title" style="flex:1;color:var(--blue)">Camion</b>'+
+      (locked?'':'<button class="btn danger sm rmcam" type="button">✕ Retirer</button>')+'</div>'+
+    field('N° Camion *','<input type="text" class="cam-num up alnum" maxlength="20" placeholder="Ex : AB1234CD" value="'+esc(data&&data.numeroCamion||'')+'">','Caractères spéciaux retirés automatiquement')+
+   '<div class="cam-body" data-type="'+esc(type)+'">'+camionBodyHtml(type, data&&data.scellesCamion)+'</div>';
+  $('#camions').appendChild(wrap);
+  // Détection de doublon (avertissement) dès qu'on quitte le champ N° camion.
+  $('.cam-num',wrap).addEventListener('blur',function(){ checkDupCamion(this); });
+
+  var conts = (data&&data.conteneurs&&data.conteneurs.length)?data.conteneurs:[{}];
+  conts.forEach(function(ct){ addConteneur(wrap, ct); });
+  bindCamion(wrap);
+  renumberCamions();
+}
+
+/* Corps d'un camion.
+   - Dépotage : bloc « Scellés du camion » (3 champs, 2 obligatoires) AVANT les conteneurs ;
+     les conteneurs n'ont pas de champ scellé.
+   - Enlèvement : chaque conteneur porte son propre scellé (comportement d'origine). */
+function camionBodyHtml(type, scelles){
+  scelles = scelles || [];
+  var bloc = '';
+  if(type==='Dépotage'){
+    bloc =
+      '<div class="scelles-camion">'+
+        '<div class="section-title">Scellés du camion (2 obligatoires, 3ᵉ facultatif)</div>'+
+        '<div class="row">'+
+          field('Scellé 1 *','<input type="text" class="up sc-cam" maxlength="30" value="'+esc(scelles[0]||'')+'">')+
+          field('Scellé 2 *','<input type="text" class="up sc-cam" maxlength="30" value="'+esc(scelles[1]||'')+'">')+
+          field('Scellé 3','<input type="text" class="up sc-cam" maxlength="30" value="'+esc(scelles[2]||'')+'">')+
+        '</div>'+
+      '</div>';
+  }
+  return bloc+
+    '<div class="conteneurs"></div>'+
+    '<button class="btn sec sm addcont" type="button">＋ Ajouter un conteneur</button>';
+}
+
+/* Options de <select> avec un placeholder « — Choisir — » pour la valeur vide. */
+function selOptsPh(arr, val){
+  return arr.map(function(t){
+    if(t==='') return '<option value="">— Choisir —</option>';
+    return '<option '+(val===t?'selected':'')+'>'+esc(t)+'</option>';
+  }).join('');
+}
+
+/* ----- Validation « champ obligatoire » avec focus + signal visuel ----- */
+function clearInvalidAll(){ $all('.invalid').forEach(function(e){ e.classList.remove('invalid'); }); }
+function signalInvalid(el, msg){
+  if(!el){ toast(msg,'warn'); return; }
+  el.classList.add('invalid');
+  try{ el.scrollIntoView({behavior:'smooth', block:'center'}); }catch(e){}
+  try{ el.focus({preventScroll:true}); }catch(e){ try{ el.focus(); }catch(_){} }
+  toast(msg,'warn');
+}
+/* renvoie true si rempli ; sinon signale et renvoie false */
+function need(el, label){
+  if(el && String(el.value).trim()!==''){ return true; }
+  signalInvalid(el, '« '+label+' » est obligatoire — veuillez le renseigner.');
+  return false;
+}
+/* Valide tout le formulaire rapport ; s'arrête au 1er champ manquant. */
+function validateRapport(){
+  clearInvalidAll();
+  // ② Déclaration (si le bloc est affiché) — tous les champs obligatoires.
+  if($('#blkDecl') && !$('#blkDecl').classList.contains('hidden')){
+    var decl=[['#d_decl','Déclarant'],['#d_contact','Contact déclarant'],['#d_dest','Destination marchandise'],
+      ['#d_bureau','Bureau de déclaration'],['#d_typed','Type de déclaration'],['#d_numd','N° de déclaration'],
+      ['#d_annee','Année']];
+    // v3.6 — la désignation n'est requise dans la déclaration que hors véhicule.
+    if(!($('#f_type') && $('#f_type').value===OP_VEH)) decl.push(['#d_desc','Description de la marchandise']);
+    for(var i=0;i<decl.length;i++){ if(!need($(decl[i][0]), decl[i][1])) return false; }
+    var telEl=$('#d_contact');
+    if(telEl && telEl.value.replace(/\D/g,'').length<6){
+      signalInvalid(telEl,'Contact déclarant : numéro de téléphone invalide (au moins 6 chiffres).'); return false;
+    }
+  }
+  // Mode Dépotage / Véhicule : conteneur d'origine (si rempli) + au moins un véhicule.
+  if($('#f_type') && $('#f_type').value===OP_VEH){
+    var co=$('#d_ctorigine');
+    if(co && co.value.trim()){
+      var cov=co.value.toUpperCase().replace(/[^A-Z0-9]/g,'');
+      if(!/^[A-Z]{4}[0-9]{7}$/.test(cov)){ signalInvalid(co,"N° conteneur d'origine = 4 lettres + 7 chiffres (ex. MSKU1234567)."); return false; }
+    }
+    var vcards=$all('.vehicule-card');
+    if(!vcards.length){ toast('Ajoutez au moins un véhicule','warn'); return false; }
+    for(var vi=0;vi<vcards.length;vi++){
+      if(!need($('.veh-chassis',vcards[vi]), 'Véhicule '+(vi+1)+' : N° de châssis (VIN)')) return false;
+      if(!need($('.veh-dest',vcards[vi]), 'Véhicule '+(vi+1)+' : Destination')) return false;
+    }
+  }
+  // ③ Camions (en mode véhicule : optionnels). Scellés requis seulement si « chargement terminé ».
+  // v3.6 — ouillage : pas de camions d'effets divers à valider (la carte est masquée et ils ne sont pas envoyés).
+  var regOuil=document.querySelector('input[name=veh_regime]:checked');
+  if($('#f_type') && $('#f_type').value===OP_VEH && regOuil && regOuil.value==='ouillage') return true;
+  var chargeTermine=(!$('#f_charge')||$('#f_charge').checked);
+  var cards=$all('.camion-card');
+  for(var k=0;k<cards.length;k++){
+    var card=cards[k], n=k+1;
+    if(!need($('.cam-num',card), 'Camion '+n+' : N° Camion')) return false;
+    var body=$('.cam-body',card);
+    if(chargeTermine && body && body.getAttribute('data-type')==='Dépotage'){
+      var sc=$all('.sc-cam',card);
+      if(!need(sc[0], 'Camion '+n+' : Scellé 1')) return false;
+      if(!need(sc[1], 'Camion '+n+' : Scellé 2')) return false;
+    }
+    var rows=$all('.cont-row',card);
+    if(!rows.length){ toast('Camion '+n+' : ajoutez au moins un conteneur','warn'); return false; }
+    for(var j=0;j<rows.length;j++){
+      var cn=j+1;
+      if(!need($('.cont-num',rows[j]),   'Camion '+n+' · Conteneur '+cn+' : N° de conteneur')) return false;
+      var cnEl=$('.cont-num',rows[j]), cnVal=cnEl?cnEl.value.toUpperCase().replace(/[^A-Z0-9]/g,''):'';
+      if(!/^[A-Z]{4}[0-9]{7}$/.test(cnVal)){
+        signalInvalid(cnEl,'Camion '+n+' · Conteneur '+cn+' : N° conteneur = 4 lettres + 7 chiffres (ex. MSKU1234567).'); return false;
+      }
+      if(!need($('.cx-taille',rows[j]),  'Camion '+n+' · Conteneur '+cn+' : Taille')) return false;
+      if(!need($('.cx-type',rows[j]),    'Camion '+n+' · Conteneur '+cn+' : Type')) return false;
+      var pl=$('.cont-plomb',rows[j]);   // scellé par conteneur (enlèvement uniquement)
+      if(chargeTermine && pl && !need(pl, 'Camion '+n+' · Conteneur '+cn+' : Scellé / Plomb')) return false;
+    }
+  }
+  return true;
+}
+
+function addConteneur(card, data){
+  var list=$('.conteneurs', card);
+  if(list.children.length>=CONTENEURS_MAX){ toast(CONTENEURS_MAX+' conteneurs maximum','warn'); return; }
+  data=data||{};
+  var body=$('.cam-body', card);
+  var estDep=(body&&body.getAttribute('data-type')==='Dépotage');
+  var row=document.createElement('div');
+  row.className='cont-row';
+  row.innerHTML=
+    '<div class="row" style="align-items:flex-end">'+
+      field('Conteneur *','<input type="text" class="tc cont-num" maxlength="11" placeholder="MSKU1234567" value="'+esc(data.num||'')+'">')+
+      (estDep?'':field('Scellé / Plomb *','<input type="text" class="up cont-plomb" value="'+esc(data.plomb||'')+'">'))+
+      field('Taille *','<select class="cx-taille">'+selOptsPh(TAILLES_CONTENEUR,data.taille)+'</select>')+
+      field('Type *','<select class="cx-type">'+selOptsPh(TYPES_CONTENEUR,data.type)+'</select>')+
+      '<div class="field" style="flex:0"><button class="btn ghost sm togx" type="button">⊕ Poids/Champs</button></div>'+
+      '<div class="field" style="flex:0"><button class="btn danger sm rmcont" type="button">✕</button></div>'+
+    '</div>'+
+    '<div class="cont-extra hidden">'+
+      '<div class="row">'+
+        field('Poids','<input type="text" class="up cx-poids" value="'+esc(data.poids||'')+'">')+'</div>'+
+      '<div class="section-title">Champs libres</div>'+
+      '<div class="libres"></div>'+
+      '<button class="btn sec sm addlibre" type="button">＋ Champ libre</button>'+
+    '</div>';
+  list.appendChild(row);
+
+  $('.cont-num',row).addEventListener('blur',function(){ checkDupConteneur(this); });
+  $('.rmcont',row).addEventListener('click',function(){ if(list.children.length<=1){toast('Au moins un conteneur','warn');return;} row.remove(); renumberConteneurs(card); });
+  $('.togx',row).addEventListener('click',function(){ $('.cont-extra',row).classList.toggle('hidden'); });
+  $('.addlibre',row).addEventListener('click',function(){ addLibre($('.libres',row)); });
+  (data.extra||[]).forEach(function(x){ addLibre($('.libres',row), x); });
+  if(data.poids||(data.extra&&data.extra.length)) $('.cont-extra',row).classList.remove('hidden');
+  renumberConteneurs(card);
+}
+function renumberConteneurs(card){
+  $all('.cont-row',card).forEach(function(row,i){
+    var lbl=row.querySelector('label'); if(lbl) lbl.textContent='Conteneur '+(i+1)+' *';
+  });
+}
+
+function addLibre(container, data){
+  data=data||{};
+  var r=document.createElement('div'); r.className='row libre-row';
+  r.innerHTML=field('Nom','<input type="text" class="up lb-nom" value="'+esc(data.nom||'')+'">')+
+    field('Valeur','<input type="text" class="up lb-val" value="'+esc(data.valeur||'')+'">')+
+    '<div class="field" style="flex:0"><button class="btn danger sm" type="button">✕</button></div>';
+  container.appendChild(r);
+  $('button',r).addEventListener('click',function(){ r.remove(); });
+}
+
+function bindCamion(card){
+  $('.addcont', card).onclick=function(){ addConteneur(card); };
+  var rm=$('.rmcam', card);
+  if(rm) rm.onclick=function(){ card.remove(); renumberCamions(); };
+}
+function renumberCamions(){
+  $all('.camion-card').forEach(function(card,i){ $('.cam-title',card).textContent='Camion '+(i+1); });
+}
+
+/* ----- Véhicules (dépotage véhicule) : châssis + marque + modèle + couleur ----- */
+function addVehicule(data){
+  data=data||{};
+  var wrap=document.createElement('div');
+  wrap.className='vehicule-card';
+  wrap.innerHTML=
+    '<div class="row" style="align-items:center;margin-bottom:6px">'+
+      '<b class="veh-title" style="flex:1;color:var(--ok)">Véhicule</b>'+
+      '<button class="btn danger sm rmveh" type="button">✕ Retirer</button></div>'+
+    '<div class="row">'+
+      field('N° châssis (VIN) *','<input type="text" class="up alnum veh-chassis" maxlength="30" placeholder="Ex : JTEBU11F..." value="'+esc(data.chassis||'')+'">')+
+      field('Marque','<input type="text" class="up veh-marque" maxlength="40" placeholder="Ex : TOYOTA" value="'+esc(data.marque||'')+'">')+
+      field('Modèle','<input type="text" class="up veh-modele" maxlength="40" placeholder="Ex : HILUX" value="'+esc(data.modele||'')+'">')+
+      field('Couleur','<input type="text" class="up veh-couleur" maxlength="30" placeholder="Ex : GRIS" value="'+esc(data.couleur||'')+'">')+
+    '</div>'+
+    '<div class="row">'+
+      field('Destination *','<select class="veh-dest">'+selOptsPh(VEH_DESTINATIONS,data.destination)+'</select>','Régime de sortie du véhicule.')+
+    '</div>'+
+    '<div class="section-title">Champs libres</div><div class="veh-libres"></div>'+
+    '<button class="btn sec sm addvlibre" type="button">＋ Champ libre</button>';
+  $('#vehicules').appendChild(wrap);
+  $('.rmveh',wrap).addEventListener('click',function(){ wrap.remove(); renumberVehicules(); });
+  $('.addvlibre',wrap).addEventListener('click',function(){ addLibre($('.veh-libres',wrap)); });
+  // Doublon de châssis (le VIN est stocké comme identifiant, comme un N° camion).
+  $('.veh-chassis',wrap).addEventListener('blur',function(){ checkDupCamion(this); });
+  (data.extra||[]).forEach(function(x){ addLibre($('.veh-libres',wrap), x); });
+  renumberVehicules();
+}
+function renumberVehicules(){
+  $all('.vehicule-card').forEach(function(card,i){ $('.veh-title',card).textContent='Véhicule '+(i+1); });
+}
+function readVehicule(card){
+  return {
+    chassis:$('.veh-chassis',card).value, marque:$('.veh-marque',card).value,
+    modele:$('.veh-modele',card).value, couleur:$('.veh-couleur',card).value,
+    destination:$('.veh-dest',card)?$('.veh-dest',card).value:'',
+    extra:$all('.libre-row',card).map(function(l){ return {nom:$('.lb-nom',l).value, valeur:$('.lb-val',l).value}; })
+  };
+}
+
+/* Lecture d'un camion depuis le DOM -> objet payload */
+function readCamion(card){
+  var o={ numeroCamion: $('.cam-num',card)?$('.cam-num',card).value:'' };
+  // Scellés du camion (dépotage uniquement) : on lit les champs présents, vides inclus,
+  // pour pouvoir les restaurer si l'utilisateur change de type puis revient.
+  o.scellesCamion=$all('.sc-cam',card).map(function(inp){ return inp.value; });
+  o.conteneurs=$all('.cont-row',card).map(function(row){
+    return {
+      num:    $('.cont-num',row).value,
+      plomb:  $('.cont-plomb',row)?$('.cont-plomb',row).value:'',
+      taille: $('.cx-taille',row)?$('.cx-taille',row).value:'',
+      type:   $('.cx-type',row)?$('.cx-type',row).value:'',
+      poids:  $('.cx-poids',row)?$('.cx-poids',row).value:'',
+      extra:  $all('.libre-row',row).map(function(l){ return {nom:$('.lb-nom',l).value, valeur:$('.lb-val',l).value}; })
+    };
+  });
+  return o;
+}
+/* Lit conteneursDetails en gérant l'ancien format (tableau simple)
+   ET le nouveau ({conteneurs:[...], scellesCamion:[...]}).
+   Retourne toujours {conteneurs:[...], scellesCamion:[...]}. */
+function parseDetails(json){
+  var d; try{ d=JSON.parse(json||'[]'); }catch(e){ d=[]; }
+  if(Array.isArray(d)) return { conteneurs:d, scellesCamion:[] };          // ancien format
+  return { conteneurs:(d&&d.conteneurs)||[], scellesCamion:(d&&d.scellesCamion)||[] };
+}
+
+/* Cargaison (cargo.get) -> structure camion pour pré-remplir le formulaire d'édition */
+function camionFromCargo(x){
+  var d=parseDetails(x.conteneursDetails);
+  var conts=d.conteneurs;
+  var scelles=d.scellesCamion;
+  if(!conts.length){
+    // Repli sur l'aperçu (anciennes cargaisons ou détail absent).
+    if(x.typeOperation==='Dépotage'){
+      // En dépotage, plomb1/2/3 = scellés du camion ; on récupère juste les n° conteneurs.
+      [x.conteneur1,x.conteneur2,x.conteneur3,x.conteneur4].forEach(function(n){ if(n) conts.push({num:n}); });
+      if(!scelles.length) scelles=[x.plomb1,x.plomb2,x.plomb3].filter(function(s){return s;});
+    } else {
+      [[x.conteneur1,x.plomb1],[x.conteneur2,x.plomb2],[x.conteneur3,x.plomb3],[x.conteneur4,x.plomb4]].forEach(function(p){
+        if(p[0]) conts.push({num:p[0], plomb:p[1]||''});
+      });
+    }
+  }
+  return { numeroCamion:x.numeroCamion, conteneurs:conts, scellesCamion:scelles };
+}
+
+/* Assemble le payload commun (déclaration + observations) */
+function readDeclaration(){
+  return {
+    declarant:$('#d_decl')?$('#d_decl').value:'',
+    contactDeclarant:$('#d_contact')?$('#d_contact').value:'',
+    destinationMarchandise:$('#d_dest')?$('#d_dest').value:'',
+    bureauDeclaration:$('#d_bureau')?$('#d_bureau').value:'',
+    typeDeclaration:$('#d_typed')?$('#d_typed').value:'',
+    numeroDeclaration:$('#d_numd')?$('#d_numd').value:'',
+    anneeDeclaration:$('#d_annee')?$('#d_annee').value:'',
+    // v3.6 — en véhicule, la désignation vient des effets divers (#veh_desc) ; sinon de la déclaration (#d_desc).
+    descriptionMarchandise:(($('#f_type')&&$('#f_type').value===OP_VEH)?($('#veh_desc')?$('#veh_desc').value:''):($('#d_desc')?$('#d_desc').value:'')),
+    nombreConteneurs:($('#d_nbcont')&&$('#d_nbcont').value)?Number($('#d_nbcont').value):''
+  };
+}
+function consoMode(){ var r=document.querySelector('input[name=conso_mode]:checked'); return r?r.value:'balise'; }
+/* Apurement : recherche la déclaration et affiche le restant ; masque « nb conteneurs » si déjà connue. */
+function lookupDecl(){
+  var d=readDeclaration();
+  if(!d.anneeDeclaration||!d.bureauDeclaration||!d.typeDeclaration||!d.numeroDeclaration){ if($('#d_apure'))$('#d_apure').textContent='—'; return; }
+  call('decl.lookup',{declaration:d}).then(function(r){
+    if(!$('#d_apure')) return;
+    if(r.exists){
+      $('#d_apure').innerHTML='Déclaration connue · déclarés <b>'+r.nombreConteneurs+'</b> · apurés <b>'+r.apures+'</b> · <b style="color:var(--blue)">restant '+r.restant+'</b>';
+      var f=$('#d_nbcont'); if(f){ f.value=r.nombreConteneurs; f.closest('.field').classList.add('hidden'); }
+    } else {
+      $('#d_apure').textContent='Nouvelle déclaration — saisissez le nombre de conteneurs.';
+      var f2=$('#d_nbcont'); if(f2) f2.closest('.field').classList.remove('hidden');
+    }
+  }).catch(function(){});
+}
+
+function submitNew(){
+  var type=$('#f_type').value;
+  if(!type){ toast("Type d'opération requis",'warn'); return; }
+  var p;
+  if(type===OP_VEH){
+    var regime=document.querySelector('input[name=veh_regime]:checked');
+    var estOuil=(regime&&regime.value==='ouillage');   // v3.6 : ouillage = n°+date du permis, pas de déclaration
+    if(estOuil){
+      if(!$('#o_num').value.trim()){ toast('N° de l\'ouillage requis','warn'); return; }
+      if(!$('#o_date').value){ toast('Date de l\'ouillage requise','warn'); return; }
+    }
+    if(!validateRapport()) return;
+    p={ typeOperation:type, regime:(estOuil?'ouillage':'declaration'), observationsCFS:$('#f_obs').value,
+        conteneurOrigine:($('#d_ctorigine')?$('#d_ctorigine').value:''),
+        vehicules:$all('.vehicule-card').map(readVehicule) };
+    if(estOuil){ p.ouillageNumero=$('#o_num').value; p.ouillageDate=$('#o_date').value; }
+    else { p.declaration=readDeclaration(); p.camions=$all('.camion-card').map(readCamion); }
+  } else if(type===OP_MAG){
+    var mn=$('#mag_num')?$('#mag_num').value.trim():'';
+    if(!mn){ toast('N° camion requis','warn'); return; }
+    if($('#blkDecl') && !$('#blkDecl').classList.contains('hidden')){
+      var dd=[['#d_decl','Déclarant'],['#d_contact','Contact déclarant'],['#d_dest','Destination marchandise'],['#d_bureau','Bureau de déclaration'],['#d_typed','Type de déclaration'],['#d_numd','N° de déclaration'],['#d_annee','Année'],['#d_desc','Description']];
+      for(var i=0;i<dd.length;i++){ if(!need($(dd[i][0]),dd[i][1])) return; }
+    }
+    p={ typeOperation:type, declaration:readDeclaration(), observationsCFS:$('#f_obs').value, numeroCamion:mn, consoMode:consoMode() };
+  } else {
+    var cards=$all('.camion-card');
+    if(!cards.length){ toast('Ajoutez au moins un camion','warn'); return; }
+    if(!validateRapport()) return;
+    p={ typeOperation:type, declaration:readDeclaration(), observationsCFS:$('#f_obs').value,
+        camions:cards.map(readCamion), chargementTermine:(!$('#f_charge')||$('#f_charge').checked) };
+    if(type===OP_CONSO) p.consoMode=consoMode();
+  }
+  busy(true); $('#saveBtn').disabled=true;
+  call('cargo.create',p).then(function(r){
+    busy(false);
+    var lignesV=(r.vehicules||[]).map(function(v){ return '<tr><td class="mono">'+esc(v.id)+'</td><td>'+esc(v.chassis)+'</td><td>Véhicule</td></tr>'; }).join('');
+    var lignesC=(r.camions||[]).map(function(c){ return '<tr><td class="mono">'+esc(c.id)+'</td><td>'+esc(c.numeroCamion)+'</td><td>Camion</td></tr>'; }).join('');
+    var first=(r.vehicules&&r.vehicules[0]&&r.vehicules[0].id)||(r.camions&&r.camions[0]&&r.camions[0].id)||'';
+    modal('Rapport créé ✔ — '+esc(r.rapportId),
+      '<p>Éléments enregistrés :</p>'+
+      '<table class="grid"><thead><tr><th>ID</th><th>Identifiant</th><th>Type</th></tr></thead><tbody>'+lignesV+lignesC+'</tbody></table>'+
+      '<p class="help">Les véhicules sont « en attente de sortie » ; les camions suivent Balise → Porte Principale.</p>',
+      (first?'<button class="btn ghost" onclick="closeModal();go(\'detail\',\''+esc(first)+'\')">Voir le 1er</button>':'')+
+      '<button class="btn" onclick="closeModal();go(\'new\')">Nouveau rapport</button>');
+  }).catch(function(e){ busy(false); $('#saveBtn').disabled=false; err(e); });
+}
+
+function submitEdit(id){
+  var type=$('#f_type').value;
+  var card=$('.camion-card'); if(!card){ toast('Aucun camion','warn'); return; }
+  if(!validateRapport()) return;
+  var cam=readCamion(card);
+  var p={ id:id, typeOperation:type, declaration:readDeclaration(), observationsCFS:$('#f_obs').value,
+          numeroCamion:cam.numeroCamion, conteneurs:cam.conteneurs, scellesCamion:cam.scellesCamion };
+  busy(true); $('#saveBtn').disabled=true;
+  call('cargo.update',p).then(function(){
+    busy(false); toast('Modifications enregistrées ✔','ok'); go('detail',id);
+  }).catch(function(e){ busy(false); $('#saveBtn').disabled=false; err(e); });
+}
+
+/* ============================================================================
+ *  Doublons (avertissement), chargement mixte, correction N° camion
+ * ========================================================================== */
+function normAlnum(v){ return String(v||'').toUpperCase().replace(/[^A-Z0-9]/g,''); }
+function canMixte(){ return STATE.user.role==='CFS'||STATE.user.role==='ADMIN'; }
+
+/* Place/efface un avertissement de doublon sous le champ concerné. */
+function showDup(inputEl, html){
+  if(!inputEl) return;
+  var fld=inputEl.closest?inputEl.closest('.field'):inputEl.parentNode; if(!fld) fld=inputEl.parentNode;
+  var w=fld.querySelector('.dup-warn');
+  if(!html){ if(w){ w.innerHTML=''; w.classList.add('hidden'); } return; }
+  if(!w){ w=document.createElement('div'); w.className='dup-warn'; fld.appendChild(w); }
+  w.classList.remove('hidden'); w.innerHTML=html;
+}
+function checkDupCamion(inputEl){
+  var val=inputEl.value.trim(); if(!val){ showDup(inputEl,''); return; }
+  call('cargo.checkdup',{numeroCamion:val}).then(function(r){
+    var m=(r&&r.camion)||[];
+    showDup(inputEl, m.length?dupHtml('camion',val,m):'');
+  }).catch(function(){});
+}
+function checkDupConteneur(inputEl){
+  var val=inputEl.value.trim(); if(!val){ showDup(inputEl,''); return; }
+  call('cargo.checkdup',{conteneurs:[val]}).then(function(r){
+    var m=(r&&r.conteneurs&&r.conteneurs[normAlnum(val)])||[];
+    showDup(inputEl, m.length?dupHtml('conteneur',val,m):'');
+  }).catch(function(){});
+}
+function dupHtml(kind, val, matches){
+  var actif=matches.filter(function(x){return x.actif;});
+  var cls=actif.length?'dup-strong':'dup-soft';
+  var quoi=(kind==='camion'?'Ce N° camion':'Ce conteneur')+' « '+esc(val)+' »';
+  var head=actif.length
+    ? '⛔ '+quoi+' est déjà enregistré sur une cargaison ENCORE ACTIVE (non sortie). Vérifiez avant de continuer.'
+    : '⚠ '+quoi+' a déjà été enregistré (cargaison(s) sortie(s)).';
+  var rows=matches.slice(0,5).map(function(x){
+    var mix=canMixte()?' <button type="button" class="btn ghost xs" onclick="mixteForm(\''+esc(x.id)+'\')">Chargement mixte</button>':'';
+    return '<div class="dup-row"><a onclick="go(\'detail\',\''+esc(x.id)+'\')">'+esc(x.id)+'</a> · '+
+      esc(x.numeroCamion||'—')+(x.conteneur?(' · cont. '+esc(x.conteneur)):'')+' · '+
+      statutTag(x.statut, x)+' · '+fmtDate(x.dateCreation)+mix+'</div>';
+  }).join('');
+  return '<div class="'+cls+'"><div class="dup-head">'+head+'</div>'+rows+
+    '<div class="help">Avertissement non bloquant. Cliquez l\'ID pour mettre à jour la fiche existante'+
+    (canMixte()?', ou « Chargement mixte » pour la compléter sans créer de doublon.':'.')+'</div></div>';
+}
+
+/* Chargement mixte : compléter une cargaison existante (plusieurs déclarations). */
+function mixteForm(id){
+  busy(true);
+  call('cargo.get',{id:id}).then(function(x){
+    busy(false);
+    var estDep=(x.typeOperation==='Dépotage');
+    var body='<p class="help">Compléter <b class="mono">'+esc(id)+'</b> — '+esc(x.typeOperation)+
+      ' · camion '+esc(x.numeroCamion)+'. Pour un même camion/conteneur portant plusieurs déclarations.</p>'+
+      field('Note','<input type="text" class="up" id="mx_note" maxlength="200" placeholder="Ex : 2e déclaration sur ce camion">')+
+      field('Infos supplémentaires (autre N° déclaration, destination…)','<textarea class="up" id="mx_infos" maxlength="2000"></textarea>')+
+      '<div class="section-title">Conteneurs additionnels (facultatif)</div><div id="mx_conts"></div>'+
+      '<button type="button" class="btn sec sm" id="mx_addc">＋ Ajouter un conteneur</button>';
+    modal('Chargement mixte — compléter', body,
+      '<button class="btn sec" onclick="closeModal()">Annuler</button><button class="btn" id="mx_ok">Enregistrer le complément</button>');
+    function addRow(){
+      var row=document.createElement('div'); row.className='row mx-row'; row.style.alignItems='flex-end';
+      row.innerHTML=field('Conteneur','<input type="text" class="tc mx-num" maxlength="11" placeholder="MSKU1234567">')+
+        (estDep?'':field('Scellé/Plomb','<input type="text" class="up mx-plomb" maxlength="30">'))+
+        field('Taille','<select class="mx-taille">'+selOptsPh(TAILLES_CONTENEUR,'')+'</select>')+
+        field('Type','<select class="mx-type">'+selOptsPh(TYPES_CONTENEUR,'')+'</select>')+
+        '<div class="field" style="flex:0"><button class="btn danger sm" type="button">✕</button></div>';
+      $('#mx_conts').appendChild(row);
+      $('.danger',row).addEventListener('click',function(){ row.remove(); });
+    }
+    $('#mx_addc').addEventListener('click',addRow);
+    $('#mx_ok').addEventListener('click',function(){
+      var conts=$all('.mx-row').map(function(r){ return {
+        num:$('.mx-num',r).value, plomb:$('.mx-plomb',r)?$('.mx-plomb',r).value:'',
+        taille:$('.mx-taille',r).value, type:$('.mx-type',r).value }; }).filter(function(c){return c.num;});
+      var note=$('#mx_note').value, infos=$('#mx_infos').value;
+      if(!note.trim() && !infos.trim() && !conts.length){ toast('Ajoutez au moins une info ou un conteneur','warn'); return; }
+      busy(true); this.disabled=true;
+      call('cargo.mixte',{id:id, note:note, infosSupplementaires:infos, conteneurs:conts}).then(function(){
+        busy(false); closeModal(); toast('Chargement mixte enregistré ✔','ok');
+        if(STATE.screen==='detail') go('detail',id);
+      }).catch(function(e){ busy(false); err(e); });
+    });
+  }).catch(function(e){ busy(false); err(e); });
+}
+
+/* Sous-module Visite : modifier le scellé d'un conteneur après inspection. */
+function visiteForm(id){
+  busy(true);
+  call('cargo.get',{id:id}).then(function(x){
+    busy(false);
+    var pd=parseDetails(x.conteneursDetails); var conts=pd.conteneurs.filter(function(d){return d&&d.num;});
+    if(!conts.length){ toast('Aucun conteneur','warn'); return; }
+    var opts=conts.map(function(d){ return '<option value="'+esc(d.num)+'">'+esc(d.num)+(d.plomb?(' (scellé '+esc(d.plomb)+')'):'')+'</option>'; }).join('');
+    modal('Visite — modifier un scellé',
+      '<p class="help">Cargaison <b class="mono">'+esc(id)+'</b></p>'+
+      field('Conteneur','<select id="vs_cont">'+opts+'</select>')+
+      field('Nouveau scellé *','<input type="text" id="vs_num" class="up" maxlength="30">'),
+      '<button class="btn sec" onclick="closeModal()">Annuler</button><button class="btn" id="vs_ok">Enregistrer</button>');
+    $('#vs_ok').addEventListener('click',function(){
+      var nv=$('#vs_num').value.trim(); if(!nv){ toast('Nouveau scellé requis','warn'); return; }
+      busy(true); this.disabled=true;
+      call('cargo.visite',{id:id, conteneur:$('#vs_cont').value, nouveauScelle:nv}).then(function(){
+        busy(false); closeModal(); toast('Scellé modifié ✔','ok'); go('detail',id);
+      }).catch(function(e){ busy(false); err(e); });
+    });
+  }).catch(function(e){ busy(false); err(e); });
+}
+
+/* Correction ciblée du N° camion (tous rôles, tout statut). */
+function corrigerCamionForm(id, actuel){
+  modal('Corriger le N° camion',
+    '<p class="help">Cargaison <b class="mono">'+esc(id)+'</b></p>'+
+    field('N° camion actuel','<input type="text" value="'+esc(actuel||'')+'" disabled>')+
+    field('Nouveau N° camion *','<input type="text" id="cc_num" class="up alnum" maxlength="20" value="'+esc(actuel||'')+'">'),
+    '<button class="btn sec" onclick="closeModal()">Annuler</button><button class="btn" id="cc_ok">Enregistrer</button>');
+  $('#cc_ok').addEventListener('click',function(){
+    var v=$('#cc_num').value.trim(); if(!v){ toast('N° camion requis','warn'); return; }
+    busy(true); this.disabled=true;
+    call('cargo.editcamion',{id:id, numeroCamion:v}).then(function(){
+      busy(false); closeModal(); toast('N° camion corrigé ✔','ok'); go('detail',id);
+    }).catch(function(e){ busy(false); err(e); });
+  });
+}
+
+/* ---- Liste paginée générique avec filtre de statut ---- */
+function listView(c, opts){
+  // opts: {statut, allowSearch, lockStatut, categorie}
+  var st={page:1, search:'', statut: opts.statut||'tous', categorie: opts.categorie||'camion', etape: opts.etape||''};
+  var estVeh=(st.categorie==='vehicule');
+  var statuts=['tous',STATUTS.CAMION,STATUTS.CHARGEMENT,STATUTS.CREEE,STATUTS.T1,STATUTS.GPS,STATUTS.BS,STATUTS.SORTIE];
+  var labels={'tous':'Toutes'};
+  labels[STATUTS.CAMION]='Camions créés (à compléter)';
+  labels[STATUTS.CHARGEMENT]='En cours de chargement';
+  labels[STATUTS.CREEE]='Attente T1'; labels[STATUTS.T1]='Attente Balise';
+  labels[STATUTS.GPS]='Attente Bon de sortie'; labels[STATUTS.BS]='Attente sortie'; labels[STATUTS.SORTIE]='Sorties';
+  var selOpts=statuts.map(function(s){ return '<option value="'+esc(s)+'" '+(s===st.statut?'selected':'')+'>'+esc(labels[s])+'</option>'; }).join('');
+  c.innerHTML='<div class="card">'+
+    '<div class="row" style="align-items:flex-end;margin-bottom:10px">'+
+      '<div class="col" style="max-width:260px"><label>Statut</label><select id="lst">'+selOpts+'</select></div>'+
+      (opts.allowSearch!==false?'<div class="col" style="max-width:320px"><label>Recherche rapide</label>'+
+        '<input type="text" id="lq" placeholder="ID, camion, conteneur, GPS…"></div>':'')+
+      '<div style="flex:1"></div>'+
+      '<button class="btn sec sm" id="lref">↻ Actualiser</button>'+
+    '</div>'+
+    '<div id="ltbl"><div class="empty"><div class="spin" style="margin:auto"></div></div></div>'+
+    '<div class="pager" id="lpg"></div></div>';
+  function load(){
+    busy(true);
+    call('cargo.list',{statut:st.statut, page:st.page, search:st.search, categorie:st.categorie, etape:st.etape}).then(function(r){
+      busy(false); renderTable(r);
+    }).catch(function(e){ busy(false); err(e); });
+  }
+  function renderTable(r){
+    if(!r.rows.length){ $('#ltbl').innerHTML='<div class="empty"><div class="big">▤</div>Aucune cargaison.</div>'; $('#lpg').innerHTML=''; return; }
+    var c1=estVeh?'Conteneur d\'origine':'Conteneur';
+    var h='<table class="grid"><thead><tr><th>ID</th><th>Date</th><th>'+(estVeh?'Châssis':'Camion')+'</th><th>Opération</th><th>'+c1+'</th><th>Statut</th>'+(estVeh?'':'<th>GPS</th>')+'</tr></thead><tbody>';
+    r.rows.forEach(function(x){
+      h+='<tr class="clickable" onclick="go(\'detail\',\''+esc(x.id)+'\')">'+
+        '<td class="mono">'+esc(x.id)+'</td><td>'+fmtDate(x.dateCreation)+'</td><td>'+esc(x.numeroCamion)+'</td>'+
+        '<td>'+esc(x.typeOperation)+'</td><td>'+esc(x.conteneur1||'—')+'</td><td>'+statutTag(x.statut, x)+'</td>'+
+        (estVeh?'':'<td>'+esc(x.numeroGPS||'—')+'</td>')+'</tr>';
+    });
+    h+='</tbody></table>'; $('#ltbl').innerHTML=h;
+    $('#lpg').innerHTML='<span>'+r.total+' résultat(s) · page '+r.page+'/'+r.pages+'</span>'+
+      '<button class="btn sec sm" '+(r.page<=1?'disabled':'')+' onclick="window.__lprev()">‹ Préc.</button>'+
+      '<button class="btn sec sm" '+(r.page>=r.pages?'disabled':'')+' onclick="window.__lnext()">Suiv. ›</button>';
+    window.__lprev=function(){ if(st.page>1){st.page--;load();} };
+    window.__lnext=function(){ if(st.page<r.pages){st.page++;load();} };
+  }
+  if($('#lq')){ var tmr; $('#lq').addEventListener('input',function(){ clearTimeout(tmr); var v=this.value; tmr=setTimeout(function(){ st.search=v; st.page=1; load(); },300); }); }
+  $('#lst').addEventListener('change',function(){ st.statut=this.value; st.page=1; load(); });
+  $('#lref').addEventListener('click',load);
+  load();
+}
+// arg = statut initial (depuis une carte du tableau de bord) : 'tous' | 'Créée' | 'GPS Installé' | 'Sortie Enregistrée'
+SCREENS.list=function(c,arg){ listView(c,{statut:arg||'tous'}); };
+/* v3.3 — CFS : créer un camion VIDE à l'entrée (N° camion + type d'opération). */
+SCREENS.creercamion=function(c){
+  c.innerHTML='<div class="card" style="max-width:640px"><h2>＋ Créer un camion (entrée)</h2>'+
+    '<p class="help">Le <b>CFS</b> enregistre le camion vide à l\'entrée et choisit le <b>type d\'opération</b> :<br>'+
+      '• <b>Enlèvement</b> → le CFS saisit ensuite TOUT (déclaration + conteneur + scellé).<br>'+
+      '• <b>Dépotage</b> → le CFS ajoute les conteneurs (du stock journalier) avec leur déclaration, puis pose les scellés.<br>'+
+      'Un camion déjà actif ne peut pas être recréé.</p>'+
+    '<div class="row" style="align-items:flex-end">'+
+      field('N° du camion *','<input type="text" class="up alnum" id="cc_num" maxlength="20" placeholder="Ex : AB1234CD">')+
+      field('Type d\'opération *','<select id="cc_routage"><option value="">— Choisir —</option>'+ROUTAGES.map(function(r){return '<option value="'+esc(r)+'">'+esc(r)+'</option>';}).join('')+'</select>')+
+      '<button class="btn" id="cc_go">✔ Créer le camion</button></div></div>'+
+    '<div class="card"><h2>Derniers camions entrés (à compléter par le CFS)</h2><div id="cc_list"><div class="empty"><div class="spin" style="margin:auto"></div></div></div></div>';
+  function refresh(){
+    call('cargo.list',{etape:'CFS', page:1}).then(function(r){
+      var rows=r.rows.filter(function(x){return x.statut===STATUTS.CAMION;});
+      if(!rows.length){ $('#cc_list').innerHTML='<div class="empty">Aucun camion en attente d\'association.</div>'; return; }
+      var h='<table class="grid"><thead><tr><th>ID</th><th>Camion</th><th>Créé le</th><th>Statut</th></tr></thead><tbody>';
+      rows.forEach(function(x){ h+='<tr class="clickable" onclick="go(\'detail\',\''+esc(x.id)+'\')"><td class="mono">'+esc(x.id)+'</td><td>'+esc(x.numeroCamion)+'</td><td>'+fmtDate(x.dateCreation)+'</td><td>'+statutTag(x.statut, x)+'</td></tr>'; });
+      $('#cc_list').innerHTML=h+'</tbody></table>';
+    }).catch(function(){});
+  }
+  function create(){
+    var n=$('#cc_num').value.trim(); if(!n){ toast('N° camion requis','warn'); return; }
+    var r=$('#cc_routage').value; if(!r){ toast('Choisissez le type d\'opération','warn'); return; }
+    busy(true); $('#cc_go').disabled=true;
+    call('cargo.createcamion',{numeroCamion:n, routage:r}).then(function(res){
+      busy(false); $('#cc_go').disabled=false; toast('Camion créé ✔ ('+res.id+')','ok'); go('detail', res.id);
+    }).catch(function(e){ busy(false); $('#cc_go').disabled=false; err(e); });
+  }
+  $('#cc_go').addEventListener('click',create);
+  $('#cc_num').addEventListener('keydown',function(e){ if(e.key==='Enter') create(); });
+  refresh();
+};
+/* CFS : file des camions à compléter (Camion créé + En cours de chargement). */
+SCREENS.completer=function(c){ listView(c,{etape:'CFS'}); };
+SCREENS.wait_valid=function(c){ listView(c,{etape:'VALIDATION'}); }; // v3.0 : file d'attente validation chef brigade
+SCREENS.wait_t1=function(c){ listView(c,{etape:'T1'}); };       // file d'attente cellule T1
+SCREENS.wait_gps=function(c){ listView(c,{etape:'BALISE'}); };  // file d'attente Balise
+SCREENS.wait_bs=function(c){ listView(c,{etape:'BS'}); };       // file d'attente Bon de Sortie
+SCREENS.wait_sortie=function(c){ listView(c,{etape:'PP'}); };   // file d'attente sortie
+SCREENS.portecfs=function(c){ listView(c,{etape:'CFS'}); };    // pointage : camions en cours de chargement (à finaliser)
+SCREENS.vehicules=function(c,arg){ listView(c,{statut:arg||'tous', categorie:'vehicule'}); };
+
+/* ---- Recherche multi-critères ---- */
+SCREENS.search=function(c){
+  c.innerHTML='<div class="card"><h2>⌕ Rechercher par N° de camion</h2>'+
+    '<div class="row" style="align-items:flex-end">'+
+      '<div class="col"><label>N° de camion</label><input type="text" id="s_val" class="up" placeholder="Ex : AB12 — recherche souple"></div>'+
+      '<button class="btn" id="s_go">Rechercher</button>'+
+    '</div>'+
+    '<p class="help">Recherche flexible : espaces, tirets et casse ignorés ; saisie partielle acceptée.</p>'+
+    '</div><div id="sres"></div>';
+  function run(){
+    var val=$('#s_val').value.trim();
+    if(!val){ $('#sres').innerHTML=''; return; }
+    busy(true);
+    call('cargo.search',{critere:'camion', valeur:val}).then(function(rows){
+      busy(false);
+      if(!rows.length){ $('#sres').innerHTML='<div class="card"><div class="empty"><div class="big">⌕</div>Aucun camion trouvé.</div></div>'; return; }
+      var h='<div class="card"><h2>'+rows.length+' résultat(s)</h2><table class="grid"><thead><tr><th>ID</th><th>Date</th><th>Camion</th><th>Opération</th><th>Statut</th><th>GPS</th></tr></thead><tbody>';
+      rows.forEach(function(x){ h+='<tr class="clickable" onclick="go(\'detail\',\''+esc(x.id)+'\')"><td class="mono">'+esc(x.id)+'</td><td>'+fmtDate(x.dateCreation)+'</td><td>'+esc(x.numeroCamion)+'</td><td>'+esc(x.typeOperation||'—')+'</td><td>'+statutTag(x.statut, x)+'</td><td>'+esc(x.numeroGPS||'—')+'</td></tr>'; });
+      $('#sres').innerHTML=h+'</tbody></table></div>';
+    }).catch(function(e){ busy(false); err(e); });
+  }
+  $('#s_go').addEventListener('click',run);
+  var tmr; $('#s_val').addEventListener('input',function(){ clearTimeout(tmr); tmr=setTimeout(run,300); });
+  $('#s_val').addEventListener('keydown',function(e){ if(e.key==='Enter'){ clearTimeout(tmr); run(); } });
+};
+
+/* ---- Pose GPS (Balise) / Sortie (PP) : recherche puis action ---- */
+SCREENS.t1=function(c){ quickFind(c,'Saisir l\'ID puis valider pour la cellule T1'); };
+SCREENS.gps=function(c){ quickFind(c,'Saisir l\'ID puis valider pour la balise'); };
+SCREENS.bonsortie=function(c){ quickFind(c,'Saisir l\'ID puis valider pour le bon de sortie'); };
+SCREENS.sortie=function(c){ quickFind(c,'Saisir l\'ID puis valider pour la sortie (checklist)'); };
+function quickFind(c, hint){
+  c.innerHTML='<div class="card"><h2>⌕ Rechercher la cargaison</h2>'+
+    '<div class="row" style="align-items:flex-end"><div class="col"><label>ID de la cargaison</label>'+
+    '<input type="text" id="qf" placeholder="Ex : CT-2026-000123" style="text-transform:uppercase"></div>'+
+    '<button class="btn" id="qfb">Ouvrir</button></div><p class="help">'+esc(hint)+'</p></div><div id="qres"></div>';
+  function run(){ var id=$('#qf').value.trim(); if(!id){ toast('Saisissez un ID','warn'); return; } go('detail', id); }
+  $('#qfb').addEventListener('click',run);
+  $('#qf').addEventListener('keydown',function(e){ if(e.key==='Enter') run(); });
+}
+
+/* ---- Détail cargaison + actions contextuelles ---- */
+SCREENS.detail=function(c, id){
+  c.innerHTML='<div class="card"><div class="empty"><div class="spin" style="margin:auto"></div></div></div>';
+  call('cargo.get',{id:id}).then(function(x){ renderDetail(c,x); }).catch(function(e){ err(e); c.innerHTML='<div class="card"><div class="empty"><div class="big">⚠</div>'+esc(e.message)+'</div></div>'; });
+};
+function renderDetail(c, x){
+  if(x.estVehicule==='Oui') return renderDetailVehicule(c, x);
+  var role=STATE.user.role;
+  var estEnl=(x.typeOperation==='Enlèvement');
+  // États dérivés des FAITS (modèle parallèle : la Balise et le Bon de Sortie sont indépendants).
+  var sSortie=(x.statut===STATUTS.SORTIE);
+  var sCfsDone=(x.statut!==STATUTS.CAMION && x.statut!==STATUTS.CHARGEMENT);
+  var sValidDone=(x.sauteValidation==='Oui')||aFait(x.dateValidation)||sSortie; // v3.0 validation chef brigade
+  var sT1done=(x.sauteT1==='Oui')||aFait(x.dateT1)||sSortie,
+      sBaldone=(x.sauteBalise==='Oui')||aFait(x.datePoseGPS)||sSortie,
+      sBSdone=aFait(x.bonSortieNumero)||sSortie;
+  var pd=parseDetails(x.conteneursDetails);
+  var dets=pd.conteneurs;
+  var scellesCam=pd.scellesCamion;
+  var estDep=(x.typeOperation==='Dépotage');
+  if(!dets.length){
+    if(estDep){
+      [x.conteneur1,x.conteneur2,x.conteneur3,x.conteneur4].forEach(function(n){ if(n) dets.push({num:n}); });
+      if(!scellesCam.length) scellesCam=[x.plomb1,x.plomb2,x.plomb3].filter(function(s){return s;});
+    } else {
+      [[x.conteneur1,x.plomb1],[x.conteneur2,x.plomb2],[x.conteneur3,x.plomb3],[x.conteneur4,x.plomb4]].forEach(function(p){
+        if(p[0]) dets.push({num:p[0],plomb:p[1]||''}); });
+    }
+  }
+  var conteneurs=dets.filter(function(d){return d&&d.num;}).map(function(d,i){
+    var sup=[]; if(d.taille)sup.push('Taille '+esc(d.taille)); if(d.type)sup.push(esc(d.type)); if(d.poids)sup.push('Poids '+esc(d.poids));
+    if(d.numeroDeclaration)sup.push('Décl. '+esc(d.numeroDeclaration));
+    if(d.declarant)sup.push('Déclarant '+esc(d.declarant)); // v3.2 : déclaration propre au conteneur (dépotage mixte)
+    (d.extra||[]).forEach(function(z){ if(z&&z.nom) sup.push(esc(z.nom)+' : '+esc(z.valeur||'')); });
+    // En dépotage, le conteneur ne porte pas de scellé (il est au niveau du camion).
+    var scTxt=(!estDep && d.plomb)?(' / Scellé '+esc(d.plomb)):'';
+    return '<div><b>Conteneur '+(i+1)+' :</b> '+esc(d.num)+scTxt+
+      (sup.length?' <span class="help">('+sup.join(' · ')+')</span>':'')+'</div>';
+  }).join('');
+  // Bloc « Scellés du camion » (dépotage uniquement).
+  if(estDep && scellesCam.length){
+    conteneurs='<div style="margin-bottom:6px"><b>Scellés du camion :</b> '+
+      scellesCam.map(function(s){return esc(s);}).join(' · ')+'</div>'+conteneurs;
+  }
+  var peutEditer=(role==='ADMIN')||(role==='CFS'&&x.statut===STATUTS.CREEE);
+  var dep='';
+  if(x.typeOperation && x.typeOperation!=='Enlèvement' && x.numeroDeclaration){
+    dep='<div class="kv">'+kv('Déclarant',x.declarant)+kv('Contact',x.contactDeclarant)+kv('Destination',x.destinationMarchandise)+
+      kv('Bureau décl.',x.bureauDeclaration)+kv('Type décl.',x.typeDeclaration)+kv('N° décl.',x.numeroDeclaration)+
+      kv('Année',x.anneeDeclaration)+'</div>'+(x.descriptionMarchandise?'<div style="margin-top:8px"><b style="color:var(--muted)">Description :</b> '+esc(x.descriptionMarchandise)+'</div>':'');
+  }
+  var h='<div class="card"><div class="row" style="align-items:center"><h2 style="margin:0;flex:1">'+esc(x.id)+'</h2>'+statutTag(x.statut, x)+'</div>'+
+    (x.rapportId?'<p class="help" style="margin:4px 0 0">Rapport : <b class="mono">'+esc(x.rapportId)+'</b></p>':'')+
+    '<div class="row" style="margin-top:8px"><button class="btn sec sm" onclick="go(\'dash\')" type="button">‹ Retour au tableau de bord</button>'+
+    (peutEditer?'<button class="btn sm" onclick="go(\'edit\',\''+esc(x.id)+'\')">✎ Éditer</button>':'')+
+    '<button class="btn sec sm" onclick="corrigerCamionForm(\''+esc(x.id)+'\',\''+esc(x.numeroCamion)+'\')">✎ Corriger N° camion</button>'+
+    ((role==='CFS'||role==='ADMIN')&&estEnl?'<button class="btn sec sm" onclick="visiteForm(\''+esc(x.id)+'\')">🔍 Visite (scellé)</button>':'')+
+    ((role==='CFS'||role==='ADMIN')?'<button class="btn sec sm" onclick="mixteForm(\''+esc(x.id)+'\')">⊞ Chargement mixte</button>':'')+
+    ((role==='CFS'||role==='ADMIN')?'<button class="btn ok sm" onclick="downloadLoading(\''+esc(x.id)+'\')">⤓ Rapport de chargement</button>':'')+'</div></div>';
+
+  /* Bannière chargement mixte */
+  if(x.chargementMixte==='Oui'){
+    var hist=[]; try{ hist=JSON.parse(x.mixteDetails||'[]'); }catch(e){}
+    var li=hist.map(function(m){
+      var parts=[]; if(m.note)parts.push(esc(m.note)); if(m.infos)parts.push(esc(m.infos));
+      if(m.conteneursAjoutes&&m.conteneursAjoutes.length)parts.push('Conteneurs ajoutés : '+esc(m.conteneursAjoutes.join(', ')));
+      return '<div class="dup-row">'+fmtDate(m.date)+' · '+esc(m.agent||'')+' — '+(parts.join(' · ')||'—')+'</div>';
+    }).join('');
+    h+='<div class="card"><div class="dup-soft"><div class="dup-head">⊞ Chargement mixte (plusieurs déclarations)</div>'+(li||'<div class="help">Marqué comme chargement mixte.</div>')+'</div></div>';
+  }
+
+  /* Bannière dispense (arrivée au bureau de destination) */
+  if(x.baliseRequise==='Non'||x.sauteBalise==='Oui'){
+    var dispDone=(x.arriveeBureau==='Oui');
+    var canSolde=(role==='BALISE'||role==='ADMIN')&&x.statut===STATUTS.SORTIE&&!dispDone;
+    h+='<div class="card"><div class="dup-soft"><div class="dup-head">⚑ Dispense de balise'+(x.numeroDispense?' — N° '+esc(x.numeroDispense):'')+'</div>'+
+      '<div>Arrivée au bureau de destination : <b>'+(dispDone?'✓ confirmée le '+fmtDate(x.dateArriveeBureau):'en attente')+'</b></div>'+
+      (canSolde?'<button class="btn sm" style="margin-top:8px" onclick="soldeDispense(\''+esc(x.id)+'\')">✔ Confirmer l\'arrivée (solder)</button>':'')+
+      '</div></div>';
+  }
+
+  /* Timeline (5 cellules : CFS → T1 → Balise → Bon de Sortie → PP) */
+  var t1nums=[]; try{ t1nums=JSON.parse(x.t1Numeros||'[]'); }catch(e){}
+  var ckl={}; try{ ckl=JSON.parse(x.ppChecklist||'{}'); }catch(e){}
+  h+='<div class="card"><h2>Parcours de la cargaison</h2><div class="timeline">'+
+    step(x.statut!==STATUTS.CAMION && x.statut!==STATUTS.CHARGEMENT, (x.statut===STATUTS.CAMION||x.statut===STATUTS.CHARGEMENT),'① CFS — '+(x.statut===STATUTS.CAMION?'Camion créé (à compléter)':(x.statut===STATUTS.CHARGEMENT?'En cours de chargement':'Fin de chargement')),
+      '<div class="kv">'+kv('Date',fmtDate(x.dateCreation))+kv('N° Camion',x.numeroCamion)+kv('Opération',x.typeOperation||'—')+
+      (estEnl?kv('TWINS',x.twins):'')+kv('Agent CFS',x.agentCFS)+'</div>'+
+      (conteneurs?'<div class="kv" style="margin-top:6px">'+conteneurs+'</div>':'')+dep+
+      (x.nbColis?'<div class="kv" style="margin-top:6px">'+kv('Nombre de colis',x.nbColis)+'</div>':'')+
+      (x.observationsCFS?'<div style="margin-top:6px"><b style="color:var(--muted)">Obs. :</b> '+esc(x.observationsCFS)+'</div>':''))+
+    step(sValidDone, sCfsDone && !sValidDone,'✔ Validation — Chef brigade',
+      sValidDone?('<div class="kv">'+kv('Validé par',x.agentValidation)+kv('Date',fmtDate(x.dateValidation))+(x.signatureValidation?kv('Signature',x.signatureValidation):'')+'</div>')
+      :'<span style="color:var(--muted)">En attente de validation…</span>')+
+    step(sT1done||x.sauteT1==='Oui', sValidDone && x.statut===STATUTS.CREEE && x.sauteT1!=='Oui','② Cellule T1',
+      x.sauteT1==='Oui'?'<span style="color:var(--muted)">Non requise (Conso / Magasin)</span>'
+      :(sT1done?('<div class="kv">'+kv('N° T1',t1Display(t1nums))+kv('Bureau destination',x.bureauDestination)+kv('Date',fmtDate(x.dateT1))+kv('Agent',x.agentT1)+'</div>'+
+        (x.observationsT1?'<div style="margin-top:6px"><b style="color:var(--muted)">Obs. :</b> '+esc(x.observationsT1)+'</div>':''))
+        :'<span style="color:var(--muted)">En attente…</span>'))+
+    step(sBaldone, sT1done && !sBaldone,'③ Cellule Balise',
+      x.sauteBalise==='Oui'?'<span style="color:var(--muted)">Non balisée (dispense)</span>'
+      :(sBaldone?('<div class="kv">'+
+        (x.baliseRequise==='Non'?kv('Dispense','N° '+(x.numeroDispense||'—')):kv('N° Balise',x.numeroGPS))+
+        kv('T1 vérifié',x.t1Correct)+kv('Date',fmtDate(x.datePoseGPS))+kv('Agent',x.agentBalise)+'</div>'+
+        (x.observationsBalise?'<div style="margin-top:6px"><b style="color:var(--muted)">Obs. :</b> '+esc(x.observationsBalise)+'</div>':''))
+        :'<span style="color:var(--muted)">En attente…</span>'))+
+    step(sBSdone, sT1done && !sBSdone,'④ Bon de Sortie',
+      sBSdone?('<div class="kv">'+kv('N° Bon de sortie',bsDisplay(x.bonSortieNumero))+kv('Date',fmtDate(x.dateBonSortie))+kv('Agent',x.agentBonSortie)+'</div>'+
+        (x.observationsBonSortie?'<div style="margin-top:6px"><b style="color:var(--muted)">Obs. :</b> '+esc(x.observationsBonSortie)+'</div>':''))
+        :'<span style="color:var(--muted)">En attente…</span>')+
+    step(sSortie, sBaldone && sBSdone && !sSortie,'⑤ Porte de Sortie (PP)',
+      sSortie?('<div class="kv">'+kv('Date sortie',fmtDate(x.dateSortie))+kv('Agent',x.agentPP)+
+        (x.etatSortie?kv('État sortie CFS',x.etatSortie):'')+
+        kv('Checklist',(ckl.cfs&&ckl.t1&&ckl.balise&&ckl.bs)?'CFS · T1 · Balise · BS ✓':(x.infosValidees||'—'))+'</div>'+
+        (x.observationsPP?'<div style="margin-top:6px"><b style="color:var(--muted)">Obs. :</b> '+esc(x.observationsPP)+'</div>':''))
+        :'<span style="color:var(--muted)">En attente…</span>')+
+    '</div></div>';
+
+  /* Panneaux d'action selon rôle + ÉTAPES EN ATTENTE (modèle parallèle Balise ∥ Bon de Sortie) */
+  var isAdmin=(role==='ADMIN'); var pend=etapesEnAttente(x);
+  // ① Porte CFS / CFS — saisir l'opération (camion vide) ou ajouter un conteneur (dépotage en cours / binôme 20')
+  var aCompleter=(x.statut===STATUTS.CAMION || x.statut===STATUTS.CHARGEMENT);
+  var binome20=(x.statut===STATUTS.CREEE && x.typeOperation==='Enlèvement' && Number(x.nbConteneurs||0)===1 && dets[0] && tailleBucket(dets[0].taille)==='t20');
+  var peutAjouterCont=(role==='CFS'||isAdmin) && (x.statut===STATUTS.CAMION || (x.statut===STATUTS.CHARGEMENT && estDep) || binome20);
+  if(peutAjouterCont){
+    var premier=(x.statut===STATUTS.CAMION);
+    var titreCf=premier?'Saisir l’opération (1ᵉ conteneur)':(binome20?"Ajouter le 2ᵉ conteneur (binôme 20')":'Ajouter un conteneur');
+    var anneeDef=x.anneeDeclaration||new Date().getFullYear(), bureauDef=x.bureauDeclaration||'TG120', typedDef=x.typeDeclaration||'T';
+    h+='<div class="card"><h2>✎ '+esc(titreCf)+'</h2>';
+    if(premier && !x.typeOperation){
+      // Compat : ancien camion créé sans type → on le demande.
+      h+='<div class="row">'+field("Type d'opération *",'<select id="cf2_type"><option value="">— Choisir —</option><option>Enlèvement</option><option>Dépotage</option></select>')+'</div>';
+    } else if(premier){
+      // v2.9 : type fixé par la Porte Principale à l'entrée (routage).
+      h+='<p class="help">Camion <b>'+esc(x.numeroCamion)+'</b> — opération <b>'+esc(x.typeOperation)+'</b>.</p>';
+    } else {
+      h+='<p class="help">Camion <b>'+esc(x.numeroCamion)+'</b> · '+esc(x.typeOperation)+' · déjà '+Number(x.nbConteneurs||0)+' conteneur(s).</p>';
+    }
+    // Déclaration DU conteneur (N° par conteneur → chargement mixte possible). Préfixe année/bureau/type auto, éditable.
+    h+='<div class="section-title">Déclaration du conteneur</div>'+
+      '<div class="row">'+
+        field('Année *','<input type="number" id="cf2_annee" value="'+esc(anneeDef)+'">')+
+        field('Bureau *','<input type="text" class="up" id="cf2_bureau" value="'+esc(bureauDef)+'">')+
+        field('Type décl. *','<select class="up" id="cf2_typed">'+TYPES_DECL.map(function(t){return '<option value="'+t+'" '+(t===typedDef?'selected':'')+'>'+t+'</option>';}).join('')+'</select>')+
+        field('N° déclaration *','<input type="text" class="up" id="cf2_numd" value="'+esc(premier?'':(x.numeroDeclaration||''))+'">')+
+      '</div><div id="cf2_apure" class="help" style="margin-bottom:6px">—</div>';
+    // Déclaration COMPLÈTE — saisie pour CHAQUE conteneur (1er ET suivants), mêmes champs jusqu'à la désignation.
+    // (Chaque conteneur peut porter sa propre déclaration.) Le « nombre de colis » n'est demandé qu'au 1er conteneur d'un enlèvement.
+    {
+      h+='<div id="cf2_enlonly" class="hidden">'+
+          '<div class="section-title">Déclaration'+(premier?' (déclarant &amp; marchandise)':' du conteneur (déclarant &amp; marchandise)')+'</div>'+
+          '<div class="row">'+field('Déclarant *','<input type="text" class="up" id="cf2_decl" value="'+esc(premier?(x.declarant||''):'')+'">')+field('Contact (tél) *','<input type="text" class="tel" id="cf2_contact" inputmode="tel" value="'+esc(premier?(x.contactDeclarant||''):'')+'">')+'</div>'+
+          '<div class="row">'+field('Destination *','<input type="text" class="up" id="cf2_dest" value="'+esc(premier?(x.destinationMarchandise||''):'')+'">')+field('Nombre de conteneurs déclarés *','<input type="number" id="cf2_nb" min="1">')+
+            ((estDep||!premier)?'':field('Nombre de colis','<input type="number" id="cf2_colis" min="0" value="'+esc(x.nbColis||'')+'">'))+'</div>'+
+          field('Description *','<textarea class="up" id="cf2_desc" maxlength="600">'+esc(premier?(x.descriptionMarchandise||''):'')+'</textarea>')+
+        '</div>';
+    }
+    var plombInit=premier?false:(x.typeOperation==='Enlèvement');   // binôme enlèvement : scellé visible
+    h+='<div class="section-title">Conteneur à ajouter</div><datalist id="stockTC"></datalist>'+
+      // v2.8 — case « saisie manuelle » : conteneur partagé entre 2 camions (déjà dépoté), hors stock.
+      '<div id="cf2_manuelwrap" class="hidden"><label class="radio" style="margin-bottom:6px"><input type="checkbox" id="cf2_manuel" style="width:auto"> Saisir le conteneur manuellement (conteneur partagé entre deux camions)</label></div>'+
+      '<div class="row" style="align-items:flex-end">'+
+        field('N° conteneur (TC) *','<input type="text" class="tc" id="cf2_tc" list="stockTC" maxlength="11" placeholder="MSKU1234567">','Choisi dans le stock (taille/type auto-remplis)')+
+        field('Taille *','<select id="cf2_taille">'+selOptsPh(TAILLES_CONTENEUR,binome20?"20'":'')+'</select>')+
+        field('Type','<select id="cf2_ctype">'+selOptsPh(TYPES_CONTENEUR,'')+'</select>','Saisi à la main (facultatif)')+
+        '<div id="cf2_plombwrap" class="'+(plombInit?'':'hidden')+'">'+field('Scellé/Plomb *','<input type="text" class="up" id="cf2_plomb" maxlength="30">')+'</div>'+
+      '</div>'+
+      '<button class="btn" id="cf2_add">✔ '+(premier?'Enregistrer':'Ajouter le conteneur')+'</button>'+
+      '</div>';
+  }
+  // ②bis CFS — DÉPOTAGE : hauteur + colis, PUIS scellés camion → attente validation. (Déclaration déjà saisie par conteneur.)
+  if((role==='CFS'||isAdmin) && x.statut===STATUTS.CHARGEMENT && estDep){
+    h+='<div class="card"><h2>✎ CFS — Finaliser le dépotage (hauteur, colis, scellés)</h2>'+
+      '<p class="help">La déclaration a été saisie avec chaque conteneur. Renseignez la <b>hauteur du chargement</b> et le <b>nombre de colis</b>, puis posez les <b>scellés du camion (2 à 3)</b>.</p>'+
+      '<div class="row">'+field('Hauteur du chargement (m) *','<input type="text" id="cd_haut" inputmode="decimal" maxlength="10" placeholder="ex : 4,20" value="'+esc(x.hauteurChargement||'')+'">','> 4,5 m ⇒ signalé automatiquement « hors gabarit »')+field('Nombre de colis *','<input type="number" id="cd_colis" min="0" value="'+esc(x.nbColis||'')+'">')+'</div>'+
+      '<div id="cd_hgwarn"></div>'+
+      '<div class="section-title">Scellés du camion (2 à 3)</div>'+
+      '<div class="row">'+field('Scellé 1 *','<input type="text" class="up cdsc" maxlength="30">')+field('Scellé 2 *','<input type="text" class="up cdsc" maxlength="30">')+field('Scellé 3','<input type="text" class="up cdsc" maxlength="30">')+'</div>'+
+      field('Observations','<textarea id="cd_obs" maxlength="1000"></textarea>')+
+      '<button class="btn" id="cd_save">✔ Finaliser (→ validation chef brigade)</button></div>';
+  }
+  // v3.0 — Validation chef brigade (signature) : maillon obligatoire avant T1/Balise/BS.
+  if((role==='CHEF_BRIGADE'||isAdmin) && pend.indexOf('VALIDATION')>=0){
+    h+='<div class="card"><h2>✔ Validation — Chef brigade (signature)</h2>'+
+      '<p class="help">Tant que vous n\'avez pas validé, le T1, la Balise et le Bon de sortie restent <b>bloqués</b>.</p>'+
+      // v3.3 — Signalement HORS GABARIT au CB (dépotage uniquement). Pas de mention « système ».
+      (estDep && x.horsGabarit==='Oui'?'<div class="dup-strong" style="margin-bottom:10px">⚠ <b>HORS GABARIT</b> — hauteur du chargement '+esc(x.hauteurChargement||'?')+' m.</div>':'')+
+      field('Observations','<textarea id="v_obs" maxlength="1000"></textarea>')+
+      '<button class="btn" id="v_save">✔ Valider et signer</button></div>';
+  }
+  // v3.3 — La carte « Hors gabarit » (chefs visite/division/adjoint & CFS) est SUPPRIMÉE :
+  // le hors gabarit n'est plus affiché qu'au chef brigade (ci-dessus), uniquement en dépotage.
+  if((role==='T1'||isAdmin) && pend.indexOf('T1')>=0){
+    h+='<div class="card"><h2>① Cellule T1</h2>'+
+      '<datalist id="bureauxList">'+BUREAUX.map(function(b){return '<option value="'+esc(b)+'">';}).join('')+'</datalist>'+
+      field('Bureau de destination *','<input type="text" id="t1_bureau" class="up" list="bureauxList" maxlength="60" autocomplete="off" value="'+esc(x.bureauDestination||'')+'">','Saisissez le code : les bureaux proches sont proposés.')+
+      '<div class="section-title">Numéro(s) T1'+(estEnl?' — un par conteneur (1:1)':' — au moins un (1:N)')+'</div><div id="t1_list"></div>'+
+      '<button class="btn sec sm" type="button" id="t1_add">＋ Ajouter un T1</button>'+
+      field('Observations','<textarea id="t1_obs" maxlength="1000"></textarea>')+
+      '<button class="btn" id="t1_save">✔ Valider la cellule T1</button></div>';
+  }
+  if((role==='BALISE'||isAdmin) && pend.indexOf('BALISE')>=0){
+    h+='<div class="card"><h2>⊕ Cellule Balise</h2>'+
+      '<label style="display:flex;gap:10px;align-items:center;margin-bottom:10px"><input type="checkbox" id="g_t1ok" style="width:auto"> <span>Numéro T1 correct (vérifié)</span></label>'+
+      '<div class="field"><label>Balise ?</label><div>'+
+        '<label class="radio"><input type="radio" name="g_req" value="oui" checked> Baliser</label>'+
+        '<label class="radio"><input type="radio" name="g_req" value="non"> Dispense (sans balise)</label>'+
+      '</div></div>'+
+      '<div id="g_gpswrap">'+field('N° de balise *','<input type="text" id="g_num" class="up" maxlength="40">')+'</div>'+
+      '<div id="g_dispwrap" class="hidden">'+field('N° autorisation de dispense *','<input type="text" id="g_disp" class="up" maxlength="60">')+'</div>'+
+      field('Observations','<textarea id="g_obs" maxlength="1000"></textarea>')+
+      '<button class="btn" id="g_save">✔ Valider la balise</button></div>';
+  } else if(isAdmin && x.statut===STATUTS.GPS){
+    h+='<div class="card"><h2>⟳ Remplacer la balise (ADMIN)</h2>'+
+      '<div class="help" style="margin-bottom:10px">Balise actuelle : <b>'+esc(x.numeroGPS||'—')+'</b></div>'+
+      field('Nouveau N° balise','<input type="text" id="ge_num" class="up" maxlength="40">')+
+      field('Observations','<textarea id="ge_obs" maxlength="1000"></textarea>')+
+      '<button class="btn" id="ge_save">✔ Remplacer</button></div>';
+  }
+  if((role==='BON_SORTIE'||isAdmin) && pend.indexOf('BS')>=0){
+    var bsEnl=(estEnl && dets && dets.length>0);   // v2.8 : enlèvement = 1 bon par conteneur (lié au T1)
+    h+='<div class="card"><h2>▣ Cellule Bon de Sortie</h2>'+
+      (bsEnl?'<div class="section-title">Un bon de sortie par conteneur (lié au T1)</div><div id="bs_list"></div>'
+            :field('N° du bon de sortie *','<input type="text" id="bs_num" class="up" maxlength="60">'))+
+      field('Observations','<textarea id="bs_obs" maxlength="1000"></textarea>')+
+      '<button class="btn" id="bs_save">✔ Émettre le bon de sortie</button></div>';
+  }
+  if((role==='PP'||isAdmin) && pend.indexOf('PP')>=0){
+    h+='<div class="card"><h2>⇲ Porte de Sortie — checklist finale</h2>'+
+      ppCheck('ck_cfs','Rapport CFS conforme')+ppCheck('ck_t1','Numéro(s) T1 valide(s)')+
+      ppCheck('ck_balise','Numéro de balise vérifié')+ppCheck('ck_bs','Numéro du bon de sortie vérifié')+
+      field('Observations','<textarea id="p_obs" maxlength="1000"></textarea>')+
+      '<button class="btn" id="p_save">✔ Valider la sortie</button></div>';
+  }
+  c.innerHTML=h;
+
+  /* ----- handlers ----- */
+  // v3.2 — Validation chef brigade (signature). Le hors gabarit est automatique (saisi par le CFS).
+  if($('#v_save')){
+    $('#v_save').addEventListener('click',function(){
+      busy(true); this.disabled=true;
+      call('cargo.valider',{id:x.id, observations:$('#v_obs')?$('#v_obs').value:''}).then(function(){
+        busy(false); toast('Validé et signé ✔','ok'); go('detail',x.id);
+      }).catch(function(e){ busy(false); err(e); });
+    });
+  }
+  // Porte CFS / CFS — ajout d'un conteneur (+ déclaration complète en enlèvement)
+  if($('#cf2_add')){
+    var stockMap={};
+    // v2.9 — DÉPOTAGE : on ne propose QUE le « stock CFS journalier » (conteneurs Positionné = pointés le matin).
+    // Enlèvement : tout le stock disponible (En stock + Positionné). Auto-remplissage taille/type (LOT L).
+    var cf2Depot=(x.typeOperation==='Dépotage');
+    call('stock.list',{statut:'tous'}).then(function(r){
+      var dl=$('#stockTC'), opts='';
+      (r.rows||[]).forEach(function(s){
+        var ok = (s.statut==='Positionné') || (!cf2Depot && s.statut==='En stock');
+        if(ok){
+          stockMap[s.numeroTC]={taille:s.taille,type:s.typeConteneur};
+          opts+='<option value="'+esc(s.numeroTC)+'">'+esc((s.taille||'')+' '+(s.typeConteneur||''))+'</option>';
+        }
+      });
+      if(dl) dl.innerHTML=opts; autofill();
+    }).catch(function(){});
+    var cf2Type=function(){ return $('#cf2_type') ? $('#cf2_type').value : x.typeOperation; };
+    var estManuel=function(){ return !!($('#cf2_manuel') && $('#cf2_manuel').checked); };
+    var setSel=function(sel,raw){ if(!sel)return; var v=String(raw||''),hit='';
+      for(var i=0;i<sel.options.length;i++){ if(sel.options[i].value===v){hit=v;break;} }
+      if(!hit){ var b=tailleBucket(v),m={t20:"20'",t40:"40'",t45:"45'"}; if(m[b])hit=m[b]; }
+      if(hit) sel.value=hit; };
+    // v3.1 — seule la TAILLE est auto-remplie/verrouillée depuis le stock ; le TYPE reste saisi à la main.
+    var lockTT=function(lock){ if($('#cf2_taille'))$('#cf2_taille').disabled=lock; };
+    var autofill=function(){
+      if(estManuel()) return;                 // saisie manuelle : on n'écrase pas
+      var tc=($('#cf2_tc')?$('#cf2_tc').value:'').trim().toUpperCase().replace(/[^A-Z0-9]/g,'');
+      var s=stockMap[tc];
+      if(s){ setSel($('#cf2_taille'),s.taille); lockTT(true); }   // type non auto-rempli (saisi à la main)
+      else lockTT(false);
+    };
+    var refreshCf2=function(){
+      var enl=(cf2Type()==='Enlèvement');
+      // v2.8 — le bloc déclaration (déclarant & co) est visible pour les DEUX opérations dès la saisie.
+      if($('#cf2_enlonly')) $('#cf2_enlonly').classList.remove('hidden');
+      if($('#cf2_plombwrap')) $('#cf2_plombwrap').classList.toggle('hidden', !enl);
+      // La saisie manuelle (conteneur partagé) ne concerne que le DÉPOTAGE.
+      if($('#cf2_manuelwrap')) $('#cf2_manuelwrap').classList.toggle('hidden', enl);
+      if(enl && $('#cf2_manuel')) $('#cf2_manuel').checked=false;
+      autofill();
+    };
+    if($('#cf2_type')) $('#cf2_type').addEventListener('change',refreshCf2);
+    if($('#cf2_tc')){ $('#cf2_tc').addEventListener('input',autofill); $('#cf2_tc').addEventListener('change',autofill); }
+    if($('#cf2_manuel')) $('#cf2_manuel').addEventListener('change',function(){
+      if(estManuel()){ lockTT(false); if($('#cf2_taille'))$('#cf2_taille').value=''; if($('#cf2_ctype'))$('#cf2_ctype').value=''; if($('#cf2_tc'))$('#cf2_tc').setAttribute('placeholder','Saisie manuelle (partagé)'); }
+      else autofill();
+    });
+    refreshCf2();
+    var lk=function(){
+      var d={anneeDeclaration:$('#cf2_annee').value,bureauDeclaration:$('#cf2_bureau').value,typeDeclaration:$('#cf2_typed').value,numeroDeclaration:$('#cf2_numd').value};
+      if(!d.numeroDeclaration) return;
+      call('decl.lookup',{declaration:d}).then(function(r){ if(!$('#cf2_apure')) return;
+        if(r.exists){ $('#cf2_apure').innerHTML='Déclaration connue · restant à apurer <b style="color:var(--blue)">'+r.restant+'</b>'; if($('#cf2_nb'))$('#cf2_nb').value=r.nombreConteneurs; }
+        else $('#cf2_apure').textContent='Nouvelle déclaration.'; }).catch(function(){});
+    };
+    ['#cf2_annee','#cf2_bureau','#cf2_typed','#cf2_numd'].forEach(function(s){ var el=$(s); if(el) el.addEventListener('change',lk); });
+    $('#cf2_add').addEventListener('click',function(){
+      var premier=(x.statut===STATUTS.CAMION);
+      var type=premier?cf2Type():x.typeOperation;
+      if(premier && !type){ toast("Choisissez le type d'opération",'warn'); return; }
+      var estEnlF=(type==='Enlèvement');
+      var tc=$('#cf2_tc').value.trim().toUpperCase().replace(/[^A-Z0-9]/g,'');
+      if(!/^[A-Z]{4}[0-9]{7}$/.test(tc)){ toast('N° conteneur = 4 lettres + 7 chiffres','warn'); return; }
+      if(!$('#cf2_taille').value){ toast('Taille requise','warn'); return; }
+      if(!$('#cf2_numd').value.trim()){ toast('N° de déclaration requis','warn'); return; }
+      if(estEnlF && (!$('#cf2_plomb')||!$('#cf2_plomb').value.trim())){ toast('Scellé obligatoire (enlèvement)','warn'); return; }
+      var conteneur={ num:tc, taille:$('#cf2_taille').value, type:$('#cf2_ctype').value,
+        plomb:(estEnlF&&$('#cf2_plomb')?$('#cf2_plomb').value:''),
+        manuel:estManuel(),
+        numeroDeclaration:$('#cf2_numd').value, anneeDeclaration:$('#cf2_annee').value,
+        bureauDeclaration:$('#cf2_bureau').value, typeDeclaration:$('#cf2_typed').value };
+      var payload={ id:x.id, conteneur:conteneur };
+      var estDepF=(type==='Dépotage');
+      if(premier) payload.typeOperation=type;
+      if(premier && estEnlF && $('#cf2_colis') && $('#cf2_colis').value!=='') payload.nbColis=$('#cf2_colis').value; // colis enlèvement (dépotage = à l'étape scellés)
+      // Déclaration COMPLÈTE pour CHAQUE conteneur (1er ET suivants) — mêmes champs jusqu'à la désignation.
+      if(!$('#cf2_decl')||!$('#cf2_decl').value.trim()||!$('#cf2_contact').value.trim()||!$('#cf2_dest').value.trim()||!$('#cf2_desc').value.trim()){ toast('Complétez la déclaration du conteneur','warn'); return; }
+      payload.declaration={ declarant:$('#cf2_decl').value, contactDeclarant:$('#cf2_contact').value, destinationMarchandise:$('#cf2_dest').value,
+        bureauDeclaration:$('#cf2_bureau').value, typeDeclaration:$('#cf2_typed').value, numeroDeclaration:$('#cf2_numd').value,
+        anneeDeclaration:$('#cf2_annee').value, descriptionMarchandise:$('#cf2_desc').value, nombreConteneurs:($('#cf2_nb')&&$('#cf2_nb').value?Number($('#cf2_nb').value):'') };
+      busy(true); this.disabled=true;
+      call('cargo.cfs',payload).then(function(){ busy(false); toast(estEnlF?'Enlèvement enregistré ✔':'Conteneur ajouté ✔','ok'); go('detail',x.id); }).catch(function(e){ busy(false); err(e); });
+    });
+  }
+  // CFS — DÉPOTAGE : hauteur + colis (hors gabarit auto si > 4,5 m) + scellés camion → validation
+  if($('#cd_save')){
+    var hauteurNum=function(){ var v=parseFloat(String($('#cd_haut').value||'').replace(',','.').replace(/[^0-9.]/g,'')); return isNaN(v)?null:v; };
+    var warnHG=function(){ var v=hauteurNum(); $('#cd_hgwarn').innerHTML=(v!=null&&v>4.5)
+      ?'<div class="dup-strong">⚠ Hauteur '+v+' m &gt; 4,5 m → sera signalé <b>HORS GABARIT</b> au chef brigade.</div>':''; };
+    $('#cd_haut').addEventListener('input',warnHG); warnHG();
+    $('#cd_save').addEventListener('click',function(){
+      var sc=$all('.cdsc').map(function(i){return i.value;}).filter(function(v){return v.trim();});
+      if(!$('#cd_haut').value.trim()){ toast('Hauteur du chargement requise','warn'); return; }
+      if($('#cd_colis').value===''){ toast('Nombre de colis requis','warn'); return; }
+      if(sc.length<2){ toast('Au moins 2 scellés camion','warn'); return; }
+      busy(true); this.disabled=true;
+      call('cargo.declaration',{id:x.id, hauteurChargement:$('#cd_haut').value, nbColis:$('#cd_colis').value, scellesCamion:sc, observationsCFS:$('#cd_obs').value}).then(function(r){
+        busy(false); toast(r&&r.horsGabarit?'Finalisé — HORS GABARIT signalé ✔':'Dépotage finalisé ✔','ok'); go('detail',x.id);
+      }).catch(function(e){ busy(false); err(e); });
+    });
+  }
+  if($('#t1_list')){
+    // v2.8 — Enlèvement : chaque T1 est LIÉ à un conteneur (menu déroulant ; un conteneur choisi
+    // disparaît des autres listes). Dépotage : simple liste de numéros (1:N).
+    var t1Conts=(dets||[]).map(function(o){return String(o.num||o.conteneur||'');}).filter(Boolean);
+    var enlT1=(estEnl && t1Conts.length>0);
+    var refreshT1=function(){ var chosen=$all('.t1-cont').map(function(s){return s.value;});
+      $all('.t1-cont').forEach(function(sel){ Array.prototype.forEach.call(sel.options,function(op){ if(op.value) op.disabled=(chosen.indexOf(op.value)>=0 && op.value!==sel.value); }); }); };
+    var addT1=function(valNum,valCont){ var r=document.createElement('div'); r.className='row t1-row'; r.style.alignItems='flex-end';
+      var contSel= enlT1 ? field('Conteneur *','<select class="up t1-cont"><option value="">— choisir —</option>'+t1Conts.map(function(tc){return '<option value="'+esc(tc)+'"'+(tc===valCont?' selected':'')+'>'+esc(tc)+'</option>';}).join('')+'</select>') : '';
+      r.innerHTML=contSel+field('N° T1','<input type="text" class="up t1-num" maxlength="40" value="'+esc(valNum||'')+'">')+
+        '<div class="field" style="flex:0"><button class="btn danger sm" type="button">✕</button></div>';
+      $('#t1_list').appendChild(r);
+      $('.danger',r).addEventListener('click',function(){ r.remove(); refreshT1(); });
+      var cs=$('.t1-cont',r); if(cs) cs.addEventListener('change',refreshT1);
+      refreshT1(); };
+    if(t1nums.length) t1nums.forEach(function(o){ if(o&&typeof o==='object') addT1(o.numero,o.conteneur); else addT1(o,''); });
+    else if(enlT1) t1Conts.forEach(function(tc){ addT1('',tc); });
+    else addT1('','');
+    $('#t1_add').addEventListener('click',function(){ addT1('',''); });
+    $('#t1_save').addEventListener('click',function(){
+      if(!$('#t1_bureau').value.trim()){ toast('Bureau de destination requis','warn'); return; }
+      var payloadT1;
+      if(enlT1){ var arr=[],bad=false;
+        $all('.t1-row').forEach(function(rw){ var n=$('.t1-num',rw)?$('.t1-num',rw).value.trim():''; var cc=$('.t1-cont',rw)?$('.t1-cont',rw).value:''; if(n||cc){ if(!n||!cc) bad=true; arr.push({conteneur:cc,numero:n}); } });
+        if(bad){ toast('Associez chaque T1 à un conteneur','warn'); return; }
+        if(!arr.length){ toast('Au moins un T1','warn'); return; }
+        payloadT1=arr;
+      } else { payloadT1=$all('.t1-num').map(function(i){return i.value;}).filter(function(v){return v.trim();});
+        if(!payloadT1.length){ toast('Au moins un N° T1','warn'); return; } }
+      busy(true); this.disabled=true;
+      call('cargo.t1',{id:x.id, bureauDestination:$('#t1_bureau').value, t1Numeros:payloadT1, observations:$('#t1_obs').value}).then(function(){
+        busy(false); toast('Cellule T1 validée ✔','ok'); go('detail',x.id);
+      }).catch(function(e){ busy(false); err(e); });
+    });
+  }
+  if($('#bs_list')){   // v2.8 — un bon de sortie par conteneur (pré-rempli avec son T1)
+    var t1map={}; (t1nums||[]).forEach(function(o){ if(o&&typeof o==='object'&&o.conteneur) t1map[o.conteneur]=o.numero; });
+    (dets||[]).forEach(function(o){ var tc=String(o.num||o.conteneur||''); if(!tc) return;
+      var r=document.createElement('div'); r.className='row bs-row'; r.style.alignItems='flex-end';
+      r.innerHTML='<input type="hidden" class="bs-cont" value="'+esc(tc)+'"><input type="hidden" class="bs-t1" value="'+esc(t1map[tc]||'')+'">'+
+        field('Conteneur','<input type="text" class="up" value="'+esc(tc)+'" disabled>')+
+        field('T1','<input type="text" class="up" value="'+esc(t1map[tc]||'—')+'" disabled>')+
+        field('N° bon de sortie *','<input type="text" class="up bs-num" maxlength="60">');
+      $('#bs_list').appendChild(r); });
+  }
+  function gReq(){ var r=document.querySelector('input[name=g_req]:checked'); return r?r.value:'oui'; }
+  $all('input[name=g_req]').forEach(function(rb){ rb.addEventListener('change',function(){
+    var oui=(gReq()==='oui');
+    if($('#g_gpswrap')) $('#g_gpswrap').classList.toggle('hidden', !oui);
+    if($('#g_dispwrap')) $('#g_dispwrap').classList.toggle('hidden', oui);
+    if($('#g_save')) $('#g_save').textContent=oui?'✔ Valider la balise':'✔ Valider la dispense';
+  }); });
+  if($('#g_save')) $('#g_save').addEventListener('click',function(){
+    var requise=(gReq()==='oui');
+    if(!$('#g_t1ok').checked){ toast('Cochez « Numéro T1 correct »','warn'); return; }
+    var num=$('#g_num')?$('#g_num').value.trim():'';
+    var disp=$('#g_disp')?$('#g_disp').value.trim():'';
+    if(requise && !num){ toast('N° balise requis','warn'); return; }
+    if(!requise && !disp){ toast('N° dispense requis','warn'); return; }
+    busy(true); this.disabled=true;
+    call('cargo.gps',{id:x.id, numeroGPS:num, numeroDispense:disp, t1Correct:true, observations:$('#g_obs').value, baliseRequise:(requise?'Oui':'Non')}).then(function(){
+      busy(false); toast(requise?'Balise enregistrée ✔':'Dispense enregistrée ✔','ok'); go('detail',x.id);
+    }).catch(function(e){ busy(false); err(e); });
+  });
+  if($('#ge_save')) $('#ge_save').addEventListener('click',function(){
+    var num=$('#ge_num').value.trim(); if(!num){ toast('Nouveau N° balise requis','warn'); return; }
+    busy(true); this.disabled=true;
+    call('cargo.gpsedit',{id:x.id, numeroGPS:num, observations:$('#ge_obs').value}).then(function(){
+      busy(false); toast('Balise remplacée ✔','ok'); go('detail',x.id);
+    }).catch(function(e){ busy(false); err(e); });
+  });
+  if($('#bs_save')) $('#bs_save').addEventListener('click',function(){
+    var payloadBS;
+    if($('#bs_list')){   // enlèvement : un bon par conteneur (lié au T1)
+      var arr=[],bad=false;
+      $all('.bs-row').forEach(function(rw){ var n=$('.bs-num',rw)?$('.bs-num',rw).value.trim():'';
+        var cc=$('.bs-cont',rw)?$('.bs-cont',rw).value:''; var t1=$('.bs-t1',rw)?$('.bs-t1',rw).value:'';
+        if(n) arr.push({conteneur:cc,t1:t1,numero:n}); else bad=true; });
+      if(bad){ toast('Un bon de sortie par conteneur','warn'); return; }
+      if(!arr.length){ toast('Au moins un bon de sortie','warn'); return; }
+      payloadBS=arr;
+    } else { var num=$('#bs_num').value.trim(); if(!num){ toast('N° bon de sortie requis','warn'); return; } payloadBS=num; }
+    busy(true); this.disabled=true;
+    call('cargo.bonsortie',{id:x.id, bonSortieNumero:payloadBS, observations:$('#bs_obs').value}).then(function(){
+      busy(false); toast('Bon de sortie émis ✔','ok'); go('detail',x.id);
+    }).catch(function(e){ busy(false); err(e); });
+  });
+  if($('#p_save')) $('#p_save').addEventListener('click',function(){
+    if(!($('#ck_cfs').checked&&$('#ck_t1').checked&&$('#ck_balise').checked&&$('#ck_bs').checked)){ toast('Cochez les 4 contrôles','warn'); return; }
+    busy(true); this.disabled=true;
+    call('cargo.sortie',{id:x.id, ckCfs:true, ckT1:true, ckBalise:true, ckBs:true, observations:$('#p_obs').value}).then(function(){
+      busy(false); toast('Sortie validée ✔','ok'); go('detail',x.id);
+    }).catch(function(e){ busy(false); err(e); });
+  });
+}
+function ppCheck(id,label){ return '<label style="display:flex;gap:10px;align-items:center;margin-bottom:8px"><input type="checkbox" id="'+id+'" style="width:auto"> <span>'+esc(label)+'</span></label>'; }
+function step(done,current,title,body){
+  var cl=done?'done':(current?'current':'');
+  return '<div class="step '+cl+'"><div class="dot"></div><h4>'+esc(title)+'</h4>'+body+'</div>';
+}
+function kv(k,v){ return '<div><b>'+esc(k)+' :</b> '+esc(v||'—')+'</div>'; }
+
+/* ---- Détail d'un VÉHICULE (saute la balise : CFS → Sortie) ---- */
+function renderDetailVehicule(c, x){
+  var role=STATE.user.role;
+  var v={}; try{ v=JSON.parse(x.vehiculeDetails||'{}'); }catch(e){}
+  var sortie=(x.statut===STATUTS.SORTIE);
+  var dep='<div class="kv">'+kv('Déclarant',x.declarant)+kv('Contact',x.contactDeclarant)+kv('Destination',x.destinationMarchandise)+
+    kv('Bureau décl.',x.bureauDeclaration)+kv('Type décl.',x.typeDeclaration)+kv('N° décl.',x.numeroDeclaration)+kv('Année',x.anneeDeclaration)+'</div>'+
+    (x.descriptionMarchandise?'<div style="margin-top:8px"><b style="color:var(--muted)">Description :</b> '+esc(x.descriptionMarchandise)+'</div>':'');
+  var extra=(v.extra||[]).map(function(z){ return (z&&z.nom)?('<div><b>'+esc(z.nom)+' :</b> '+esc(z.valeur||'')+'</div>'):''; }).join('');
+  var h='<div class="card"><div class="row" style="align-items:center"><h2 style="margin:0;flex:1">'+esc(x.id)+' <span class="tag st-sortie">Véhicule</span></h2>'+statutTag(x.statut, x)+'</div>'+
+    (x.rapportId?'<p class="help" style="margin:4px 0 0">Rapport : <b class="mono">'+esc(x.rapportId)+'</b></p>':'')+
+    '<div class="row" style="margin-top:8px"><button class="btn sec sm" onclick="go(\'dash\')" type="button">‹ Retour au tableau de bord</button>'+
+    '<button class="btn sec sm" onclick="corrigerCamionForm(\''+esc(x.id)+'\',\''+esc(x.numeroCamion)+'\')">✎ Corriger N° châssis</button></div></div>';
+  var isAdmin=(role==='ADMIN');
+  var t1nums=[]; try{ t1nums=JSON.parse(x.t1Numeros||'[]'); }catch(e){}
+  // v3.6 — moteur d'étapes (gère l'ouillage : sauts T1/BS + statut « Véhicule ouillage créé »).
+  var pend=etapesEnAttente(x);
+  var estOuil=aFait(x.ouillageNumero);
+  var vT1=(x.sauteT1==='Oui')||aFait(x.dateT1)||sortie, vBS=(x.sauteBS==='Oui')||aFait(x.bonSortieNumero)||sortie;
+  var vValid=(x.sauteValidation==='Oui')||aFait(x.dateValidation)||sortie;
+  h+='<div class="card"><h2>Parcours du véhicule (saute la Balise)</h2><div class="timeline">'+
+    step(x.statut!==STATUTS.VEHICULE_OUILLAGE, x.statut===STATUTS.VEHICULE_OUILLAGE,'① Enregistrement CFS'+(estOuil?' — OUILLAGE':''),
+      '<div class="kv">'+kv('Date',fmtDate(x.dateCreation))+kv('N° châssis (VIN)',x.numeroCamion)+kv('Marque',v.marque)+kv('Modèle',v.modele)+
+      kv('Couleur',v.couleur)+kv('Destination',v.destination)+kv("Conteneur d'origine",x.conteneurOrigine)+
+      (estOuil?kv('N° Ouillage',x.ouillageNumero)+kv('Date Ouillage',fmtDate(x.ouillageDate)):'')+
+      kv('Agent CFS',x.agentCFS)+'</div>'+
+      (x.statut===STATUTS.VEHICULE_OUILLAGE?'<div class="dup-soft" style="margin-top:6px">Déclaration à renseigner (permis d\'examiner).</div>':'')+
+      (extra?'<div class="kv" style="margin-top:6px">'+extra+'</div>':'')+dep+
+      (x.observationsCFS?'<div style="margin-top:6px"><b style="color:var(--muted)">Obs. :</b> '+esc(x.observationsCFS)+'</div>':''))+
+    step(vValid, pend.indexOf('VALIDATION')>=0,'✔ Validation — Chef brigade',
+      vValid?('<div class="kv">'+kv('Validé par',x.agentValidation)+kv('Date',fmtDate(x.dateValidation))+(x.signatureValidation?kv('Signature',x.signatureValidation):'')+'</div>'):'<span style="color:var(--muted)">En attente de validation…</span>')+
+    step(vT1, pend.indexOf('T1')>=0,'② Cellule T1',
+      x.sauteT1==='Oui'?'<span style="color:var(--muted)">Non requise ('+(estOuil?'ouillage — régime hors transit':'régime')+')</span>'
+      :(vT1&&aFait(x.dateT1)?('<div class="kv">'+kv('N° T1',t1Display(t1nums))+kv('Bureau destination',x.bureauDestination)+kv('Date',fmtDate(x.dateT1))+kv('Agent',x.agentT1)+'</div>'):'<span style="color:var(--muted)">En attente…</span>'))+
+    step(vBS, pend.indexOf('BS')>=0,'③ Bon de Sortie',
+      x.sauteBS==='Oui'?'<span style="color:var(--muted)">Non requis (ouillage)</span>'
+      :(vBS&&aFait(x.bonSortieNumero)?('<div class="kv">'+kv('N° Bon de sortie',bsDisplay(x.bonSortieNumero))+kv('Date',fmtDate(x.dateBonSortie))+kv('Agent',x.agentBonSortie)+'</div>'):'<span style="color:var(--muted)">En attente…</span>'))+
+    step(sortie, pend.indexOf('PP')>=0,'④ Sortie (Porte Principale)',
+      sortie?('<div class="kv">'+kv('Date sortie',fmtDate(x.dateSortie))+kv('Agent',x.agentPP)+kv('Infos validées',x.infosValidees)+'</div>'):'<span style="color:var(--muted)">En attente de sortie…</span>')+
+    '</div></div>';
+  // Panneaux d'action (moteur d'étapes ; l'ouillage saute T1 hors transit + Bon de sortie)
+  if((role==='CFS'||isAdmin) && x.statut===STATUTS.VEHICULE_OUILLAGE){
+    h+='<div class="card"><h2>✎ Ouillage — Compléter la déclaration du véhicule</h2>'+
+      '<p class="help">Régime <b>Transit (T)</b> : passe par la cellule <b>T1</b>, saute Balise + Bon de sortie, sort à la PP. '+
+        'Autres régimes (<b>C</b>onso, MAD…) : va <b>directement à la PP</b> (après validation chef brigade).</p>'+
+      '<div class="row">'+field('Déclarant *','<input type="text" class="up" id="od_decl">')+field('Contact (tél) *','<input type="text" class="tel" id="od_contact" inputmode="tel">')+'</div>'+
+      '<div class="row">'+field('Destination *','<input type="text" class="up" id="od_dest">')+field('Bureau *','<input type="text" class="up" id="od_bureau" value="TG120">')+'</div>'+
+      '<div class="row">'+field('Type décl. *','<select class="up" id="od_typed">'+TYPES_DECL.map(function(t){return '<option value="'+t+'">'+t+'</option>';}).join('')+'</select>')+
+        field('N° décl. *','<input type="text" class="up" id="od_numd">')+
+        field('Année *','<input type="number" id="od_annee" value="'+new Date().getFullYear()+'">')+'</div>'+
+      field('Description (facultatif)','<textarea class="up" id="od_desc" maxlength="600"></textarea>')+
+      '<button class="btn" id="od_save">✔ Enregistrer la déclaration</button></div>';
+  }
+  if((role==='T1'||isAdmin) && pend.indexOf('T1')>=0){
+    h+='<div class="card"><h2>① Cellule T1</h2>'+
+      '<datalist id="bureauxList">'+BUREAUX.map(function(b){return '<option value="'+esc(b)+'">';}).join('')+'</datalist>'+
+      field('Bureau de destination *','<input type="text" id="t1_bureau" class="up" list="bureauxList" maxlength="60" autocomplete="off">')+
+      '<div class="section-title">Numéro(s) T1</div><div id="t1_list"></div>'+
+      '<button class="btn sec sm" type="button" id="t1_add">＋ Ajouter un T1</button>'+
+      field('Observations','<textarea id="t1_obs" maxlength="1000"></textarea>')+
+      '<button class="btn" id="t1_save">✔ Valider la cellule T1</button></div>';
+  }
+  if((role==='BON_SORTIE'||isAdmin) && pend.indexOf('BS')>=0){
+    h+='<div class="card"><h2>▣ Cellule Bon de Sortie</h2>'+
+      field('N° du bon de sortie *','<input type="text" id="bs_num" class="up" maxlength="60">')+
+      field('Observations','<textarea id="bs_obs" maxlength="1000"></textarea>')+
+      '<button class="btn" id="bs_save">✔ Émettre le bon de sortie</button></div>';
+  }
+  if((role==='CHEF_BRIGADE'||isAdmin) && pend.indexOf('VALIDATION')>=0){
+    h+='<div class="card"><h2>✔ Validation — Chef brigade (signature)</h2>'+
+      '<p class="help">Tant que vous n\'avez pas validé, la suite du parcours reste <b>bloquée</b>.</p>'+
+      field('Observations','<textarea id="v_obs" maxlength="1000"></textarea>')+
+      '<button class="btn" id="v_save">✔ Valider et signer</button></div>';
+  }
+  if((role==='PP'||isAdmin) && pend.indexOf('PP')>=0){
+    h+='<div class="card"><h2>⇲ Enregistrer la sortie du véhicule</h2>'+
+      '<label style="display:flex;gap:10px;align-items:center;margin-bottom:12px"><input type="checkbox" id="p_val" style="width:auto"> <span>Informations validées (vérifiées et conformes)</span></label>'+
+      field('Observations','<textarea id="p_obs" maxlength="1000"></textarea>')+
+      '<button class="btn" id="p_save">✔ Confirmer la sortie</button></div>';
+  } else if(role==='PP' && sortie){
+    h+='<div class="card"><div class="empty">Véhicule déjà sorti.</div></div>';
+  }
+  c.innerHTML=h;
+  // v3.6 — Ouillage : enregistrement de la déclaration du véhicule
+  if($('#od_save')) $('#od_save').addEventListener('click',function(){
+    var champs=[['#od_decl','Déclarant'],['#od_contact','Contact'],['#od_dest','Destination'],['#od_bureau','Bureau'],['#od_numd','N° de déclaration'],['#od_annee','Année']];
+    for(var i=0;i<champs.length;i++){ if(!$(champs[i][0]).value.trim()){ toast(champs[i][1]+' requis','warn'); return; } }
+    busy(true); this.disabled=true;
+    call('cargo.ouillagedecl',{id:x.id, declaration:{ declarant:$('#od_decl').value, contactDeclarant:$('#od_contact').value,
+      destinationMarchandise:$('#od_dest').value, bureauDeclaration:$('#od_bureau').value, typeDeclaration:$('#od_typed').value,
+      numeroDeclaration:$('#od_numd').value, anneeDeclaration:$('#od_annee').value, descriptionMarchandise:$('#od_desc').value }}).then(function(r){
+      busy(false); toast(r&&r.transit?'Déclaration enregistrée ✔ (Transit → cellule T1)':'Déclaration enregistrée ✔ (→ sortie PP)','ok'); go('detail',x.id);
+    }).catch(function(e){ busy(false); err(e); });
+  });
+  // v3.6 — Validation chef brigade (véhicules)
+  if($('#v_save')) $('#v_save').addEventListener('click',function(){
+    busy(true); this.disabled=true;
+    call('cargo.valider',{id:x.id, observations:$('#v_obs')?$('#v_obs').value:''}).then(function(){
+      busy(false); toast('Validé et signé ✔','ok'); go('detail',x.id);
+    }).catch(function(e){ busy(false); err(e); });
+  });
+  if($('#t1_list')){
+    var addT1=function(val){ var r=document.createElement('div'); r.className='row t1-row'; r.style.alignItems='flex-end';
+      r.innerHTML=field('N° T1','<input type="text" class="up t1-num" maxlength="40" value="'+esc(val||'')+'">')+
+        '<div class="field" style="flex:0"><button class="btn danger sm" type="button">✕</button></div>';
+      $('#t1_list').appendChild(r); $('.danger',r).addEventListener('click',function(){ r.remove(); }); };
+    if(t1nums.length) t1nums.forEach(addT1); else addT1('');
+    $('#t1_add').addEventListener('click',function(){ addT1(''); });
+    $('#t1_save').addEventListener('click',function(){
+      var nums=$all('.t1-num').map(function(i){return i.value;}).filter(function(v){return v.trim();});
+      if(!$('#t1_bureau').value.trim()){ toast('Bureau de destination requis','warn'); return; }
+      if(!nums.length){ toast('Au moins un N° T1','warn'); return; }
+      busy(true); this.disabled=true;
+      call('cargo.t1',{id:x.id, bureauDestination:$('#t1_bureau').value, t1Numeros:nums, observations:$('#t1_obs').value}).then(function(){
+        busy(false); toast('Cellule T1 validée ✔','ok'); go('detail',x.id);
+      }).catch(function(e){ busy(false); err(e); });
+    });
+  }
+  if($('#bs_save')) $('#bs_save').addEventListener('click',function(){
+    var payloadBS;
+    if($('#bs_list')){   // enlèvement : un bon par conteneur (lié au T1)
+      var arr=[],bad=false;
+      $all('.bs-row').forEach(function(rw){ var n=$('.bs-num',rw)?$('.bs-num',rw).value.trim():'';
+        var cc=$('.bs-cont',rw)?$('.bs-cont',rw).value:''; var t1=$('.bs-t1',rw)?$('.bs-t1',rw).value:'';
+        if(n) arr.push({conteneur:cc,t1:t1,numero:n}); else bad=true; });
+      if(bad){ toast('Un bon de sortie par conteneur','warn'); return; }
+      if(!arr.length){ toast('Au moins un bon de sortie','warn'); return; }
+      payloadBS=arr;
+    } else { var num=$('#bs_num').value.trim(); if(!num){ toast('N° bon de sortie requis','warn'); return; } payloadBS=num; }
+    busy(true); this.disabled=true;
+    call('cargo.bonsortie',{id:x.id, bonSortieNumero:payloadBS, observations:$('#bs_obs').value}).then(function(){
+      busy(false); toast('Bon de sortie émis ✔','ok'); go('detail',x.id);
+    }).catch(function(e){ busy(false); err(e); });
+  });
+  if($('#p_save')) $('#p_save').addEventListener('click',function(){
+    if(!$('#p_val').checked){ toast('Cochez « Informations validées »','warn'); return; }
+    busy(true); this.disabled=true;
+    call('cargo.sortie',{id:x.id, infosValidees:true, observations:$('#p_obs').value}).then(function(){
+      busy(false); toast('Sortie enregistrée ✔','ok'); go('detail',x.id);
+    }).catch(function(e){ busy(false); err(e); });
+  });
+}
+
+/* ---- Rapports (Admin) ---- */
+SCREENS.reports=function(c){
+  c.innerHTML='<div class="card"><h2>⤓ Rapports de listes</h2><p class="help">Exportez les listes en Excel (.xlsx) ou PDF.</p>'+
+    '<table class="grid"><thead><tr><th>Rapport</th><th style="width:230px">Format</th></tr></thead><tbody>'+
+    rpRow('enregistrees','Cargaisons enregistrées')+
+    rpRow('attente_gps','En attente de GPS')+
+    rpRow('attente_sortie','En attente de sortie')+
+    rpRow('sorties','Cargaisons sorties')+
+    '</tbody></table></div>'+
+    '<div class="card"><h2>◵ Historique des opérations</h2>'+
+      '<div class="row" style="align-items:flex-end">'+
+        field('Du','<input type="date" id="h_du">')+field('Au','<input type="date" id="h_au">')+
+        field('Utilisateur (option)','<input type="text" id="h_user" placeholder="identifiant">')+
+        '<button class="btn sec" onclick="dlHistory(\'xlsx\')">⤓ Excel</button>'+
+        '<button class="btn sec" onclick="dlHistory(\'pdf\')">⤓ PDF</button>'+
+      '</div></div>';
+  function rpRow(type,label){ return '<tr><td>'+label+'</td><td>'+
+    '<button class="btn sec sm" onclick="dlList(\''+type+'\',\'xlsx\')">⤓ Excel</button> '+
+    '<button class="btn sec sm" onclick="dlList(\''+type+'\',\'pdf\')">⤓ PDF</button></td></tr>'; }
+};
+function dlList(type,format){ busy(true); call('report.list',{type:type,format:format}).then(function(b){ busy(false); saveBlob(b); }).catch(function(e){ busy(false); err(e); }); }
+function dlHistory(format){ busy(true); call('report.history',{format:format, du:$('#h_du').value, au:$('#h_au').value, username:$('#h_user').value.trim()}).then(function(b){ busy(false); saveBlob(b); }).catch(function(e){ busy(false); err(e); }); }
+function downloadLoading(id){ busy(true); call('report.loading',{id:id}).then(function(b){ busy(false); saveBlob(b); }).catch(function(e){ busy(false); err(e); }); }
+
+/* ---- Rapport d'activité CFS (Admin + agents CFS) ---- */
+function isoDate(d){ var p=function(n){return ('0'+n).slice(-2);}; return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate()); }
+function weekRange(){ var now=new Date(); var day=(now.getDay()+6)%7; var mon=new Date(now); mon.setDate(now.getDate()-day); var sun=new Date(mon); sun.setDate(mon.getDate()+6); return [mon,sun]; }
+function monthRange(){ var now=new Date(); return [new Date(now.getFullYear(),now.getMonth(),1), new Date(now.getFullYear(),now.getMonth()+1,0)]; }
+
+SCREENS.cfsreport=function(c){
+  var isAdmin=STATE.user.role==='ADMIN';
+  var today=isoDate(new Date());
+  c.innerHTML='<div class="card"><h2>∑ Rapport d\'activité CFS</h2>'+
+    '<p class="help">'+(isAdmin?'Synthèse par période — tous les agents ou filtrée par agent CFS.':'Votre activité CFS sur la période choisie.')+'</p>'+
+    '<div class="field"><label>Périodicité</label><div>'+
+      '<button class="btn sec sm" type="button" onclick="cfsPeriode(\'jour\')">Jour</button> '+
+      '<button class="btn sec sm" type="button" onclick="cfsPeriode(\'semaine\')">Semaine</button> '+
+      '<button class="btn sec sm" type="button" onclick="cfsPeriode(\'mois\')">Mois</button> '+
+      '<button class="btn sec sm" type="button" onclick="cfsPeriode(\'personnalise\')">Personnalisé</button>'+
+    '</div></div>'+
+    '<div class="row" style="align-items:flex-end">'+
+      field('Du','<input type="date" id="cf_du" value="'+today+'">')+
+      field('Au','<input type="date" id="cf_au" value="'+today+'">')+
+      field('Opération','<select id="cf_op"><option value="">Tous (séparés)</option><option>Enlèvement</option><option>Dépotage</option></select>')+
+      (isAdmin?field('Agent CFS','<select id="cf_agent"><option value="">Tous les agents</option></select>'):'')+
+      '<button class="btn" id="cf_go">Afficher</button>'+
+      '<button class="btn sec" onclick="dlCFS(\'xlsx\')">⤓ Excel</button>'+
+      '<button class="btn sec" onclick="dlCFS(\'pdf\')">⤓ PDF</button>'+
+    '</div>'+
+    '<input type="hidden" id="cf_periode" value="jour">'+
+    '</div><div id="cfres"></div>';
+  if(isAdmin){
+    call('user.list',{}).then(function(rows){
+      var sel=$('#cf_agent'); if(!sel) return;
+      rows.filter(function(u){return u.role==='CFS'||u.role==='ADMIN';}).forEach(function(u){
+        var o=document.createElement('option'); o.value=u.nomComplet; o.textContent=u.nomComplet+' ('+u.username+')'; sel.appendChild(o);
+      });
+    }).catch(function(){});
+  }
+  $('#cf_go').addEventListener('click',runCFS);
+  $('#cf_op').addEventListener('change',runCFS);
+  runCFS();
+};
+function cfsPeriode(p){
+  $('#cf_periode').value=p; var r;
+  if(p==='jour'){ var t=isoDate(new Date()); $('#cf_du').value=t; $('#cf_au').value=t; }
+  else if(p==='semaine'){ r=weekRange(); $('#cf_du').value=isoDate(r[0]); $('#cf_au').value=isoDate(r[1]); }
+  else if(p==='mois'){ r=monthRange(); $('#cf_du').value=isoDate(r[0]); $('#cf_au').value=isoDate(r[1]); }
+  if(p!=='personnalise') runCFS();
+}
+function cfsParams(format){
+  return { periode:$('#cf_periode').value, du:$('#cf_du').value, au:$('#cf_au').value,
+           operation:($('#cf_op')?$('#cf_op').value:''),
+           agentCFS:($('#cf_agent')?$('#cf_agent').value:''), format:format||'view' };
+}
+function runCFS(){ busy(true); call('report.cfs',cfsParams('view')).then(function(d){ busy(false); renderCFS(d); }).catch(function(e){ busy(false); err(e); }); }
+function dlCFS(format){ busy(true); call('report.cfs',cfsParams(format)).then(function(b){ busy(false); saveBlob(b); }).catch(function(e){ busy(false); err(e); }); }
+function renderCFS(d){
+  // Carte cliquable -> ouvre le détail (op = ''|'Enlèvement'|'Dépotage' ; metric).
+  // op='' = toutes opérations (les cartes TOTAL sont donc cliquables elles aussi).
+  function statCard(n,l,op,metric){
+    if(!metric) return '<div class="stat"><div class="n">'+(n||0)+'</div><div class="l">'+esc(l)+'</div></div>';
+    return '<div class="stat clickable" title="Voir le détail" onclick="cfsDetailOpen(\''+(op||'')+'\',\''+metric+'\')">'+
+      '<div class="n">'+(n||0)+'</div><div class="l">'+esc(l)+'</div></div>';
+  }
+  function bloc(titre,op,o){ var evp=(o.t20||0)+2*((o.t40||0)+(o.t45||0)); return '<div class="card"><h2>'+titre+'</h2><div class="stats">'+
+    statCard(o.camions,'Camions',op,'camions')+
+    statCard(o.t20,"20'",op,'t20')+statCard(o.t40,"40'",op,'t40')+statCard(o.t45,"45'",op,'t45')+
+    statCard(o.autres,'Autres / n.p.',op,'autres')+
+    statCard(o.conteneurs,'Total conteneurs',op,'conteneurs')+
+    '<div class="stat green"><div class="n">'+evp+'</div><div class="l">EVP</div></div>'+'</div>'+
+    '<p class="help">Cliquez une carte pour voir le détail.</p></div>'; }
+  var op=$('#cf_op')?$('#cf_op').value:'';
+  var html='<div class="card"><b>Période :</b> '+esc(d.du||'…')+' → '+esc(d.au||'…')+
+    ' &nbsp;·&nbsp; <b>Opération :</b> '+esc(op||'Toutes')+' &nbsp;·&nbsp; <b>Agent :</b> '+esc(d.agent)+'</div>';
+  if(op==='' || op==='Enlèvement') html+=bloc('Enlèvement','Enlèvement',d.enlevement);
+  if(op==='' || op==='Dépotage')  html+=bloc('Dépotage','Dépotage',d.depotage);
+  if(op==='') html+='<div class="card"><div class="stats">'+statCard(d.totalCamions,'TOTAL camions','','camions')+statCard(d.totalConteneurs,'TOTAL conteneurs','','conteneurs')+'</div></div>';
+  $('#cfres').innerHTML=html;
+}
+function cfsLabelMetric(m){ return {camions:'Camions',conteneurs:'Tous les conteneurs',t20:"Conteneurs 20'",t40:"Conteneurs 40'",t45:"Conteneurs 45'",autres:'Conteneurs autres / non précisé'}[m]||m; }
+function cfsDetailOpen(op,metric){
+  var pr=cfsParams('view'); delete pr.format; pr.operation=op; pr.metric=metric;
+  busy(true);
+  call('report.cfsdetail',pr).then(function(d){ busy(false); renderCFSDetail(op,metric,d); }).catch(function(e){ busy(false); err(e); });
+}
+function renderCFSDetail(op,metric,d){
+  var title=(op||'Toutes opérations')+' — '+cfsLabelMetric(metric)+' ('+d.rows.length+')';
+  var body;
+  if(!d.rows.length){ body='<div class="empty">Aucun élément sur la période.</div>'; }
+  else if(d.kind==='camions'){
+    body='<table class="grid" style="min-width:560px"><thead><tr><th>ID</th><th>Camion</th><th>Statut</th><th>Créé le</th><th>Nb cont.</th><th>Agent CFS</th></tr></thead><tbody>'+
+      d.rows.map(function(r){ return '<tr class="clickable" onclick="closeModal();go(\'detail\',\''+esc(r.id)+'\')">'+
+        '<td class="mono">'+esc(r.id)+'</td><td>'+esc(r.numeroCamion)+'</td><td>'+statutTag(r.statut, r)+'</td>'+
+        '<td>'+fmtDate(r.dateCreation)+'</td><td>'+esc(r.nbConteneurs)+'</td><td>'+esc(r.agentCFS)+'</td></tr>'; }).join('')+
+      '</tbody></table>';
+  } else {
+    body='<table class="grid" style="min-width:620px"><thead><tr><th>Conteneur</th><th>Taille</th><th>Type</th><th>Scellé</th><th>Camion</th><th>Cargaison</th><th>Créé le</th></tr></thead><tbody>'+
+      d.rows.map(function(r){ return '<tr class="clickable" onclick="closeModal();go(\'detail\',\''+esc(r.cargaisonId)+'\')">'+
+        '<td class="mono">'+esc(r.conteneur||'—')+'</td><td>'+esc(r.taille||'—')+'</td><td>'+esc(r.typeConteneur||'—')+'</td>'+
+        '<td>'+esc(r.scelle||'—')+'</td><td>'+esc(r.numeroCamion)+'</td><td class="mono">'+esc(r.cargaisonId)+'</td>'+
+        '<td>'+fmtDate(r.dateCreation)+'</td></tr>'; }).join('')+
+      '</tbody></table>';
+  }
+  modal(title, '<div style="overflow:auto">'+body+'</div>', '<button class="btn sec" onclick="closeModal()">Fermer</button>');
+}
+
+/* ---- Rapport Véhicules dépotés (CFS + Admin) ---- */
+SCREENS.vehreport=function(c){
+  var isAdmin=STATE.user.role==='ADMIN';
+  var today=isoDate(new Date());
+  c.innerHTML='<div class="card"><h2>∑ Rapport véhicules dépotés</h2>'+
+    '<p class="help">'+(isAdmin?'Synthèse par période — tous les agents ou filtrée par agent CFS.':'Vos véhicules dépotés sur la période choisie.')+' Ventilation par destination (Transit / Conso / MAD / Abandonné).</p>'+
+    '<div class="field"><label>Périodicité</label><div>'+
+      '<button class="btn sec sm" type="button" onclick="vehPeriode(\'jour\')">Jour</button> '+
+      '<button class="btn sec sm" type="button" onclick="vehPeriode(\'semaine\')">Semaine</button> '+
+      '<button class="btn sec sm" type="button" onclick="vehPeriode(\'mois\')">Mois</button> '+
+      '<button class="btn sec sm" type="button" onclick="vehPeriode(\'personnalise\')">Personnalisé</button>'+
+    '</div></div>'+
+    '<div class="row" style="align-items:flex-end">'+
+      field('Du','<input type="date" id="vr_du" value="'+today+'">')+
+      field('Au','<input type="date" id="vr_au" value="'+today+'">')+
+      (isAdmin?field('Agent CFS','<select id="vr_agent"><option value="">Tous les agents</option></select>'):'')+
+      '<button class="btn" id="vr_go">Afficher</button>'+
+      '<button class="btn sec" onclick="dlVeh(\'xlsx\')">⤓ Excel</button>'+
+      '<button class="btn sec" onclick="dlVeh(\'pdf\')">⤓ PDF</button>'+
+    '</div>'+
+    '<input type="hidden" id="vr_periode" value="jour">'+
+    '</div><div id="vrres"></div>';
+  if(isAdmin){
+    call('user.list',{}).then(function(rows){
+      var sel=$('#vr_agent'); if(!sel) return;
+      rows.filter(function(u){return u.role==='CFS'||u.role==='ADMIN';}).forEach(function(u){
+        var o=document.createElement('option'); o.value=u.nomComplet; o.textContent=u.nomComplet+' ('+u.username+')'; sel.appendChild(o);
+      });
+    }).catch(function(){});
+  }
+  $('#vr_go').addEventListener('click',runVeh);
+  runVeh();
+};
+function vehPeriode(p){
+  $('#vr_periode').value=p; var r;
+  if(p==='jour'){ var t=isoDate(new Date()); $('#vr_du').value=t; $('#vr_au').value=t; }
+  else if(p==='semaine'){ r=weekRange(); $('#vr_du').value=isoDate(r[0]); $('#vr_au').value=isoDate(r[1]); }
+  else if(p==='mois'){ r=monthRange(); $('#vr_du').value=isoDate(r[0]); $('#vr_au').value=isoDate(r[1]); }
+  if(p!=='personnalise') runVeh();
+}
+function vehParams(format){
+  return { periode:$('#vr_periode').value, du:$('#vr_du').value, au:$('#vr_au').value,
+           agentCFS:($('#vr_agent')?$('#vr_agent').value:''), format:format||'view' };
+}
+function runVeh(){ busy(true); call('report.vehicule',vehParams('view')).then(function(d){ busy(false); renderVeh(d); }).catch(function(e){ busy(false); err(e); }); }
+function dlVeh(format){ busy(true); call('report.vehicule',vehParams(format)).then(function(b){ busy(false); saveBlob(b); }).catch(function(e){ busy(false); err(e); }); }
+function renderVeh(d){
+  function sc(n,l,cl,metric){ return '<div class="stat '+(cl||'')+' clickable" title="Voir le détail" onclick="vehDetailOpen(\''+metric+'\',\''+esc(l)+'\')">'+
+    '<div class="n">'+(n||0)+'</div><div class="l">'+esc(l)+'</div></div>'; }
+  var html='<div class="card"><b>Période :</b> '+esc(d.du||'…')+' → '+esc(d.au||'…')+' &nbsp;·&nbsp; <b>Agent :</b> '+esc(d.agent)+'</div>'+
+    '<div class="card"><h2>Synthèse</h2><div class="stats">'+
+      sc(d.total,'Total véhicules','','vehicules')+
+      sc(d.attente,'En attente de sortie','amber','attente')+
+      sc(d.sortis,'Sortis','green','sortis')+
+      sc(d.conteneurs,'Conteneurs dépotés','','conteneurs')+
+    '</div></div>'+
+    '<div class="card"><h2>Par destination / régime</h2><div class="stats">'+
+      sc(d.dist.transit,'Transit','','transit')+
+      sc(d.dist.conso,'Conso','','conso')+
+      sc(d.dist.mad,'MAD','','mad')+
+      sc(d.dist.abandon,'Véhicule abandonné','','abandon')+
+      sc(d.dist.autres,'Autre / n.p.','','autres')+
+    '</div><p class="help">Cliquez une carte pour voir les véhicules concernés.</p></div>';
+  $('#vrres').innerHTML=html;
+}
+function vehLabelMetric(m){ return {vehicules:'Tous les véhicules',attente:'En attente de sortie',sortis:'Sortis',conteneurs:'Conteneurs dépotés',transit:'Transit',conso:'Conso',mad:'MAD',abandon:'Véhicule abandonné',autres:'Autre / non précisé'}[m]||m; }
+function vehDetailOpen(metric,label){
+  var pr=vehParams('view'); delete pr.format; pr.metric=metric;
+  busy(true);
+  call('report.vehiculedetail',pr).then(function(d){ busy(false); renderVehDetail(label||vehLabelMetric(metric),d); }).catch(function(e){ busy(false); err(e); });
+}
+function renderVehDetail(label,d){
+  var title=label+' ('+d.rows.length+')';
+  var body;
+  if(!d.rows.length){ body='<div class="empty">Aucun véhicule sur la période.</div>'; }
+  else body='<table class="grid" style="min-width:720px"><thead><tr><th>ID</th><th>Châssis (VIN)</th><th>Marque/Modèle</th><th>Couleur</th><th>Destination</th><th>Statut</th><th>Conteneur</th><th>Créé le</th></tr></thead><tbody>'+
+    d.rows.map(function(r){ return '<tr class="clickable" onclick="closeModal();go(\'detail\',\''+esc(r.id)+'\')">'+
+      '<td class="mono">'+esc(r.id)+'</td><td>'+esc(r.chassis)+'</td><td>'+esc((r.marque||'—')+' '+(r.modele||''))+'</td>'+
+      '<td>'+esc(r.couleur||'—')+'</td><td>'+esc(r.destination||'—')+'</td><td>'+statutTag(r.statut, r)+'</td>'+
+      '<td class="mono">'+esc(r.conteneurOrigine||'—')+'</td><td>'+fmtDate(r.dateCreation)+'</td></tr>'; }).join('')+
+    '</tbody></table>';
+  modal(title, '<div style="overflow:auto">'+body+'</div>', '<button class="btn sec" onclick="closeModal()">Fermer</button>');
+}
+
+/* ---- Rapports Balise & Porte Principale (calqués sur le CFS) ---- */
+var ACT_CFG_C={
+  balise:{ titre:'∑ Rapport Balise (pose GPS)', role:'BALISE', agentLabel:'Agent Balise', twins:true,  camLabel:'Camions balisés', base:'report.balise', det:'report.balisedetail' },
+  pp:    { titre:'∑ Rapport Porte Principale (sorties)', role:'PP', agentLabel:'Agent PP', twins:false, camLabel:'Camions sortis', base:'report.pp', det:'report.ppdetail' }
+};
+var ACT={kind:null};
+SCREENS.baliserep=function(c){ activiteScreen(c,'balise'); };
+SCREENS.pprep=function(c){ activiteScreen(c,'pp'); };
+function activiteScreen(c, kind){
+  ACT.kind=kind; var cfg=ACT_CFG_C[kind];
+  var isAdmin=STATE.user.role==='ADMIN';
+  var today=isoDate(new Date());
+  c.innerHTML='<div class="card"><h2>'+cfg.titre+'</h2>'+
+    '<p class="help">'+(isAdmin?'Synthèse par période — tous les agents ou filtré par agent.':'Votre activité sur la période choisie.')+'</p>'+
+    '<div class="field"><label>Périodicité</label><div>'+
+      '<button class="btn sec sm" type="button" onclick="actPeriode(\'jour\')">Jour</button> '+
+      '<button class="btn sec sm" type="button" onclick="actPeriode(\'semaine\')">Semaine</button> '+
+      '<button class="btn sec sm" type="button" onclick="actPeriode(\'mois\')">Mois</button> '+
+      '<button class="btn sec sm" type="button" onclick="actPeriode(\'personnalise\')">Personnalisé</button>'+
+    '</div></div>'+
+    '<div class="row" style="align-items:flex-end">'+
+      field('Du','<input type="date" id="ac_du" value="'+today+'">')+
+      field('Au','<input type="date" id="ac_au" value="'+today+'">')+
+      field('Opération','<select id="ac_op"><option value="">Tous (séparés)</option><option>Enlèvement</option><option>Dépotage</option></select>')+
+      (isAdmin?field(cfg.agentLabel,'<select id="ac_agent"><option value="">Tous les agents</option></select>'):'')+
+      '<button class="btn" id="ac_go">Afficher</button>'+
+      '<button class="btn sec" onclick="dlAct(\'xlsx\')">⤓ Excel</button>'+
+      '<button class="btn sec" onclick="dlAct(\'pdf\')">⤓ PDF</button>'+
+    '</div>'+
+    '<input type="hidden" id="ac_periode" value="jour">'+
+    '</div><div id="acres"></div>';
+  if(isAdmin){
+    call('user.list',{}).then(function(rows){
+      var sel=$('#ac_agent'); if(!sel) return;
+      rows.filter(function(u){return u.role===cfg.role||u.role==='ADMIN';}).forEach(function(u){
+        var o=document.createElement('option'); o.value=u.nomComplet; o.textContent=u.nomComplet+' ('+u.username+')'; sel.appendChild(o);
+      });
+    }).catch(function(){});
+  }
+  $('#ac_go').addEventListener('click',runAct);
+  $('#ac_op').addEventListener('change',runAct);
+  runAct();
+}
+function actPeriode(p){
+  $('#ac_periode').value=p; var r;
+  if(p==='jour'){ var t=isoDate(new Date()); $('#ac_du').value=t; $('#ac_au').value=t; }
+  else if(p==='semaine'){ r=weekRange(); $('#ac_du').value=isoDate(r[0]); $('#ac_au').value=isoDate(r[1]); }
+  else if(p==='mois'){ r=monthRange(); $('#ac_du').value=isoDate(r[0]); $('#ac_au').value=isoDate(r[1]); }
+  if(p!=='personnalise') runAct();
+}
+function actParams(format){
+  return { periode:$('#ac_periode').value, du:$('#ac_du').value, au:$('#ac_au').value,
+           operation:($('#ac_op')?$('#ac_op').value:''),
+           agent:($('#ac_agent')?$('#ac_agent').value:''), format:format||'view' };
+}
+function runAct(){ busy(true); call(ACT_CFG_C[ACT.kind].base, actParams('view')).then(function(d){ busy(false); renderAct(d); }).catch(function(e){ busy(false); err(e); }); }
+function dlAct(format){ busy(true); call(ACT_CFG_C[ACT.kind].base, actParams(format)).then(function(b){ busy(false); saveBlob(b); }).catch(function(e){ busy(false); err(e); }); }
+function actLabelMetric(m){ return {camions:'Camions',twins:'TWINS',conteneurs:'Tous les conteneurs',t20:"Conteneurs 20'",t40:"Conteneurs 40'",t45:"Conteneurs 45'",autres:'Conteneurs autres / non précisé'}[m]||m; }
+function renderAct(d){
+  var cfg=ACT_CFG_C[ACT.kind]; var op=$('#ac_op')?$('#ac_op').value:'';
+  function statCard(n,l,o,metric){
+    return '<div class="stat clickable" title="Voir le détail" onclick="actDetailOpen(\''+(o||'')+'\',\''+metric+'\')">'+
+      '<div class="n">'+(n||0)+'</div><div class="l">'+esc(l)+'</div></div>';
+  }
+  function bloc(titre,o,obj){
+    var cards=statCard(obj.camions,cfg.camLabel,o,'camions');
+    if(cfg.twins) cards+=statCard(obj.twins,'TWINS',o,'twins');
+    cards+=statCard(obj.t20,"20'",o,'t20')+statCard(obj.t40,"40'",o,'t40')+statCard(obj.t45,"45'",o,'t45')+
+      statCard(obj.autres,'Autres / n.p.',o,'autres')+statCard(obj.conteneurs,'Total conteneurs',o,'conteneurs');
+    var evp=(obj.t20||0)+2*((obj.t40||0)+(obj.t45||0));
+    cards+='<div class="stat green"><div class="n">'+evp+'</div><div class="l">EVP</div></div>';
+    return '<div class="card"><h2>'+titre+'</h2><div class="stats">'+cards+'</div><p class="help">Cliquez une carte pour le détail.</p></div>';
+  }
+  var html='<div class="card"><b>Période :</b> '+esc(d.du||'…')+' → '+esc(d.au||'…')+
+    ' &nbsp;·&nbsp; <b>Opération :</b> '+esc(op||'Toutes')+' &nbsp;·&nbsp; <b>Agent :</b> '+esc(d.agent)+'</div>';
+  if(op===''||op==='Enlèvement') html+=bloc('Enlèvement','Enlèvement',d.enlevement);
+  if(op===''||op==='Dépotage')  html+=bloc('Dépotage','Dépotage',d.depotage);
+  if(op===''){ html+='<div class="card"><div class="stats">'+
+    statCard(d.totalCamions,'TOTAL camions','','camions')+
+    (cfg.twins?statCard(d.totalTwins,'TOTAL TWINS','','twins'):'')+
+    statCard(d.totalConteneurs,'TOTAL conteneurs','','conteneurs')+'</div></div>'; }
+  $('#acres').innerHTML=html;
+}
+function actDetailOpen(op,metric){
+  var pr=actParams('view'); delete pr.format; pr.operation=op; pr.metric=metric;
+  busy(true);
+  call(ACT_CFG_C[ACT.kind].det,pr).then(function(d){ busy(false); renderActDetail(op,metric,d); }).catch(function(e){ busy(false); err(e); });
+}
+function renderActDetail(op,metric,d){
+  var title=(op||'Toutes opérations')+' — '+actLabelMetric(metric)+' ('+d.rows.length+')';
+  var body;
+  if(!d.rows.length){ body='<div class="empty">Aucun élément sur la période.</div>'; }
+  else if(d.kind==='camions'){
+    body='<table class="grid" style="min-width:640px"><thead><tr><th>ID</th><th>Camion</th><th>Opération</th><th>Statut</th><th>N° GPS</th><th>Date</th><th>Nb cont.</th></tr></thead><tbody>'+
+      d.rows.map(function(r){ return '<tr class="clickable" onclick="closeModal();go(\'detail\',\''+esc(r.id)+'\')">'+
+        '<td class="mono">'+esc(r.id)+'</td><td>'+esc(r.numeroCamion)+'</td><td>'+esc(r.operation)+'</td>'+
+        '<td>'+statutTag(r.statut, r)+'</td><td>'+esc(r.numeroGPS||'—')+'</td><td>'+fmtDate(r.date)+'</td><td>'+esc(r.nbConteneurs)+'</td></tr>'; }).join('')+
+      '</tbody></table>';
+  } else {
+    body='<table class="grid" style="min-width:700px"><thead><tr><th>Conteneur</th><th>Taille</th><th>Type</th><th>Scellé</th><th>Opération</th><th>Camion</th><th>Cargaison</th><th>Date</th></tr></thead><tbody>'+
+      d.rows.map(function(r){ return '<tr class="clickable" onclick="closeModal();go(\'detail\',\''+esc(r.cargaisonId)+'\')">'+
+        '<td class="mono">'+esc(r.conteneur||'—')+'</td><td>'+esc(r.taille||'—')+'</td><td>'+esc(r.typeConteneur||'—')+'</td>'+
+        '<td>'+esc(r.scelle||'—')+'</td><td>'+esc(r.operation)+'</td><td>'+esc(r.numeroCamion)+'</td>'+
+        '<td class="mono">'+esc(r.cargaisonId)+'</td><td>'+fmtDate(r.date)+'</td></tr>'; }).join('')+
+      '</tbody></table>';
+  }
+  modal(title, '<div style="overflow:auto">'+body+'</div>', '<button class="btn sec" onclick="closeModal()">Fermer</button>');
+}
+
+/* ---- Analyse des flux (Admin) ---- */
+SCREENS.flux=function(c){
+  var today=isoDate(new Date());
+  var d30=new Date(); d30.setDate(d30.getDate()-29); var du=isoDate(d30);
+  c.innerHTML='<div class="card"><h2>⇄ Analyse des flux</h2>'+
+    '<p class="help">Camions & conteneurs à chaque point de contrôle (CFS → Balise → Porte Principale), par période. Les périodes vides restent affichées pour la comparaison.</p>'+
+    '<div class="row" style="align-items:flex-end">'+
+      field('Granularité','<select id="fx_gran"><option value="jour">Jour</option><option value="semaine">Semaine</option><option value="mois">Mois</option></select>')+
+      field('Du','<input type="date" id="fx_du" value="'+du+'">')+
+      field('Au','<input type="date" id="fx_au" value="'+today+'">')+
+      '<button class="btn" id="fx_go">Afficher</button>'+
+      '<button class="btn sec" onclick="dlFlux(\'xlsx\')">⤓ Excel</button>'+
+      '<button class="btn sec" onclick="dlFlux(\'pdf\')">⤓ PDF</button>'+
+    '</div></div><div id="fxres"></div>';
+  $('#fx_go').addEventListener('click',runFlux);
+  $('#fx_gran').addEventListener('change',runFlux);
+  runFlux();
+};
+function fluxParams(format){ return { granularite:$('#fx_gran').value, du:$('#fx_du').value, au:$('#fx_au').value, format:format||'view' }; }
+function runFlux(){ busy(true); call('report.flux',fluxParams('view')).then(function(d){ busy(false); renderFlux(d); }).catch(function(e){ busy(false); err(e); }); }
+function dlFlux(format){ busy(true); call('report.flux',fluxParams(format)).then(function(b){ busy(false); saveBlob(b); }).catch(function(e){ busy(false); err(e); }); }
+function renderFlux(d){
+  var t=d.totaux;
+  function card(n,l,cl,point){ return '<div class="stat '+(cl||'')+' clickable" title="Voir le détail" onclick="fluxDetailOpen(\''+point+'\',\'\',\'\')">'+
+    '<div class="n">'+(n||0)+'</div><div class="l">'+esc(l)+'</div></div>'; }
+  var h='<div class="card"><div class="stats">'+
+    card(t.cfsCamions,'Camions créés (CFS)','','cfs')+
+    card(t.baliseCamions,'Camions balisés','','balise')+
+    card(t.ppCamions,'Camions sortis (PP)','green','pp')+
+    card(t.sansBalise,'dont sans balise','amber','sansbalise')+
+    '</div><p class="help">Cliquez une carte ou un chiffre du tableau pour voir les camions concernés.</p></div>';
+  // Cellule de comptage cliquable (camions) -> détail de la période.
+  function cc(n,point,m){ return '<td class="clickable" onclick="fluxDetailOpen(\''+point+'\',\''+m.key+'\',\''+esc(m.label)+'\')">'+n+'</td>'; }
+  h+='<div class="card" style="overflow:auto"><table class="grid"><thead><tr><th>Période</th>'+
+    '<th>CFS cam.</th><th>CFS cont.</th><th>Balise cam.</th><th>Balise cont.</th><th>s. balise</th><th>PP cam.</th><th>PP cont.</th></tr></thead><tbody>';
+  d.lignes.forEach(function(m){ h+='<tr><td>'+esc(m.label)+'</td>'+
+    cc(m.cfsCamions,'cfs',m)+'<td>'+m.cfsCont+'</td>'+
+    cc(m.baliseCamions,'balise',m)+'<td>'+m.baliseCont+'</td>'+
+    cc(m.sansBalise,'sansbalise',m)+
+    cc(m.ppCamions,'pp',m)+'<td>'+m.ppCont+'</td></tr>'; });
+  h+='<tr class="total"><td>TOTAL</td><td>'+t.cfsCamions+'</td><td>'+t.cfsCont+'</td><td>'+t.baliseCamions+'</td><td>'+t.baliseCont+'</td><td>'+t.sansBalise+'</td><td>'+t.ppCamions+'</td><td>'+t.ppCont+'</td></tr>';
+  h+='</tbody></table></div>';
+  $('#fxres').innerHTML=h;
+}
+function fluxDetailOpen(point,periodKey,label){
+  var pr=fluxParams('view'); delete pr.format; pr.point=point; pr.periodKey=periodKey;
+  busy(true);
+  call('report.fluxdetail',pr).then(function(d){ busy(false); renderFluxDetail(point,label,d); }).catch(function(e){ busy(false); err(e); });
+}
+function renderFluxDetail(point,label,d){
+  var pl={cfs:'Créés au CFS',balise:'Balisés',pp:'Sortis (Porte Principale)',sansbalise:'Sans balise'}[point]||point;
+  var title=pl+' — '+(label||'toute la période')+' ('+d.rows.length+')';
+  var body;
+  if(!d.rows.length){ body='<div class="empty">Aucun camion.</div>'; }
+  else body='<table class="grid" style="min-width:600px"><thead><tr><th>ID</th><th>Camion</th><th>Opération</th><th>Statut</th><th>Date</th><th>Nb cont.</th></tr></thead><tbody>'+
+    d.rows.map(function(r){ return '<tr class="clickable" onclick="closeModal();go(\'detail\',\''+esc(r.id)+'\')">'+
+      '<td class="mono">'+esc(r.id)+'</td><td>'+esc(r.numeroCamion)+'</td><td>'+esc(r.operation)+'</td>'+
+      '<td>'+statutTag(r.statut, r)+'</td><td>'+fmtDate(r.date)+'</td><td>'+esc(r.nbConteneurs)+'</td></tr>'; }).join('')+
+    '</tbody></table>';
+  modal(title,'<div style="overflow:auto">'+body+'</div>','<button class="btn sec" onclick="closeModal()">Fermer</button>');
+}
+
+/* ---- Délai de séjour & camions en instance (CFS + Admin) ---- */
+SCREENS.dwell=function(c){
+  c.innerHTML='<div class="card"><h2>⏱ Délai de séjour & camions en instance</h2>'+
+    '<p class="help">Délai entre la création et la sortie ; camions non sortis classés par ancienneté. Alerte au-delà de 90 jours.</p>'+
+    '<div class="row"><button class="btn sec sm" id="dw_go">↻ Actualiser</button>'+
+    '<button class="btn sec" onclick="dlDwell(\'xlsx\')">⤓ Excel</button>'+
+    '<button class="btn sec" onclick="dlDwell(\'pdf\')">⤓ PDF</button></div>'+
+    '</div><div id="dwres"><div class="empty"><div class="spin" style="margin:auto"></div></div></div>';
+  $('#dw_go').addEventListener('click',runDwell);
+  runDwell();
+};
+function runDwell(){ busy(true); call('report.dwell',{}).then(function(d){ busy(false); renderDwell(d); }).catch(function(e){ busy(false); err(e); }); }
+function dlDwell(format){ busy(true); call('report.dwell',{format:format}).then(function(b){ busy(false); saveBlob(b); }).catch(function(e){ busy(false); err(e); }); }
+function renderDwell(d){
+  function card(n,l,cl,bucket){ return '<div class="stat '+(cl||'')+' clickable" title="Voir le détail" onclick="dwellDetailOpen(\''+bucket+'\',\''+esc(l)+'\')">'+
+    '<div class="n">'+n+'</div><div class="l">'+esc(l)+'</div></div>'; }
+  var h='<div class="card"><div class="stats">'+
+    card(d.totalInstance,'En instance','','instance')+
+    card(d.totalSortis,'Sortis','green','sortis')+
+    card(d.delaiMoyen+' j','Délai moyen (sortis)','','sortis')+
+    card(d.alerte,'≥ '+d.seuilAlerte+' jours',(d.alerte?'amber':''),'alerte')+
+    '</div><p class="help">Cliquez une carte, une tranche, ou un camion pour accéder au détail.</p></div>';
+  h+='<div class="card"><h2>Répartition par tranche (jours)</h2><table class="grid"><thead><tr><th>Tranche</th><th>En instance</th><th>Sortis</th></tr></thead><tbody>';
+  d.tranches.forEach(function(t){ var al=(t.tranche==='90+'&&t.instance)?' style="background:#fdecea"':'';
+    h+='<tr'+al+'><td>'+esc(t.tranche)+'</td>'+
+      '<td class="clickable" onclick="dwellTrancheOpen(\''+t.tranche+'\',\'instance\')">'+t.instance+'</td>'+
+      '<td class="clickable" onclick="dwellTrancheOpen(\''+t.tranche+'\',\'sortis\')">'+t.sortis+'</td></tr>'; });
+  h+='</tbody></table></div>';
+  if(d.instance.length){
+    h+='<div class="card" style="overflow:auto"><h2>Camions en instance ('+d.instance.length+') — du plus ancien</h2>'+
+      '<table class="grid"><thead><tr><th>ID</th><th>Camion</th><th>Opération</th><th>Statut</th><th>Créé le</th><th>Âge</th><th>Tranche</th></tr></thead><tbody>';
+    d.instance.forEach(function(r){ var al=(r.ageJours>=d.seuilAlerte)?' style="background:#fdecea"':'';
+      h+='<tr class="clickable"'+al+' onclick="go(\'detail\',\''+esc(r.id)+'\')"><td class="mono">'+esc(r.id)+'</td><td>'+esc(r.numeroCamion)+'</td><td>'+esc(r.operation)+'</td><td>'+statutTag(r.statut, r)+'</td><td>'+fmtDate(r.dateCreation)+'</td><td>'+r.ageJours+' j</td><td>'+esc(r.tranche)+'</td></tr>'; });
+    h+='</tbody></table></div>';
+  } else { h+='<div class="card"><div class="empty">Aucun camion en instance.</div></div>'; }
+  $('#dwres').innerHTML=h;
+}
+function dwellDetailOpen(bucket,label){
+  busy(true);
+  call('report.dwelldetail',{bucket:bucket}).then(function(d){ busy(false); renderDwellDetail(label,d); }).catch(function(e){ busy(false); err(e); });
+}
+function dwellTrancheOpen(tranche,etat){
+  busy(true);
+  var lbl='Tranche '+tranche+' jours — '+(etat==='sortis'?'sortis':'en instance');
+  call('report.dwelldetail',{bucket:etat,tranche:tranche}).then(function(d){ busy(false); renderDwellDetail(lbl,d); }).catch(function(e){ busy(false); err(e); });
+}
+function renderDwellDetail(label,d){
+  var title=label+' ('+d.rows.length+')';
+  var body;
+  if(!d.rows.length){ body='<div class="empty">Aucun camion.</div>'; }
+  else body='<table class="grid" style="min-width:660px"><thead><tr><th>ID</th><th>Camion</th><th>Opération</th><th>Statut</th><th>Créé le</th><th>Sorti le</th><th>'+(d.bucket==='sortis'?'Délai':'Âge')+'</th></tr></thead><tbody>'+
+    d.rows.map(function(r){ var al=(!r.sorti&&r.ageJours>=90)?' style="background:#fdecea"':'';
+      return '<tr class="clickable"'+al+' onclick="closeModal();go(\'detail\',\''+esc(r.id)+'\')">'+
+      '<td class="mono">'+esc(r.id)+'</td><td>'+esc(r.numeroCamion)+'</td><td>'+esc(r.operation)+'</td>'+
+      '<td>'+statutTag(r.statut, r)+'</td><td>'+fmtDate(r.dateCreation)+'</td><td>'+(r.sorti?fmtDate(r.dateSortie):'—')+'</td>'+
+      '<td>'+r.ageJours+' j</td></tr>'; }).join('')+
+    '</tbody></table>';
+  modal(title,'<div style="overflow:auto">'+body+'</div>','<button class="btn sec" onclick="closeModal()">Fermer</button>');
+}
+
+/* ---- Historique (Admin) ---- */
+SCREENS.history=function(c){
+  var st={page:1};
+  c.innerHTML='<div class="card"><div class="row" style="align-items:flex-end;margin-bottom:8px">'+
+    field('Du','<input type="date" id="hd">')+field('Au','<input type="date" id="ha">')+
+    field('Utilisateur','<input type="text" id="hu" placeholder="identifiant">')+
+    '<button class="btn sec sm" id="hgo">Filtrer</button></div>'+
+    '<div id="htbl"><div class="empty"><div class="spin" style="margin:auto"></div></div></div>'+
+    '<div class="pager" id="hpg"></div></div>';
+  function load(){
+    busy(true);
+    call('log.list',{page:st.page, du:$('#hd').value, au:$('#ha').value, username:$('#hu').value.trim()}).then(function(r){
+      busy(false);
+      if(!r.rows.length){ $('#htbl').innerHTML='<div class="empty"><div class="big">◵</div>Aucune entrée.</div>'; $('#hpg').innerHTML=''; return; }
+      var h='<table class="grid"><thead><tr><th>Date/Heure</th><th>Utilisateur</th><th>Rôle</th><th>Action</th><th>Cargaison</th><th>Détails</th></tr></thead><tbody>';
+      r.rows.forEach(function(x){ h+='<tr><td>'+esc(x.timestamp)+'</td><td>'+esc(x.nomComplet)+' <span class="help">('+esc(x.username)+')</span></td><td>'+esc(x.role)+'</td><td>'+esc(x.action)+'</td><td class="mono">'+esc(x.cargaisonId||'')+'</td><td>'+esc(x.details||'')+'</td></tr>'; });
+      $('#htbl').innerHTML=h+'</tbody></table>';
+      $('#hpg').innerHTML='<span>'+r.total+' entrée(s) · page '+r.page+'/'+r.pages+'</span>'+
+        '<button class="btn sec sm" '+(r.page<=1?'disabled':'')+' onclick="window.__hprev()">‹</button>'+
+        '<button class="btn sec sm" '+(r.page>=r.pages?'disabled':'')+' onclick="window.__hnext()">›</button>';
+      window.__hprev=function(){ if(st.page>1){st.page--;load();} };
+      window.__hnext=function(){ if(st.page<r.pages){st.page++;load();} };
+    }).catch(function(e){ busy(false); err(e); });
+  }
+  $('#hgo').addEventListener('click',function(){ st.page=1; load(); });
+  load();
+};
+
+/* ---- Utilisateurs (Admin) ---- */
+SCREENS.users=function(c){
+  c.innerHTML='<div class="card"><div class="row" style="margin-bottom:8px"><h2 style="flex:1">◑ Utilisateurs</h2>'+
+    '<button class="btn sm" onclick="userForm()">＋ Nouvel utilisateur</button></div>'+
+    '<div id="utbl"><div class="empty"><div class="spin" style="margin:auto"></div></div></div></div>';
+  loadUsers();
+};
+function loadUsers(){
+  busy(true);
+  call('user.list',{}).then(function(rows){
+    busy(false);
+    var h='<table class="grid"><thead><tr><th>Identifiant</th><th>Nom</th><th>Rôle</th><th>État</th><th>Dern. connexion</th><th>Actions</th></tr></thead><tbody>';
+    rows.forEach(function(u){
+      h+='<tr><td class="mono">'+esc(u.username)+'</td><td>'+esc(u.nomComplet)+'</td><td>'+esc(roleLabel(u.role))+'</td>'+
+        '<td>'+(u.actif?'<span class="tag st-sortie">Actif</span>':'<span class="tag st-creee">Inactif</span>')+'</td>'+
+        '<td>'+esc(u.derniereConnexion||'—')+'</td><td>'+
+        '<button class="btn sec sm" onclick="userForm('+enc(u)+')">Éditer</button> '+
+        '<button class="btn sec sm" onclick="userReset(\''+esc(u.username)+'\')">Mot de passe</button> '+
+        '<button class="btn '+(u.actif?'danger':'ok')+' sm" onclick="userToggle(\''+esc(u.username)+'\')">'+(u.actif?'Désactiver':'Activer')+'</button>'+
+        '</td></tr>';
+    });
+    $('#utbl').innerHTML=h+'</tbody></table>';
+  }).catch(function(e){ busy(false); err(e); });
+}
+function enc(o){ return "JSON.parse(decodeURIComponent('"+encodeURIComponent(JSON.stringify(o))+"'))"; }
+function userForm(u){
+  u=u||null; var edit=!!u;
+  modal(edit?'Éditer utilisateur':'Nouvel utilisateur',
+    field('Identifiant','<input type="text" id="u_name" '+(edit?'value="'+esc(u.username)+'" readonly':'placeholder="ex: agent.cfs1"')+'>')+
+    field('Nom complet','<input type="text" id="u_nom" value="'+(edit?esc(u.nomComplet):'')+'">')+
+    field('Rôle','<select id="u_role">'+['CFS','CHEF_BRIGADE','CHEF_BRIGADE_ADJOINT','CHEF_VISITE','CHEF_DIVISION','T1','BALISE','BON_SORTIE','PP','ADMIN'].map(function(r){return '<option value="'+r+'" '+(edit&&u.role===r?'selected':'')+'>'+roleLabel(r)+'</option>';}).join('')+'</select>')+
+    (edit?'':field('Mot de passe','<input type="password" id="u_pwd" placeholder="min. 6 caractères">')),
+    '<button class="btn sec" onclick="closeModal()">Annuler</button><button class="btn" id="u_ok">Enregistrer</button>');
+  $('#u_ok').addEventListener('click',function(){
+    var p={username:$('#u_name').value, nomComplet:$('#u_nom').value, role:$('#u_role').value};
+    var action=edit?'user.update':'user.create';
+    if(!edit) p.password=$('#u_pwd').value;
+    busy(true);
+    call(action,p).then(function(){ busy(false); closeModal(); toast('Enregistré ✔','ok'); loadUsers(); }).catch(function(e){ busy(false); err(e); });
+  });
+}
+function userToggle(name){ if(!confirm('Confirmer le changement d\'état de "'+name+'" ?'))return; busy(true); call('user.toggle',{username:name}).then(function(){ busy(false); loadUsers(); }).catch(function(e){ busy(false); err(e); }); }
+function userReset(name){
+  modal('Réinitialiser le mot de passe',
+    '<p>Utilisateur : <b>'+esc(name)+'</b></p>'+field('Nouveau mot de passe','<input type="password" id="r_pwd" placeholder="min. 6 caractères">'),
+    '<button class="btn sec" onclick="closeModal()">Annuler</button><button class="btn" id="r_ok">Valider</button>');
+  $('#r_ok').addEventListener('click',function(){ busy(true); call('user.resetpwd',{username:name, password:$('#r_pwd').value}).then(function(){ busy(false); closeModal(); toast('Mot de passe réinitialisé ✔','ok'); }).catch(function(e){ busy(false); err(e); }); });
+}
+
+/* ---- Mon compte ---- */
+SCREENS.account=function(c){
+  c.innerHTML='<div class="card" style="max-width:480px"><h2>◔ Mon compte</h2>'+
+    '<div class="kv">'+kv('Nom',STATE.user.nomComplet)+kv('Identifiant',STATE.user.username)+kv('Profil',roleLabel(STATE.user.role))+'</div></div>'+
+    '<div class="card" style="max-width:480px"><h2>Changer mon mot de passe</h2>'+
+    field('Mot de passe actuel','<input type="password" id="a_old">')+
+    field('Nouveau mot de passe','<input type="password" id="a_new" placeholder="min. 6 caractères">')+
+    field('Confirmer','<input type="password" id="a_conf">')+
+    '<button class="btn" id="a_save">Mettre à jour</button></div>';
+  $('#a_save').addEventListener('click',function(){
+    var n=$('#a_new').value;
+    if(n.length<6){ toast('6 caractères minimum','warn'); return; }
+    if(n!==$('#a_conf').value){ toast('La confirmation ne correspond pas','warn'); return; }
+    busy(true);
+    call('account.changepwd',{ancien:$('#a_old').value, nouveau:n}).then(function(){ busy(false); toast('Mot de passe mis à jour ✔','ok'); $('#a_old').value=$('#a_new').value=$('#a_conf').value=''; }).catch(function(e){ busy(false); err(e); });
+  });
+};
+
+/* ======================= Stock conteneurs (P3) ======================== */
+SCREENS.stock=function(c){
+  c.innerHTML='<div class="card"><div class="row" style="align-items:flex-end;margin-bottom:8px">'+
+    '<div class="col" style="max-width:280px"><label>Statut</label><select id="sk_st">'+
+      '<option value="tous">Tous</option><option value="En stock">En stock</option>'+
+      '<option value="Positionné">Positionné</option><option value="Dépoté">Dépoté</option></select></div>'+
+    '<div style="flex:1"></div><button class="btn sec sm" id="sk_ref">↻ Actualiser</button></div>'+
+    '<div id="sk_stat" class="stats" style="margin-bottom:12px"></div>'+
+    '<div id="sk_tbl"><div class="empty"><div class="spin" style="margin:auto"></div></div></div></div>';
+  function load(){
+    busy(true);
+    call('stock.list',{statut:$('#sk_st').value}).then(function(r){
+      busy(false); var k=r.compte;
+      $('#sk_stat').innerHTML=
+        '<div class="stat"><div class="n">'+k.total+'</div><div class="l">Total conteneurs</div></div>'+
+        '<div class="stat"><div class="n">'+k.evp+'</div><div class="l">EVP</div></div>'+
+        '<div class="stat"><div class="n">'+k.stock+'</div><div class="l">En stock</div></div>'+
+        '<div class="stat amber"><div class="n">'+k.positionne+'</div><div class="l">Positionnés (à ouvrir)</div></div>'+
+        '<div class="stat"><div class="n">'+(k.pointes||0)+'</div><div class="l">Pointés</div></div>'+
+        '<div class="stat green"><div class="n">'+k.depote+'</div><div class="l">Dépotés (sortis)</div></div>'+
+        '<div class="stat"><div class="n">'+(k.sejourMoyen||0)+' j</div><div class="l">Séjour moyen</div></div>';
+      if(!r.rows.length){ $('#sk_tbl').innerHTML='<div class="empty"><div class="big">▦</div>Aucun conteneur.</div>'; return; }
+      var h='<table class="grid"><thead><tr><th>N° TC</th><th>Taille</th><th>Type</th><th>Provenance</th><th>Statut</th><th>Entré le</th><th>Séjour (j)</th><th>Pointé</th></tr></thead><tbody>';
+      r.rows.forEach(function(x){ h+='<tr><td class="mono">'+esc(x.numeroTC)+'</td><td>'+esc(x.taille||'—')+'</td><td>'+esc(x.typeConteneur||'—')+'</td><td>'+esc(x.provenance||'—')+'</td><td>'+esc(x.statut)+'</td><td>'+esc(x.dateEntree||'—')+'</td><td>'+(x.joursSejour!=null?esc(x.joursSejour):'—')+'</td><td>'+esc(x.datePointage||'—')+'</td></tr>'; });
+      $('#sk_tbl').innerHTML=h+'</tbody></table>';
+    }).catch(function(e){ busy(false); err(e); });
+  }
+  $('#sk_st').addEventListener('change',load); $('#sk_ref').addEventListener('click',load); load();
+};
+
+/* Pointage matinal : positionne un TC pour dépotage (bloque si déjà pointé). */
+SCREENS.pointage=function(c){
+  c.innerHTML='<div class="card"><h2>◉ Pointage matinal des conteneurs positionnés</h2>'+
+    '<p class="help">Pointez chaque TC positionné pour dépotage. Un TC déjà pointé est bloqué.</p>'+
+    '<div class="row" style="align-items:flex-end">'+
+      field('N° conteneur (TC)','<input type="text" class="tc" id="pt_tc" maxlength="11" placeholder="MSKU1234567">')+
+      '<button class="btn" id="pt_go">✔ Pointer</button></div>'+
+    '<div id="pt_res" style="margin-top:10px"></div>'+
+    '<div class="stats" id="pt_stat" style="margin-top:12px"></div></div>'+
+    '<div class="card"><h2>Conteneurs positionnés (restant à ouvrir)</h2><div id="pt_list"><div class="empty"><div class="spin" style="margin:auto"></div></div></div></div>';
+  function refreshList(){
+    call('stock.list',{statut:'Positionné'}).then(function(r){
+      var k=r.compte;
+      $('#pt_stat').innerHTML='<div class="stat amber"><div class="n">'+k.positionne+'</div><div class="l">Positionnés (restant à ouvrir)</div></div>'+
+        '<div class="stat green"><div class="n">'+k.depote+'</div><div class="l">Dépotés (ouverts)</div></div>';
+      if(!r.rows.length){ $('#pt_list').innerHTML='<div class="empty">Aucun conteneur positionné.</div>'; return; }
+      var h='<table class="grid"><thead><tr><th>N° TC</th><th>Taille</th><th>Pointé le</th><th>Par</th></tr></thead><tbody>';
+      r.rows.forEach(function(x){ h+='<tr><td class="mono">'+esc(x.numeroTC)+'</td><td>'+esc(x.taille||'—')+'</td><td>'+esc(x.datePointage||'—')+'</td><td>'+esc(x.pointePar||'—')+'</td></tr>'; });
+      $('#pt_list').innerHTML=h+'</tbody></table>';
+    }).catch(function(){});
+  }
+  function go2(){
+    var tc=$('#pt_tc').value.trim(); if(!tc){ toast('N° TC requis','warn'); return; }
+    busy(true); call('stock.pointage',{numeroTC:tc}).then(function(r){
+      busy(false); $('#pt_res').innerHTML='<div class="dup-soft">✔ '+esc(tc)+' pointé. Restant à ouvrir : <b>'+r.restantAOuvrir+'</b> · ouverts : <b>'+r.depote+'</b></div>';
+      $('#pt_tc').value=''; $('#pt_tc').focus(); refreshList();
+    }).catch(function(e){ busy(false); $('#pt_res').innerHTML='<div class="dup-strong">⛔ '+esc(e.message)+'</div>'; });
+  }
+  $('#pt_go').addEventListener('click',go2);
+  $('#pt_tc').addEventListener('keydown',function(e){ if(e.key==='Enter') go2(); });
+  refreshList();
+};
+
+/* Import du stock : fichier Excel (.xlsx) lu côté navigateur (SheetJS) → aperçu → validation. */
+SCREENS.import=function(c){
+  c.innerHTML='<div class="card"><h2>⮉ Import du stock (fichier Excel)</h2>'+
+    '<p class="help">Choisissez un fichier <b>.xlsx</b> (ou .csv) à 4 colonnes, dans l’ordre : '+
+      '<b>N° conteneur · Taille · Nombre de séjours · Date d’entrée</b>. Une éventuelle ligne d’en-tête est ignorée. '+
+      'Les TC mal formés sont écartés ; un TC déjà présent est mis à jour (import journalier).</p>'+
+    '<div class="row" style="align-items:flex-end">'+
+      field('Fichier Excel','<input type="file" id="im_file" accept=".xlsx,.xls,.csv">')+
+      field('Provenance par défaut','<input type="text" class="up" id="im_prov" value="PORT SEC">')+
+    '</div>'+
+    '<div id="im_prev"></div>'+
+    '<button class="btn" id="im_go" disabled>⮉ Importer les lignes valides</button> <span id="im_res" class="help"></span></div>';
+  var parsed=[];
+  var tcOk=function(v){ return /^[A-Z]{4}[0-9]{7}$/.test(v); };
+  function renderPreview(){
+    if(!parsed.length){ $('#im_prev').innerHTML='<div class="empty">Aucune ligne lue.</div>'; $('#im_go').disabled=true; return; }
+    var valid=parsed.filter(function(it){ return tcOk(it.numeroTC); });
+    var h='<div class="help" style="margin:8px 0">'+parsed.length+' ligne(s) lue(s), <b>'+valid.length+'</b> valide(s).</div>'+
+      '<table class="grid"><thead><tr><th>N° TC</th><th>Taille</th><th>Nb séjours</th><th>Date d’entrée</th><th>OK ?</th></tr></thead><tbody>';
+    parsed.slice(0,200).forEach(function(it){ var ok=tcOk(it.numeroTC);
+      h+='<tr><td class="mono">'+esc(it.numeroTC||'—')+'</td><td>'+esc(it.taille||'—')+'</td><td>'+esc(it.nbSejours||'—')+'</td><td>'+esc(it.dateEntree||'—')+'</td><td>'+(ok?'✔':'<span style="color:#c0392b">✕</span>')+'</td></tr>'; });
+    $('#im_prev').innerHTML=h+'</tbody></table>';
+    $('#im_go').disabled=(valid.length===0);
+  }
+  $('#im_file').addEventListener('change',function(e){
+    var f=e.target.files&&e.target.files[0]; if(!f) return;
+    if(typeof XLSX==='undefined'){ toast('Lecteur Excel indisponible (connexion requise)','warn'); return; }
+    var rd=new FileReader();
+    rd.onload=function(ev){
+      try{
+        var wb=XLSX.read(new Uint8Array(ev.target.result),{type:'array',cellDates:true});
+        var ws=wb.Sheets[wb.SheetNames[0]];
+        var rows=XLSX.utils.sheet_to_json(ws,{header:1,raw:false,defval:''});
+        parsed=[];
+        rows.forEach(function(r,i){
+          if(!r||!r.length) return;
+          var tc=String(r[0]||'').toUpperCase().replace(/[^A-Z0-9]/g,'');
+          if(i===0 && !tcOk(tc)) return;   // saute la ligne d'en-tête
+          if(!tc && !r[1] && !r[2] && !r[3]) return;
+          parsed.push({ numeroTC:tc, taille:String(r[1]||'').trim(), nbSejours:String(r[2]||'').trim(), dateEntree:String(r[3]||'').trim() });
+        });
+        renderPreview();
+      }catch(ex){ toast('Lecture du fichier impossible','warn'); }
+    };
+    rd.readAsArrayBuffer(f);
+  });
+  $('#im_go').addEventListener('click',function(){
+    var items=parsed.filter(function(it){ return tcOk(it.numeroTC); })
+      .map(function(it){ return { numeroTC:it.numeroTC, taille:it.taille, nbSejours:it.nbSejours, dateEntree:it.dateEntree }; });
+    if(!items.length){ toast('Aucune ligne valide','warn'); return; }
+    busy(true); $('#im_go').disabled=true;
+    call('stock.import',{items:items, provenanceDefaut:$('#im_prov').value}).then(function(r){ busy(false);
+      $('#im_res').innerHTML='✔ '+r.ajoutes+' ajouté(s), '+(r.maj||0)+' mis à jour, '+r.ignores+' ignoré(s).'; toast('Import terminé ✔','ok');
+    }).catch(function(e){ busy(false); $('#im_go').disabled=false; err(e); });
+  });
+};
+
+/* v2.8 — Annonce de transfert : import ADMIN d'un .xlsx à 7 colonnes → stock annoncé. */
+SCREENS.importannonce=function(c){
+  c.innerHTML='<div class="card"><h2>⮈ Annonce de transfert — import (la veille)</h2>'+
+    '<p class="help">Réservé à l’administrateur. Choisissez un <b>.xlsx</b> (ou .csv) à <b>7 colonnes</b>, dans l’ordre : '+
+      '<b>N° conteneur · Taille · Date d’entrée · Année décl. · Bureau décl. · Type décl. · N° décl.</b> '+
+      'Une éventuelle ligne d’en-tête est ignorée. Les TC mal formés sont écartés ; un TC déjà annoncé (non encore pointé) est mis à jour. '+
+      'Les conteneurs annoncés vont dans le « stock annoncé », en attente de pointage à l’entrée par la Porte Principale.</p>'+
+    '<div class="row" style="align-items:flex-end">'+
+      field('Fichier Excel (7 colonnes)','<input type="file" id="ia_file" accept=".xlsx,.xls,.csv">')+
+    '</div>'+
+    '<div id="ia_prev"></div>'+
+    '<button class="btn" id="ia_go" disabled>⮈ Importer l’annonce</button> <span id="ia_res" class="help"></span></div>';
+  var parsed=[];
+  var tcOk=function(v){ return /^[A-Z]{4}[0-9]{7}$/.test(v); };
+  function renderPreview(){
+    if(!parsed.length){ $('#ia_prev').innerHTML='<div class="empty">Aucune ligne lue.</div>'; $('#ia_go').disabled=true; return; }
+    var valid=parsed.filter(function(it){ return tcOk(it.numeroTC); });
+    var h='<div class="help" style="margin:8px 0">'+parsed.length+' ligne(s) lue(s), <b>'+valid.length+'</b> valide(s).</div>'+
+      '<table class="grid"><thead><tr><th>N° TC</th><th>Taille</th><th>Date entrée</th><th>Année</th><th>Bureau</th><th>Type</th><th>N° décl.</th><th>OK ?</th></tr></thead><tbody>';
+    parsed.slice(0,200).forEach(function(it){ var ok=tcOk(it.numeroTC);
+      h+='<tr><td class="mono">'+esc(it.numeroTC||'—')+'</td><td>'+esc(it.taille||'—')+'</td><td>'+esc(it.dateEntree||'—')+'</td><td>'+esc(it.anneeDeclaration||'—')+'</td><td>'+esc(it.bureauDeclaration||'—')+'</td><td>'+esc(it.typeDeclaration||'—')+'</td><td>'+esc(it.numeroDeclaration||'—')+'</td><td>'+(ok?'✔':'<span style="color:#c0392b">✕</span>')+'</td></tr>'; });
+    $('#ia_prev').innerHTML=h+'</tbody></table>';
+    $('#ia_go').disabled=(valid.length===0);
+  }
+  $('#ia_file').addEventListener('change',function(e){
+    var f=e.target.files&&e.target.files[0]; if(!f) return;
+    if(typeof XLSX==='undefined'){ toast('Lecteur Excel indisponible (connexion requise)','warn'); return; }
+    var rd=new FileReader();
+    rd.onload=function(ev){
+      try{
+        var wb=XLSX.read(new Uint8Array(ev.target.result),{type:'array',cellDates:true});
+        var ws=wb.Sheets[wb.SheetNames[0]];
+        var rows=XLSX.utils.sheet_to_json(ws,{header:1,raw:false,defval:''});
+        parsed=[];
+        rows.forEach(function(r,i){
+          if(!r||!r.length) return;
+          var tc=String(r[0]||'').toUpperCase().replace(/[^A-Z0-9]/g,'');
+          if(i===0 && !tcOk(tc)) return;   // saute la ligne d'en-tête
+          if(!tc && !r[1] && !r[2]) return;
+          parsed.push({ numeroTC:tc, taille:String(r[1]||'').trim(), dateEntree:String(r[2]||'').trim(),
+            anneeDeclaration:String(r[3]||'').trim(), bureauDeclaration:String(r[4]||'').trim(),
+            typeDeclaration:String(r[5]||'').trim(), numeroDeclaration:String(r[6]||'').trim() });
+        });
+        renderPreview();
+      }catch(ex){ toast('Lecture du fichier impossible','warn'); }
+    };
+    rd.readAsArrayBuffer(f);
+  });
+  $('#ia_go').addEventListener('click',function(){
+    var items=parsed.filter(function(it){ return tcOk(it.numeroTC); });
+    if(!items.length){ toast('Aucune ligne valide','warn'); return; }
+    busy(true); $('#ia_go').disabled=true;
+    call('stockannonce.import',{items:items}).then(function(r){ busy(false);
+      $('#ia_res').innerHTML='✔ '+r.ajoutes+' annoncé(s), '+(r.maj||0)+' mis à jour, '+r.ignores+' ignoré(s).'; toast('Annonce importée ✔','ok');
+    }).catch(function(e){ busy(false); $('#ia_go').disabled=false; err(e); });
+  });
+};
+
+/* v2.8 — Vue + statistiques du stock annoncé (non pointés / pointés / taux / délai & instance). */
+SCREENS.annonce=function(c){
+  c.innerHTML='<div class="card"><div class="row" style="align-items:center"><h2 style="flex:1;margin:0">⮈ Stock annoncé — transferts</h2>'+
+      '<select id="an_filtre" style="max-width:220px"><option value="tous">Tous</option><option value="Annoncé">Non pointés</option><option value="Pointé">Pointés (à confirmer)</option><option value="Confirmé">Confirmés (au stock)</option></select></div></div>'+
+    '<div id="an_stat" class="stats" style="margin:12px 0"></div>'+
+    '<div class="card"><div id="an_tbl"><div class="empty"><div class="spin" style="margin:auto"></div></div></div></div>';
+  function load(){
+    var st=$('#an_filtre').value;
+    busy(true);
+    call('stockannonce.list',{statut:st}).then(function(d){ busy(false);
+      var k=d.compte;
+      $('#an_stat').innerHTML=
+        '<div class="stat"><div class="n">'+k.total+'</div><div class="l">Total annoncés</div></div>'+
+        '<div class="stat amber"><div class="n">'+k.annonces+'</div><div class="l">Non pointés (en instance)</div></div>'+
+        '<div class="stat"><div class="n">'+k.aConfirmer+'</div><div class="l">Pointés (à confirmer)</div></div>'+
+        '<div class="stat green"><div class="n">'+k.confirmes+'</div><div class="l">Confirmés (au stock)</div></div>'+
+        '<div class="stat"><div class="n">'+k.tauxTransfert+' %</div><div class="l">Taux de transfert effectif</div></div>'+
+        '<div class="stat"><div class="n">'+k.delaiMoyen+' j</div><div class="l">Délai moyen transfert</div></div>'+
+        '<div class="stat '+(k.instanceMax>=2?'amber':'')+'"><div class="n">'+k.instanceMax+' j</div><div class="l">Instance max (non confirmé)</div></div>';
+      if(!d.rows.length){ $('#an_tbl').innerHTML='<div class="empty">Aucun conteneur annoncé.</div>'; return; }
+      var h='<table class="grid"><thead><tr><th>N° TC</th><th>Taille</th><th>Statut</th><th>Bureau</th><th>Type</th><th>N° décl.</th><th>Annoncé le</th><th>Pointé le</th><th>Confirmé le</th><th>Jours</th></tr></thead><tbody>';
+      d.rows.forEach(function(r){ h+='<tr'+(r.statut!=='Confirmé'&&r.jours>=2?' class="dup-row"':'')+'><td class="mono">'+esc(r.numeroTC)+'</td><td>'+esc(r.taille||'—')+'</td><td>'+esc(r.statut)+'</td><td>'+esc(r.bureauDeclaration||'—')+'</td><td>'+esc(r.typeDeclaration||'—')+'</td><td>'+esc(r.numeroDeclaration||'—')+'</td><td>'+esc(r.dateAnnonce||'—')+'</td><td>'+esc(r.datePointage||'—')+'</td><td>'+esc(r.dateConfirmation||'—')+'</td><td>'+r.jours+'</td></tr>'; });
+      $('#an_tbl').innerHTML=h+'</tbody></table>';
+    }).catch(function(e){ busy(false); err(e); });
+  }
+  $('#an_filtre').addEventListener('change',load); load();
+};
+
+/* v3.1 — Pointage à l'entrée (Porte Principale) : propose les TC du stock annoncé. */
+SCREENS.pointentree=function(c){
+  c.innerHTML='<div class="card"><h2>◉ Pointage entrée — stock annoncé</h2>'+
+    '<p class="help">À l’arrivée du conteneur, saisissez son N° (<b>proposé depuis le stock annoncé</b>). Il passe « Annoncé » → « Pointé ». Le <b>CFS devra ensuite confirmer</b> son entrée au stock.</p>'+
+    '<datalist id="annonceTC"></datalist>'+
+    '<div class="row" style="align-items:flex-end">'+
+      field('N° conteneur (TC)','<input type="text" class="tc" id="pe_tc" list="annonceTC" maxlength="11" placeholder="MSKU1234567">','Choisi dans le stock annoncé')+
+      '<button class="btn" id="pe_go">✔ Pointer l’entrée</button></div>'+
+    '<div id="pe_res" style="margin-top:10px"></div></div>'+
+    '<div class="card"><h2>Suivi du transfert</h2><div id="pe_stat" class="stats"></div></div>'+
+    '<div class="card"><h2>Annoncés en attente de pointage</h2><div id="pe_list"><div class="empty"><div class="spin" style="margin:auto"></div></div></div></div>';
+  function refresh(){
+    call('stockannonce.list',{statut:'tous'}).then(function(d){ var k=d.compte;
+      $('#pe_stat').innerHTML=
+        '<div class="stat amber"><div class="n">'+k.annonces+'</div><div class="l">Non pointés</div></div>'+
+        '<div class="stat"><div class="n">'+k.aConfirmer+'</div><div class="l">Pointés (à confirmer CFS)</div></div>'+
+        '<div class="stat green"><div class="n">'+k.confirmes+'</div><div class="l">Confirmés (au stock)</div></div>'+
+        '<div class="stat"><div class="n">'+k.tauxTransfert+' %</div><div class="l">Taux de transfert</div></div>';
+      var att=(d.rows||[]).filter(function(r){return r.statut==='Annoncé';});
+      $('#annonceTC').innerHTML=att.map(function(r){return '<option value="'+esc(r.numeroTC)+'">'+esc((r.taille||'')+' · décl '+(r.numeroDeclaration||''))+'</option>';}).join('');
+      if(!att.length){ $('#pe_list').innerHTML='<div class="empty">Aucun conteneur en attente de pointage.</div>'; return; }
+      var h='<table class="grid"><thead><tr><th>N° TC</th><th>Taille</th><th>Bureau</th><th>N° décl.</th><th>Annoncé le</th><th></th></tr></thead><tbody>';
+      att.forEach(function(r){ h+='<tr><td class="mono">'+esc(r.numeroTC)+'</td><td>'+esc(r.taille||'—')+'</td><td>'+esc(r.bureauDeclaration||'—')+'</td><td>'+esc(r.numeroDeclaration||'—')+'</td><td>'+esc(r.dateAnnonce||'—')+'</td><td><button class="btn sec xs" onclick="pointerAnnonce(\''+esc(r.numeroTC)+'\')">Pointer</button></td></tr>'; });
+      $('#pe_list').innerHTML=h+'</tbody></table>';
+    }).catch(function(){});
+  }
+  window.pointerAnnonce=function(tc){ $('#pe_tc').value=tc; go2(); };
+  function go2(){
+    var tc=$('#pe_tc').value.trim(); if(!tc){ toast('N° TC requis','warn'); return; }
+    busy(true); $('#pe_go').disabled=true;
+    call('stockannonce.pointage',{numeroTC:tc}).then(function(r){ busy(false); $('#pe_go').disabled=false;
+      $('#pe_res').innerHTML='<div class="dup-soft">✔ '+esc(r.numeroTC)+' pointé. En attente de <b>confirmation CFS</b>.</div>'; $('#pe_tc').value=''; $('#pe_tc').focus(); refresh();
+    }).catch(function(e){ busy(false); $('#pe_go').disabled=false; err(e); });
+  }
+  $('#pe_go').addEventListener('click',go2);
+  $('#pe_tc').addEventListener('keydown',function(e){ if(e.key==='Enter') go2(); });
+  refresh();
+};
+
+/* v3.1 — Confirmation CFS : un TC pointé par la PP entre EFFECTIVEMENT au stock du port sec. */
+SCREENS.confentree=function(c){
+  c.innerHTML='<div class="card"><h2>✔ Confirmer l’entrée au stock (annoncé)</h2>'+
+    '<p class="help">Conteneurs <b>pointés par la Porte Principale</b>, en attente de votre confirmation. La confirmation les fait <b>entrer au stock du port sec</b>.</p>'+
+    '<datalist id="confTC"></datalist>'+
+    '<div class="row" style="align-items:flex-end">'+
+      field('N° conteneur (TC)','<input type="text" class="tc" id="ce_tc" list="confTC" maxlength="11" placeholder="MSKU1234567">','Choisi parmi les pointés')+
+      '<button class="btn" id="ce_go">✔ Confirmer l’entrée</button></div>'+
+    '<div id="ce_res" style="margin-top:10px"></div></div>'+
+    '<div class="card"><h2>À confirmer</h2><div id="ce_list"><div class="empty"><div class="spin" style="margin:auto"></div></div></div></div>';
+  function refresh(){
+    call('stockannonce.list',{statut:'Pointé'}).then(function(d){
+      $('#confTC').innerHTML=(d.rows||[]).map(function(r){return '<option value="'+esc(r.numeroTC)+'">'+esc((r.taille||'')+' · décl '+(r.numeroDeclaration||''))+'</option>';}).join('');
+      if(!d.rows.length){ $('#ce_list').innerHTML='<div class="empty">Aucun conteneur à confirmer.</div>'; return; }
+      var h='<table class="grid"><thead><tr><th>N° TC</th><th>Taille</th><th>N° décl.</th><th>Pointé le</th><th>Par</th><th></th></tr></thead><tbody>';
+      d.rows.forEach(function(r){ h+='<tr><td class="mono">'+esc(r.numeroTC)+'</td><td>'+esc(r.taille||'—')+'</td><td>'+esc(r.numeroDeclaration||'—')+'</td><td>'+esc(r.datePointage||'—')+'</td><td>'+esc(r.pointePar||'—')+'</td><td><button class="btn sec xs" onclick="confirmerAnnonce(\''+esc(r.numeroTC)+'\')">Confirmer</button></td></tr>'; });
+      $('#ce_list').innerHTML=h+'</tbody></table>';
+    }).catch(function(){});
+  }
+  window.confirmerAnnonce=function(tc){ $('#ce_tc').value=tc; go2(); };
+  function go2(){
+    var tc=$('#ce_tc').value.trim(); if(!tc){ toast('N° TC requis','warn'); return; }
+    busy(true); $('#ce_go').disabled=true;
+    call('stockannonce.confirmer',{numeroTC:tc}).then(function(r){ busy(false); $('#ce_go').disabled=false;
+      $('#ce_res').innerHTML='<div class="dup-soft">✔ '+esc(r.numeroTC)+' confirmé et entré au stock du port sec.</div>'; $('#ce_tc').value=''; $('#ce_tc').focus(); refresh();
+    }).catch(function(e){ busy(false); $('#ce_go').disabled=false; err(e); });
+  }
+  $('#ce_go').addEventListener('click',go2);
+  $('#ce_tc').addEventListener('keydown',function(e){ if(e.key==='Enter') go2(); });
+  refresh();
+};
+
+/* v3.5 — État des camions à la sortie de la zone CFS (traçabilité sur le site). */
+SCREENS.etatcfs=function(c){
+  c.innerHTML='<div class="card"><h2>◨ État des camions — sortie de la zone CFS</h2>'+
+    '<p class="help">Indiquez l\'état de chaque camion à sa sortie de la zone CFS : <b>En cours de chargement</b> / <b>Fin de chargement</b> / <b>Vide</b>. Sert à suivre la traçabilité des camions présents sur le site.</p>'+
+    '<div id="ec_stat" class="stats" style="margin:6px 0"></div></div>'+
+    '<div class="card"><h2>Camions sur le site</h2><div id="ec_tbl"><div class="empty"><div class="spin" style="margin:auto"></div></div></div></div>';
+  window.ecSet=function(id,etat){ busy(true); call('cargo.etatcfs',{id:id, etatSortie:etat}).then(function(){ busy(false); toast('État mis à jour ✔','ok'); load(); }).catch(function(e){ busy(false); err(e); }); };
+  function load(){
+    busy(true);
+    call('etatcfs.list',{}).then(function(d){ busy(false); var k=d.compte;
+      $('#ec_stat').innerHTML=
+        '<div class="stat"><div class="n">'+k.total+'</div><div class="l">Camions sur site</div></div>'+
+        '<div class="stat amber"><div class="n">'+k.enCours+'</div><div class="l">En cours de chargement</div></div>'+
+        '<div class="stat"><div class="n">'+k.fin+'</div><div class="l">Fin de chargement</div></div>'+
+        '<div class="stat green"><div class="n">'+k.vide+'</div><div class="l">Vide</div></div>'+
+        '<div class="stat"><div class="n">'+k.np+'</div><div class="l">Non renseigné</div></div>';
+      if(!d.rows.length){ $('#ec_tbl').innerHTML='<div class="empty">Aucun camion sur le site.</div>'; return; }
+      var h='<table class="grid"><thead><tr><th>Camion</th><th>Opération</th><th>Statut</th><th>État sortie CFS</th><th>Définir l\'état</th></tr></thead><tbody>';
+      d.rows.forEach(function(r){
+        var btns=ETATS_SORTIE.map(function(e){ var on=(r.etatSortie===e); return '<button class="btn '+(on?'':'sec ')+'xs" onclick="ecSet(\''+esc(r.id)+'\',\''+esc(e)+'\')">'+esc(e)+'</button>'; }).join(' ');
+        h+='<tr><td class="mono clickable" onclick="go(\'detail\',\''+esc(r.id)+'\')">'+esc(r.numeroCamion)+'</td><td>'+esc(r.typeOperation||'—')+'</td><td>'+statutTag(r.statut, r)+'</td><td>'+(r.etatSortie?esc(r.etatSortie):'<span class="help">—</span>')+'</td><td>'+btns+'</td></tr>';
+      });
+      $('#ec_tbl').innerHTML=h+'</tbody></table>';
+    }).catch(function(e){ busy(false); err(e); });
+  }
+  load();
+};
+
+/* v2.9 — Stock CFS journalier : conteneurs POSITIONNÉS le matin (non ouverts) et DÉPOTÉS (ouverts). */
+SCREENS.stockjour=function(c){
+  c.innerHTML='<div class="card"><h2>◧ Stock CFS journalier — conteneurs positionnés</h2>'+
+    '<p class="help">Conteneurs <b>pointés le matin</b> (positionnés). C\'est ce stock qui est rattaché aux camions de <b>dépotage</b>. '+
+      '« Non ouvert » = positionné, pas encore dépoté ; « Ouvert » = déjà dépoté.</p>'+
+    '<div id="sj_stat" class="stats" style="margin:6px 0"></div></div>'+
+    '<div class="card"><h2>Détail</h2><div id="sj_tbl"><div class="empty"><div class="spin" style="margin:auto"></div></div></div></div>';
+  busy(true);
+  call('stock.list',{statut:'tous'}).then(function(d){ busy(false);
+    var rows=(d.rows||[]).filter(function(s){ return s.statut==='Positionné'||s.statut==='Dépoté'; });
+    var nonOuvert=rows.filter(function(s){return s.statut==='Positionné';}).length;
+    var ouvert=rows.filter(function(s){return s.statut==='Dépoté';}).length;
+    $('#sj_stat').innerHTML=
+      '<div class="stat"><div class="n">'+rows.length+'</div><div class="l">Positionnés (journalier)</div></div>'+
+      '<div class="stat amber"><div class="n">'+nonOuvert+'</div><div class="l">Non ouverts (à dépoter)</div></div>'+
+      '<div class="stat green"><div class="n">'+ouvert+'</div><div class="l">Ouverts (dépotés)</div></div>';
+    if(!rows.length){ $('#sj_tbl').innerHTML='<div class="empty">Aucun conteneur positionné. Faites le pointage matinal.</div>'; return; }
+    rows.sort(function(a,b){ return (a.statut===b.statut)?0:(a.statut==='Positionné'?-1:1); });
+    var h='<table class="grid"><thead><tr><th>N° TC</th><th>Taille</th><th>État</th><th>Pointé le</th><th>Pointé par</th><th>Cargaison</th></tr></thead><tbody>';
+    rows.forEach(function(s){ var etat=(s.statut==='Positionné')?'<span class="tag st-charge">Non ouvert</span>':'<span class="tag st-sortie">Ouvert (dépoté)</span>';
+      h+='<tr><td class="mono">'+esc(s.numeroTC)+'</td><td>'+esc(s.taille||'—')+'</td><td>'+etat+'</td><td>'+esc(s.datePointage||'—')+'</td><td>'+esc(s.pointePar||'—')+'</td><td>'+(s.cargaisonId?'<span class="mono">'+esc(s.cargaisonId)+'</span>':'—')+'</td></tr>'; });
+    $('#sj_tbl').innerHTML=h+'</tbody></table>';
+  }).catch(function(e){ busy(false); err(e); });
+};
+
+/* Séjour & instances des conteneurs en stock (équivalent « camions en instance »). */
+SCREENS.stockdwell=function(c){
+  c.innerHTML='<div class="card"><div class="row" style="align-items:center"><h2 style="flex:1;margin:0">⏱ Séjour & instances — conteneurs</h2>'+
+    '<button class="btn sec sm" onclick="dlStockDwell(\'xlsx\')">⬇ Excel</button> <button class="btn sec sm" onclick="dlStockDwell(\'pdf\')">⬇ PDF</button></div></div>'+
+    '<div id="sd_stat" class="stats" style="margin:12px 0"></div>'+
+    '<div class="card"><h2>Répartition par tranche de séjour</h2><div id="sd_tr"></div></div>'+
+    '<div class="card"><h2>Conteneurs en stock (du plus ancien)</h2><div id="sd_tbl"><div class="empty"><div class="spin" style="margin:auto"></div></div></div></div>';
+  busy(true);
+  call('report.stock',{}).then(function(d){ busy(false);
+    var k=d.compte;
+    $('#sd_stat').innerHTML=
+      '<div class="stat"><div class="n">'+k.total+'</div><div class="l">Total conteneurs</div></div>'+
+      '<div class="stat"><div class="n">'+k.stock+'</div><div class="l">En stock</div></div>'+
+      '<div class="stat amber"><div class="n">'+k.positionne+'</div><div class="l">Positionnés</div></div>'+
+      '<div class="stat"><div class="n">'+(k.pointes||0)+'</div><div class="l">Pointés</div></div>'+
+      '<div class="stat green"><div class="n">'+k.depote+'</div><div class="l">Dépotés (sortis)</div></div>'+
+      '<div class="stat"><div class="n">'+d.sejourMoyen+' j</div><div class="l">Séjour moyen</div></div>'+
+      '<div class="stat '+(d.alerte?'amber':'')+'"><div class="n">'+d.alerte+'</div><div class="l">En instance ≥ '+d.seuilAlerte+' j</div></div>';
+    var tr='<table class="grid"><thead><tr><th>Tranche (jours)</th><th>Conteneurs</th></tr></thead><tbody>';
+    d.tranches.forEach(function(t){ tr+='<tr><td>'+esc(t.tranche)+'</td><td>'+t.n+'</td></tr>'; });
+    $('#sd_tr').innerHTML=tr+'</tbody></table>';
+    if(!d.instances.length){ $('#sd_tbl').innerHTML='<div class="empty">Aucun conteneur en stock.</div>'; return; }
+    var h='<table class="grid"><thead><tr><th>N° TC</th><th>Taille</th><th>Statut</th><th>Entré le</th><th>Séjour (j)</th><th>Tranche</th></tr></thead><tbody>';
+    d.instances.forEach(function(r){ h+='<tr'+(r.joursSejour>=d.seuilAlerte?' class="dup-row"':'')+'><td class="mono">'+esc(r.numeroTC)+'</td><td>'+esc(r.taille||'—')+'</td><td>'+esc(r.statut)+'</td><td>'+esc(r.dateEntree||'—')+'</td><td>'+r.joursSejour+'</td><td>'+esc(r.tranche)+'</td></tr>'; });
+    $('#sd_tbl').innerHTML=h+'</tbody></table>';
+  }).catch(function(e){ busy(false); err(e); });
+};
+function dlStockDwell(format){ busy(true); call('report.stock',{format:format}).then(function(b){ busy(false); saveBlob(b); }).catch(function(e){ busy(false); err(e); }); }
+
+/* Magasin/MAD temps 1 : marquer un conteneur dépoté / sorti du yard. */
+SCREENS.magasin=function(c){
+  c.innerHTML='<div class="card"><h2>▥ Entrée Magasin / MAD — Temps 1</h2>'+
+    '<p class="help">Marque le conteneur comme « Dépoté / sorti du yard ». Le stock de conteneurs vidés est incrémenté. (La sortie de la marchandise en vrac se fait via « Nouveau rapport ▸ Sortie Magasin / MAD ».)</p>'+
+    '<div class="row" style="align-items:flex-end">'+
+      field('N° conteneur (TC)','<input type="text" class="tc" id="mg_tc" maxlength="11" placeholder="MSKU1234567">')+
+      field('Taille','<select id="mg_taille">'+selOptsPh(TAILLES_CONTENEUR,'')+'</select>')+
+      '<button class="btn" id="mg_go">✔ Marquer dépoté</button></div>'+
+    '<div id="mg_res" style="margin-top:10px"></div></div>';
+  $('#mg_go').addEventListener('click',function(){
+    var tc=$('#mg_tc').value.trim(); if(!tc){ toast('N° TC requis','warn'); return; }
+    busy(true); call('stock.entreemagasin',{numeroTC:tc, taille:$('#mg_taille').value}).then(function(){
+      busy(false); $('#mg_res').innerHTML='<div class="dup-soft">✔ '+esc(tc)+' marqué « Dépoté / sorti du yard ».</div>'; $('#mg_tc').value='';
+    }).catch(function(e){ busy(false); err(e); });
+  });
+};
+
+/* ===================== KPI / EVP (P3) ================================= */
+SCREENS.kpi=function(c){
+  var today=isoDate(new Date()), d30=new Date(); d30.setDate(d30.getDate()-29);
+  c.innerHTML='<div class="card"><h2>◫ KPI — Stock & flux (EVP)</h2>'+
+    '<div class="row" style="align-items:flex-end">'+
+      field('Du','<input type="date" id="kp_du" value="'+isoDate(d30)+'">')+
+      field('Au','<input type="date" id="kp_au" value="'+today+'">')+
+      '<button class="btn" id="kp_go">Afficher</button>'+
+      '<button class="btn sec" onclick="dlKpi(\'xlsx\')">⤓ Excel</button>'+
+      '<button class="btn sec" onclick="dlKpi(\'pdf\')">⤓ PDF</button></div></div><div id="kp_res"></div>';
+  $('#kp_go').addEventListener('click',runKpi); runKpi();
+};
+function kpiParams(f){ return { du:$('#kp_du').value, au:$('#kp_au').value, format:f||'view' }; }
+function runKpi(){ busy(true); call('report.kpi',kpiParams('view')).then(function(d){ busy(false); renderKpi(d); }).catch(function(e){ busy(false); err(e); }); }
+function dlKpi(f){ busy(true); call('report.kpi',kpiParams(f)).then(function(b){ busy(false); saveBlob(b); }).catch(function(e){ busy(false); err(e); }); }
+function renderKpi(d){
+  function card(n,l,cl){ return '<div class="stat '+(cl||'')+'"><div class="n">'+(n||0)+'</div><div class="l">'+esc(l)+'</div></div>'; }
+  var S=d.stock;
+  $('#kp_res').innerHTML=
+    '<div class="card"><h2>Conteneurs (période) — vidés & sortis scellés</h2><div class="stats">'+
+      card(d.depotage.conteneurs,'Dépotage — vidés')+card(d.depotage.evp,'EVP vidés','green')+
+      card(d.enlevement.conteneurs,'Enlèvement — sortis scellés')+card(d.enlevement.evp,'EVP scellés','green')+
+    '</div></div>'+
+    '<div class="card"><h2>Flux camions (période)</h2><div class="stats">'+
+      card(d.camions.actifs,'Actifs','amber')+card(d.camions.sortis,'Sortis','green')+card(d.camions.total,'Total')+
+    '</div></div>'+
+    '<div class="card"><h2>Stock physique (instantané)</h2><div class="stats">'+
+      card(S.total,'Total conteneurs')+card(S.evp,'EVP','green')+
+      card(S.t20,"20'")+card(S.t40,"40'")+card(S.t45,"45'")+card(S.autres,'Autres')+
+      card(S.positionne,'Positionnés','amber')+card(S.depote,'Dépotés')+
+    '</div></div>';
+}
+
+/* ===================== Suivi des dispenses (P4) ======================= */
+SCREENS.dispenses=function(c){
+  var today=isoDate(new Date()), d30=new Date(); d30.setDate(d30.getDate()-29);
+  c.innerHTML='<div class="card"><h2>⚑ Suivi des dispenses</h2>'+
+    '<p class="help">Cargaisons dispensées de balise. « Terminées » = arrivée au bureau de destination confirmée.</p>'+
+    '<div class="row" style="align-items:flex-end">'+
+      field('Du','<input type="date" id="dp_du" value="'+isoDate(d30)+'">')+
+      field('Au','<input type="date" id="dp_au" value="'+today+'">')+
+      '<button class="btn" id="dp_go">Afficher</button></div>'+
+    '<div class="stats" id="dp_stat" style="margin-top:12px"></div></div><div id="dp_res"></div>';
+  $('#dp_go').addEventListener('click',runDisp); runDisp();
+};
+function runDisp(){ busy(true); call('report.dispenses',{du:$('#dp_du').value,au:$('#dp_au').value}).then(function(d){ busy(false); renderDisp(d); }).catch(function(e){ busy(false); err(e); }); }
+function renderDisp(d){
+  $('#dp_stat').innerHTML='<div class="stat"><div class="n">'+d.total+'</div><div class="l">Total dispenses</div></div>'+
+    '<div class="stat amber"><div class="n">'+d.enCours+'</div><div class="l">En cours</div></div>'+
+    '<div class="stat green"><div class="n">'+d.terminees+'</div><div class="l">Terminées</div></div>';
+  if(!d.rows.length){ $('#dp_res').innerHTML='<div class="card"><div class="empty">Aucune dispense.</div></div>'; return; }
+  var canSolde=(STATE.user.role==='BALISE'||STATE.user.role==='ADMIN');
+  var h='<div class="card" style="overflow:auto"><table class="grid"><thead><tr><th>ID</th><th>Camion</th><th>Opération</th><th>N° dispense</th><th>Bureau dest.</th><th>Statut</th><th>Arrivée bureau</th><th></th></tr></thead><tbody>';
+  d.rows.forEach(function(r){
+    var act=(canSolde && r.statut===STATUTS.SORTIE && r.arrivee!=='Oui')?'<button class="btn sm" onclick="soldeDispense(\''+esc(r.id)+'\')">Solder</button>':'';
+    h+='<tr class="clickable" onclick="go(\'detail\',\''+esc(r.id)+'\')"><td class="mono">'+esc(r.id)+'</td><td>'+esc(r.numeroCamion)+'</td><td>'+esc(r.operation)+'</td><td>'+esc(r.numeroDispense||'—')+'</td><td>'+esc(r.bureauDestination||'—')+'</td><td>'+statutTag(r.statut, r)+'</td><td>'+(r.arrivee==='Oui'?'✓ Oui':'—')+'</td><td onclick="event.stopPropagation()">'+act+'</td></tr>';
+  });
+  $('#dp_res').innerHTML=h+'</tbody></table></div>';
+}
+function soldeDispense(id){ busy(true); call('cargo.arriveebureau',{id:id}).then(function(){ busy(false); toast('Dispense soldée ✔','ok'); if(STATE.screen==='dispenses') runDisp(); else go('detail',id); }).catch(function(e){ busy(false); err(e); }); }
+
+/* ----------------------------- Téléchargement ---------------------------- */
+function saveBlob(b){
+  try{
+    var bin=atob(b.bytesBase64), len=bin.length, bytes=new Uint8Array(len);
+    for(var i=0;i<len;i++) bytes[i]=bin.charCodeAt(i);
+    var blob=new Blob([bytes],{type:b.mimeType});
+    var url=URL.createObjectURL(blob), a=document.createElement('a');
+    a.href=url; a.download=b.filename; document.body.appendChild(a); a.click();
+    setTimeout(function(){ URL.revokeObjectURL(url); a.remove(); },1500);
+    toast('Téléchargement : '+b.filename,'ok');
+  }catch(e){ toast('Échec du téléchargement','bad'); }
+}
+
+/* ----------------------------- Divers ------------------------------------ */
+function field(label, inner, help){
+  return '<div class="field col"><label>'+esc(label)+'</label>'+inner+(help?'<div class="help">'+esc(help)+'</div>':'')+'</div>';
+}
+function err(e){ toast((e&&e.message)?e.message:'Une erreur est survenue','bad'); }
+
+/* Force MAJUSCULES en temps réel sur tout champ .up ; .alnum retire en plus
+ * les caractères spéciaux (utilisé pour le N° camion). */
+function upperHandler(e){
+  var el=e.target;
+  if(!el || !el.classList) return;
+  // Téléphone : chiffres + espaces, un seul « + » en tête.
+  if(el.classList.contains('tel')){
+    var pos0=el.selectionStart, t=el.value.replace(/[^\d+ ]/g,'').replace(/(?!^)\+/g,'');
+    if(t!==el.value){ el.value=t; try{ el.setSelectionRange(pos0,pos0); }catch(_){ } }
+    return;
+  }
+  // N° conteneur ISO 6346 : 4 lettres puis 7 chiffres, sans caractères spéciaux.
+  if(el.classList.contains('tc')){
+    var raw=el.value.toUpperCase().replace(/[^A-Z0-9]/g,'');
+    var tc=raw.replace(/[^A-Z]/g,'').slice(0,4)+raw.replace(/[^0-9]/g,'').slice(0,7);
+    if(tc!==el.value){ el.value=tc; try{ el.setSelectionRange(tc.length,tc.length); }catch(_){ } }
+    return;
+  }
+  if(!el.classList.contains('up')) return;
+  var pos=el.selectionStart, v=el.value.toUpperCase();
+  if(el.classList.contains('alnum')) v=v.replace(/[^A-Z0-9\/-]/g,'');
+  if(v!==el.value){ el.value=v; try{ el.setSelectionRange(pos,pos); }catch(_){ } }
+}
+
+/* ----------------------------- Démarrage --------------------------------- */
+window.addEventListener('DOMContentLoaded',function(){
+  $('#li_btn').addEventListener('click',doLogin);
+  $('#li_pass').addEventListener('keydown',function(e){ if(e.key==='Enter') doLogin(); });
+  document.addEventListener('input', upperHandler);
+  // Le signal « obligatoire » disparaît dès que l'utilisateur corrige le champ.
+  var clearInv=function(e){ if(e.target && e.target.classList) e.target.classList.remove('invalid'); };
+  document.addEventListener('input', clearInv);
+  document.addEventListener('change', clearInv);
+  if(!tryRestore()){ $('#login').classList.remove('hidden'); }
+});
+</script>

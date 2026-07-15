@@ -1,0 +1,18 @@
+{
+  "name": "cargo-tracker",
+  "private": true,
+  "version": "4.0.0",
+  "description": "PIA Dry Port — Cargo Tracker v4 (React + Supabase). Spécification métier : apps-script/ v3.6 + CONCEPTION_V4.md",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "typecheck": "npm run typecheck -w @cargo/domaine && npm run typecheck -w web",
+    "build": "npm run build -w @cargo/domaine && npm run build -w web",
+    "dev": "npm run dev -w web"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

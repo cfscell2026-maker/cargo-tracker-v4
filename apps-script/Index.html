@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <title>Suivi des Cargaisons</title>
+  <?!= include('Styles'); ?>
+</head>
+<body>
+
+  <!-- Écran de connexion -->
+  <div id="login" class="hidden">
+    <div class="login-card">
+      <div class="logo"><b>SUIVI DES CARGAISONS</b><span>Gestion &amp; traçabilité</span></div>
+      <div class="field"><label>Identifiant</label><input type="text" id="li_user" autocomplete="username" autofocus></div>
+      <div class="field"><label>Mot de passe</label><input type="password" id="li_pass" autocomplete="current-password"></div>
+      <button class="btn" id="li_btn" style="width:100%;justify-content:center">Se connecter</button>
+      <p class="help" style="text-align:center;margin-top:14px">Accès réservé au personnel autorisé.</p>
+    </div>
+  </div>
+
+  <!-- Application -->
+  <div id="app" class="hidden">
+    <aside class="side" id="side">
+      <div class="brand"><b>Suivi des Cargaisons</b><span>Espace de travail</span></div>
+      <nav id="nav"></nav>
+      <div class="who" id="who"></div>
+      <div style="padding:10px 12px"><button class="btn ghost" style="width:100%;justify-content:center;color:#cfe0ee;border-color:rgba(255,255,255,.2)" onclick="doLogout()">Déconnexion</button></div>
+    </aside>
+
+    <div class="main">
+      <div class="topbar">
+        <button class="burger" onclick="toggleSide()">☰</button>
+        <h1 id="pageTitle">Tableau de bord</h1>
+      </div>
+      <div class="content" id="content"></div>
+    </div>
+  </div>
+
+  <!-- Overlays -->
+  <div id="busy" class="hidden"><div class="spin"></div></div>
+  <div id="toasts"></div>
+
+  <!-- SheetJS : lecture des fichiers Excel (.xlsx) à l'import du stock, côté navigateur. -->
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+
+  <?!= include('Client'); ?>
+</body>
+</html>
