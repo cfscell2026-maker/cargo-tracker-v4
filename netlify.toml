@@ -9,6 +9,13 @@
   command = "npm ci && npm run build"
   publish = "apps/web/dist"
 
+[build.environment]
+  # L'URL et la clé « anon » Supabase sont PUBLIQUES par conception : une app
+  # front les embarque forcément dans le bundle livré au navigateur, la sécurité
+  # repose sur les Row Level Security policies côté Postgres, pas sur leur secret.
+  # Le scanner de secrets Netlify les repère (bundle + CSP) : on les exclut.
+  SECRETS_SCAN_OMIT_KEYS = "VITE_SUPABASE_URL,VITE_SUPABASE_ANON_KEY"
+
 # --- SPA : toutes les routes servent index.html (React Router) ---
 [[redirects]]
   from = "/*"
