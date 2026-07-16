@@ -169,7 +169,8 @@ function PanneauCFS({ c, dets, action }: { c: O; dets: ReturnType<typeof parseCo
       )}
       <div style={{ marginTop: 12 }}><button onClick={ajouter}>Ajouter le conteneur</button></div>
 
-      {!estEnl && c['statut'] === STATUTS.CHARGEMENT && dets.conteneurs.length > 0 && <FinaliserDepotage id={id} action={action} />}
+      {/* v4 — un camion d'effets divers (0 conteneur) se finalise aussi (scellés camion). */}
+      {!estEnl && c['statut'] === STATUTS.CHARGEMENT && <FinaliserDepotage id={id} action={action} />}
     </div>
   );
 }

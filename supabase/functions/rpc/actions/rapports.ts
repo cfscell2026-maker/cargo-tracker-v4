@@ -547,6 +547,10 @@ export async function ordreExecution(ctx: Ctx, p: Record<string, unknown>) {
   const rows = lignes.flatMap((l) => {
     const conts = (l['conteneurs'] as Record<string, unknown>[]) ?? [];
     const scam = (l['scellesCamion'] as string[]) ?? [];
+    // v4 — camion d'EFFETS DIVERS : pas de conteneur propre → une ligne avec la
+    // désignation à la place du n° de TC (les véhicules sans TC restent hors tableau).
+    if (!conts.length && !l['vehicule'] && (String(l['descriptionMarchandise'] ?? '').trim() || scam.length))
+      return [`<tr><td>${esc(String(l['descriptionMarchandise'] ?? '').trim() || 'EFFETS DIVERS')}</td><td></td><td>${esc(l['numeroCamion'])}</td><td>${esc(scam.join(' · '))}</td></tr>`];
     return conts.map((ct, i) => {
       // Dépotage : scellés au camion (affichés sur la 1re ligne). Enlèvement : par conteneur.
       const plombs = String(l['typeOperation']) === OPERATIONS.ENLEVEMENT

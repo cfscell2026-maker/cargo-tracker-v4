@@ -72,6 +72,33 @@ export function construireCamion(
   };
 }
 
+export interface CamionEffets {
+  numeroCamion: string;
+  designation: string;
+  chargementTermine: boolean;
+  scellesCamion: string[];
+}
+
+/**
+ * v4 — Camion d'EFFETS DIVERS d'un rapport véhicule : il ne porte PAS de
+ * conteneur (les effets proviennent du conteneur d'origine du véhicule) mais
+ * un N° de camion, une DÉSIGNATION des effets et ses scellés. Les scellés
+ * (2-3, règle dépotage) ne sont exigés que si le chargement est terminé.
+ */
+export function construireCamionEffets(src: Record<string, unknown> | null | undefined): CamionEffets {
+  const o = src ?? {};
+  const numeroCamion = maj(o['numeroCamion'], 40).replace(/[^A-Z0-9/-]/g, '');
+  if (!numeroCamion) throw new Error('N° camion invalide (alphanumérique, majuscules).');
+  const designation = maj(o['designation'], 600);
+  if (!designation) throw new Error('Camion ' + numeroCamion + ' : la désignation des effets divers est obligatoire.');
+  const chargementTermine = !(o['chargementTermine'] === false);
+  const scellesCamion = (Array.isArray(o['scellesCamion']) ? o['scellesCamion'] : []).map((s) => maj(s, 30)).filter(Boolean);
+  if (chargementTermine && scellesCamion.length < 2)
+    throw new Error('Camion ' + numeroCamion + ' : au moins 2 scellés sont requis en dépotage.');
+  if (scellesCamion.length > 3) throw new Error('Camion ' + numeroCamion + ' : 3 scellés maximum en dépotage.');
+  return { numeroCamion, designation, chargementTermine, scellesCamion };
+}
+
 export interface VehiculeConstruit {
   chassis: string;
   marque: string;

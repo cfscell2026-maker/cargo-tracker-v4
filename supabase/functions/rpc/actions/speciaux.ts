@@ -6,9 +6,9 @@
  */
 import type { Ctx } from '../ctx.ts';
 import {
-  ROLES, STATUTS, OPERATIONS,
+  ROLES, STATUTS, OPERATIONS, sautsTypeC,
   alphaNumMaj, maj, txt, tcValide, parseDateImport,
-  normaliserDeclaration, construireCamion, construireVehicule, type CamionConstruit,
+  normaliserDeclaration, construireCamion, construireCamionEffets, construireVehicule, type CamionConstruit,
 } from '../../_shared/domaine/src/index.ts';
 import {
   getCargo, patchCargo, nextId, nextRapportId, ajouterConteneurs, lierStock, lookupDeclaration, majApurement,
@@ -44,11 +44,11 @@ export async function create(ctx: Ctx, p: Record<string, unknown>) {
   const camions = Array.isArray(p['camions']) ? (p['camions'] as Record<string, unknown>[]) : [];
   if (!camions.length) throw new Error('Au moins un camion est requis.');
 
-  const estConso = type === OPERATIONS.CONSO;
-  const sauteBalise = estConso && String(p['consoMode']) === 'sansbalise';
-  const sauteT1 = estConso;
-
   const decl = normaliserDeclaration(p['declaration'] as never, type);
+  // v4 — comme en DÉPOTAGE : le TYPE de la déclaration commande le parcours.
+  // T = transit → T1 + Balise ; C = mise à la consommation → saute le T1 et
+  // l'agent choisit balisée / non balisée (consoMode). Règle unique sautsTypeC.
+  const { sauteT1, sauteBalise } = sautsTypeC(decl.typeDeclaration, p['consoMode']);
   const obsCFS = maj(p['observationsCFS'], 1000);
   const chargementTermine = !(p['chargementTermine'] === false);
   const statutInitial = chargementTermine ? STATUTS.CREEE : STATUTS.CHARGEMENT;
@@ -86,7 +86,9 @@ async function creerRapportMagasin(ctx: Ctx, p: Record<string, unknown>) {
   if (!numeroCamion) throw new Error('N° camion requis pour la sortie magasin.');
   const decl = normaliserDeclaration(p['declaration'] as never, OPERATIONS.MAGASIN);
   const obsCFS = maj(p['observationsCFS'], 1000);
-  const sauteBalise = String(p['consoMode']) === 'sansbalise';
+  // v4 — comme en dépotage : type T → T1 + Balise ; type C → saute le T1,
+  // balisée ou non balisée selon consoMode (règle unique sautsTypeC).
+  const { sauteT1, sauteBalise } = sautsTypeC(decl.typeDeclaration, p['consoMode']);
   const rapportId = await nextRapportId(ctx);
   const id = await nextId(ctx);
   const now = new Date().toISOString();
@@ -99,7 +101,7 @@ async function creerRapportMagasin(ctx: Ctx, p: Record<string, unknown>) {
     observations_cfs: obsCFS, agent_cfs: ctx.session.nomComplet, agent_cfs_id: ctx.session.userId,
     statut: STATUTS.CREEE, derniere_maj: now, rapport_id: rapportId,
     conteneurs_details: { conteneurs: [], scellesCamion: [] }, nb_conteneurs: 0,
-    saute_t1: true, saute_balise: sauteBalise,
+    saute_t1: sauteT1, saute_balise: sauteBalise,
   };
   const { error } = await ctx.db.from('cargaisons').insert(row);
   if (error) throw new Error(error.message);
@@ -136,19 +138,13 @@ async function creerRapportVehicule(ctx: Ctx, p: Record<string, unknown>) {
 
   const vehicules = (Array.isArray(p['vehicules']) ? (p['vehicules'] as unknown[]) : []).map((v) => construireVehicule(v as never));
   if (!vehicules.length) throw new Error('Au moins un véhicule est requis.');
-  // v4 — « chargement terminé (scellés posés) » est porté PAR CAMION (et non plus
-  // globalement au rapport) : c'est le camion qui charge les autres effets du
-  // conteneur qui est scellé. Les scellés ne sont exigés que s'il est terminé.
+  // v4 — camions d'EFFETS DIVERS : N° camion + DÉSIGNATION + scellés (plus de
+  // conteneurs propres — les effets proviennent du conteneur d'origine).
+  // « Chargement terminé (scellés posés) » reste porté PAR CAMION ; les scellés
+  // (2-3, règle dépotage) ne sont exigés que s'il est terminé.
   const camions = estOuillage
     ? []
-    : (Array.isArray(p['camions']) ? (p['camions'] as Record<string, unknown>[]) : []).map((src) => {
-        const termine = !(src['chargementTermine'] === false);
-        return { cam: construireCamion(src as never, OPERATIONS.DEPOTAGE, termine), termine };
-      });
-
-  const numsCamions: string[] = [];
-  camions.forEach(({ cam }) => cam.conteneurs.forEach((ct) => numsCamions.push(ct.num)));
-  const compteSurVehicule = !!conteneurOrigine && numsCamions.indexOf(conteneurOrigine) === -1;
+    : (Array.isArray(p['camions']) ? (p['camions'] as Record<string, unknown>[]) : []).map((src) => construireCamionEffets(src));
 
   const rapportId = await nextRapportId(ctx);
   const now = new Date().toISOString();
@@ -157,7 +153,8 @@ async function creerRapportVehicule(ctx: Ctx, p: Record<string, unknown>) {
 
   for (let i = 0; i < vehicules.length; i++) {
     const v = vehicules[i]!;
-    const porteur = i === 0 && compteSurVehicule;
+    // Le TC d'origine est compté (stock + apurement) sur le 1er véhicule du rapport.
+    const porteur = i === 0;
     const id = await nextId(ctx);
     const row: Record<string, unknown> = {
       id, reference: id, date_creation: now, numero_camion: v.chassis, type_operation: OPERATIONS.VEHICULE, twins: false,
@@ -182,15 +179,18 @@ async function creerRapportVehicule(ctx: Ctx, p: Record<string, unknown>) {
     }
     creeV.push({ id, chassis: v.chassis });
   }
-  for (const { cam, termine } of camions) {
+  for (const cam of camions) {
     const id = await nextId(ctx);
-    const statutCam = termine ? STATUTS.CREEE : STATUTS.CHARGEMENT;
-    const row = ligneCamion(id, rapportId, now, cam, OPERATIONS.DEPOTAGE, d as never, obsCFS, ctx.session, false, false, statutCam);
+    const statutCam = cam.chargementTermine ? STATUTS.CREEE : STATUTS.CHARGEMENT;
+    const vide: CamionConstruit = {
+      numeroCamion: cam.numeroCamion, twins: 'No', conteneurs: [], nbConteneurs: 0,
+      scellesCamion: cam.scellesCamion, conteneursDetails: { conteneurs: [], scellesCamion: cam.scellesCamion },
+    };
+    const row = ligneCamion(id, rapportId, now, vide, OPERATIONS.DEPOTAGE, d as never, obsCFS, ctx.session, false, false, statutCam);
+    row['description_marchandise'] = cam.designation; // désignation des effets divers
     row['conteneur_origine'] = conteneurOrigine;
     const { error } = await ctx.db.from('cargaisons').insert(row);
     if (error) throw new Error(error.message);
-    for (const ct of cam.conteneurs) await lierStock(ctx, ct.num, id);
-    await ajouterConteneurs(ctx, rapportId, id, cam.numeroCamion, OPERATIONS.DEPOTAGE, cam.conteneurs);
     creeC.push({ id, numeroCamion: cam.numeroCamion });
   }
 

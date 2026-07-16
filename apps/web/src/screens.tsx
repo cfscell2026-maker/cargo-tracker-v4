@@ -159,20 +159,22 @@ function DeclFields({ d, set }: { d: O; set: (k: string, v: unknown) => void }) 
     {/* v4 — date en douane, imprimée sur l'ordre d'exécution (exigée si nouvelle déclaration). */}
     <div><label className="help">Date de la déclaration</label><input type="date" value={String(d['dateDeclaration'] ?? '')} onChange={(e) => set('dateDeclaration', e.target.value)} /></div>
     <div><label className="help">Nb conteneurs déclarés</label><input type="number" value={String(d['nombreConteneurs'] ?? '')} onChange={(e) => set('nombreConteneurs', e.target.value)} /></div>
+    <div><label className="help">Désignation des marchandises</label><input value={String(d['descriptionMarchandise'] ?? '')} onChange={(e) => set('descriptionMarchandise', masks.upper(e.target.value))} /></div>
   </div>;
 }
 
-/** Camion d'effets divers : porte SON « chargement terminé » + SES scellés (v4). */
-type CamEffets = { numeroCamion: string; chargementTermine: boolean; conteneurs: O[]; scellesCamion: string[] };
-const camVide = (): CamEffets => ({ numeroCamion: '', chargementTermine: true, conteneurs: [{ num: '', taille: '', type: '' }], scellesCamion: ['', '', ''] });
+/** Camion d'effets divers (v4) : N° camion + DÉSIGNATION + scellés (plus de conteneurs propres). */
+type CamEffets = { numeroCamion: string; designation: string; chargementTermine: boolean; scellesCamion: string[] };
+const camVide = (): CamEffets => ({ numeroCamion: '', designation: '', chargementTermine: true, scellesCamion: ['', '', ''] });
+const vehVide = (): O => ({ chassis: '', marque: '', modele: '', couleur: '', destination: 'Transit' });
 
 function FormVehicule({ go }: { go: Nav['go'] }) {
   const [d, setD] = useState<O>({});
-  const [v, setV] = useState<O>({ chassis: '', marque: '', modele: '', couleur: '', destination: 'Transit' });
+  const [vs, setVs] = useState<O[]>([vehVide()]);
   const [origine, setOrigine] = useState('');
   const [cams, setCams] = useState<CamEffets[]>([]);
   const set = (k: string, val: unknown) => setD((o) => ({ ...o, [k]: val }));
-  const setVv = (k: string, val: unknown) => setV((o) => ({ ...o, [k]: val }));
+  const majVeh = (i: number, k: string, val: unknown) => setVs((a) => a.map((v, j) => (j === i ? { ...v, [k]: val } : v)));
 
   // v4 — le TC d'origine est OBLIGATOIRE et se choisit dans les TC POSITIONNÉS au CFS.
   const { data: stk, loading: stkLoading } = useAsync<{ rows: O[] }>(() => call('stock.list', { statut: 'Positionné' }), []);
@@ -184,7 +186,7 @@ function FormVehicule({ go }: { go: Nav['go'] }) {
     if (!origine) { toast("Le N° de conteneur d'origine (TC) est obligatoire.", 'err'); return; }
     try {
       const r = await call<{ vehicules: { id: string }[] }>('cargo.create', {
-        typeOperation: OPERATIONS.VEHICULE, declaration: d, conteneurOrigine: origine, vehicules: [v],
+        typeOperation: OPERATIONS.VEHICULE, declaration: d, conteneurOrigine: origine, vehicules: vs,
         camions: cams.map((c) => ({ ...c, scellesCamion: c.scellesCamion.filter(Boolean) })),
       });
       toast('Véhicule créé.', 'ok'); go('detail', r.vehicules[0]?.id);
@@ -192,13 +194,15 @@ function FormVehicule({ go }: { go: Nav['go'] }) {
   }
 
   return <div style={{ marginTop: 12 }}>
-    <div className="section-title">Véhicule</div>
-    <div className="grid2">
-      <div><label className="help">Châssis (VIN)</label><input className="mono" value={String(v['chassis'])} onChange={(e) => setVv('chassis', masks.alnum(e.target.value))} /></div>
-      <div><label className="help">Marque</label><input value={String(v['marque'])} onChange={(e) => setVv('marque', masks.upper(e.target.value))} /></div>
-      <div><label className="help">Modèle</label><input value={String(v['modele'])} onChange={(e) => setVv('modele', masks.upper(e.target.value))} /></div>
-      <div><label className="help">Couleur</label><input value={String(v['couleur'])} onChange={(e) => setVv('couleur', masks.upper(e.target.value))} /></div>
-      <div><label className="help">Destination</label><select value={String(v['destination'])} onChange={(e) => setVv('destination', e.target.value)}>{VEHICULE_DESTINATIONS.map((x) => <option key={x}>{x}</option>)}</select></div>
+    {/* v4 — ordre demandé : Déclaration EN HAUT, puis conteneur + véhicules, effets divers EN BAS. */}
+    <div className="section-title">Déclaration</div>
+    <DeclFields d={d} set={set} />
+
+    <div className="row" style={{ alignItems: 'center', marginTop: 14 }}>
+      <div className="section-title" style={{ flex: 1, margin: 0 }}>Conteneur & véhicules</div>
+      <button className="ghost xs" onClick={() => setVs((a) => [...a, vehVide()])}>＋ Ajouter un véhicule</button>
+    </div>
+    <div className="grid2" style={{ marginTop: 6 }}>
       <div>
         <label className="help">Conteneur d'origine (TC) *</label>
         <select value={origine} onChange={(e) => setOrigine(e.target.value)} className="mono">
@@ -208,9 +212,22 @@ function FormVehicule({ go }: { go: Nav['go'] }) {
         <div className="help">Conteneurs positionnés au CFS uniquement.</div>
       </div>
     </div>
+    {vs.map((v, i) => <div key={i} style={{ border: '1px solid var(--line)', borderRadius: 6, padding: 10, marginTop: 8 }}>
+      <div className="row" style={{ alignItems: 'center' }}>
+        <div className="help" style={{ flex: 1, fontWeight: 600 }}>Véhicule {i + 1}</div>
+        {vs.length > 1 && <button className="ghost xs" onClick={() => setVs((a) => a.filter((_, j) => j !== i))}>Retirer</button>}
+      </div>
+      <div className="grid2">
+        <div><label className="help">Châssis (VIN)</label><input className="mono" value={String(v['chassis'])} onChange={(e) => majVeh(i, 'chassis', masks.alnum(e.target.value))} /></div>
+        <div><label className="help">Marque</label><input value={String(v['marque'])} onChange={(e) => majVeh(i, 'marque', masks.upper(e.target.value))} /></div>
+        <div><label className="help">Modèle</label><input value={String(v['modele'])} onChange={(e) => majVeh(i, 'modele', masks.upper(e.target.value))} /></div>
+        <div><label className="help">Couleur</label><input value={String(v['couleur'])} onChange={(e) => majVeh(i, 'couleur', masks.upper(e.target.value))} /></div>
+        <div><label className="help">Destination</label><select value={String(v['destination'])} onChange={(e) => majVeh(i, 'destination', e.target.value)}>{VEHICULE_DESTINATIONS.map((x) => <option key={x}>{x}</option>)}</select></div>
+      </div>
+    </div>)}
 
     <div className="row" style={{ alignItems: 'center', marginTop: 14 }}>
-      <div className="section-title" style={{ flex: 1, margin: 0 }}>Camions (effets divers du conteneur) — facultatif</div>
+      <div className="section-title" style={{ flex: 1, margin: 0 }}>Effets divers (camions) — facultatif</div>
       <button className="ghost xs" onClick={() => setCams((a) => [...a, camVide()])}>＋ Ajouter un camion</button>
     </div>
     {cams.map((c, i) => <div key={i} style={{ border: '1px solid var(--line)', borderRadius: 6, padding: 10, marginTop: 8 }}>
@@ -218,12 +235,8 @@ function FormVehicule({ go }: { go: Nav['go'] }) {
         <div style={{ flex: 1 }}><label className="help">N° camion</label><input className="mono" value={c.numeroCamion} onChange={(e) => majCam(i, { numeroCamion: masks.alnum(e.target.value) })} /></div>
         <button className="ghost xs" onClick={() => setCams((a) => a.filter((_, j) => j !== i))}>Retirer</button>
       </div>
-      {c.conteneurs.map((ct, k) => <div className="grid2" key={k} style={{ marginTop: 6 }}>
-        <div><label className="help">Conteneur {k + 1}</label><input className="mono" value={String(ct['num'] ?? '')} onChange={(e) => majCam(i, { conteneurs: c.conteneurs.map((x, j) => j === k ? { ...x, num: masks.tc(e.target.value) } : x) })} /></div>
-        <div><label className="help">Taille</label><input value={String(ct['taille'] ?? '')} onChange={(e) => majCam(i, { conteneurs: c.conteneurs.map((x, j) => j === k ? { ...x, taille: masks.upper(e.target.value) } : x) })} placeholder="20' / 40' / 45'" /></div>
-        <div><label className="help">Type</label><input value={String(ct['type'] ?? '')} onChange={(e) => majCam(i, { conteneurs: c.conteneurs.map((x, j) => j === k ? { ...x, type: masks.upper(e.target.value) } : x) })} /></div>
-      </div>)}
-      <button className="ghost xs" style={{ marginTop: 6 }} onClick={() => majCam(i, { conteneurs: [...c.conteneurs, { num: '', taille: '', type: '' }] })}>＋ Conteneur</button>
+      <div style={{ marginTop: 6 }}><label className="help">Désignation des effets divers</label>
+        <input value={c.designation} onChange={(e) => majCam(i, { designation: masks.upper(e.target.value) })} placeholder="ex. CARTONS D'EFFETS PERSONNELS" /></div>
 
       {/* v4 — « chargement terminé (scellés posés) » : ramené AU NIVEAU DU CAMION. */}
       <label className="help" style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 10 }}>
@@ -236,10 +249,28 @@ function FormVehicule({ go }: { go: Nav['go'] }) {
       </div>}
     </div>)}
 
-    <div className="section-title" style={{ marginTop: 14 }}>Déclaration</div>
-    <DeclFields d={d} set={set} />
     <div style={{ marginTop: 12 }}><button onClick={creer}>Créer le véhicule</button></div>
   </div>;
+}
+
+/**
+ * v4 — Conso/MAD « comme en dépotage » : le TYPE de la déclaration commande le
+ * parcours. T = transit → T1 + Balise ; C = mise à la consommation → saute le
+ * T1 et l'agent choisit balisée / non balisée (le choix ne s'affiche que pour C).
+ */
+function InfoTypeDecl({ d, mode, setMode }: { d: O; mode: string; setMode: (v: string) => void }) {
+  const estConso = String(d['typeDeclaration'] ?? 'T') === 'C';
+  return <>
+    <p className="help" style={{ marginTop: 0 }}>
+      {estConso
+        ? <>Type C = mise à la consommation : la cargaison <b>saute le T1</b>{mode === 'sansbalise' ? ' et la Balise (dispense)' : ' ; balise à poser'}.</>
+        : <>Type T = transit : la cargaison passe par le <b>T1</b> puis la <b>Balise</b>, comme un dépotage.</>}
+    </p>
+    {estConso && <div className="grid2">
+      <div><label className="help">Conso (type C) — balise</label>
+        <select value={mode} onChange={(e) => setMode(e.target.value)}><option value="balise">À baliser</option><option value="sansbalise">Non balisée (dispense)</option></select></div>
+    </div>}
+  </>;
 }
 
 function FormMagasin({ go }: { go: Nav['go'] }) {
@@ -254,9 +285,11 @@ function FormMagasin({ go }: { go: Nav['go'] }) {
     } catch (e) { toast((e as Error).message, 'err'); }
   }
   return <div style={{ marginTop: 12 }}>
-    <div className="grid2"><div><label className="help">N° camion</label><input className="mono" value={num} onChange={(e) => setNum(masks.alnum(e.target.value))} /></div>
-      <div><label className="help">Balise</label><select value={mode} onChange={(e) => setMode(e.target.value)}><option value="balise">À baliser</option><option value="sansbalise">Non balisée</option></select></div></div>
-    <div className="section-title">Déclaration</div><DeclFields d={d} set={set} />
+    <div className="section-title">Déclaration</div>
+    <InfoTypeDecl d={d} mode={mode} setMode={setMode} />
+    <DeclFields d={d} set={set} />
+    <div className="section-title" style={{ marginTop: 14 }}>Camion</div>
+    <div className="grid2"><div><label className="help">N° camion</label><input className="mono" value={num} onChange={(e) => setNum(masks.alnum(e.target.value))} /></div></div>
     <div style={{ marginTop: 12 }}><button onClick={creer}>Créer</button></div>
   </div>;
 }
@@ -279,15 +312,17 @@ function FormConso({ go }: { go: Nav['go'] }) {
     } catch (e) { toast((e as Error).message, 'err'); }
   }
   return <div style={{ marginTop: 12 }}>
+    <div className="section-title">Déclaration</div>
+    <InfoTypeDecl d={d} mode={mode} setMode={setMode} />
+    <DeclFields d={d} set={set} />
+    <div className="section-title" style={{ marginTop: 14 }}>Camion & conteneur</div>
     <div className="grid2">
       <div><label className="help">N° camion</label><input className="mono" value={num} onChange={(e) => setNum(masks.alnum(e.target.value))} /></div>
-      <div><label className="help">Balise</label><select value={mode} onChange={(e) => setMode(e.target.value)}><option value="balise">À baliser</option><option value="sansbalise">Non balisée (dispense)</option></select></div>
       <div><label className="help">Conteneur</label><input className="mono" value={String(ct['num'])} onChange={(e) => setC('num', masks.tc(e.target.value))} /></div>
       <div><label className="help">Taille</label><input value={String(ct['taille'])} onChange={(e) => setC('taille', masks.upper(e.target.value))} /></div>
       <div><label className="help">Type</label><input value={String(ct['type'])} onChange={(e) => setC('type', masks.upper(e.target.value))} /></div>
       <div><label className="help">Scellé</label><input value={String(ct['plomb'])} onChange={(e) => setC('plomb', masks.upper(e.target.value))} /></div>
     </div>
-    <div className="section-title">Déclaration</div><DeclFields d={d} set={set} />
     <div style={{ marginTop: 12 }}><button onClick={creer}>Créer</button></div>
   </div>;
 }
@@ -481,6 +516,8 @@ function LigneChargement({ r }: { r: O }) {
     <div className="help">Date {fmtDate(r['dateCreation'])} · Agent CFS {String(r['agentCfs'] || '—')} · Destination {String(r['destinationMarchandise'] || '—')}{r['nbColis'] ? ` · ${String(r['nbColis'])} colis` : ''}</div>
     {v && <div className="help">Châssis {String(v['chassis'] ?? '')} · {String(v['marque'] ?? '')} {String(v['modele'] ?? '')} · {String(v['destination'] ?? '')}{r['conteneurOrigine'] ? ` · TC origine ${String(r['conteneurOrigine'])}` : ''}</div>}
     {sc.length > 0 && <div className="help">Scellés camion : {sc.join(' · ')}</div>}
+    {/* v4 — camion d'effets divers : pas de conteneur propre, une désignation. */}
+    {!conts.length && !v && r['descriptionMarchandise'] ? <div className="help">Effets divers : {String(r['descriptionMarchandise'])}</div> : null}
     {conts.length > 0 && <Table cols={[['num', 'Conteneur'], ['plomb', 'Scellé'], ['taille', 'Taille'], ['type', 'Type']]} rows={conts} />}
   </div>;
 }

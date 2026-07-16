@@ -167,15 +167,73 @@ test('véhicule : « chargement terminé » est porté PAR camion d\'effets dive
     vehicules: [{ chassis: 'VIN123', destination: 'Transit' }],
     camions: [
       // terminé → scellés exigés, statut « Créée »
-      { numeroCamion: 'CAM-FINI', chargementTermine: true, conteneurs: [{ num: 'TCLU7654321', taille: "20'", type: 'DRY' }], scellesCamion: ['S1', 'S2'] },
+      { numeroCamion: 'CAM-FINI', chargementTermine: true, designation: 'Cartons d\'effets personnels', scellesCamion: ['S1', 'S2'] },
       // pas terminé → scellés NON exigés, statut « En cours de chargement »
-      { numeroCamion: 'CAM-ENCOURS', chargementTermine: false, conteneurs: [{ num: 'ABCU1111111', taille: "20'", type: 'DRY' }], scellesCamion: [] },
+      { numeroCamion: 'CAM-ENCOURS', chargementTermine: false, designation: 'Colis divers', scellesCamion: [] },
     ],
   });
   const fini = db.store['cargaisons'].find((c) => c['numero_camion'] === 'CAM-FINI');
   const enCours = db.store['cargaisons'].find((c) => c['numero_camion'] === 'CAM-ENCOURS');
   assert.equal(fini?.['statut'], STATUTS.CREEE);
   assert.equal(enCours?.['statut'], STATUTS.CHARGEMENT);
+  // v4 — le camion d'effets divers porte sa DÉSIGNATION, pas de conteneur propre.
+  assert.equal(fini?.['description_marchandise'], 'CARTONS D\'EFFETS PERSONNELS');
+  assert.equal(fini?.['nb_conteneurs'], 0);
+});
+
+test('effets divers : la désignation est obligatoire', async () => {
+  const db = new FakeDB();
+  db.store['stock'].push({ numero_tc: 'MSKU1234567', taille: "40'", statut: 'Positionné' });
+  const cfs = ctxAvec(db);
+  const decl = { declarant: 'A', contactDeclarant: '901234', destinationMarchandise: 'D', bureauDeclaration: 'TG120', typeDeclaration: 'T', numeroDeclaration: '11', anneeDeclaration: '2026', dateDeclaration: '2026-06-24', descriptionMarchandise: 'X', nombreConteneurs: 1 };
+  await assert.rejects(
+    () => spe.create(cfs, {
+      typeOperation: 'Dépotage / Véhicule', declaration: decl, conteneurOrigine: 'MSKU1234567',
+      vehicules: [{ chassis: 'VIN123', destination: 'Transit' }],
+      camions: [{ numeroCamion: 'CAM-X', chargementTermine: true, scellesCamion: ['S1', 'S2'] }],
+    }),
+    /désignation des effets divers est obligatoire/,
+  );
+});
+
+test('conso MAD (cargo.create) : type T = parcours complet (T1 + Balise), comme un dépotage', async () => {
+  const db = new FakeDB();
+  const cfs = ctxAvec(db);
+  const decl = { declarant: 'A', contactDeclarant: '901234', destinationMarchandise: 'D', bureauDeclaration: 'TG120', typeDeclaration: 'T', numeroDeclaration: '20', anneeDeclaration: '2026', dateDeclaration: '2026-06-24', descriptionMarchandise: 'RIZ', nombreConteneurs: 1 };
+  await spe.create(cfs, {
+    typeOperation: 'Conso (type C)', consoMode: 'balise', declaration: decl,
+    camions: [{ numeroCamion: 'MADT1', conteneurs: [{ num: 'MSKU1234567', taille: "40'", type: 'DRY', plomb: 'S1' }] }],
+  });
+  const c = db.store['cargaisons'][0]!;
+  assert.equal(c['saute_t1'], false);
+  assert.equal(c['saute_balise'], false);
+});
+
+test('conso MAD (cargo.create) : type C non balisée = saute T1 ET Balise', async () => {
+  const db = new FakeDB();
+  const cfs = ctxAvec(db);
+  const decl = { declarant: 'A', contactDeclarant: '901234', destinationMarchandise: 'D', bureauDeclaration: 'TG120', typeDeclaration: 'C', numeroDeclaration: '21', anneeDeclaration: '2026', dateDeclaration: '2026-06-24', descriptionMarchandise: 'RIZ', nombreConteneurs: 1 };
+  await spe.create(cfs, {
+    typeOperation: 'Conso (type C)', consoMode: 'sansbalise', declaration: decl,
+    camions: [{ numeroCamion: 'MADC1', conteneurs: [{ num: 'MSKU1234567', taille: "40'", type: 'DRY', plomb: 'S1' }] }],
+  });
+  const c = db.store['cargaisons'][0]!;
+  assert.equal(c['saute_t1'], true);
+  assert.equal(c['saute_balise'], true);
+});
+
+test('sortie Magasin/MAD : type T garde le T1, type C le saute', async () => {
+  const db = new FakeDB();
+  const cfs = ctxAvec(db);
+  const base = { declarant: 'A', contactDeclarant: '901234', destinationMarchandise: 'D', bureauDeclaration: 'TG120', anneeDeclaration: '2026', dateDeclaration: '2026-06-24', descriptionMarchandise: 'VRAC', nombreConteneurs: 1 };
+  await spe.create(cfs, { typeOperation: 'Sortie Magasin / MAD', numeroCamion: 'MAG-T', consoMode: 'balise', declaration: { ...base, typeDeclaration: 'T', numeroDeclaration: '30' } });
+  await spe.create(cfs, { typeOperation: 'Sortie Magasin / MAD', numeroCamion: 'MAG-C', consoMode: 'sansbalise', declaration: { ...base, typeDeclaration: 'C', numeroDeclaration: '31' } });
+  const magT = db.store['cargaisons'].find((c) => c['numero_camion'] === 'MAG-T');
+  const magC = db.store['cargaisons'].find((c) => c['numero_camion'] === 'MAG-C');
+  assert.equal(magT?.['saute_t1'], false);
+  assert.equal(magT?.['saute_balise'], false);
+  assert.equal(magC?.['saute_t1'], true);
+  assert.equal(magC?.['saute_balise'], true);
 });
 
 test('garde-fou : sortie refusée si le Bon de sortie manque', async () => {
