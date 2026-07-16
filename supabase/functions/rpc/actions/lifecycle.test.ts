@@ -89,6 +89,42 @@ test('cycle de vie complet — ENLÈVEMENT (2 conteneurs 20\', binôme)', async 
   assert.deepEqual(etapesEnAttente(versCamel(db.store['cargaisons'][0]!) as never), []);
 });
 
+test('déclaration type C balisée : saute le T1, garde la Balise', async () => {
+  const db = new FakeDB();
+  db.store['stock'].push({ numero_tc: 'MSKU1234567', taille: "40'", statut: 'En stock' });
+  const cfs = ctxAvec(db);
+  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'CONSO1', routage: 'Enlèvement' })) as { id: string };
+  await ecr.cfs(cfs, {
+    id, conteneur: { num: 'MSKU1234567', taille: "40'", type: 'DRY', plomb: 'S1' },
+    declaration: { declarant: 'A', contactDeclarant: '901234', destinationMarchandise: 'D', bureauDeclaration: 'TG120', typeDeclaration: 'C', numeroDeclaration: '1', anneeDeclaration: '2026', descriptionMarchandise: 'X', nombreConteneurs: 1 },
+    consoMode: 'balise',
+  });
+  const c = versCamel(db.store['cargaisons'][0]!);
+  assert.equal(c['sauteT1'], true);
+  assert.equal(c['sauteBalise'], false);
+  // Après validation : le T1 est sauté → Balise ET Bon de sortie en attente.
+  await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'), { id });
+  assert.deepEqual(etapesEnAttente(versCamel(db.store['cargaisons'][0]!) as never), ['BALISE', 'BS']);
+});
+
+test('déclaration type C non balisée : saute le T1 ET la Balise', async () => {
+  const db = new FakeDB();
+  db.store['stock'].push({ numero_tc: 'MSKU1234567', taille: "40'", statut: 'En stock' });
+  const cfs = ctxAvec(db);
+  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'CONSO2', routage: 'Enlèvement' })) as { id: string };
+  await ecr.cfs(cfs, {
+    id, conteneur: { num: 'MSKU1234567', taille: "40'", type: 'DRY', plomb: 'S1' },
+    declaration: { declarant: 'A', contactDeclarant: '901234', destinationMarchandise: 'D', bureauDeclaration: 'TG120', typeDeclaration: 'C', numeroDeclaration: '2', anneeDeclaration: '2026', descriptionMarchandise: 'X', nombreConteneurs: 1 },
+    consoMode: 'sansbalise',
+  });
+  const c = versCamel(db.store['cargaisons'][0]!);
+  assert.equal(c['sauteT1'], true);
+  assert.equal(c['sauteBalise'], true);
+  // Après validation : T1 et Balise sautés → seul le Bon de sortie reste.
+  await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'), { id });
+  assert.deepEqual(etapesEnAttente(versCamel(db.store['cargaisons'][0]!) as never), ['BS']);
+});
+
 test('garde-fou : sortie refusée si le Bon de sortie manque', async () => {
   const db = new FakeDB();
   db.store['stock'].push({ numero_tc: 'MSKU1234567', taille: "40'", statut: 'En stock' });

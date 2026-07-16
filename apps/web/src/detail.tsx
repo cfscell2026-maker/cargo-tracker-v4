@@ -122,14 +122,16 @@ function PanneauCFS({ c, dets, action }: { c: O; dets: ReturnType<typeof parseCo
   const premier = c['statut'] === STATUTS.CAMION;
   const [f, setF] = useState<O>({ num: '', taille: '', type: '', poids: '', plomb: '', manuel: false });
   const [d, setD] = useState<O>({ declarant: '', contactDeclarant: '', destinationMarchandise: '', bureauDeclaration: 'TG120', typeDeclaration: 'T', numeroDeclaration: '', anneeDeclaration: String(new Date().getFullYear()), descriptionMarchandise: '', nombreConteneurs: '' });
+  const [consoMode, setConsoMode] = useState('balise'); // type C : balisée / non balisée (dispense)
   const set = (k: string, v: unknown) => setF((o) => ({ ...o, [k]: v }));
   const setDd = (k: string, v: unknown) => setD((o) => ({ ...o, [k]: v }));
   const montrerDecl = premier || !estEnl; // enlèvement 1er conteneur / dépotage : chaque conteneur
+  const estConso = String(d['typeDeclaration']) === 'C'; // mise à la consommation → saute le T1
 
   async function ajouter() {
     if (!tcValide(String(f['num']))) { toast('N° conteneur invalide (4 lettres + 7 chiffres).', 'err'); return; }
     const payload: O = { id, conteneur: { num: f['num'], taille: f['taille'], type: f['type'], poids: f['poids'], plomb: f['plomb'], manuel: f['manuel'] } };
-    if (montrerDecl && String(d['declarant']).trim()) payload['declaration'] = d;
+    if (montrerDecl && String(d['declarant']).trim()) { payload['declaration'] = d; if (estConso) payload['consoMode'] = consoMode; }
     await action(() => call('cargo.cfs', payload), 'Conteneur ajouté.');
     set('num', ''); set('plomb', ''); set('taille', ''); set('type', '');
   }
@@ -148,12 +150,14 @@ function PanneauCFS({ c, dets, action }: { c: O; dets: ReturnType<typeof parseCo
       {montrerDecl && (
         <>
           <div className="section-title">Déclaration</div>
+          {estConso && <p className="help" style={{ marginTop: 0 }}>Type C = mise à la consommation : la cargaison <b>saute le T1</b>{consoMode === 'sansbalise' ? ' et la Balise (dispense)' : ' ; balise à poser'}.</p>}
           <div className="grid2">
             <Champ label="Déclarant" value={String(d['declarant'])} onChange={(e) => setDd('declarant', masks.upper(e.target.value))} />
             <Champ label="Contact (téléphone)" value={String(d['contactDeclarant'])} onChange={(e) => setDd('contactDeclarant', masks.tel(e.target.value))} />
             <Champ label="Destination" value={String(d['destinationMarchandise'])} onChange={(e) => setDd('destinationMarchandise', masks.upper(e.target.value))} />
             <Champ label="Bureau" value={String(d['bureauDeclaration'])} onChange={(e) => setDd('bureauDeclaration', masks.upper(e.target.value))} />
             <div><label className="help">Type déclaration</label><select value={String(d['typeDeclaration'])} onChange={(e) => setDd('typeDeclaration', e.target.value)}>{TYPES_DECLARATION.map((t) => <option key={t}>{t}</option>)}</select></div>
+            {estConso && <div><label className="help">Conso (type C) — balise</label><select value={consoMode} onChange={(e) => setConsoMode(e.target.value)}><option value="balise">À baliser</option><option value="sansbalise">Non balisée (dispense)</option></select></div>}
             <Champ label="N° déclaration" value={String(d['numeroDeclaration'])} onChange={(e) => setDd('numeroDeclaration', masks.upper(e.target.value))} />
             <Champ label="Année" value={String(d['anneeDeclaration'])} onChange={(e) => setDd('anneeDeclaration', e.target.value)} />
             <Champ label="Nb conteneurs déclarés (si nouvelle)" type="number" value={String(d['nombreConteneurs'])} onChange={(e) => setDd('nombreConteneurs', e.target.value)} />

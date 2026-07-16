@@ -15,13 +15,14 @@ import {
   ROLES, STATUTS, OPERATIONS, TRANCHES_SEJOUR, SEUIL_ALERTE_SEJOUR,
   tailleBucket, evpDeTaille, trancheAge, parseConteneursDetails, estOui,
 } from '../../_shared/domaine/src/index.ts';
+import { fetchAll } from './helpers.ts';
 
 /* ------------------------------- Helpers ------------------------------- */
 
 async function loadCargos(ctx: Ctx): Promise<Record<string, unknown>[]> {
-  const { data, error } = await ctx.db.from('cargaisons').select('*');
-  if (error) throw new Error(error.message);
-  return (data ?? []).map((r) => versCamel(r));
+  // fetchAll : pagine (5000+ cargaisons migrées) sinon les rapports sous-comptent.
+  const data = await fetchAll(ctx, 'cargaisons', '*');
+  return data.map((r) => versCamel(r));
 }
 const lc = (v: unknown) => String(v ?? '').toLowerCase();
 const inRange = (v: unknown, du?: string, au?: string): boolean => {
@@ -240,8 +241,8 @@ export async function rapportKPI(ctx: Ctx, p: Record<string, unknown>) {
       if (op === OPERATIONS.ENLEVEMENT && sorti) { kpi.sortisScelles++; kpi.evpSortis += ev; }
     }
   }
-  const { data: stock } = await ctx.db.from('stock').select('taille, statut');
-  for (const s of stock ?? []) {
+  const stock = await fetchAll(ctx, 'stock', 'taille, statut');
+  for (const s of stock) {
     if (s.statut === 'Dépoté') continue;
     const bk = tailleBucket(s.taille); (kpi.stock as Record<string, number>)[bk]++; kpi.evpStock += evpDeTaille(bk);
   }

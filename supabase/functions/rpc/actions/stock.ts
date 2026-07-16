@@ -11,7 +11,7 @@ import {
   STOCK_STATUTS, ANNONCE_STATUTS, TRANCHES_SEJOUR, SEUIL_ALERTE_SEJOUR,
   tailleBucket, evpDeTaille, trancheAge, tcValide, maj, parseDateImport,
 } from '../../_shared/domaine/src/index.ts';
-import { lookupDeclaration } from './helpers.ts';
+import { lookupDeclaration, fetchAll } from './helpers.ts';
 
 const normTC = (v: unknown) => String(v ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 const iso = (v: unknown) => (v ? new Date(String(v)).toISOString() : null);
@@ -26,15 +26,14 @@ export async function declLookup(ctx: Ctx, p: Record<string, unknown>) {
 
 export async function stockList(ctx: Ctx, opts: { statut?: string }) {
   const statut = opts?.statut || 'tous';
-  const { data, error } = await ctx.db.from('stock').select('*');
-  if (error) throw new Error(error.message);
+  const data = await fetchAll(ctx, 'stock', '*');
   const now = new Date();
   const rows: unknown[] = [];
   const compte = { total: 0, stock: 0, positionne: 0, depote: 0, pointes: 0, evp: 0, t20: 0, t40: 0, t45: 0, autres: 0, sejourMoyen: 0, tranches: [] as { tranche: string; n: number }[] };
   const dist: Record<string, number> = {};
   TRANCHES_SEJOUR.forEach((t) => (dist[t] = 0));
   let sommeJ = 0, nJ = 0;
-  for (const r of data ?? []) {
+  for (const r of data) {
     const o = versCamel(r);
     if (!o['numeroTc']) continue;
     compte.total++;
@@ -189,13 +188,12 @@ export async function annonceImport(ctx: Ctx, p: { items?: Record<string, unknow
 
 export async function annonceList(ctx: Ctx, opts: { statut?: string }) {
   const statut = opts?.statut || 'tous';
-  const { data, error } = await ctx.db.from('stock_annonce').select('*');
-  if (error) throw new Error(error.message);
+  const data = await fetchAll(ctx, 'stock_annonce', '*');
   const now = new Date();
   const rows: unknown[] = [];
   const compte = { total: 0, annonces: 0, aConfirmer: 0, confirmes: 0, pointes: 0, tauxTransfert: 0, delaiMoyen: 0, instanceMax: 0 };
   let sommeDelai = 0, nDelai = 0;
-  for (const r of data ?? []) {
+  for (const r of data) {
     const o = versCamel(r);
     if (!o['numeroTc']) continue;
     compte.total++;
@@ -274,15 +272,14 @@ export async function annonceConfirmer(ctx: Ctx, p: Record<string, unknown>) {
 /* ----------------------- report.stock (séjour conteneurs) -------------- */
 
 export async function rapportStock(ctx: Ctx) {
-  const { data, error } = await ctx.db.from('stock').select('*');
-  if (error) throw new Error(error.message);
+  const data = await fetchAll(ctx, 'stock', '*');
   const now = new Date();
   const dist: Record<string, { tranche: string; n: number }> = {};
   TRANCHES_SEJOUR.forEach((t) => (dist[t] = { tranche: t, n: 0 }));
   const compte = { total: 0, stock: 0, positionne: 0, depote: 0, pointes: 0, evp: 0, t20: 0, t40: 0, t45: 0, autres: 0, sejourMoyen: 0, alerte: 0 };
   const instance: unknown[] = [];
   let sommeJ = 0, nJ = 0;
-  for (const r of data ?? []) {
+  for (const r of data) {
     const o = versCamel(r);
     if (!o['numeroTc']) continue;
     compte.total++;

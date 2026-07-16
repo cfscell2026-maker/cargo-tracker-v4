@@ -7,6 +7,7 @@
  */
 import type { Ctx } from '../ctx.ts';
 import { versCamel } from '../ctx.ts';
+import { fetchAll } from './helpers.ts';
 import {
   STATUTS,
   APP,
@@ -19,12 +20,9 @@ import {
 
 /** Résumé (v_cargaisons_resume) en camelCase — équivalent RESUME_KEYS. */
 async function chargerResume(ctx: Ctx): Promise<Record<string, unknown>[]> {
-  const { data, error } = await ctx.db
-    .from('v_cargaisons_resume')
-    .select('*')
-    .order('date_creation', { ascending: false });
-  if (error) throw new Error(error.message);
-  return (data ?? []).map((r) => versCamel(r));
+  // fetchAll : pagine pour ne PAS tronquer au-delà de ~1000 lignes (5000+ migrées).
+  const data = await fetchAll(ctx, 'v_cargaisons_resume', '*', { colonne: 'date_creation', ascendant: false });
+  return data.map((r) => versCamel(r));
 }
 
 function ts(v: unknown): number {

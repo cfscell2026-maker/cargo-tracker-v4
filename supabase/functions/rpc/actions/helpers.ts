@@ -28,6 +28,33 @@ export async function nextRef(ctx: Ctx, cle: 'SEQ' | 'SEQ_RPT', prefix: string):
 export const nextId = (ctx: Ctx) => nextRef(ctx, 'SEQ', APP.ID_PREFIX);
 export const nextRapportId = (ctx: Ctx) => nextRef(ctx, 'SEQ_RPT', APP.RPT_PREFIX);
 
+/**
+ * v4 — Récupère TOUTES les lignes d'une table/vue en paginant par blocs.
+ * PostgREST plafonne une requête à ~1000 lignes ; au-delà (données migrées :
+ * 5000+ cargaisons, 6000+ conteneurs) un simple `.select('*')` est SILENCIEUSEMENT
+ * tronqué — et les listes, stats et rapports qui en dérivent aussi. On boucle
+ * donc sur `.range()` jusqu'à épuisement.
+ */
+export async function fetchAll(
+  ctx: Ctx,
+  table: string,
+  select = '*',
+  order?: { colonne: string; ascendant?: boolean },
+): Promise<Record<string, unknown>[]> {
+  const BLOC = 1000;
+  const out: Record<string, unknown>[] = [];
+  for (let debut = 0; ; debut += BLOC) {
+    let q = ctx.db.from(table).select(select);
+    if (order) q = q.order(order.colonne, { ascending: order.ascendant !== false });
+    const { data, error } = await q.range(debut, debut + BLOC - 1);
+    if (error) throw new Error(error.message);
+    const lot = (data ?? []) as Record<string, unknown>[];
+    out.push(...lot);
+    if (lot.length < BLOC) break;
+  }
+  return out;
+}
+
 /** Lecture d'une cargaison ; lève « Cargaison introuvable : id » (v3.6). */
 export async function getCargo(ctx: Ctx, id: string): Promise<CargoRow> {
   const { data, error } = await ctx.db.from('cargaisons').select('*').eq('id', id).maybeSingle();

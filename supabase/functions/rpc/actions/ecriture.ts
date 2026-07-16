@@ -12,7 +12,7 @@ import {
   ROLES, STATUTS, STOCK_STATUTS, OPERATIONS, ETATS_SORTIE, HAUTEUR_HORS_GABARIT, CONTENEURS_MAX,
   alphaNumMaj, maj, txt, tcValide, normaliserConteneur, normaliserDeclaration, parseConteneursDetails,
   declKey, typeDeRoutage, tailleBucket, construireCamion, verifierBinome, apercuConteneurs,
-  etapesEnAttente, prochaineEtape, estOui, aFait,
+  etapesEnAttente, prochaineEtape, estOui, aFait, sautsTypeC,
 } from '../../_shared/domaine/src/index.ts';
 import {
   getCargo, patchCargo, nextId, nextRapportId, ajouterConteneurs, supprimerConteneursDe,
@@ -165,6 +165,14 @@ export async function cfs(ctx: Ctx, p: Record<string, unknown>) {
   patch['conteneurs_details'] = { conteneurs: conts, scellesCamion };
   patch['twins'] = b(estEnl && conts.length >= 2);
   if (mixte) patch['chargement_mixte'] = true;
+  // v4 — déclaration de type C = mise à la consommation : saute le T1 (et la
+  // Balise si « non balisée », consoMode='sansbalise'). Dès qu'une déclaration
+  // est saisie, on (re)positionne les sauts selon son type.
+  if (declRef) {
+    const sauts = sautsTypeC(declRef.typeDeclaration, p['consoMode']);
+    patch['saute_t1'] = sauts.sauteT1;
+    patch['saute_balise'] = sauts.sauteBalise;
+  }
   const resultStatut = estEnl ? STATUTS.CREEE : STATUTS.CHARGEMENT;
   patch['statut'] = resultStatut;
 

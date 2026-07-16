@@ -89,6 +89,19 @@ export const OPERATIONS = {
 } as const;
 export type Operation = (typeof OPERATIONS)[keyof typeof OPERATIONS];
 
+/**
+ * v4 — Règle « déclaration de type C = mise à la consommation ».
+ * Une déclaration de type C n'est PAS un transit : elle SAUTE toujours le T1.
+ * L'agent choisit ensuite si elle est balisée (`consoMode` par défaut) ou non
+ * balisée (`consoMode === 'sansbalise'`, dispense) — dans ce dernier cas elle
+ * saute aussi la Balise. Source unique utilisée par le CFS itératif et les
+ * flux spéciaux (Conso/Magasin), pour éviter la double maintenance.
+ */
+export function sautsTypeC(typeDeclaration: unknown, consoMode?: unknown): { sauteT1: boolean; sauteBalise: boolean } {
+  const estConso = String(typeDeclaration ?? '').trim().toUpperCase() === 'C';
+  return { sauteT1: estConso, sauteBalise: estConso && String(consoMode ?? '') === 'sansbalise' };
+}
+
 /** Destinations / régimes possibles pour un véhicule dépoté. */
 export const VEHICULE_DESTINATIONS = ['Transit', 'Conso', 'MAD', 'Véhicule abandonné'] as const;
 
