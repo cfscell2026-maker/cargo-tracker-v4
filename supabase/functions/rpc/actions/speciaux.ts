@@ -122,18 +122,27 @@ async function creerRapportVehicule(ctx: Ctx, p: Record<string, unknown>) {
   const declVide = { declarant: '', contactDeclarant: '', destinationMarchandise: '', bureauDeclaration: '', typeDeclaration: '', numeroDeclaration: '', anneeDeclaration: '', descriptionMarchandise: '' };
   const d = decl ?? declVide;
   const obsCFS = maj(p['observationsCFS'], 1000);
+  // v4 — le conteneur d'origine est OBLIGATOIRE (décision utilisateur 2026-07-16) :
+  // il est choisi côté écran dans la liste des TC POSITIONNÉS au CFS.
   const conteneurOrigine = maj(p['conteneurOrigine'], 20).replace(/[^A-Z0-9]/g, '');
-  if (conteneurOrigine && !tcValide(conteneurOrigine))
+  if (!conteneurOrigine) throw new Error("Véhicule : le N° de conteneur d'origine (TC) est obligatoire.");
+  if (!tcValide(conteneurOrigine))
     throw new Error("N° conteneur d'origine invalide. Format attendu : 4 lettres + 7 chiffres (ex. MSKU1234567).");
 
   const vehicules = (Array.isArray(p['vehicules']) ? (p['vehicules'] as unknown[]) : []).map((v) => construireVehicule(v as never));
   if (!vehicules.length) throw new Error('Au moins un véhicule est requis.');
+  // v4 — « chargement terminé (scellés posés) » est porté PAR CAMION (et non plus
+  // globalement au rapport) : c'est le camion qui charge les autres effets du
+  // conteneur qui est scellé. Les scellés ne sont exigés que s'il est terminé.
   const camions = estOuillage
     ? []
-    : (Array.isArray(p['camions']) ? (p['camions'] as unknown[]) : []).map((cam) => construireCamion(cam as never, OPERATIONS.DEPOTAGE));
+    : (Array.isArray(p['camions']) ? (p['camions'] as Record<string, unknown>[]) : []).map((src) => {
+        const termine = !(src['chargementTermine'] === false);
+        return { cam: construireCamion(src as never, OPERATIONS.DEPOTAGE, termine), termine };
+      });
 
   const numsCamions: string[] = [];
-  camions.forEach((cam) => cam.conteneurs.forEach((ct) => numsCamions.push(ct.num)));
+  camions.forEach(({ cam }) => cam.conteneurs.forEach((ct) => numsCamions.push(ct.num)));
   const compteSurVehicule = !!conteneurOrigine && numsCamions.indexOf(conteneurOrigine) === -1;
 
   const rapportId = await nextRapportId(ctx);
@@ -168,9 +177,10 @@ async function creerRapportVehicule(ctx: Ctx, p: Record<string, unknown>) {
     }
     creeV.push({ id, chassis: v.chassis });
   }
-  for (const cam of camions) {
+  for (const { cam, termine } of camions) {
     const id = await nextId(ctx);
-    const row = ligneCamion(id, rapportId, now, cam, OPERATIONS.DEPOTAGE, d as never, obsCFS, ctx.session, false, false, STATUTS.CREEE);
+    const statutCam = termine ? STATUTS.CREEE : STATUTS.CHARGEMENT;
+    const row = ligneCamion(id, rapportId, now, cam, OPERATIONS.DEPOTAGE, d as never, obsCFS, ctx.session, false, false, statutCam);
     row['conteneur_origine'] = conteneurOrigine;
     const { error } = await ctx.db.from('cargaisons').insert(row);
     if (error) throw new Error(error.message);

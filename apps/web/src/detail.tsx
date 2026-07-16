@@ -161,7 +161,6 @@ function PanneauCFS({ c, dets, action }: { c: O; dets: ReturnType<typeof parseCo
             <Champ label="N° déclaration" value={String(d['numeroDeclaration'])} onChange={(e) => setDd('numeroDeclaration', masks.upper(e.target.value))} />
             <Champ label="Année" value={String(d['anneeDeclaration'])} onChange={(e) => setDd('anneeDeclaration', e.target.value)} />
             <Champ label="Nb conteneurs déclarés (si nouvelle)" type="number" value={String(d['nombreConteneurs'])} onChange={(e) => setDd('nombreConteneurs', e.target.value)} />
-            {estEnl && premier && <Champ label="Nombre de colis" value={String(d['nbColis'] ?? '')} onChange={(e) => setDd('nbColis', e.target.value)} />}
             <Champ label="Description marchandise" value={String(d['descriptionMarchandise'])} onChange={(e) => setDd('descriptionMarchandise', masks.upper(e.target.value))} />
           </div>
         </>

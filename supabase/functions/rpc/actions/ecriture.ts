@@ -152,7 +152,8 @@ export async function cfs(ctx: Ctx, p: Record<string, unknown>) {
     patch['type_operation'] = type;
     patch['agent_cfs'] = ctx.session.nomComplet;
     patch['agent_cfs_id'] = ctx.session.userId;
-    if (estEnl && p['nbColis'] !== undefined && p['nbColis'] !== '') patch['nb_colis'] = txt(p['nbColis'], 20);
+    // v4 — « nombre de colis » réservé au DÉPOTAGE (saisi à la finalisation,
+    // cargo.declaration). L'enlèvement ne le renseigne plus.
     if (p['observationsCFS']) patch['observations_cfs'] = maj(p['observationsCFS'], 1000);
     if (declRef) {
       patch['declarant'] = declRef.declarant; patch['contact_declarant'] = declRef.contactDeclarant;

@@ -15,7 +15,7 @@ import {
   ROLES, STATUTS, OPERATIONS, TRANCHES_SEJOUR, SEUIL_ALERTE_SEJOUR,
   tailleBucket, evpDeTaille, trancheAge, parseConteneursDetails, estOui,
 } from '../../_shared/domaine/src/index.ts';
-import { fetchAll } from './helpers.ts';
+import { fetchAll, lookupDeclaration } from './helpers.ts';
 
 /* ------------------------------- Helpers ------------------------------- */
 
@@ -386,6 +386,100 @@ export async function rapportChargement(ctx: Ctx, id: string) {
   <table><thead><tr><th>#</th><th>Conteneur</th><th>Scellé</th><th>Taille</th><th>Type</th></tr></thead><tbody>${lignes}</tbody></table>
   <p style="margin-top:24px">Agent CFS : ${esc(c['agentCfs'])}</p></html>`;
   return { html, filename: 'BonChargement_' + c['id'] + '.html' };
+}
+
+/**
+ * v4 — BON DE CHARGEMENT PAR DÉCLARATION (décision utilisateur 2026-07-16).
+ * Recherche par N° de déclaration → remonte TOUS les camions ET véhicules ayant
+ * chargé des conteneurs de cette déclaration, au statut « Créée » (= fin de
+ * chargement). Filtres facultatifs année/bureau/type pour lever une ambiguïté
+ * si le même numéro existe sur plusieurs déclarations.
+ *
+ * ⚠ La déclaration est lue depuis `conteneursDetails` (déclaration PAR conteneur
+ * → gère les chargements MIXTES) avec repli sur la déclaration du camion. On
+ * n'utilise PAS les colonnes déclaration de la table `conteneurs` : elles
+ * existent au schéma mais ne sont jamais alimentées par ajouterConteneurs.
+ *
+ * ⚠ FORMAT D'ÉDITION À FOURNIR : la sortie est PROVISOIRE (données brutes
+ * structurées). La mise en page définitive se branchera dessus sans retoucher
+ * cette collecte.
+ */
+export async function rapportChargementDecl(ctx: Ctx, p: Record<string, unknown>) {
+  const cle = (v: unknown) => String(v ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const num = cle(p['numeroDeclaration']);
+  if (!num) throw new Error('Indiquez le N° de déclaration.');
+  const annee = String(p['anneeDeclaration'] ?? '').trim();
+  const bureau = cle(p['bureauDeclaration']);
+  const typeD = cle(p['typeDeclaration']);
+
+  /** La déclaration portée par un objet (conteneur OU camion) correspond-elle ? */
+  const concorde = (o: Record<string, unknown>): boolean => {
+    if (cle(o['numeroDeclaration']) !== num) return false;
+    if (annee && String(o['anneeDeclaration'] ?? '').trim() !== annee) return false;
+    if (bureau && cle(o['bureauDeclaration']) !== bureau) return false;
+    if (typeD && cle(o['typeDeclaration']) !== typeD) return false;
+    return true;
+  };
+
+  const camions: Record<string, unknown>[] = [];
+  const vehicules: Record<string, unknown>[] = [];
+  let totalConteneurs = 0;
+
+  for (const c of await loadCargos(ctx)) {
+    if (c['statut'] !== STATUTS.CREEE) continue; // fin de chargement UNIQUEMENT
+    const pd = parseConteneursDetails(c['conteneursDetails']);
+    const retenus = pd.conteneurs.filter((ct) => concorde(ct as never));
+    // Repli : conteneurs sans déclaration propre (données migrées) → déclaration du camion.
+    const parCamion = concorde(c);
+    if (!retenus.length && !parCamion) continue;
+    const conts = retenus.length ? retenus : pd.conteneurs;
+    totalConteneurs += conts.length;
+    const ligne: Record<string, unknown> = {
+      id: c['id'], rapportId: c['rapportId'], dateCreation: c['dateCreation'],
+      numeroCamion: c['numeroCamion'], typeOperation: c['typeOperation'], statut: c['statut'],
+      declarant: c['declarant'], contactDeclarant: c['contactDeclarant'],
+      destinationMarchandise: c['destinationMarchandise'], descriptionMarchandise: c['descriptionMarchandise'],
+      numeroDeclaration: c['numeroDeclaration'], anneeDeclaration: c['anneeDeclaration'],
+      bureauDeclaration: c['bureauDeclaration'], typeDeclaration: c['typeDeclaration'],
+      agentCfs: c['agentCfs'], nbColis: c['nbColis'], etatSortie: c['etatSortie'],
+      chargementMixte: estOui(c['chargementMixte']),
+      scellesCamion: pd.scellesCamion,
+      nbConteneurs: conts.length,
+      conteneurs: conts.map((ct) => ({
+        num: ct.num, plomb: ct.plomb, taille: ct.taille, type: ct.type, poids: ct.poids,
+      })),
+    };
+    if (estOui(c['estVehicule'])) {
+      ligne['vehicule'] = c['vehiculeDetails'];
+      ligne['conteneurOrigine'] = c['conteneurOrigine'];
+      vehicules.push(ligne);
+    } else camions.push(ligne);
+  }
+
+  const parDate = (a: Record<string, unknown>, b: Record<string, unknown>) =>
+    new Date(String(a['dateCreation'] ?? '')).getTime() - new Date(String(b['dateCreation'] ?? '')).getTime();
+  camions.sort(parDate);
+  vehicules.sort(parDate);
+
+  // En-tête : apurement de la déclaration (clé reprise du 1er résultat trouvé).
+  const ref = camions[0] ?? vehicules[0];
+  const declaration = ref
+    ? {
+        numeroDeclaration: ref['numeroDeclaration'], anneeDeclaration: ref['anneeDeclaration'],
+        bureauDeclaration: ref['bureauDeclaration'], typeDeclaration: ref['typeDeclaration'],
+        declarant: ref['declarant'],
+      }
+    : { numeroDeclaration: num, anneeDeclaration: annee, bureauDeclaration: bureau, typeDeclaration: typeD, declarant: '' };
+  const apurement = ref ? await lookupDeclaration(ctx, declaration as never) : null;
+
+  return {
+    declaration, apurement,
+    camions, vehicules,
+    compte: {
+      camions: camions.length, vehicules: vehicules.length,
+      conteneurs: totalConteneurs, total: camions.length + vehicules.length,
+    },
+  };
 }
 
 export async function rapportListe(ctx: Ctx, p: Record<string, unknown>) {

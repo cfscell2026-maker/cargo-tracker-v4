@@ -11,6 +11,7 @@ import { STATUTS, etapesEnAttente } from '../../_shared/domaine/src/index.ts';
 import { versCamel, type Ctx } from '../ctx.ts';
 import { FakeDB } from './fake-db.ts';
 import * as ecr from './ecriture.ts';
+import * as spe from './speciaux.ts';
 
 function ctxAvec(db: FakeDB): Ctx {
   return {
@@ -123,6 +124,40 @@ test('déclaration type C non balisée : saute le T1 ET la Balise', async () => 
   // Après validation : T1 et Balise sautés → seul le Bon de sortie reste.
   await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'), { id });
   assert.deepEqual(etapesEnAttente(versCamel(db.store['cargaisons'][0]!) as never), ['BS']);
+});
+
+test('véhicule : le conteneur d\'origine (TC) est obligatoire', async () => {
+  const db = new FakeDB();
+  const cfs = ctxAvec(db);
+  const decl = { declarant: 'A', contactDeclarant: '901234', destinationMarchandise: 'D', bureauDeclaration: 'TG120', typeDeclaration: 'T', numeroDeclaration: '9', anneeDeclaration: '2026', descriptionMarchandise: 'X', nombreConteneurs: 1 };
+  await assert.rejects(
+    () => spe.create(cfs, {
+      typeOperation: 'Dépotage / Véhicule', declaration: decl,
+      vehicules: [{ chassis: 'VIN123', destination: 'Transit' }],
+    }),
+    /conteneur d'origine \(TC\) est obligatoire/,
+  );
+});
+
+test('véhicule : « chargement terminé » est porté PAR camion d\'effets divers', async () => {
+  const db = new FakeDB();
+  db.store['stock'].push({ numero_tc: 'MSKU1234567', taille: "40'", statut: 'Positionné' });
+  const cfs = ctxAvec(db);
+  const decl = { declarant: 'A', contactDeclarant: '901234', destinationMarchandise: 'D', bureauDeclaration: 'TG120', typeDeclaration: 'T', numeroDeclaration: '10', anneeDeclaration: '2026', descriptionMarchandise: 'X', nombreConteneurs: 3 };
+  await spe.create(cfs, {
+    typeOperation: 'Dépotage / Véhicule', declaration: decl, conteneurOrigine: 'MSKU1234567',
+    vehicules: [{ chassis: 'VIN123', destination: 'Transit' }],
+    camions: [
+      // terminé → scellés exigés, statut « Créée »
+      { numeroCamion: 'CAM-FINI', chargementTermine: true, conteneurs: [{ num: 'TCLU7654321', taille: "20'", type: 'DRY' }], scellesCamion: ['S1', 'S2'] },
+      // pas terminé → scellés NON exigés, statut « En cours de chargement »
+      { numeroCamion: 'CAM-ENCOURS', chargementTermine: false, conteneurs: [{ num: 'ABCU1111111', taille: "20'", type: 'DRY' }], scellesCamion: [] },
+    ],
+  });
+  const fini = db.store['cargaisons'].find((c) => c['numero_camion'] === 'CAM-FINI');
+  const enCours = db.store['cargaisons'].find((c) => c['numero_camion'] === 'CAM-ENCOURS');
+  assert.equal(fini?.['statut'], STATUTS.CREEE);
+  assert.equal(enCours?.['statut'], STATUTS.CHARGEMENT);
 });
 
 test('garde-fou : sortie refusée si le Bon de sortie manque', async () => {

@@ -14,6 +14,7 @@ import {
   VOIENT_HORSGABARIT,
   etapesEnAttente,
   estOui,
+  aFait,
   normAlphaNum,
   type Role,
 } from '../../_shared/domaine/src/index.ts';
@@ -211,17 +212,29 @@ export async function dashboardStats(ctx: Ctx, opts: { du?: string; au?: string 
 
 /* ----------------------------- etatcfs.list ---------------------------- */
 
-/** v3.5 — camions présents sur le site (non sortis) + compteurs par état. */
+/**
+ * v4 — POINTAGE DES CAMIONS À LA SORTIE (ex-« état des camions », v3.5).
+ * Situation du PARKING : camions ET véhicules-châssis encore présents, en
+ * DÉFALQUANT (décision utilisateur 2026-07-16) :
+ *   - ceux qui ont déjà PRIS LA BALISE (datePoseGps renseignée) ;
+ *   - ceux SORTIS à la PP (statut « Sortie Enregistrée »).
+ * NB : on teste datePoseGps (acte physique de prise de balise) et NON
+ * etatCellules().balise, qui compte les véhicules et les dispenses comme
+ * « faits » alors qu'ils sont toujours au parking.
+ */
 export async function etatCfsList(ctx: Ctx) {
   const out = {
     rows: [] as unknown[],
-    compte: { total: 0, enCours: 0, fin: 0, vide: 0, np: 0 },
+    compte: { total: 0, camions: 0, vehicules: 0, enCours: 0, fin: 0, vide: 0, np: 0 },
   };
   const data = await chargerResume(ctx);
   for (const r of data) {
-    if (estOui(r['estVehicule'])) continue; // les véhicules ne sont pas des camions de chargement
-    if (r['statut'] === STATUTS.SORTIE) continue; // déjà sortis du site
+    if (r['statut'] === STATUTS.SORTIE) continue; // sorti à la PP → défalqué
+    if (aFait(r['datePoseGps'])) continue; // a déjà pris la balise → défalqué
     out.compte.total++;
+    const veh = estOui(r['estVehicule']);
+    if (veh) out.compte.vehicules++;
+    else out.compte.camions++;
     const e = String(r['etatSortie'] ?? '');
     if (e === 'En cours de chargement') out.compte.enCours++;
     else if (e === 'Fin de chargement') out.compte.fin++;
@@ -229,7 +242,7 @@ export async function etatCfsList(ctx: Ctx) {
     else out.compte.np++;
     out.rows.push({
       id: r['id'], numeroCamion: r['numeroCamion'], typeOperation: r['typeOperation'],
-      statut: r['statut'], etatSortie: e,
+      statut: r['statut'], etatSortie: e, estVehicule: veh,
     });
   }
   return out;

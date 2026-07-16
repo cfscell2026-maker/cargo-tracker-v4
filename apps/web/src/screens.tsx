@@ -160,18 +160,35 @@ function DeclFields({ d, set }: { d: O; set: (k: string, v: unknown) => void }) 
   </div>;
 }
 
+/** Camion d'effets divers : porte SON « chargement terminé » + SES scellés (v4). */
+type CamEffets = { numeroCamion: string; chargementTermine: boolean; conteneurs: O[]; scellesCamion: string[] };
+const camVide = (): CamEffets => ({ numeroCamion: '', chargementTermine: true, conteneurs: [{ num: '', taille: '', type: '' }], scellesCamion: ['', '', ''] });
+
 function FormVehicule({ go }: { go: Nav['go'] }) {
   const [d, setD] = useState<O>({});
   const [v, setV] = useState<O>({ chassis: '', marque: '', modele: '', couleur: '', destination: 'Transit' });
   const [origine, setOrigine] = useState('');
+  const [cams, setCams] = useState<CamEffets[]>([]);
   const set = (k: string, val: unknown) => setD((o) => ({ ...o, [k]: val }));
   const setVv = (k: string, val: unknown) => setV((o) => ({ ...o, [k]: val }));
+
+  // v4 — le TC d'origine est OBLIGATOIRE et se choisit dans les TC POSITIONNÉS au CFS.
+  const { data: stk, loading: stkLoading } = useAsync<{ rows: O[] }>(() => call('stock.list', { statut: 'Positionné' }), []);
+  const tcs = ((stk?.rows ?? []) as O[]).map((r) => String(r['numeroTC'] ?? '')).filter(Boolean);
+
+  const majCam = (i: number, patch: Partial<CamEffets>) => setCams((a) => a.map((c, j) => (j === i ? { ...c, ...patch } : c)));
+
   async function creer() {
+    if (!origine) { toast("Le N° de conteneur d'origine (TC) est obligatoire.", 'err'); return; }
     try {
-      const r = await call<{ vehicules: { id: string }[] }>('cargo.create', { typeOperation: OPERATIONS.VEHICULE, declaration: d, conteneurOrigine: origine, vehicules: [v] });
+      const r = await call<{ vehicules: { id: string }[] }>('cargo.create', {
+        typeOperation: OPERATIONS.VEHICULE, declaration: d, conteneurOrigine: origine, vehicules: [v],
+        camions: cams.map((c) => ({ ...c, scellesCamion: c.scellesCamion.filter(Boolean) })),
+      });
       toast('Véhicule créé.', 'ok'); go('detail', r.vehicules[0]?.id);
     } catch (e) { toast((e as Error).message, 'err'); }
   }
+
   return <div style={{ marginTop: 12 }}>
     <div className="section-title">Véhicule</div>
     <div className="grid2">
@@ -180,9 +197,44 @@ function FormVehicule({ go }: { go: Nav['go'] }) {
       <div><label className="help">Modèle</label><input value={String(v['modele'])} onChange={(e) => setVv('modele', masks.upper(e.target.value))} /></div>
       <div><label className="help">Couleur</label><input value={String(v['couleur'])} onChange={(e) => setVv('couleur', masks.upper(e.target.value))} /></div>
       <div><label className="help">Destination</label><select value={String(v['destination'])} onChange={(e) => setVv('destination', e.target.value)}>{VEHICULE_DESTINATIONS.map((x) => <option key={x}>{x}</option>)}</select></div>
-      <div><label className="help">Conteneur d'origine (TC)</label><input className="mono" value={origine} onChange={(e) => setOrigine(masks.tc(e.target.value))} /></div>
+      <div>
+        <label className="help">Conteneur d'origine (TC) *</label>
+        <select value={origine} onChange={(e) => setOrigine(e.target.value)} className="mono">
+          <option value="">{stkLoading ? 'Chargement…' : tcs.length ? '— Choisir un TC positionné —' : '— Aucun TC positionné —'}</option>
+          {tcs.map((t) => <option key={t}>{t}</option>)}
+        </select>
+        <div className="help">Conteneurs positionnés au CFS uniquement.</div>
+      </div>
     </div>
-    <div className="section-title">Déclaration</div>
+
+    <div className="row" style={{ alignItems: 'center', marginTop: 14 }}>
+      <div className="section-title" style={{ flex: 1, margin: 0 }}>Camions (effets divers du conteneur) — facultatif</div>
+      <button className="ghost xs" onClick={() => setCams((a) => [...a, camVide()])}>＋ Ajouter un camion</button>
+    </div>
+    {cams.map((c, i) => <div key={i} style={{ border: '1px solid var(--line)', borderRadius: 6, padding: 10, marginTop: 8 }}>
+      <div className="row" style={{ alignItems: 'center' }}>
+        <div style={{ flex: 1 }}><label className="help">N° camion</label><input className="mono" value={c.numeroCamion} onChange={(e) => majCam(i, { numeroCamion: masks.alnum(e.target.value) })} /></div>
+        <button className="ghost xs" onClick={() => setCams((a) => a.filter((_, j) => j !== i))}>Retirer</button>
+      </div>
+      {c.conteneurs.map((ct, k) => <div className="grid2" key={k} style={{ marginTop: 6 }}>
+        <div><label className="help">Conteneur {k + 1}</label><input className="mono" value={String(ct['num'] ?? '')} onChange={(e) => majCam(i, { conteneurs: c.conteneurs.map((x, j) => j === k ? { ...x, num: masks.tc(e.target.value) } : x) })} /></div>
+        <div><label className="help">Taille</label><input value={String(ct['taille'] ?? '')} onChange={(e) => majCam(i, { conteneurs: c.conteneurs.map((x, j) => j === k ? { ...x, taille: masks.upper(e.target.value) } : x) })} placeholder="20' / 40' / 45'" /></div>
+        <div><label className="help">Type</label><input value={String(ct['type'] ?? '')} onChange={(e) => majCam(i, { conteneurs: c.conteneurs.map((x, j) => j === k ? { ...x, type: masks.upper(e.target.value) } : x) })} /></div>
+      </div>)}
+      <button className="ghost xs" style={{ marginTop: 6 }} onClick={() => majCam(i, { conteneurs: [...c.conteneurs, { num: '', taille: '', type: '' }] })}>＋ Conteneur</button>
+
+      {/* v4 — « chargement terminé (scellés posés) » : ramené AU NIVEAU DU CAMION. */}
+      <label className="help" style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 10 }}>
+        <input type="checkbox" style={{ width: 'auto' }} checked={c.chargementTermine} onChange={(e) => majCam(i, { chargementTermine: e.target.checked })} />
+        <span>Chargement terminé (scellés posés) — sinon « En cours de chargement »</span>
+      </label>
+      {c.chargementTermine && <div className="grid2" style={{ marginTop: 6 }}>
+        {[0, 1, 2].map((k) => <div key={k}><label className="help">Scellé camion {k + 1}{k < 2 ? ' *' : ''}</label>
+          <input value={c.scellesCamion[k] ?? ''} onChange={(e) => majCam(i, { scellesCamion: c.scellesCamion.map((x, j) => j === k ? masks.upper(e.target.value) : x) })} /></div>)}
+      </div>}
+    </div>)}
+
+    <div className="section-title" style={{ marginTop: 14 }}>Déclaration</div>
     <DeclFields d={d} set={set} />
     <div style={{ marginTop: 12 }}><button onClick={creer}>Créer le véhicule</button></div>
   </div>;
@@ -320,19 +372,91 @@ SCREENS.annonce = () => {
 
 SCREENS.etatcfs = ({ go }) => {
   const { data, loading } = useAsync<{ rows: O[]; compte: O }>(() => call('etatcfs.list'), []);
-  return <div className="card"><h2>État camions (sortie CFS)</h2>
+  return <div className="card"><h2>Pointage des camions à la sortie</h2>
+    <p className="help" style={{ marginTop: 0 }}>Situation du parking : camions et véhicules encore présents. Sont <b>défalqués</b> ceux qui ont déjà pris la balise et ceux sortis à la PP.</p>
     {loading ? <Spinner /> : <>
       <div className="stats">
-        <StatCard n={Number(data?.compte['total'] ?? 0)} l="Sur site" />
+        <StatCard n={Number(data?.compte['total'] ?? 0)} l="Au parking" />
+        <StatCard n={Number(data?.compte['camions'] ?? 0)} l="Camions" />
+        <StatCard n={Number(data?.compte['vehicules'] ?? 0)} l="Véhicules" />
         <StatCard n={Number(data?.compte['enCours'] ?? 0)} l="En chargement" />
         <StatCard n={Number(data?.compte['fin'] ?? 0)} l="Fin chargement" />
         <StatCard n={Number(data?.compte['vide'] ?? 0)} l="Vides" />
         <StatCard n={Number(data?.compte['np'] ?? 0)} l="Non précisé" tone="warn" />
       </div>
-      <Table cols={[['id', 'ID'], ['numeroCamion', 'Camion'], ['typeOperation', 'Opération'], ['statut', 'Statut'], ['etatSortie', 'État sortie']]} rows={data?.rows ?? []} onRow={(r) => go('detail', r['id'])} />
+      <Table cols={[['id', 'ID'], ['numeroCamion', 'Camion / Châssis'], ['typeOperation', 'Opération'], ['statut', 'Statut'], ['etatSortie', 'État sortie']]} rows={data?.rows ?? []} onRow={(r) => go('detail', r['id'])} />
     </>}
   </div>;
 };
+
+/* ------------- Bon de chargement — recherche par déclaration ----------- */
+// ⚠ Format d'édition à fournir : cet écran affiche les données collectées
+// (camions + véhicules au statut « Créée » = fin de chargement). La mise en
+// page définitive du bon se branchera dessus.
+SCREENS.chargement = () => {
+  const [q, setQ] = useState<O>({ numeroDeclaration: '', anneeDeclaration: '', bureauDeclaration: '', typeDeclaration: '' });
+  const [res, setRes] = useState<O | null>(null);
+  const [busy, setBusy] = useState(false);
+  const set = (k: string, v: unknown) => setQ((o) => ({ ...o, [k]: v }));
+
+  async function chercher() {
+    if (!String(q['numeroDeclaration'] ?? '').trim()) { toast('Indiquez le N° de déclaration.', 'err'); return; }
+    setBusy(true);
+    try { setRes(await call<O>('report.loadingdecl', q)); }
+    catch (e) { toast((e as Error).message, 'err'); setRes(null); }
+    finally { setBusy(false); }
+  }
+
+  const cam = (res?.['camions'] as O[]) ?? [];
+  const veh = (res?.['vehicules'] as O[]) ?? [];
+  const cpt = (res?.['compte'] as O) ?? {};
+  const dec = (res?.['declaration'] as O) ?? {};
+  const apu = res?.['apurement'] as O | null;
+
+  return <div className="card">
+    <h2>Bon de chargement — par déclaration</h2>
+    <p className="help" style={{ marginTop: 0 }}>Remonte tous les camions et véhicules ayant chargé des conteneurs de la déclaration, au statut <b>« Créée » (fin de chargement)</b>.</p>
+    <div className="grid2">
+      <div><label className="help">N° déclaration *</label><input className="mono" value={String(q['numeroDeclaration'])} onChange={(e) => set('numeroDeclaration', masks.upper(e.target.value))} onKeyDown={(e) => e.key === 'Enter' && chercher()} autoFocus /></div>
+      <div><label className="help">Année (facultatif)</label><input value={String(q['anneeDeclaration'])} onChange={(e) => set('anneeDeclaration', e.target.value)} /></div>
+      <div><label className="help">Bureau (facultatif)</label><input value={String(q['bureauDeclaration'])} onChange={(e) => set('bureauDeclaration', masks.upper(e.target.value))} /></div>
+      <div><label className="help">Type (facultatif)</label><select value={String(q['typeDeclaration'])} onChange={(e) => set('typeDeclaration', e.target.value)}><option value="">Tous</option>{TYPES_DECLARATION.map((t) => <option key={t}>{t}</option>)}</select></div>
+    </div>
+    <div style={{ marginTop: 12 }}><button disabled={busy} onClick={chercher}>{busy ? 'Recherche…' : 'Rechercher'}</button></div>
+
+    {res && <div style={{ marginTop: 18 }}>
+      <div className="section-title">Déclaration {String(dec['numeroDeclaration'] ?? '')} · {String(dec['anneeDeclaration'] ?? '—')} · {String(dec['bureauDeclaration'] ?? '—')} · type {String(dec['typeDeclaration'] ?? '—')}</div>
+      <div className="help">Déclarant : <b>{String(dec['declarant'] || '—')}</b>{apu?.['exists'] ? <> · Apurement : {String(apu['apures'])}/{String(apu['nombreConteneurs'])} conteneurs (restant {String(apu['restant'])})</> : null}</div>
+      <div className="stats" style={{ marginTop: 10 }}>
+        <StatCard n={Number(cpt['camions'] ?? 0)} l="Camions" />
+        <StatCard n={Number(cpt['vehicules'] ?? 0)} l="Véhicules" />
+        <StatCard n={Number(cpt['conteneurs'] ?? 0)} l="Conteneurs" />
+      </div>
+      {!cam.length && !veh.length && <div className="empty">Aucun camion ni véhicule au statut « Créée » pour cette déclaration.</div>}
+      {[['Camions', cam] as const, ['Véhicules', veh] as const].map(([titre, lst]) => lst.length ? <div key={titre} style={{ marginTop: 14 }}>
+        <div className="section-title">{titre} ({lst.length})</div>
+        {lst.map((r) => <LigneChargement key={String(r['id'])} r={r} />)}
+      </div> : null)}
+    </div>}
+  </div>;
+};
+
+function LigneChargement({ r }: { r: O }) {
+  const conts = (r['conteneurs'] as O[]) ?? [];
+  const sc = (r['scellesCamion'] as string[]) ?? [];
+  const v = r['vehicule'] as O | undefined;
+  return <div style={{ border: '1px solid var(--line)', borderRadius: 6, padding: 10, marginBottom: 8 }}>
+    <div className="row" style={{ alignItems: 'center', gap: 8 }}>
+      <b className="mono">{String(r['numeroCamion'])}</b>
+      <span className="help">{String(r['id'])} · {String(r['typeOperation'])}</span>
+      {Boolean(r['chargementMixte']) && <span className="help" style={{ color: 'var(--warn)' }}>⚠ chargement mixte</span>}
+    </div>
+    <div className="help">Date {fmtDate(r['dateCreation'])} · Agent CFS {String(r['agentCfs'] || '—')} · Destination {String(r['destinationMarchandise'] || '—')}{r['nbColis'] ? ` · ${String(r['nbColis'])} colis` : ''}</div>
+    {v && <div className="help">Châssis {String(v['chassis'] ?? '')} · {String(v['marque'] ?? '')} {String(v['modele'] ?? '')} · {String(v['destination'] ?? '')}{r['conteneurOrigine'] ? ` · TC origine ${String(r['conteneurOrigine'])}` : ''}</div>}
+    {sc.length > 0 && <div className="help">Scellés camion : {sc.join(' · ')}</div>}
+    {conts.length > 0 && <Table cols={[['num', 'Conteneur'], ['plomb', 'Scellé'], ['taille', 'Taille'], ['type', 'Type']]} rows={conts} />}
+  </div>;
+}
 
 /* ------------------------------ Rapports ------------------------------- */
 function useReportRange() {

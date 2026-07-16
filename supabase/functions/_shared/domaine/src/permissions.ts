@@ -48,29 +48,34 @@ export const PERMISSIONS: Record<string, Role[]> = {
   'stock.import': [ROLES.CFS, ROLES.ADMIN],
   'stock.pointage': [ROLES.CFS, ROLES.ADMIN],
   'stock.entreemagasin': [ROLES.CFS, ROLES.ADMIN],
-  'report.stock': [ROLES.CFS, ROLES.ADMIN],
+  'report.stock': [ROLES.CFS, ROLES.CHEF_BRIGADE, ROLES.ADMIN],
   // Stock ANNONCÉ (v2.8)
   'stockannonce.import': [ROLES.ADMIN],
   'stockannonce.list': TOUS_ROLES,
   'stockannonce.pointage': [ROLES.PP, ROLES.ADMIN],
   'stockannonce.confirmer': [ROLES.CFS, ROLES.ADMIN],
-  'report.annonce': [ROLES.PP, ROLES.CFS, ROLES.ADMIN], // I-6 conservé à l'identique
+  'report.annonce': [ROLES.PP, ROLES.CFS, ROLES.CHEF_BRIGADE, ROLES.ADMIN], // I-6 conservé à l'identique
   // Rapports
-  'report.loading': [ROLES.CFS, ROLES.ADMIN],
-  'report.cfs': [ROLES.CFS, ROLES.ADMIN],
-  'report.cfsdetail': [ROLES.CFS, ROLES.ADMIN],
-  'report.vehicule': [ROLES.CFS, ROLES.ADMIN],
-  'report.vehiculedetail': [ROLES.CFS, ROLES.ADMIN],
-  'report.balise': [ROLES.BALISE, ROLES.ADMIN],
-  'report.balisedetail': [ROLES.BALISE, ROLES.ADMIN],
-  'report.pp': [ROLES.PP, ROLES.ADMIN],
-  'report.ppdetail': [ROLES.PP, ROLES.ADMIN],
+  // v4 — le CHEF_BRIGADE lit TOUS les rapports opérationnels de TOUTES les cellules
+  // (décision utilisateur 2026-07-16). LECTURE SEULE : aucune action d'écriture ne
+  // lui est ouverte ici, la règle anti-fraude « 1 cellule = 1 rôle » reste intacte.
+  // report.list / report.history (outillage + journal d'audit) restent ADMIN.
+  'report.loading': [ROLES.CFS, ROLES.CHEF_BRIGADE, ROLES.ADMIN],
+  'report.loadingdecl': [ROLES.CFS, ROLES.CHEF_BRIGADE, ROLES.ADMIN], // v4 : bon de chargement par déclaration
+  'report.cfs': [ROLES.CFS, ROLES.CHEF_BRIGADE, ROLES.ADMIN],
+  'report.cfsdetail': [ROLES.CFS, ROLES.CHEF_BRIGADE, ROLES.ADMIN],
+  'report.vehicule': [ROLES.CFS, ROLES.CHEF_BRIGADE, ROLES.ADMIN],
+  'report.vehiculedetail': [ROLES.CFS, ROLES.CHEF_BRIGADE, ROLES.ADMIN],
+  'report.balise': [ROLES.BALISE, ROLES.CHEF_BRIGADE, ROLES.ADMIN],
+  'report.balisedetail': [ROLES.BALISE, ROLES.CHEF_BRIGADE, ROLES.ADMIN],
+  'report.pp': [ROLES.PP, ROLES.CHEF_BRIGADE, ROLES.ADMIN],
+  'report.ppdetail': [ROLES.PP, ROLES.CHEF_BRIGADE, ROLES.ADMIN],
   'report.kpi': TOUS_ROLES,
-  'report.dispenses': [ROLES.BALISE, ROLES.ADMIN],
-  'report.flux': [ROLES.ADMIN],
-  'report.fluxdetail': [ROLES.ADMIN],
-  'report.dwell': [ROLES.CFS, ROLES.ADMIN],
-  'report.dwelldetail': [ROLES.CFS, ROLES.ADMIN],
+  'report.dispenses': [ROLES.BALISE, ROLES.CHEF_BRIGADE, ROLES.ADMIN],
+  'report.flux': [ROLES.CHEF_BRIGADE, ROLES.ADMIN],
+  'report.fluxdetail': [ROLES.CHEF_BRIGADE, ROLES.ADMIN],
+  'report.dwell': [ROLES.CFS, ROLES.CHEF_BRIGADE, ROLES.ADMIN],
+  'report.dwelldetail': [ROLES.CFS, ROLES.CHEF_BRIGADE, ROLES.ADMIN],
   'report.list': [ROLES.ADMIN],
   'report.history': [ROLES.ADMIN],
   // Tableau de bord / stats
