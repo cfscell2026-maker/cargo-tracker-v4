@@ -62,6 +62,7 @@ export const PERMISSIONS: Record<string, Role[]> = {
   // report.list / report.history (outillage + journal d'audit) restent ADMIN.
   'report.loading': [ROLES.CFS, ROLES.CHEF_BRIGADE, ROLES.ADMIN],
   'report.loadingdecl': [ROLES.CFS, ROLES.CHEF_BRIGADE, ROLES.ADMIN], // v4 : bon de chargement par déclaration
+  'report.ordre': [ROLES.CFS, ROLES.CHEF_BRIGADE, ROLES.ADMIN], // v4 : ordre d'exécution imprimable
   'report.cfs': [ROLES.CFS, ROLES.CHEF_BRIGADE, ROLES.ADMIN],
   'report.cfsdetail': [ROLES.CFS, ROLES.CHEF_BRIGADE, ROLES.ADMIN],
   'report.vehicule': [ROLES.CFS, ROLES.CHEF_BRIGADE, ROLES.ADMIN],

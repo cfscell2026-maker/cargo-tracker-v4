@@ -86,6 +86,14 @@ export interface Declaration {
   numeroDeclaration: string;
   anneeDeclaration: string;
   descriptionMarchandise: string;
+  /**
+   * v4 — DATE de la déclaration en douane (ISO 'yyyy-MM-dd'), imprimée sur
+   * l'ORDRE D'EXÉCUTION (« Déclaration : Type … N° … du 24/06/26 »). Distincte
+   * de la date de saisie dans l'appli. FACULTATIVE au niveau du domaine :
+   * exigée seulement à la CRÉATION d'une déclaration (comme nombreConteneurs),
+   * pour ne pas bloquer les déclarations déjà migrées qui ne l'ont pas.
+   */
+  dateDeclaration?: string;
 }
 
 /**
@@ -101,6 +109,12 @@ export function normaliserDeclaration(d: Partial<Declaration> | null | undefined
     .replace(/[^\d+ ]/g, '')
     .replace(/(?!^)\+/g, '')
     .trim();
+  // v4 — date de la déclaration en douane : acceptée en jj/mm/aaaa, aaaa-mm-jj,
+  // Date ou sérial Excel ; normalisée en ISO 'yyyy-MM-dd'. Refusée si saisie mais
+  // illisible (évite d'imprimer une date fausse sur l'ordre d'exécution).
+  const dDecl = parseDateImport(src.dateDeclaration);
+  if (src.dateDeclaration && !dDecl)
+    throw new Error('Date de la déclaration invalide (attendu jj/mm/aaaa).');
   const out: Declaration = {
     declarant: maj(src.declarant),
     contactDeclarant: contact,
@@ -110,6 +124,7 @@ export function normaliserDeclaration(d: Partial<Declaration> | null | undefined
     numeroDeclaration: maj(src.numeroDeclaration),
     anneeDeclaration: maj(src.anneeDeclaration),
     descriptionMarchandise: maj(src.descriptionMarchandise, 600),
+    dateDeclaration: dDecl ? dDecl.toISOString().slice(0, 10) : '',
   };
   const requis: Array<[keyof Declaration, string]> = [
     ['declarant', 'Déclarant'],

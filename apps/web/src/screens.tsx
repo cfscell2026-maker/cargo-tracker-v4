@@ -156,6 +156,8 @@ function DeclFields({ d, set }: { d: O; set: (k: string, v: unknown) => void }) 
     <div><label className="help">Type décl.</label><select value={String(d['typeDeclaration'] ?? 'T')} onChange={(e) => set('typeDeclaration', e.target.value)}>{TYPES_DECLARATION.map((t) => <option key={t}>{t}</option>)}</select></div>
     <div><label className="help">N° décl.</label><input value={String(d['numeroDeclaration'] ?? '')} onChange={(e) => set('numeroDeclaration', masks.upper(e.target.value))} /></div>
     <div><label className="help">Année</label><input value={String(d['anneeDeclaration'] ?? new Date().getFullYear())} onChange={(e) => set('anneeDeclaration', e.target.value)} /></div>
+    {/* v4 — date en douane, imprimée sur l'ordre d'exécution (exigée si nouvelle déclaration). */}
+    <div><label className="help">Date de la déclaration</label><input type="date" value={String(d['dateDeclaration'] ?? '')} onChange={(e) => set('dateDeclaration', e.target.value)} /></div>
     <div><label className="help">Nb conteneurs déclarés</label><input type="number" value={String(d['nombreConteneurs'] ?? '')} onChange={(e) => set('nombreConteneurs', e.target.value)} /></div>
   </div>;
 }
@@ -389,6 +391,20 @@ SCREENS.etatcfs = ({ go }) => {
   </div>;
 };
 
+/**
+ * Ouvre un rapport HTML dans un onglet et lance l'impression (→ PDF).
+ * Le v4 n'avait aucun mécanisme d'impression : les rapports HTML du serveur
+ * (bon de chargement, ordre d'exécution) étaient injoignables depuis l'écran.
+ */
+function imprimerHtml(html: string) {
+  const w = window.open('', '_blank');
+  if (!w) { toast('Autorisez les fenêtres surgissantes pour imprimer.', 'err'); return; }
+  w.document.write(html);
+  w.document.close();
+  w.focus();
+  setTimeout(() => w.print(), 300); // laisse le rendu se poser avant l'impression
+}
+
 /* ------------- Bon de chargement — recherche par déclaration ----------- */
 // ⚠ Format d'édition à fournir : cet écran affiche les données collectées
 // (camions + véhicules au statut « Créée » = fin de chargement). La mise en
@@ -405,6 +421,14 @@ SCREENS.chargement = () => {
     try { setRes(await call<O>('report.loadingdecl', q)); }
     catch (e) { toast((e as Error).message, 'err'); setRes(null); }
     finally { setBusy(false); }
+  }
+
+  /** Ordre d'exécution (trame OTR) : ouvert dans un onglet, prêt à imprimer. */
+  async function imprimer() {
+    try {
+      const r = await call<{ html: string }>('report.ordre', q);
+      imprimerHtml(r.html);
+    } catch (e) { toast((e as Error).message, 'err'); }
   }
 
   const cam = (res?.['camions'] as O[]) ?? [];
@@ -425,7 +449,10 @@ SCREENS.chargement = () => {
     <div style={{ marginTop: 12 }}><button disabled={busy} onClick={chercher}>{busy ? 'Recherche…' : 'Rechercher'}</button></div>
 
     {res && <div style={{ marginTop: 18 }}>
-      <div className="section-title">Déclaration {String(dec['numeroDeclaration'] ?? '')} · {String(dec['anneeDeclaration'] ?? '—')} · {String(dec['bureauDeclaration'] ?? '—')} · type {String(dec['typeDeclaration'] ?? '—')}</div>
+      <div className="row" style={{ alignItems: 'center' }}>
+        <div className="section-title" style={{ flex: 1, margin: 0 }}>Déclaration {String(dec['numeroDeclaration'] ?? '')} · {String(dec['anneeDeclaration'] ?? '—')} · {String(dec['bureauDeclaration'] ?? '—')} · type {String(dec['typeDeclaration'] ?? '—')}</div>
+        {(cam.length > 0 || veh.length > 0) && <button onClick={imprimer}>🖨 Ordre d'exécution</button>}
+      </div>
       <div className="help">Déclarant : <b>{String(dec['declarant'] || '—')}</b>{apu?.['exists'] ? <> · Apurement : {String(apu['apures'])}/{String(apu['nombreConteneurs'])} conteneurs (restant {String(apu['restant'])})</> : null}</div>
       <div className="stats" style={{ marginTop: 10 }}>
         <StatCard n={Number(cpt['camions'] ?? 0)} l="Camions" />

@@ -442,6 +442,7 @@ export async function rapportChargementDecl(ctx: Ctx, p: Record<string, unknown>
       numeroDeclaration: c['numeroDeclaration'], anneeDeclaration: c['anneeDeclaration'],
       bureauDeclaration: c['bureauDeclaration'], typeDeclaration: c['typeDeclaration'],
       agentCfs: c['agentCfs'], nbColis: c['nbColis'], etatSortie: c['etatSortie'],
+      observationsCfs: c['observationsCfs'],
       chargementMixte: estOui(c['chargementMixte']),
       scellesCamion: pd.scellesCamion,
       nbConteneurs: conts.length,
@@ -479,6 +480,140 @@ export async function rapportChargementDecl(ctx: Ctx, p: Record<string, unknown>
       camions: camions.length, vehicules: vehicules.length,
       conteneurs: totalConteneurs, total: camions.length + vehicules.length,
     },
+  };
+}
+
+/**
+ * v4 — ORDRE D'EXÉCUTION (imprimable) — trame officielle OTR / Section Brigade PIA,
+ * reproduite d'après le formulaire papier fourni (2026-07-16).
+ *
+ * UN ordre PAR DÉCLARATION (décision utilisateur), listant tous les camions et
+ * conteneurs de la déclaration au statut « Créée ». Le n° d'ordre = le/les
+ * rapportId de l'appli (décision utilisateur) ; si la déclaration a été saisie en
+ * plusieurs rapports, ils sont tous listés.
+ *
+ * Pré-remplissage (décision utilisateur) : agents CFS, date/heure d'opération et
+ * observations CFS. Les SIGNATURES et les mentions manuscrites (« Il est ordonné
+ * aux agents », heures d'exécution) restent VIERGES — elles se remplissent à la main.
+ *
+ * ⚠ Colonne « Type » du tableau papier = la TAILLE du conteneur (40, 20…), pas le
+ * type ISO (DRY/RF). C'est bien `taille` qui y est imprimée.
+ * ⚠ Colonne « Plombs » : en DÉPOTAGE les scellés sont au niveau CAMION
+ * (scellesCamion) ; en ENLÈVEMENT ils sont portés PAR conteneur (plomb).
+ */
+export async function ordreExecution(ctx: Ctx, p: Record<string, unknown>) {
+  const r = await rapportChargementDecl(ctx, p);
+  const d = r.declaration as Record<string, unknown>;
+  const lignes = [...(r.camions as Record<string, unknown>[]), ...(r.vehicules as Record<string, unknown>[])];
+  if (!lignes.length) throw new Error('Aucun camion au statut « Créée » pour cette déclaration : rien à éditer.');
+
+  const esc = (v: unknown) => String(v ?? '').replace(/[&<>]/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[m]!));
+  const jour = (v: unknown) => {
+    const dt = v ? new Date(String(v)) : null;
+    if (!dt || isNaN(dt.getTime())) return '';
+    const p2 = (n: number) => String(n).padStart(2, '0');
+    return p2(dt.getDate()) + '/' + p2(dt.getMonth() + 1) + '/' + String(dt.getFullYear()).slice(2);
+  };
+  const pointille = (v: unknown, n = 30) => (String(v ?? '').trim() ? `<u>&nbsp;${esc(v)}&nbsp;</u>` : '.'.repeat(n));
+
+  // Opération dominante → coche la bonne case (dépotage / enlèvement / autres).
+  const ops = new Set(lignes.map((l) => String(l['typeOperation'] ?? '')));
+  const coche = (actif: boolean) => (actif ? '☒' : '☐');
+  const estDep = ops.has(OPERATIONS.DEPOTAGE) || ops.has(OPERATIONS.VEHICULE);
+  const estEnl = ops.has(OPERATIONS.ENLEVEMENT);
+
+  // Récapitulatif des conteneurs par taille : « … de 2 TC de 40' et 1 TC de 20' ».
+  const parTaille: Record<string, number> = {};
+  let nbTC = 0;
+  for (const l of lignes) {
+    for (const ct of (l['conteneurs'] as Record<string, unknown>[]) ?? []) {
+      const t = String(ct['taille'] ?? '?').replace(/['’\s]/g, '') || '?';
+      parTaille[t] = (parTaille[t] ?? 0) + 1;
+      nbTC++;
+    }
+  }
+  const recapTC = Object.entries(parTaille).map(([t, n]) => `${n} TC de ${t}`).join(' et ') || '—';
+
+  // Marchandise dénombrée : colis + désignation (dédupliqués sur l'ensemble).
+  const colis = lignes.map((l) => String(l['nbColis'] ?? '').trim()).filter(Boolean);
+  const desig = [...new Set(lignes.map((l) => String(l['descriptionMarchandise'] ?? '').trim()).filter(Boolean))];
+  const denombre = [colis.join(' + '), desig.join(' / ')].filter(Boolean).join(' ');
+
+  const rapports = [...new Set(lignes.map((l) => String(l['rapportId'] ?? '')).filter(Boolean))].join(' / ');
+  const agents = [...new Set(lignes.map((l) => String(l['agentCfs'] ?? '').trim()).filter(Boolean))].join(', ');
+  const dateOp = jour(lignes[0]?.['dateCreation']);
+
+  // Tableau : une ligne PAR CONTENEUR (le n° de camion se répète).
+  const rows = lignes.flatMap((l) => {
+    const conts = (l['conteneurs'] as Record<string, unknown>[]) ?? [];
+    const scam = (l['scellesCamion'] as string[]) ?? [];
+    return conts.map((ct, i) => {
+      // Dépotage : scellés au camion (affichés sur la 1re ligne). Enlèvement : par conteneur.
+      const plombs = String(l['typeOperation']) === OPERATIONS.ENLEVEMENT
+        ? String(ct['plomb'] ?? '')
+        : (i === 0 ? scam.join(' · ') : '');
+      return `<tr><td>${esc(ct['num'])}</td><td>${esc(ct['taille'])}</td><td>${esc(l['numeroCamion'])}</td><td>${esc(plombs)}</td></tr>`;
+    });
+  }).join('');
+
+  const html = `<!doctype html><html lang="fr"><meta charset="utf-8">
+<title>Ordre d'exécution — déclaration ${esc(d['numeroDeclaration'])}</title>
+<style>
+  @page { size: A4; margin: 14mm; }
+  body { font-family: "Times New Roman", serif; color: #000; font-size: 12px; line-height: 1.5; }
+  .head { display: flex; justify-content: space-between; align-items: flex-start; }
+  .head .g { font-weight: bold; font-size: 11px; text-transform: uppercase; line-height: 1.35; }
+  .head .d { text-align: center; font-size: 11px; }
+  .head .d b { font-size: 12px; }
+  h1 { text-align: center; font-size: 15px; letter-spacing: .06em; margin: 14px 0 10px; text-decoration: underline; }
+  .num { font-size: 11px; margin-top: 6px; }
+  .l { margin: 5px 0; }
+  .sec { font-weight: bold; text-decoration: underline; margin-top: 10px; }
+  .sig { display: flex; justify-content: space-between; margin-top: 6px; }
+  table { border-collapse: collapse; width: 100%; margin-top: 8px; }
+  td, th { border: 1px solid #000; padding: 4px 6px; font-size: 11px; text-align: left; }
+  th { font-weight: bold; }
+  .nb { font-size: 9px; font-style: italic; margin-top: 10px; }
+  .blank { display: inline-block; border-bottom: 1px dotted #000; min-width: 60px; }
+</style>
+<div class="head">
+  <div class="g">
+    Commissariat Général<br>
+    Commissariat des Douanes<br>et Droits Indirects<br>
+    Direction des Opérations<br>Douanières de Lomé Port<br>
+    Division des Opérations<br>Douanières Lomé-Port 4<br>
+    Section Brigade PIA
+  </div>
+  <div class="d"><b>REPUBLIQUE TOGOLAISE</b><br><i>Travail-Liberté-Patrie</i></div>
+</div>
+<div class="num">N° ${pointille(rapports, 14)}/${esc(String(d['anneeDeclaration'] ?? new Date().getFullYear()))}/OTR/CG/CDDI/DODLP/DODLP 4</div>
+<h1>ORDRE D'EXECUTION</h1>
+<div class="l">Il est ordonné aux agents <span class="blank" style="min-width:70%"></span></div>
+<div class="l">Avec toutes responsabilités d'assister effectivement à l'opération ci-après : ${pointille(estDep ? 'Dépotage' : 'Enlèvement', 24)}</div>
+<div class="l">Date : ${pointille(dateOp, 10)} Lieu : <u>&nbsp;PIA&nbsp;</u> Déclaration : Type ${pointille(d['typeDeclaration'], 6)} N° ${pointille(d['numeroDeclaration'], 12)} du ${pointille(jour((r.apurement as Record<string, unknown> | null)?.['dateDeclaration']), 10)}</div>
+<div class="l">Déclarant : ${pointille(d['declarant'], 22)} Tél : ${pointille(lignes[0]?.['contactDeclarant'], 14)} Destination m/ses : ${pointille(lignes[0]?.['destinationMarchandise'], 14)}</div>
+<div class="sig"><span class="sec">OBSERVATIONS OU CONSIGNES</span><span class="sec">LE CHEF BRIGADE PIA</span></div>
+<div class="l">${esc([...new Set(lignes.map((l) => String(l['observationsCfs'] ?? '').trim()).filter(Boolean))].join(' · ')) || '.'.repeat(90)}</div>
+<div class="l" style="margin-top:26px">Le <span class="blank"></span> de <span class="blank" style="min-width:30px"></span>h<span class="blank" style="min-width:30px"></span> à <span class="blank" style="min-width:30px"></span>h<span class="blank" style="min-width:30px"></span></div>
+<div class="l">Nous soussignés ${pointille(agents, 60)}</div>
+<div class="l">En service à la Section de la Brigade des Douanes de Lomé-Port,</div>
+<div class="l">Reconnaissons avoir exécuté l'ordre ci-dessus. Nous faisons état de ce qui suit :</div>
+<div class="l">Avons suivi ${coche(estDep)} le dépotage ${coche(estEnl)} l'enlèvement ${coche(!estDep && !estEnl)} autres : <span class="blank"></span> de ${pointille(recapTC, 22)}</div>
+<div class="l">et avons dénombré / disant contenir : ${pointille(denombre, 60)}</div>
+<table>
+  <thead><tr><th>Numéros TC</th><th>Type</th><th>Numéro du camion</th><th>Plombs</th></tr></thead>
+  <tbody>${rows}</tbody>
+</table>
+<div class="l" style="margin-top:8px">Autres mentions : <span class="blank" style="min-width:70%"></span></div>
+<div class="sec" style="text-align:center; margin-top:22px">Noms et signatures des agents</div>
+<div style="height:60px"></div>
+<div class="nb">NB : Biffer les mentions inutiles.</div>
+</html>`;
+
+  return {
+    html,
+    filename: 'OrdreExecution_' + String(d['numeroDeclaration'] ?? '') + '.html',
+    compte: { ...(r.compte as Record<string, unknown>), conteneurs: nbTC },
   };
 }
 

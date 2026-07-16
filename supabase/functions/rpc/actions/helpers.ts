@@ -146,6 +146,7 @@ export interface LookupDecl {
   exists: boolean;
   cle: string;
   declarant?: string;
+  dateDeclaration?: string; // v4 : date en douane (ISO 'yyyy-MM-dd'), '' si inconnue
   nombreConteneurs: number;
   apures: number;
   restant: number;
@@ -158,7 +159,11 @@ export async function lookupDeclaration(ctx: Ctx, decl: Partial<Declaration>): P
   if (!data) return { exists: false, cle, nombreConteneurs: 0, apures: 0, restant: 0 };
   const nb = Number(data.nombre_conteneurs || 0);
   const ap = Number(data.conteneurs_apures || 0);
-  return { exists: true, cle, declarant: data.declarant, nombreConteneurs: nb, apures: ap, restant: Math.max(0, nb - ap) };
+  return {
+    exists: true, cle, declarant: data.declarant,
+    dateDeclaration: data.date_declaration ? String(data.date_declaration).slice(0, 10) : '',
+    nombreConteneurs: nb, apures: ap, restant: Math.max(0, nb - ap),
+  };
 }
 
 /**
@@ -184,6 +189,8 @@ export async function majApurement(
       type_declaration: decl.typeDeclaration ?? '',
       numero_declaration: decl.numeroDeclaration ?? '',
       declarant: decl.declarant ?? '',
+      // v4 — date de la déclaration en douane (ordre d'exécution) ; NULL si inconnue.
+      date_declaration: decl.dateDeclaration || null,
       nombre_conteneurs: nbDecl,
       conteneurs_apures: nbAjout,
       date_creation: now,

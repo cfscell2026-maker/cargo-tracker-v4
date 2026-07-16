@@ -64,6 +64,7 @@ export const ACTIONS: Record<string, H> = {
   /* ----- Rapports ----- */
   'report.loading': d((ctx, data: { id?: string }) => rap.rapportChargement(ctx, String(data?.id ?? ''))),
   'report.loadingdecl': d(rap.rapportChargementDecl), // v4 : bon de chargement par déclaration
+  'report.ordre': d(rap.ordreExecution), // v4 : ORDRE D'EXÉCUTION imprimable (trame OTR)
   'report.cfs': d(rap.rapportCFS),
   'report.cfsdetail': d(rap.rapportCFSDetail),
   'report.vehicule': d(rap.rapportVehicules),

@@ -117,8 +117,15 @@ export async function cfs(ctx: Ctx, p: Record<string, unknown>) {
   let declRef: ReturnType<typeof normaliserDeclaration> | null = null;
   if (declInput && String(declInput['declarant'] ?? '').trim()) {
     declRef = normaliserDeclaration(declInput as never, type);
-    if (!(await lookupDeclaration(ctx, declRef)).exists && !(Number(declInput['nombreConteneurs']) >= 1))
-      throw new Error('Nouvelle déclaration : indiquez le « nombre de conteneurs » déclarés.');
+    // v4 — à la CRÉATION d'une déclaration : nb de conteneurs (apurement) ET date
+    // en douane (ordre d'exécution) exigés. Les déclarations déjà connues (dont
+    // les migrées, sans date) ne sont jamais bloquées.
+    if (!(await lookupDeclaration(ctx, declRef)).exists) {
+      if (!(Number(declInput['nombreConteneurs']) >= 1))
+        throw new Error('Nouvelle déclaration : indiquez le « nombre de conteneurs » déclarés.');
+      if (!declRef.dateDeclaration)
+        throw new Error('Nouvelle déclaration : indiquez la « date de la déclaration ».');
+    }
   }
 
   const declRefCamion: Record<string, unknown> = {

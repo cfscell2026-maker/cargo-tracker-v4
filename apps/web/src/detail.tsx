@@ -121,7 +121,7 @@ function PanneauCFS({ c, dets, action }: { c: O; dets: ReturnType<typeof parseCo
   const estEnl = c['typeOperation'] === OPERATIONS.ENLEVEMENT;
   const premier = c['statut'] === STATUTS.CAMION;
   const [f, setF] = useState<O>({ num: '', taille: '', type: '', poids: '', plomb: '', manuel: false });
-  const [d, setD] = useState<O>({ declarant: '', contactDeclarant: '', destinationMarchandise: '', bureauDeclaration: 'TG120', typeDeclaration: 'T', numeroDeclaration: '', anneeDeclaration: String(new Date().getFullYear()), descriptionMarchandise: '', nombreConteneurs: '' });
+  const [d, setD] = useState<O>({ declarant: '', contactDeclarant: '', destinationMarchandise: '', bureauDeclaration: 'TG120', typeDeclaration: 'T', numeroDeclaration: '', anneeDeclaration: String(new Date().getFullYear()), descriptionMarchandise: '', nombreConteneurs: '', dateDeclaration: '' });
   const [consoMode, setConsoMode] = useState('balise'); // type C : balisée / non balisée (dispense)
   const set = (k: string, v: unknown) => setF((o) => ({ ...o, [k]: v }));
   const setDd = (k: string, v: unknown) => setD((o) => ({ ...o, [k]: v }));
@@ -160,6 +160,8 @@ function PanneauCFS({ c, dets, action }: { c: O; dets: ReturnType<typeof parseCo
             {estConso && <div><label className="help">Conso (type C) — balise</label><select value={consoMode} onChange={(e) => setConsoMode(e.target.value)}><option value="balise">À baliser</option><option value="sansbalise">Non balisée (dispense)</option></select></div>}
             <Champ label="N° déclaration" value={String(d['numeroDeclaration'])} onChange={(e) => setDd('numeroDeclaration', masks.upper(e.target.value))} />
             <Champ label="Année" value={String(d['anneeDeclaration'])} onChange={(e) => setDd('anneeDeclaration', e.target.value)} />
+            {/* v4 — date en douane, imprimée sur l'ordre d'exécution (exigée si nouvelle déclaration). */}
+            <Champ label="Date de la déclaration (si nouvelle)" type="date" value={String(d['dateDeclaration'] ?? '')} onChange={(e) => setDd('dateDeclaration', e.target.value)} />
             <Champ label="Nb conteneurs déclarés (si nouvelle)" type="number" value={String(d['nombreConteneurs'])} onChange={(e) => setDd('nombreConteneurs', e.target.value)} />
             <Champ label="Description marchandise" value={String(d['descriptionMarchandise'])} onChange={(e) => setDd('descriptionMarchandise', masks.upper(e.target.value))} />
           </div>

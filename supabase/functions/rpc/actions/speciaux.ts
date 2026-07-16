@@ -56,8 +56,13 @@ export async function create(ctx: Ctx, p: Record<string, unknown>) {
   const lignes = camions.map((cam) => construireCamion(cam as never, type, chargementTermine));
   const nbTotal = lignes.reduce((n, cam) => n + cam.conteneurs.length, 0);
 
-  if (!(await lookupDeclaration(ctx, decl)).exists && !(Number((p['declaration'] as Record<string, unknown>)?.['nombreConteneurs']) >= 1))
-    throw new Error('Nouvelle déclaration : indiquez le « nombre de conteneurs » déclarés.');
+  // v4 — création d'une déclaration : nb de conteneurs (apurement) ET date en
+  // douane (ordre d'exécution) exigés. Déclarations déjà connues : jamais bloquées.
+  if (!(await lookupDeclaration(ctx, decl)).exists) {
+    if (!(Number((p['declaration'] as Record<string, unknown>)?.['nombreConteneurs']) >= 1))
+      throw new Error('Nouvelle déclaration : indiquez le « nombre de conteneurs » déclarés.');
+    if (!decl.dateDeclaration) throw new Error('Nouvelle déclaration : indiquez la « date de la déclaration ».');
+  }
 
   const rapportId = await nextRapportId(ctx);
   const now = new Date().toISOString();
