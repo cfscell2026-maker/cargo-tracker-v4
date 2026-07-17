@@ -123,6 +123,11 @@ function PanneauCFS({ c, dets, action }: { c: O; dets: ReturnType<typeof parseCo
   const [f, setF] = useState<O>({ num: '', taille: '', type: '', poids: '', plomb: '', manuel: false });
   const [d, setD] = useState<O>({ declarant: '', contactDeclarant: '', destinationMarchandise: '', bureauDeclaration: 'TG120', typeDeclaration: 'T', numeroDeclaration: '', anneeDeclaration: String(new Date().getFullYear()), descriptionMarchandise: '', nombreConteneurs: '', dateDeclaration: '' });
   const [consoMode, setConsoMode] = useState('balise'); // type C : balisée / non balisée (dispense)
+  // v4 — propose les TC de la bonne source à la frappe : dépotage → stock du jour
+  // (Positionné) ; enlèvement → stock du PIA (En stock).
+  const statutStock = estEnl ? 'En stock' : 'Positionné';
+  const { data: stk } = useAsync<{ rows: O[] }>(() => call('stock.list', { statut: statutStock }), [statutStock]);
+  const tcOptions = ((stk?.rows ?? []) as O[]).map((r) => String(r['numeroTC'] ?? '')).filter(Boolean);
   const set = (k: string, v: unknown) => setF((o) => ({ ...o, [k]: v }));
   const setDd = (k: string, v: unknown) => setD((o) => ({ ...o, [k]: v }));
   const montrerDecl = premier || !estEnl; // enlèvement 1er conteneur / dépotage : chaque conteneur
@@ -141,12 +146,14 @@ function PanneauCFS({ c, dets, action }: { c: O; dets: ReturnType<typeof parseCo
       <h2>CFS — associer / ajouter un conteneur</h2>
       <p style={{ color: '#5c6b7a', marginTop: 0 }}>Opération : <b>{c['typeOperation'] as string}</b>. {estEnl ? 'Enlèvement : scellé par conteneur, déclaration au 1er.' : 'Dépotage : conteneurs du stock (Positionné), déclaration par conteneur, puis scellés camion.'}</p>
       <div className="grid2">
-        <Champ label="N° conteneur (ISO 6346)" className="mono" value={String(f['num'])} onChange={(e) => set('num', masks.tc(e.target.value))} />
+        <Champ label="N° conteneur (ISO 6346)" className="mono" value={String(f['num'])} onChange={(e) => set('num', masks.tc(e.target.value))} list="dl-cfs-tc" autoComplete="off" />
+        <datalist id="dl-cfs-tc">{tcOptions.map((t) => <option key={t} value={t} />)}</datalist>
         <Champ label="Taille" value={String(f['taille'])} onChange={(e) => set('taille', masks.upper(e.target.value))} placeholder="20' / 40' / 45'" />
         <Champ label="Type (facultatif)" value={String(f['type'])} onChange={(e) => set('type', masks.upper(e.target.value))} />
         {estEnl && <Champ label="Scellé / Plomb" value={String(f['plomb'])} onChange={(e) => set('plomb', masks.upper(e.target.value))} />}
         {!estEnl && <label className="help" style={{ alignSelf: 'end' }}><input type="checkbox" style={{ width: 'auto' }} checked={!!f['manuel']} onChange={(e) => set('manuel', e.target.checked)} /> Saisie manuelle (conteneur partagé)</label>}
       </div>
+      <div className="help" style={{ marginTop: 6 }}>{estEnl ? 'Enlèvement' : 'Dépotage'} : {tcOptions.length} conteneur(s) {estEnl ? 'en stock (PIA)' : 'positionné(s) du jour'} — tapez pour choisir.</div>
       {montrerDecl && (
         <>
           <div className="section-title">Déclaration</div>

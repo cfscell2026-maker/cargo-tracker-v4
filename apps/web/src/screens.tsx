@@ -346,20 +346,30 @@ function StockList({ statut, titre }: { statut: string; titre?: string }) {
   </div>;
 }
 
-SCREENS.pointage = () => <PointageTC action="stock.pointage" titre="Pointage matinal" desc="Positionne un conteneur pour le dépotage du jour." />;
+// v4 — chaque pointage propose les TC de la BONNE source à la frappe (datalist) :
+// pointage matinal → stock « En stock » ; pointage PP → stock annoncé « Annoncé ».
+SCREENS.pointage = () => <PointageTC action="stock.pointage" titre="Pointage matinal" desc="Positionne un conteneur pour le dépotage du jour." suggest={{ action: 'stock.list', statut: 'En stock' }} />;
 SCREENS.magasin = () => <PointageTC action="stock.entreemagasin" titre="Entrée Magasin / MAD" desc="Marque un conteneur comme dépoté / sorti du yard." />;
-SCREENS.pointentree = () => <PointageTC action="stockannonce.pointage" titre="Pointage entrée (stock annoncé)" desc="Pointe l'arrivée d'un conteneur annoncé (Porte Principale)." />;
+SCREENS.pointentree = () => <PointageTC action="stockannonce.pointage" titre="Pointage entrée (stock annoncé)" desc="Pointe l'arrivée d'un conteneur annoncé (Porte Principale)." suggest={{ action: 'stockannonce.list', statut: 'Annoncé' }} />;
 SCREENS.confentree = () => <ConfirmerEntree />;
-function PointageTC({ action, titre, desc }: { action: string; titre: string; desc: string }) {
+function PointageTC({ action, titre, desc, suggest }: { action: string; titre: string; desc: string; suggest?: { action: string; statut: string } }) {
   const [tc, setTc] = useState('');
   const [msg, setMsg] = useState('');
+  // Suggestions : liste des TC de la source (rechargée après chaque pointage).
+  const { data: sug, reload: reloadSug } = useAsync<{ rows: O[] }>(
+    () => suggest ? call(suggest.action, { statut: suggest.statut }) : Promise.resolve({ rows: [] }),
+    [suggest?.action, suggest?.statut]);
+  const options = ((sug?.rows ?? []) as O[]).map((r) => String(r['numeroTC'] ?? '')).filter(Boolean);
+  const listId = 'dl-' + action.replace(/[^a-z0-9]/gi, '');
   async function go() {
-    try { const r = await call<O>(action, { numeroTC: tc }); toast('Enregistré.', 'ok'); setMsg(JSON.stringify(r)); setTc(''); }
+    try { const r = await call<O>(action, { numeroTC: tc }); toast('Enregistré.', 'ok'); setMsg(JSON.stringify(r)); setTc(''); if (suggest) reloadSug(); }
     catch (e) { toast((e as Error).message, 'err'); }
   }
   return <div className="card" style={{ maxWidth: 480 }}><h2>{titre}</h2><p className="help">{desc}</p>
-    <div className="row"><input className="mono" value={tc} onChange={(e) => setTc(masks.tc(e.target.value))} placeholder="N° conteneur" style={{ flex: 1 }} />
+    <div className="row"><input className="mono" value={tc} onChange={(e) => setTc(masks.tc(e.target.value))} placeholder="N° conteneur" style={{ flex: 1 }} list={suggest ? listId : undefined} autoComplete="off" />
       <button onClick={go} disabled={!tc}>Valider</button></div>
+    {suggest && <datalist id={listId}>{options.map((t) => <option key={t} value={t} />)}</datalist>}
+    {suggest && <div className="help" style={{ marginTop: 6 }}>{options.length} conteneur(s) disponible(s) — commencez à taper pour choisir.</div>}
     {msg && <div className="help" style={{ marginTop: 8 }}>{msg}</div>}
   </div>;
 }
