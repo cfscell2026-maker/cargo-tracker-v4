@@ -54,6 +54,7 @@ export const PERMISSIONS: Record<string, Role[]> = {
   'stockannonce.list': TOUS_ROLES,
   'stockannonce.pointage': [ROLES.PP, ROLES.ADMIN],
   'stockannonce.confirmer': [ROLES.CFS, ROLES.ADMIN],
+  'stockannonce.confirmerlot': [ROLES.CFS, ROLES.PP, ROLES.ADMIN], // v4 : confirmation en lot (liste cochable) — PP inclus (le chef PP peut confirmer l'entrée au port sec, décision capitaine 2026-07-17)
   'report.annonce': [ROLES.PP, ROLES.CFS, ROLES.CHEF_BRIGADE, ROLES.ADMIN], // I-6 conservé à l'identique
   // Rapports
   // v4 — le CHEF_BRIGADE lit TOUS les rapports opérationnels de TOUTES les cellules

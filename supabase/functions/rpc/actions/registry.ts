@@ -59,6 +59,7 @@ export const ACTIONS: Record<string, H> = {
   'stockannonce.list': d(stk.annonceList),
   'stockannonce.pointage': d(stk.annoncePointage),
   'stockannonce.confirmer': d(stk.annonceConfirmer),
+  'stockannonce.confirmerlot': d(stk.annonceConfirmerLot), // v4 : confirmation en lot (liste cochable, zéro saisie)
   'report.annonce': d(stk.annonceList),
 
   /* ----- Rapports ----- */

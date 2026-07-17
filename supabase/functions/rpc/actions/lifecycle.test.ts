@@ -12,6 +12,7 @@ import { versCamel, type Ctx } from '../ctx.ts';
 import { FakeDB } from './fake-db.ts';
 import * as ecr from './ecriture.ts';
 import * as spe from './speciaux.ts';
+import * as stk from './stock.ts';
 
 function ctxAvec(db: FakeDB): Ctx {
   return {
@@ -234,6 +235,62 @@ test('sortie Magasin/MAD : type T garde le T1, type C le saute', async () => {
   assert.equal(magT?.['saute_balise'], false);
   assert.equal(magC?.['saute_t1'], true);
   assert.equal(magC?.['saute_balise'], true);
+});
+
+test('confirmation entrée port sec EN LOT : confirme les pointés cochés, ignore le reste', async () => {
+  const db = new FakeDB();
+  // 3 conteneurs annoncés : 2 déjà pointés par la PP, 1 encore juste annoncé.
+  db.store['stock_annonce'].push(
+    { numero_tc: 'MSKU1234567', taille: "40'", statut: 'Pointé', date_pointage: '2026-07-16T08:00:00.000Z', pointe_par: 'Agent PP' },
+    { numero_tc: 'TCLU7654321', taille: "20'", statut: 'Pointé', date_pointage: '2026-07-16T08:05:00.000Z', pointe_par: 'Agent PP' },
+    { numero_tc: 'ABCU1111111', taille: "20'", statut: 'Annoncé' },
+  );
+  const cfs = ctxRole(db, 'CFS', 'Agent Port Sec');
+  // On coche les 2 pointés + 1 non-pointé + 1 inexistant.
+  const r = (await stk.annonceConfirmerLot(cfs, {
+    numerosTC: ['MSKU1234567', 'TCLU7654321', 'ABCU1111111', 'ZZZU9999999'],
+  })) as { confirmes: string[]; ignores: { numeroTC: string }[] };
+
+  assert.deepEqual(r.confirmes.sort(), ['MSKU1234567', 'TCLU7654321']);
+  assert.equal(r.ignores.length, 2); // le non-pointé + l'inexistant
+  // Les deux pointés passent « Confirmé »…
+  const a1 = db.store['stock_annonce'].find((x) => x['numero_tc'] === 'MSKU1234567');
+  assert.equal(a1?.['statut'], 'Confirmé');
+  assert.equal(a1?.['confirme_par'], 'Agent Port Sec');
+  // …et entrent EFFECTIVEMENT au stock du port sec (provenance Port autonome).
+  const s1 = db.store['stock'].find((x) => x['numero_tc'] === 'MSKU1234567');
+  assert.equal(s1?.['statut'], 'En stock');
+  assert.equal(s1?.['provenance'], 'PORT AUTONOME');
+  // L'annoncé non pointé n'a pas bougé.
+  assert.equal(db.store['stock_annonce'].find((x) => x['numero_tc'] === 'ABCU1111111')?.['statut'], 'Annoncé');
+  assert.equal(db.store['stock'].length, 2);
+});
+
+test('confirmation en lot : refuse une sélection vide', async () => {
+  const db = new FakeDB();
+  const cfs = ctxRole(db, 'CFS', 'Agent Port Sec');
+  await assert.rejects(() => stk.annonceConfirmerLot(cfs, { numerosTC: [] }), /Sélectionnez au moins un conteneur/);
+});
+
+test('import stock : format annoncé sans bureau + N° décl. réduit aux chiffres', async () => {
+  const db = new FakeDB();
+  const cfs = ctxRole(db, 'CFS', 'Agent CFS');
+  const r = (await stk.stockImport(cfs, {
+    items: [
+      { numeroTC: 'MSKU1234567', taille: "40'", dateEntree: '2026-07-01', anneeDeclaration: '2026', typeDeclaration: 'C', numeroDeclaration: 'N° 18178/2026' },
+      { numeroTC: 'TCLU7654321', taille: "20'", dateEntree: '2026-07-02', anneeDeclaration: '2026', typeDeclaration: 'T', numeroDeclaration: '  9 000 ' },
+    ],
+  })) as { ajoutes: number };
+  assert.equal(r.ajoutes, 2);
+  const a = db.store['stock'].find((x) => x['numero_tc'] === 'MSKU1234567');
+  // N° de déclaration : chiffres uniquement (le « N° », l'espace et le « /2026 » sautent).
+  assert.equal(a?.['numero_declaration'], '181782026');
+  assert.equal(a?.['type_declaration'], 'C');
+  assert.equal(a?.['annee_declaration'], '2026');
+  const b = db.store['stock'].find((x) => x['numero_tc'] === 'TCLU7654321');
+  assert.equal(b?.['numero_declaration'], '9000'); // espaces retirés
+  // Aucune colonne « bureau » n'est écrite pour le stock.
+  assert.equal('bureau_declaration' in (a ?? {}), false);
 });
 
 test('garde-fou : sortie refusée si le Bon de sortie manque', async () => {

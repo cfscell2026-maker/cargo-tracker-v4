@@ -341,7 +341,7 @@ function StockList({ statut, titre }: { statut: string; titre?: string }) {
         <StatCard n={Number(data?.compte['depote'] ?? 0)} l="Dépotés" />
         <StatCard n={Number(data?.compte['evp'] ?? 0)} l="EVP" />
       </div>
-      <Table cols={[['numeroTC', 'Conteneur'], ['taille', 'Taille'], ['statut', 'Statut'], ['provenance', 'Provenance'], ['joursSejour', 'Séjour (j)']]} rows={data?.rows ?? []} />
+      <Table cols={[['numeroTC', 'Conteneur'], ['taille', 'Taille'], ['statut', 'Statut'], ['provenance', 'Provenance'], ['numeroDeclaration', 'N° décl.'], ['joursSejour', 'Séjour (j)']]} rows={data?.rows ?? []} />
     </>}
   </div>;
 }
@@ -349,7 +349,7 @@ function StockList({ statut, titre }: { statut: string; titre?: string }) {
 SCREENS.pointage = () => <PointageTC action="stock.pointage" titre="Pointage matinal" desc="Positionne un conteneur pour le dépotage du jour." />;
 SCREENS.magasin = () => <PointageTC action="stock.entreemagasin" titre="Entrée Magasin / MAD" desc="Marque un conteneur comme dépoté / sorti du yard." />;
 SCREENS.pointentree = () => <PointageTC action="stockannonce.pointage" titre="Pointage entrée (stock annoncé)" desc="Pointe l'arrivée d'un conteneur annoncé (Porte Principale)." />;
-SCREENS.confentree = () => <PointageTC action="stockannonce.confirmer" titre="Confirmer l'entrée au stock" desc="Le CFS confirme un conteneur pointé → entrée effective au stock." />;
+SCREENS.confentree = () => <ConfirmerEntree />;
 function PointageTC({ action, titre, desc }: { action: string; titre: string; desc: string }) {
   const [tc, setTc] = useState('');
   const [msg, setMsg] = useState('');
@@ -364,7 +364,61 @@ function PointageTC({ action, titre, desc }: { action: string; titre: string; de
   </div>;
 }
 
-SCREENS.import = () => <ImportExcel action="stock.import" titre="Stock initial — import" cols={['numeroTC', 'taille', 'nbSejours', 'dateEntree']} />;
+/**
+ * v4 — Confirmer l'entrée au port sec EN LOT (décision capitaine 2026-07-17).
+ * Plus de saisie : la liste montre les conteneurs déjà pointés par la Porte
+ * Principale (« en progression vers le port sec ») ; l'agent au gate coche ceux
+ * physiquement entrés et valide tout d'un coup. Réutilisable le lendemain — les
+ * conteneurs pointés restent en attente tant qu'ils ne sont pas confirmés.
+ */
+function ConfirmerEntree() {
+  const { data, loading, error, reload } = useAsync<{ rows: O[] }>(() => call('stockannonce.list', { statut: 'Pointé' }), []);
+  const [sel, setSel] = useState<Set<string>>(new Set());
+  const [busy, setBusy] = useState(false);
+  const rows = data?.rows ?? [];
+  const toggle = (tc: string) => setSel((s) => { const n = new Set(s); if (n.has(tc)) n.delete(tc); else n.add(tc); return n; });
+  const toggleAll = () => setSel((s) => s.size === rows.length ? new Set() : new Set(rows.map((r) => String(r['numeroTC']))));
+
+  async function valider() {
+    if (!sel.size) { toast('Cochez au moins un conteneur.', 'err'); return; }
+    setBusy(true);
+    try {
+      const r = await call<{ confirmes: string[]; ignores: O[] }>('stockannonce.confirmerlot', { numerosTC: [...sel] });
+      toast(`${r.confirmes.length} entrée(s) validée(s)${r.ignores.length ? ` · ${r.ignores.length} ignoré(s)` : ''}.`, 'ok');
+      setSel(new Set());
+      reload();
+    } catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(false); }
+  }
+
+  return <div className="card">
+    <h2>Confirmer l'entrée au port sec</h2>
+    <p className="help" style={{ marginTop: 0 }}>Conteneurs déjà pointés par la Porte Principale, en progression vers le port sec. Cochez ceux qui sont physiquement entrés, puis validez — aucune saisie manuelle. Ce qui n'est pas confirmé reste en attente (validable plus tard).</p>
+    <div className="row" style={{ alignItems: 'center' }}>
+      <button className="ghost xs" onClick={() => reload()}>⟳ Actualiser</button>
+      <span className="help" style={{ flex: 1 }}>{rows.length} en attente · {sel.size} sélectionné(s)</span>
+      <button disabled={busy || !sel.size} onClick={valider}>{busy ? 'Validation…' : `Valider l'entrée (${sel.size})`}</button>
+    </div>
+    {loading ? <Spinner /> : error ? <div className="err-msg">{error}</div> : rows.length === 0 ? <div className="empty">Aucun conteneur en attente de confirmation.</div> :
+      <div className="tbl" style={{ marginTop: 10 }}><table>
+        <thead><tr>
+          <th style={{ width: 32 }}><input type="checkbox" checked={sel.size === rows.length && rows.length > 0} onChange={toggleAll} /></th>
+          <th>Conteneur</th><th>Taille</th><th>N° décl.</th><th>Pointé le</th><th>Pointé par</th>
+        </tr></thead>
+        <tbody>{rows.map((r) => { const tc = String(r['numeroTC']); return (
+          <tr key={tc} className="clk" onClick={() => toggle(tc)}>
+            <td><input type="checkbox" checked={sel.has(tc)} onChange={() => toggle(tc)} onClick={(e) => e.stopPropagation()} /></td>
+            <td className="mono">{tc}</td>
+            <td>{String(r['taille'] ?? '—')}</td>
+            <td>{[r['numeroDeclaration'], r['anneeDeclaration'], r['bureauDeclaration'], r['typeDeclaration']].filter(Boolean).join(' · ') || '—'}</td>
+            <td>{fmtDate(r['datePointage'])}</td>
+            <td>{String(r['pointePar'] ?? '—')}</td>
+          </tr>
+        ); })}</tbody>
+      </table></div>}
+  </div>;
+}
+
+SCREENS.import = () => <ImportExcel action="stock.import" titre="Stock initial — import" cols={['numeroTC', 'taille', 'dateEntree', 'anneeDeclaration', 'typeDeclaration', 'numeroDeclaration']} />;
 SCREENS.importannonce = () => <ImportExcel action="stockannonce.import" titre="Annonce de transfert — import" cols={['numeroTC', 'taille', 'dateEntree', 'anneeDeclaration', 'bureauDeclaration', 'typeDeclaration', 'numeroDeclaration']} />;
 function ImportExcel({ action, titre, cols }: { action: string; titre: string; cols: string[] }) {
   const [items, setItems] = useState<O[]>([]);

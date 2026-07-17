@@ -295,8 +295,10 @@ Rapport dédié : **« Rapport véhicules »**.
 
 ### D. Stock initial (import) — menu « Stock initial (import) » *(CFS / Admin)*
 - Import en masse des TC **déjà présents** sur site / venant du port autonome. Fichier `.xlsx`
-  à **4 colonnes** : **N° conteneur · Taille · Nombre de séjours · Date d'entrée**. Un TC déjà
-  présent est mis à jour (import journalier). *(Le bug de « verrouillage expiré » est corrigé :
+  au **même format que l'annonce de transfert, SANS le bureau**, soit **6 colonnes dans l'ordre** :
+  **N° conteneur · Taille · Date d'entrée · Année de déclaration · Type de déclaration · N° de
+  déclaration**. Le **N° de déclaration** est ramené aux **chiffres uniquement** à l'import. Un TC
+  déjà présent est mis à jour (import journalier). *(Le bug de « verrouillage expiré » est corrigé :
   l'import traite désormais tout le fichier en une passe.)*
 
 ### E. Pointage matinal (CFS / Admin) — menu « Pointage matinal »

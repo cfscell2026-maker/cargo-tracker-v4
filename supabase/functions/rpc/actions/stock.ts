@@ -14,6 +14,8 @@ import {
 import { lookupDeclaration, fetchAll } from './helpers.ts';
 
 const normTC = (v: unknown) => String(v ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+// v4 — N° de déclaration réduit aux CHIFFRES (décision utilisateur 2026-07-17).
+const chiffres = (v: unknown) => String(v ?? '').replace(/[^0-9]/g, '');
 const iso = (v: unknown) => (v ? new Date(String(v)).toISOString() : null);
 const jours = (a: Date, b: Date) => Math.max(0, Math.floor((b.getTime() - a.getTime()) / 86400000));
 
@@ -49,6 +51,7 @@ export async function stockList(ctx: Ctx, opts: { statut?: string }) {
       numeroTC: o['numeroTc'], taille: o['taille'], typeConteneur: o['typeConteneur'], provenance: o['provenance'],
       statut: o['statut'], dateEntree: o['dateEntree'], datePointage: o['datePointage'], pointePar: o['pointePar'],
       cargaisonId: o['cargaisonId'], joursSejour: j,
+      anneeDeclaration: o['anneeDeclaration'], typeDeclaration: o['typeDeclaration'], numeroDeclaration: o['numeroDeclaration'],
     });
   }
   compte.sejourMoyen = nJ ? Math.round(sommeJ / nJ) : 0;
@@ -74,14 +77,21 @@ export async function stockImport(ctx: Ctx, p: { items?: Record<string, unknown>
     const taille = maj(it['taille'], 10);
     const nbSej = Number(it['nbSejours'] || it['nbSejoursImport'] || 0) || 0;
     const dEnt = iso(parseDateImport(it['dateEntree'])) || now;
+    // v4 — déclaration importée avec le stock (même format que l'annonce SANS le
+    // bureau). N° de déclaration réduit aux chiffres. Année/type en majuscules.
+    const anneeDecl = maj(it['anneeDeclaration'], 6);
+    const typeDecl = maj(it['typeDeclaration'], 6);
+    const numDecl = chiffres(it['numeroDeclaration']).slice(0, 30);
     if (present.has(tc)) {
-      aMaj.push({ numero_tc: tc, taille: taille || undefined, date_entree: dEnt, nb_sejours_import: nbSej });
+      aMaj.push({ numero_tc: tc, taille: taille || undefined, date_entree: dEnt, nb_sejours_import: nbSej,
+        annee_declaration: anneeDecl, type_declaration: typeDecl, numero_declaration: numDecl });
       majN++;
     } else {
       aInserer.push({
         numero_tc: tc, taille, type_conteneur: maj(it['typeConteneur'], 30),
         provenance: maj(it['provenance'], 40) || provDef, date_entree: dEnt,
         statut: STOCK_STATUTS.STOCK, nb_sejours_import: nbSej,
+        annee_declaration: anneeDecl, type_declaration: typeDecl, numero_declaration: numDecl,
       });
       present.add(tc); ajoutes++;
     }
@@ -93,6 +103,10 @@ export async function stockImport(ctx: Ctx, p: { items?: Record<string, unknown>
   for (const m of aMaj) {
     const patch: Record<string, unknown> = { date_entree: m['date_entree'], nb_sejours_import: m['nb_sejours_import'] };
     if (m['taille']) patch['taille'] = m['taille'];
+    // Déclaration : on n'écrase que si une valeur est fournie dans le fichier.
+    if (m['annee_declaration']) patch['annee_declaration'] = m['annee_declaration'];
+    if (m['type_declaration']) patch['type_declaration'] = m['type_declaration'];
+    if (m['numero_declaration']) patch['numero_declaration'] = m['numero_declaration'];
     await ctx.db.from('stock').update(patch).eq('numero_tc', m['numero_tc']);
   }
   await ctx.log('Import stock', '', ajoutes + ' ajouté(s), ' + majN + ' mis à jour, ' + ignores + ' ignoré(s)');
@@ -242,6 +256,20 @@ export async function annoncePointage(ctx: Ctx, p: Record<string, unknown>) {
   return { numeroTC: tc, annonces: s.annonces, aConfirmer: s.aConfirmer, confirmes: s.confirmes, tauxTransfert: s.tauxTransfert };
 }
 
+/** Entrée EFFECTIVE au stock du port sec (provenance = Port autonome). Partagé
+ * par la confirmation unitaire et la confirmation en lot. `o` = ligne annoncée. */
+async function entrerStockPortSec(ctx: Ctx, tc: string, o: Record<string, unknown>, now: string) {
+  const { data: sExist } = await ctx.db.from('stock').select('numero_tc').eq('numero_tc', tc).maybeSingle();
+  if (sExist) {
+    await ctx.db.from('stock').update({ date_entree: o['date_entree'] || now }).eq('numero_tc', tc);
+  } else {
+    await ctx.db.from('stock').insert({
+      numero_tc: tc, taille: o['taille'], provenance: 'PORT AUTONOME', date_entree: o['date_entree'] || now,
+      statut: STOCK_STATUTS.STOCK, observations: 'Transfert annoncé confirmé le ' + new Date().toLocaleDateString('fr-FR'),
+    });
+  }
+}
+
 export async function annonceConfirmer(ctx: Ctx, p: Record<string, unknown>) {
   const tc = normTC(p['numeroTC']);
   if (!tc) throw new Error('N° conteneur requis.');
@@ -254,19 +282,42 @@ export async function annonceConfirmer(ctx: Ctx, p: Record<string, unknown>) {
   await ctx.db.from('stock_annonce').update({
     statut: ANNONCE_STATUTS.CONFIRME, date_confirmation: now, confirme_par: ctx.session.nomComplet,
   }).eq('numero_tc', tc).eq('statut', ANNONCE_STATUTS.POINTE);
-  // Entrée EFFECTIVE au stock du port sec (provenance = Port autonome).
-  const { data: sExist } = await ctx.db.from('stock').select('numero_tc').eq('numero_tc', tc).maybeSingle();
-  if (sExist) {
-    await ctx.db.from('stock').update({ date_entree: o.date_entree || now }).eq('numero_tc', tc);
-  } else {
-    await ctx.db.from('stock').insert({
-      numero_tc: tc, taille: o.taille, provenance: 'PORT AUTONOME', date_entree: o.date_entree || now,
-      statut: STOCK_STATUTS.STOCK, observations: 'Transfert annoncé confirmé le ' + new Date().toLocaleDateString('fr-FR'),
-    });
-  }
+  await entrerStockPortSec(ctx, tc, o as Record<string, unknown>, now);
   await ctx.log('Confirmation entrée stock (annoncé)', tc, '');
   const s = (await annonceList(ctx, { statut: 'tous' })).compte;
   return { numeroTC: tc, aConfirmer: s.aConfirmer, confirmes: s.confirmes, tauxTransfert: s.tauxTransfert };
+}
+
+/**
+ * v4 — Confirmation EN LOT (décision capitaine 2026-07-17). Au lieu de saisir un
+ * conteneur à la fois, l'agent au gate coche dans la liste des conteneurs déjà
+ * pointés par la Porte Principale et valide tout d'un coup — zéro saisie, moins
+ * d'erreurs. Les conteneurs non éligibles (introuvables / déjà confirmés / pas
+ * encore pointés) sont IGNORÉS sans faire échouer le lot, et listés en retour.
+ */
+export async function annonceConfirmerLot(ctx: Ctx, p: Record<string, unknown>) {
+  const bruts = Array.isArray(p['numerosTC']) ? (p['numerosTC'] as unknown[]) : [];
+  const tcs = [...new Set(bruts.map(normTC).filter(Boolean))];
+  if (!tcs.length) throw new Error('Sélectionnez au moins un conteneur.');
+  const now = new Date().toISOString();
+  const confirmes: string[] = [];
+  const ignores: { numeroTC: string; raison: string }[] = [];
+  for (const tc of tcs) {
+    const { data: o, error } = await ctx.db.from('stock_annonce').select('*').eq('numero_tc', tc).maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!o) { ignores.push({ numeroTC: tc, raison: 'introuvable dans le stock annoncé' }); continue; }
+    if (o.statut === ANNONCE_STATUTS.CONFIRME) { ignores.push({ numeroTC: tc, raison: 'déjà confirmé' }); continue; }
+    if (o.statut !== ANNONCE_STATUTS.POINTE) { ignores.push({ numeroTC: tc, raison: 'pas encore pointé par la PP' }); continue; }
+    const { error: eUp } = await ctx.db.from('stock_annonce').update({
+      statut: ANNONCE_STATUTS.CONFIRME, date_confirmation: now, confirme_par: ctx.session.nomComplet,
+    }).eq('numero_tc', tc).eq('statut', ANNONCE_STATUTS.POINTE);
+    if (eUp) throw new Error(eUp.message);
+    await entrerStockPortSec(ctx, tc, o as Record<string, unknown>, now);
+    confirmes.push(tc);
+  }
+  if (confirmes.length) await ctx.log('Confirmation entrée stock (annoncé) — lot', '', confirmes.length + ' conteneur(s) : ' + confirmes.join(', '));
+  const s = (await annonceList(ctx, { statut: 'tous' })).compte;
+  return { confirmes, ignores, aConfirmer: s.aConfirmer, confirmesTotal: s.confirmes, tauxTransfert: s.tauxTransfert };
 }
 
 /* ----------------------- report.stock (séjour conteneurs) -------------- */

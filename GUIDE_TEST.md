@@ -59,13 +59,15 @@
 | FCIU9998887 | 20' | 27/06/2026 | 2026 | TG121 | C | 33010 |
 | ABCD123 (invalide) | 20' | 27/06/2026 | 2026 | TG120 | T | 12345 |
 
-### Fichier 2 — « Stock initial » (4 colonnes, ordre exact)
-`N° conteneur · Taille · Nombre de séjours · Date d'entrée`
+### Fichier 2 — « Stock initial » (6 colonnes, ordre exact — même format que l'annonce SANS le bureau)
+`N° conteneur · Taille · Date d'entrée · Année décl. · Type décl. · N° décl.`
 
-| N° TC | Taille | Nb séjours | Date entrée |
-|---|---|---|---|
-| OOLU4445556 | 20' | 5 | 22/06/2026 |
-| MEDU5556667 | 40' | 12 | 15/06/2026 |
+| N° TC | Taille | Date entrée | Année | Type | N° décl. |
+|---|---|---|---|---|---|
+| OOLU4445556 | 20' | 22/06/2026 | 2026 | C | N° 4001/2026 |
+| MEDU5556667 | 40' | 15/06/2026 | 2026 | T | 4002 |
+
+> Le **N° de déclaration** est ramené aux **chiffres uniquement** à l'import : `N° 4001/2026` devient `40012026`.
 
 ---
 
@@ -82,8 +84,8 @@
 | A6 | PP | Pointer un TC **absent** du stock annoncé (`ZZZZ0000000`) | **Refus** : « introuvable dans le stock annoncé » | ☐ |
 | A7 | PP | Pointer `HLBU3334445`, `TCNU7654321`, `CMAU1112223`, `FCIU9998887` | 5 « pointés (à confirmer) » / 0 confirmé / taux **0 %** | ☐ |
 | A8a | CFS (`cfs1`) | Menu **Stock conteneurs** | Les TC pointés **n'y sont pas encore** (pas confirmés) | ☐ |
-| A8b | CFS | Menu **Confirmer entrée (annoncé)** → liste des **pointés** → confirmer les 5 | Passent **Pointé → Confirmé** | ☐ |
-| A8c | CFS | Confirmer un TC **non pointé** | **Refus** : « pas encore pointé par la Porte Principale » | ☐ |
+| A8b | CFS **ou PP** | Menu **Confirmer entrée (port sec)** → la liste montre les **5 pointés** → **tout cocher** → **Valider l'entrée (5)** | « 5 entrée(s) validée(s) » ; passent **Pointé → Confirmé** ; **aucune saisie** | ☐ |
+| A8c | CFS/PP | Un TC **non pointé** (encore « Annoncé ») | **N'apparaît PAS** dans la liste (seuls les « Pointé » sont proposés) ; rien à confirmer | ☐ |
 | A8d | CFS | Menu **Stock conteneurs** | Les 5 TC apparaissent **En stock** (provenance « Port autonome ») ; **taux de transfert = 100 %** | ☐ |
 | A9 | Admin | Menu **Stock initial (import)** → Fichier 2 → Importer | « 2 ajouté(s) » | ☐ |
 | A10 | Admin | **Bug verrouillage** : importer un fichier de **plusieurs centaines de lignes** | L'import **se termine** (pas d'« Expiration de la demande de verrouillage ») | ☐ |
