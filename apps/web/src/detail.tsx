@@ -97,15 +97,23 @@ function Timeline({ c }: { c: O }) {
     [e.bs, estOui(c['sauteBS']) ? 'Bon de sortie (sauté)' : 'Bon de sortie', c['dateBonSortie'] ? `${c['agentBonSortie']} · ${fmtDate(c['dateBonSortie'])}` : ''],
     [e.pp, 'Sortie (PP)', c['dateSortie'] ? `${c['agentPp']} · ${fmtDate(c['dateSortie'])}` : ''],
   ];
+  // Cargaison clôturée : une étape non faite ne le sera plus → on l'affiche
+  // explicitement « Non effectué » (traçabilité) au lieu d'un simple « en attente ».
+  const sorti = e.pp;
   return <div className="card"><h2>Parcours</h2><div className="timeline">
-    {steps.map(([done, t, d], i) => (
-      <div key={i} className={`tl ${done ? 'done' : 'wait'}`}>
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-          <div className="dot">{done ? '✓' : i + 1}</div>{i < steps.length - 1 && <div className="bar" />}
+    {steps.map(([done, t, d], i) => {
+      const manque = !done && sorti;
+      return (
+        <div key={i} className={`tl ${done ? 'done' : 'wait'}`}>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+            <div className="dot">{done ? '✓' : manque ? '—' : i + 1}</div>{i < steps.length - 1 && <div className="bar" />}
+          </div>
+          <div className="body"><div className="t">{t}</div>
+            {manque ? <div className="d" style={{ color: 'var(--warn)' }}>Non effectué</div> : d ? <div className="d">{d}</div> : null}
+          </div>
         </div>
-        <div className="body"><div className="t">{t}</div>{d && <div className="d">{d}</div>}</div>
-      </div>
-    ))}
+      );
+    })}
   </div></div>;
 }
 
