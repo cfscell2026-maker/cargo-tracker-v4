@@ -368,3 +368,137 @@ test('anti-doublon : recréer un camion actif est refusé', async () => {
   db.store['cargaisons'][0]!['numero_camion_norm'] = 'DUP1';
   await assert.rejects(() => ecr.createcamion(cfs, { numeroCamion: 'DUP 1', routage: 'Dépotage' }), /existe déjà/);
 });
+
+/* ------------------------------------------------------------------------
+ * v4 — Saisie en lot (1 déclaration → N camions) et CORRECTIONS de saisie.
+ * ---------------------------------------------------------------------- */
+
+const DECL_OK = {
+  declarant: 'STE Y', contactDeclarant: '90112233', destinationMarchandise: 'KARA',
+  bureauDeclaration: 'TG120', typeDeclaration: 'T', numeroDeclaration: '4242', anneeDeclaration: '2026',
+  dateDeclaration: '2026-06-24', descriptionMarchandise: 'CIMENT', nombreConteneurs: 4,
+};
+
+test('lot camions : une seule déclaration reportée sur plusieurs camions', async () => {
+  const db = new FakeDB();
+  db.store['stock'].push(
+    { numero_tc: 'MSKU1111111', taille: "40'", statut: 'En stock' },
+    { numero_tc: 'TCLU2222222', taille: "40'", statut: 'En stock' },
+  );
+  const cfs = ctxAvec(db);
+  const r = (await ecr.lotcamions(cfs, {
+    typeOperation: 'Enlèvement', declaration: DECL_OK,
+    camions: [
+      { numeroCamion: 'LOT001', conteneurs: [{ num: 'MSKU1111111', taille: "40'", type: 'DRY', plomb: 'S1' }] },
+      { numeroCamion: 'LOT002', conteneurs: [{ num: 'TCLU2222222', taille: "40'", type: 'DRY', plomb: 'S2' }] },
+    ],
+  })) as { crees: Record<string, unknown>[]; erreurs: unknown[] };
+
+  assert.equal(r.crees.length, 2);
+  assert.equal(r.erreurs.length, 0);
+  // Les DEUX camions portent la même déclaration, saisie une seule fois.
+  const cargos = db.store['cargaisons'];
+  assert.equal(cargos.length, 2);
+  for (const c of cargos) {
+    assert.equal(c['declarant'], 'STE Y');
+    assert.equal(c['numero_declaration'], '4242');
+    assert.equal(c['description_marchandise'], 'CIMENT');
+    assert.equal(c['statut'], STATUTS.CREEE);
+  }
+  // Une seule déclaration en base, apurée de 2 conteneurs.
+  assert.equal(db.store['declarations'].length, 1);
+  assert.equal(db.store['declarations'][0]?.['conteneurs_apures'], 2);
+});
+
+test("lot camions : un camion en erreur n'annule pas les autres", async () => {
+  const db = new FakeDB();
+  db.store['stock'].push({ numero_tc: 'MSKU1111111', taille: "40'", statut: 'En stock' });
+  const cfs = ctxAvec(db);
+  const r = (await ecr.lotcamions(cfs, {
+    typeOperation: 'Enlèvement', declaration: DECL_OK,
+    camions: [
+      { numeroCamion: 'LOT001', conteneurs: [{ num: 'MSKU1111111', taille: "40'", type: 'DRY', plomb: 'S1' }] },
+      // TC absent du stock → cette ligne seule échoue.
+      { numeroCamion: 'LOT002', conteneurs: [{ num: 'ZZZZ9999999', taille: "40'", type: 'DRY', plomb: 'S2' }] },
+    ],
+  })) as { crees: unknown[]; erreurs: Record<string, unknown>[] };
+
+  assert.equal(r.crees.length, 1);
+  assert.equal(r.erreurs.length, 1);
+  assert.equal(r.erreurs[0]?.['numeroCamion'], 'LOT002');
+  assert.match(String(r.erreurs[0]?.['message']), /introuvable dans le stock/);
+});
+
+test('correction conteneur : le mauvais N° est remplacé et rendu au stock', async () => {
+  const db = new FakeDB();
+  db.store['stock'].push(
+    { numero_tc: 'MSKU1111111', taille: "40'", statut: 'En stock' }, // saisi par erreur
+    { numero_tc: 'TCLU2222222', taille: "40'", statut: 'En stock' }, // le vrai conteneur
+  );
+  const cfs = ctxAvec(db);
+  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'FIX001', routage: 'Enlèvement' })) as { id: string };
+  await ecr.cfs(cfs, { id, conteneur: { num: 'MSKU1111111', taille: "40'", type: 'DRY', plomb: 'S1' }, declaration: DECL_OK });
+  assert.equal(db.store['stock'].find((s) => s['numero_tc'] === 'MSKU1111111')?.['statut'], 'Dépoté');
+
+  await ecr.editconteneur(cfs, { id, index: 0, num: 'TCLU2222222', taille: "40'", type: 'DRY', plomb: 'S1' });
+
+  const c = versCamel(db.store['cargaisons'][0]!);
+  assert.equal((c['conteneursDetails'] as { conteneurs: { num: string }[] }).conteneurs[0]?.num, 'TCLU2222222');
+  assert.equal(c['nbConteneurs'], 1);
+  // Le conteneur saisi par erreur redevient disponible ; le bon est consommé.
+  const errone = db.store['stock'].find((s) => s['numero_tc'] === 'MSKU1111111');
+  assert.equal(errone?.['statut'], 'En stock');
+  assert.equal(errone?.['cargaison_id'], null);
+  assert.equal(db.store['stock'].find((s) => s['numero_tc'] === 'TCLU2222222')?.['statut'], 'Dépoté');
+  // Table normalisée réalignée : une seule ligne, le bon N°.
+  assert.equal(db.store['conteneurs'].length, 1);
+  assert.equal(db.store['conteneurs'][0]?.['conteneur'], 'TCLU2222222');
+});
+
+test('correction conteneur : retrait de la ligne → camion revenu à « Camion créé »', async () => {
+  const db = new FakeDB();
+  db.store['stock'].push({ numero_tc: 'MSKU1111111', taille: "40'", statut: 'En stock' });
+  const cfs = ctxAvec(db);
+  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'FIX002', routage: 'Enlèvement' })) as { id: string };
+  await ecr.cfs(cfs, { id, conteneur: { num: 'MSKU1111111', taille: "40'", type: 'DRY', plomb: 'S1' }, declaration: DECL_OK });
+
+  await ecr.editconteneur(cfs, { id, index: 0, supprimer: true });
+
+  assert.equal(statutDe(db, id), STATUTS.CAMION);
+  assert.equal(db.store['conteneurs'].length, 0);
+  assert.equal(db.store['stock'].find((s) => s['numero_tc'] === 'MSKU1111111')?.['statut'], 'En stock');
+});
+
+test('correction conteneur refusée après validation (hors ADMIN)', async () => {
+  const db = new FakeDB();
+  db.store['stock'].push({ numero_tc: 'MSKU1111111', taille: "40'", statut: 'En stock' });
+  const cfs = ctxAvec(db);
+  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'FIX003', routage: 'Enlèvement' })) as { id: string };
+  await ecr.cfs(cfs, { id, conteneur: { num: 'MSKU1111111', taille: "40'", type: 'DRY', plomb: 'S1' }, declaration: DECL_OK });
+  await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'), { id });
+  await ecr.gps(ctxRole(db, 'BALISE', 'B'), { id, baliseRequise: 'Oui', t1Correct: 'Oui', numeroGPS: 'G' });
+
+  await assert.rejects(() => ecr.editconteneur(cfs, { id, index: 0, supprimer: true }), /a déjà avancé/);
+  // L'ADMIN, lui, peut toujours corriger un historique.
+  await ecr.editconteneur(ctxRole(db, 'ADMIN', 'Admin'), { id, index: 0, num: 'MSKU1111111', taille: "20'", type: 'DRY', plomb: 'S9' });
+  const c = versCamel(db.store['cargaisons'][0]!);
+  assert.equal((c['conteneursDetails'] as { conteneurs: { taille: string }[] }).conteneurs[0]?.taille, "20'");
+});
+
+test('correction déclaration : camion ET conteneurs réalignés', async () => {
+  const db = new FakeDB();
+  db.store['stock'].push({ numero_tc: 'MSKU1111111', taille: "40'", statut: 'En stock' });
+  const cfs = ctxAvec(db);
+  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'FIX004', routage: 'Enlèvement' })) as { id: string };
+  await ecr.cfs(cfs, { id, conteneur: { num: 'MSKU1111111', taille: "40'", type: 'DRY', plomb: 'S1' }, declaration: DECL_OK });
+
+  await ecr.editdecl(cfs, { id, declaration: { ...DECL_OK, numeroDeclaration: '9999', declarant: 'STE Z' } });
+
+  const c = versCamel(db.store['cargaisons'][0]!);
+  assert.equal(c['numeroDeclaration'], '9999');
+  assert.equal(c['declarant'], 'STE Z');
+  // La ligne conteneur porte la même déclaration corrigée (LOT D).
+  const ct = (c['conteneursDetails'] as { conteneurs: Record<string, unknown>[] }).conteneurs[0]!;
+  assert.equal(ct['numeroDeclaration'], '9999');
+  assert.equal(ct['declarant'], 'STE Z');
+});

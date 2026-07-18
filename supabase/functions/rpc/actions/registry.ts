@@ -42,6 +42,9 @@ export const ACTIONS: Record<string, H> = {
   'cargo.arriveebureau': d(ecr.arriveebureau),
   'cargo.editcamion': d(ecr.editcamion),
   'cargo.edittype': d(ecr.edittype),
+  'cargo.editconteneur': d(ecr.editconteneur), // v4 : correction / suppression d'un conteneur mal saisi
+  'cargo.editdecl': d(ecr.editdecl), // v4 : correction des infos de déclaration
+  'cargo.lotcamions': d(ecr.lotcamions), // v4 : plusieurs camions sur une même déclaration
   'cargo.update': d(ecr.update),
   'cargo.mixte': d(ecr.mixte),
 

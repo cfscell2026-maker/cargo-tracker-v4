@@ -16,7 +16,7 @@ import {
 } from '../../_shared/domaine/src/index.ts';
 import {
   getCargo, patchCargo, nextId, nextRapportId, ajouterConteneurs, supprimerConteneursDe,
-  renommerCamionConteneurs, lierStock, stockDisponible, lookupDeclaration, majApurement,
+  renommerCamionConteneurs, lierStock, delierStock, stockDisponible, lookupDeclaration, majApurement,
   majApurementSafe, declCont, signature,
 } from './helpers.ts';
 
@@ -571,6 +571,191 @@ export async function edittype(ctx: Ctx, p: Record<string, unknown>) {
   });
   await ctx.log("Correction type d'opération", id, ancien + ' → ' + nouveau);
   return { id, typeOperation: nouveau, ancien };
+}
+
+/* ---------------------------- editconteneur ---------------------------- */
+
+/**
+ * v4 — CORRECTION d'un conteneur déjà enregistré sur un camion (N° erroné,
+ * taille/type/scellé) ou SUPPRESSION de la ligne. C'était le trou noir du v4 :
+ * une faute de frappe sur le N° de conteneur ne pouvait plus être rattrapée.
+ *
+ * Effets de bord tenus à jour : table normalisée « conteneurs » (réécrite),
+ * nb_conteneurs, twins, et surtout le STOCK — l'ancien TC est délié (il
+ * redevient sélectionnable) et le nouveau est lié à la cargaison.
+ * CFS : phase CFS uniquement (Camion créé / En chargement / Créée) ; ADMIN partout.
+ */
+export async function editconteneur(ctx: Ctx, p: Record<string, unknown>) {
+  const id = String(p['id'] ?? '').trim();
+  const index = Number(p['index']);
+  const supprimer = p['supprimer'] === true;
+  const cargo = await getCargo(ctx, id);
+  const c = cargo.o;
+  const estAdmin = ctx.session.role === ROLES.ADMIN;
+  if (!estAdmin && [STATUTS.CAMION, STATUTS.CHARGEMENT, STATUTS.CREEE].indexOf(c['statut'] as never) === -1)
+    throw new Error('Correction impossible : la cargaison a déjà avancé (statut « ' + c['statut'] + ' »).');
+
+  const type = String(c['typeOperation'] || '');
+  const estEnl = type === OPERATIONS.ENLEVEMENT;
+  const pd = parseConteneursDetails(c['conteneursDetails']);
+  const conts = pd.conteneurs;
+  if (!(index >= 0 && index < conts.length)) throw new Error('Conteneur introuvable sur ce camion (ligne ' + (index + 1) + ').');
+  const ancien = normaliserConteneur(conts[index] as never);
+
+  if (supprimer) {
+    conts.splice(index, 1);
+  } else {
+    const ct = normaliserConteneur({
+      num: p['num'], taille: p['taille'], type: p['type'], plomb: p['plomb'], poids: p['poids'],
+    } as never);
+    if (!tcValide(ct.num)) throw new Error('N° conteneur invalide. Format : 4 lettres + 7 chiffres (ex. MSKU1234567).');
+    if (!ct.taille) throw new Error('Taille du conteneur obligatoire.');
+    if (estEnl && !ct.plomb) throw new Error('Enlèvement : le scellé (plomb) du conteneur est obligatoire.');
+    if (!estEnl) ct.plomb = '';
+    if (conts.some((x, i) => i !== index && normaliserConteneur(x).num === ct.num))
+      throw new Error('Ce conteneur est déjà sur ce camion.');
+    // Le nouveau TC doit exister au stock (sauf reprise d'une saisie manuelle et
+    // sauf ADMIN, qui peut corriger un historique importé).
+    const manuel = p['manuel'] === true;
+    if (!manuel && !estAdmin && ct.num !== ancien.num && !(await stockDisponible(ctx, ct.num)))
+      throw new Error(
+        'Conteneur « ' + ct.num + ' » introuvable dans le stock (ou déjà dépoté). Importez / pointez-le d\'abord, ou cochez « saisie manuelle » s\'il est partagé.',
+      );
+    // On conserve la déclaration portée par la ligne d'origine (LOT D).
+    const src = conts[index] as Record<string, unknown>;
+    const cible = ct as unknown as Record<string, unknown>;
+    for (const k of ['numeroDeclaration', 'anneeDeclaration', 'bureauDeclaration', 'typeDeclaration', 'declarant', 'contactDeclarant', 'destinationMarchandise', 'descriptionMarchandise', 'nombreConteneurs']) {
+      if (src[k] !== undefined) cible[k] = src[k];
+    }
+    conts[index] = ct;
+  }
+
+  // Stock : l'ancien TC redevient disponible, le nouveau est consommé.
+  const nouveauNum = supprimer ? '' : normaliserConteneur(conts[index] as never).num;
+  if (ancien.num && ancien.num !== nouveauNum)
+    await delierStock(ctx, ancien.num, id, estEnl ? STOCK_STATUTS.STOCK : STOCK_STATUTS.POSITIONNE);
+  if (nouveauNum && nouveauNum !== ancien.num) await lierStock(ctx, nouveauNum, id);
+
+  // Un camion vidé de tous ses conteneurs retourne à « Camion créé ».
+  const patch: Record<string, unknown> = {
+    nb_conteneurs: conts.length,
+    conteneurs_details: { conteneurs: conts, scellesCamion: pd.scellesCamion },
+    twins: b(estEnl && conts.length >= 2),
+  };
+  if (!conts.length && [STATUTS.CAMION, STATUTS.CHARGEMENT, STATUTS.CREEE].indexOf(c['statut'] as never) >= 0)
+    patch['statut'] = STATUTS.CAMION;
+  await patchCargo(ctx, cargo, patch);
+
+  // Table normalisée « conteneurs » : réécriture complète (source de vérité = pd).
+  const rapportId = String(c['rapportId'] || '');
+  await supprimerConteneursDe(ctx, id);
+  await ajouterConteneurs(ctx, rapportId, id, String(c['numeroCamion']), type, conts.map((x) => normaliserConteneur(x)));
+
+  await ctx.log(
+    supprimer ? 'Correction — suppression conteneur' : 'Correction conteneur',
+    id,
+    supprimer ? ancien.num + ' retiré' : ancien.num + ' → ' + nouveauNum,
+  );
+  return { id, conteneurs: conts.length, ancien: ancien.num, nouveau: nouveauNum };
+}
+
+/* ------------------------------- editdecl ------------------------------ */
+
+/**
+ * v4 — CORRECTION des informations de déclaration d'un camion déjà enregistré
+ * (déclarant, contact, destination, n°/année/bureau/type, marchandise).
+ * Les lignes conteneurs de la cargaison portent la même déclaration (LOT D) :
+ * elles sont réalignées. CFS : phase CFS ; ADMIN : partout.
+ */
+export async function editdecl(ctx: Ctx, p: Record<string, unknown>) {
+  const id = String(p['id'] ?? '').trim();
+  const cargo = await getCargo(ctx, id);
+  const c = cargo.o;
+  const estAdmin = ctx.session.role === ROLES.ADMIN;
+  if (!estAdmin && [STATUTS.CAMION, STATUTS.CHARGEMENT, STATUTS.CREEE].indexOf(c['statut'] as never) === -1)
+    throw new Error('Correction impossible : la cargaison a déjà avancé (statut « ' + c['statut'] + ' »).');
+  const type = String(c['typeOperation'] || '');
+  const decl = normaliserDeclaration(p['declaration'] as never, type);
+
+  const pd = parseConteneursDetails(c['conteneursDetails']);
+  pd.conteneurs.forEach((ct) => {
+    const x = ct as unknown as Record<string, unknown>;
+    x['numeroDeclaration'] = decl.numeroDeclaration; x['anneeDeclaration'] = decl.anneeDeclaration;
+    x['bureauDeclaration'] = decl.bureauDeclaration; x['typeDeclaration'] = decl.typeDeclaration;
+    x['declarant'] = decl.declarant; x['contactDeclarant'] = decl.contactDeclarant;
+    x['destinationMarchandise'] = decl.destinationMarchandise; x['descriptionMarchandise'] = decl.descriptionMarchandise;
+  });
+
+  const patch: Record<string, unknown> = {
+    declarant: decl.declarant, contact_declarant: decl.contactDeclarant,
+    destination_marchandise: decl.destinationMarchandise, bureau_declaration: decl.bureauDeclaration,
+    type_declaration: decl.typeDeclaration, numero_declaration: decl.numeroDeclaration,
+    annee_declaration: decl.anneeDeclaration, description_marchandise: decl.descriptionMarchandise,
+    conteneurs_details: { conteneurs: pd.conteneurs, scellesCamion: pd.scellesCamion },
+    chargement_mixte: null,
+  };
+  // Le type de déclaration commande les sauts d'étapes (C = conso → saute T1).
+  const sauts = sautsTypeC(decl.typeDeclaration, p['consoMode']);
+  patch['saute_t1'] = sauts.sauteT1;
+  patch['saute_balise'] = sauts.sauteBalise;
+  await patchCargo(ctx, cargo, patch);
+
+  const ancienne = [c['numeroDeclaration'], c['anneeDeclaration'], c['bureauDeclaration'], c['typeDeclaration']].filter(Boolean).join('|');
+  await ctx.log('Correction déclaration', id, ancienne + ' → ' + declKey(decl));
+  return { id, declaration: decl };
+}
+
+/* ------------------------------ lotcamions ----------------------------- */
+
+/**
+ * v4 — SAISIE EN LOT : plusieurs camions chargeant des conteneurs d'UNE MÊME
+ * déclaration, sans re-saisir le déclarant / la déclaration / la marchandise à
+ * chaque camion (demande terrain : c'était le geste le plus répétitif du CFS).
+ * Chaque camion est créé puis alimenté par les chemins déjà validés
+ * (createcamion + cfs), donc TOUTES les règles métier restent appliquées.
+ * Traitement ligne par ligne : un camion en erreur n'annule pas les autres,
+ * l'appelant reçoit le détail des réussites et des échecs.
+ */
+export async function lotcamions(ctx: Ctx, p: Record<string, unknown>) {
+  const routage = String(p['typeOperation'] ?? p['routage'] ?? '').trim();
+  if ([OPERATIONS.ENLEVEMENT, OPERATIONS.DEPOTAGE].indexOf(routage as never) === -1)
+    throw new Error("Type d'opération requis : Enlèvement ou Dépotage.");
+  const declaration = (p['declaration'] ?? {}) as Record<string, unknown>;
+  if (!String(declaration['declarant'] ?? '').trim()) throw new Error('Champ de déclaration obligatoire : Déclarant.');
+  const camions = (Array.isArray(p['camions']) ? (p['camions'] as Record<string, unknown>[]) : [])
+    .filter((cm) => String(cm?.['numeroCamion'] ?? '').trim());
+  if (!camions.length) throw new Error('Indiquez au moins un camion.');
+
+  const crees: Record<string, unknown>[] = [];
+  const erreurs: Record<string, unknown>[] = [];
+  for (const cm of camions) {
+    const numeroCamion = alphaNumMaj(cm['numeroCamion']);
+    const conteneurs = (Array.isArray(cm['conteneurs']) ? (cm['conteneurs'] as Record<string, unknown>[]) : [])
+      .filter((ct) => String(ct?.['num'] ?? '').trim());
+    if (!conteneurs.length) { erreurs.push({ numeroCamion, message: 'Aucun conteneur saisi pour ce camion.' }); continue; }
+    let id = '';
+    try {
+      const cr = await createcamion(ctx, { numeroCamion, routage });
+      id = String((cr as { id: string }).id);
+      let premier = true;
+      for (const ct of conteneurs) {
+        const charge: Record<string, unknown> = { id, conteneur: ct };
+        // La déclaration n'accompagne que le 1er conteneur en enlèvement ;
+        // en dépotage elle est portée par CHAQUE conteneur (règle cfs()).
+        if (premier || routage === OPERATIONS.DEPOTAGE) {
+          charge['declaration'] = declaration;
+          if (p['consoMode']) charge['consoMode'] = p['consoMode'];
+        }
+        await cfs(ctx, charge);
+        premier = false;
+      }
+      crees.push({ id, numeroCamion, conteneurs: conteneurs.length });
+    } catch (e) {
+      erreurs.push({ numeroCamion, id, message: (e as Error).message });
+    }
+  }
+  await ctx.log('Saisie en lot (même déclaration)', '', crees.length + ' camion(s) créé(s), ' + erreurs.length + ' en erreur');
+  return { crees, erreurs };
 }
 
 /* -------------------------------- update ------------------------------- */

@@ -131,6 +131,24 @@ export async function lierStock(ctx: Ctx, tc: string, cargaisonId: string): Prom
   if (error) throw new Error(error.message);
 }
 
+/**
+ * v4 — DÉLIE un TC d'une cargaison et le remet à disposition dans le stock.
+ * Utilisé par la CORRECTION d'un conteneur mal saisi (cargo.editconteneur) :
+ * le conteneur erroné doit redevenir sélectionnable, sinon la vraie saisie est
+ * impossible. `statutRestore` = « Positionné » (dépotage, il était pointé du
+ * jour) ou « En stock » (enlèvement). Best-effort : ne bloque jamais la
+ * correction si le TC n'existe pas au stock (saisie manuelle / partagé).
+ */
+export async function delierStock(ctx: Ctx, tc: string, cargaisonId: string, statutRestore: string): Promise<void> {
+  const num = String(tc || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (!num) return;
+  await ctx.db
+    .from('stock')
+    .update({ statut: statutRestore, date_depote: null, cargaison_id: null })
+    .eq('numero_tc', num)
+    .eq('cargaison_id', cargaisonId);
+}
+
 /** Conteneur du stock UTILISABLE (présent, pas encore dépoté) → objet ou null. */
 export async function stockDisponible(ctx: Ctx, numeroTC: string): Promise<Record<string, unknown> | null> {
   const tc = String(numeroTC || '').toUpperCase().replace(/[^A-Z0-9]/g, '');

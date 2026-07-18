@@ -79,11 +79,15 @@ export function Detail({ user, arg, go }: Nav) {
           <button onClick={() => action(() => call('cargo.arriveebureau', { id }), 'Arrivée confirmée.')}>Confirmer l'arrivée (solder la dispense)</button></div>}
       {!estVeh && c['statut'] !== STATUTS.SORTIE && can(ROLES.CFS, A) && <PanneauEtatCFS c={c} action={action} />}
 
-      {c['typeOperation'] === OPERATIONS.ENLEVEMENT && can(ROLES.CFS, A) && !!c['numeroDeclaration'] &&
+      {/* v4 — enchaîner un autre camion sur la même déclaration : enlèvement ET dépotage. */}
+      {[OPERATIONS.DEPOTAGE, OPERATIONS.ENLEVEMENT].includes(c['typeOperation'] as never) && can(ROLES.CFS, A) && !!c['numeroDeclaration'] &&
         <AjouterCamion c={c} go={go} />}
-      {[OPERATIONS.DEPOTAGE, OPERATIONS.ENLEVEMENT].includes(c['typeOperation'] as never) &&
-        [STATUTS.CAMION, STATUTS.CHARGEMENT, STATUTS.CREEE].includes(c['statut'] as never) && can(ROLES.CFS, A) &&
-        <PanneauEditType c={c} action={action} />}
+      {/* v4 — corrections de saisie (conteneur, déclaration, type) en phase CFS ; ADMIN partout. */}
+      {([STATUTS.CAMION, STATUTS.CHARGEMENT, STATUTS.CREEE].includes(c['statut'] as never) || role === A) && can(ROLES.CFS, A) && <>
+        {dets.conteneurs.length > 0 && <PanneauEditConteneurs c={c} dets={dets} action={action} />}
+        {!!c['numeroDeclaration'] && <PanneauEditDecl c={c} action={action} />}
+        {[OPERATIONS.DEPOTAGE, OPERATIONS.ENLEVEMENT].includes(c['typeOperation'] as never) && <PanneauEditType c={c} action={action} />}
+      </>}
       <PanneauEditCamion c={c} action={action} />
     </div>
   );
@@ -214,29 +218,38 @@ function PanneauCFS({ c, dets, action, prefillDecl }: { c: O; dets: ReturnType<t
   );
 }
 
-/** v4 — Enlèvement : enchaîner un 2e camion en reprenant la déclaration courante. */
+/**
+ * v4 — Enchaîner un AUTRE camion sur la MÊME déclaration (enlèvement ET dépotage).
+ * La déclaration du camion courant est reportée telle quelle sur le nouveau :
+ * l'agent ne re-saisit que le N° de camion puis les conteneurs.
+ */
+export function prefillDe(c: O): O {
+  return {
+    declarant: String(c['declarant'] ?? ''), contactDeclarant: String(c['contactDeclarant'] ?? ''),
+    destinationMarchandise: String(c['destinationMarchandise'] ?? ''), bureauDeclaration: String(c['bureauDeclaration'] ?? 'TG120'),
+    typeDeclaration: String(c['typeDeclaration'] ?? 'T'), numeroDeclaration: String(c['numeroDeclaration'] ?? ''),
+    anneeDeclaration: String(c['anneeDeclaration'] ?? ''), descriptionMarchandise: String(c['descriptionMarchandise'] ?? ''),
+  };
+}
+
 function AjouterCamion({ c, go }: { c: O; go: Nav['go'] }) {
   const [num, setNum] = useState('');
   const [busy, setBusy] = useState(false);
+  const routage = String(c['typeOperation'] ?? OPERATIONS.ENLEVEMENT);
   async function creer() {
     if (!num) { toast('N° camion requis.', 'err'); return; }
     setBusy(true);
     try {
-      const r = await call<{ id: string }>('cargo.createcamion', { numeroCamion: num, routage: OPERATIONS.ENLEVEMENT });
-      const prefillDecl: O = {
-        declarant: String(c['declarant'] ?? ''), contactDeclarant: String(c['contactDeclarant'] ?? ''),
-        destinationMarchandise: String(c['destinationMarchandise'] ?? ''), bureauDeclaration: String(c['bureauDeclaration'] ?? 'TG120'),
-        typeDeclaration: String(c['typeDeclaration'] ?? 'T'), numeroDeclaration: String(c['numeroDeclaration'] ?? ''),
-        anneeDeclaration: String(c['anneeDeclaration'] ?? ''), descriptionMarchandise: String(c['descriptionMarchandise'] ?? ''),
-      };
+      const r = await call<{ id: string }>('cargo.createcamion', { numeroCamion: num, routage });
       toast('Nouveau camion créé.', 'ok');
-      go('detail', { id: r.id, prefillDecl });
+      go('detail', { id: r.id, prefillDecl: prefillDe(c) });
     } catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(false); }
   }
   return <div className="card"><h2>Ajouter un autre camion (même déclaration)</h2>
-    <p className="help" style={{ marginTop: 0 }}>Crée un nouveau camion d'enlèvement en reprenant la déclaration de ce camion — vous n'aurez qu'à saisir le conteneur.</p>
+    <p className="help" style={{ marginTop: 0 }}>Crée un nouveau camion de <b>{routage.toLowerCase()}</b> en reprenant la déclaration de ce camion (déclarant, n° de déclaration, marchandise) — vous n'aurez qu'à saisir les conteneurs.</p>
     <div className="row"><input className="mono" value={num} onChange={(e) => setNum(masks.alnum(e.target.value))} placeholder="N° du nouveau camion" style={{ flex: 1 }} />
       <button disabled={busy} onClick={creer}>Créer et associer</button></div>
+    <p className="help" style={{ marginBottom: 0 }}>Plusieurs camions d'un coup ? Utilisez l'écran « Plusieurs camions (1 déclaration) » du menu.</p>
   </div>;
 }
 
@@ -390,6 +403,88 @@ function PanneauEditCamion({ c, action }: { c: O; action: ActionFn }) {
       <input value={num} onChange={(e) => setNum(masks.alnum(e.target.value))} style={{ maxWidth: 200 }} />
       <button className="ghost" onClick={() => action(() => call('cargo.editcamion', { id, numeroCamion: num }), 'N° camion corrigé.')}>Corriger</button>
     </div>
+  </details>;
+}
+
+/**
+ * v4 — CORRECTION d'un conteneur déjà enregistré (N° erroné, taille, type,
+ * scellé) ou retrait de la ligne. Sans cet écran, une faute de frappe sur le
+ * N° de conteneur restait définitive.
+ */
+function PanneauEditConteneurs({ c, dets, action }: { c: O; dets: ReturnType<typeof parseConteneursDetails>; action: ActionFn }) {
+  const id = c['id'] as string;
+  const estEnl = c['typeOperation'] === OPERATIONS.ENLEVEMENT;
+  const [i, setI] = useState<number | null>(null);
+  const [f, setF] = useState<O>({ num: '', taille: '', type: '', plomb: '', manuel: false });
+  const set = (k: string, v: unknown) => setF((o) => ({ ...o, [k]: v }));
+
+  function ouvrir(k: number) {
+    const ct = dets.conteneurs[k]!;
+    setI(k);
+    setF({ num: ct.num ?? '', taille: ct.taille ?? '', type: ct.type ?? '', plomb: ct.plomb ?? '', manuel: false });
+  }
+  async function corriger() {
+    if (i === null) return;
+    await action(() => call('cargo.editconteneur', { id, index: i, ...f }), 'Conteneur corrigé.');
+    setI(null);
+  }
+  async function retirer(k: number) {
+    const ct = dets.conteneurs[k]!;
+    if (!confirm(`Retirer le conteneur ${ct.num} de ce camion ?`)) return;
+    await action(() => call('cargo.editconteneur', { id, index: k, supprimer: true }), 'Conteneur retiré.');
+    setI(null);
+  }
+
+  return <details className="card"><summary style={{ cursor: 'pointer', fontWeight: 600 }}>Corriger un conteneur (N° erroné, taille, scellé)</summary>
+    <p className="help" style={{ marginTop: 10 }}>Le conteneur retiré ou remplacé <b>revient au stock</b> et redevient sélectionnable ; le nouveau lui est rattaché.</p>
+    {dets.conteneurs.map((ct, k) => <div key={k} className="row" style={{ alignItems: 'center', marginBottom: 6 }}>
+      <span className="mono" style={{ flex: 1 }}>{k + 1}. {ct.num} · {ct.taille || '—'}{ct.plomb ? ` · scellé ${ct.plomb}` : ''}</span>
+      <button className="ghost xs" onClick={() => ouvrir(k)}>Corriger</button>
+      <button className="ghost xs" onClick={() => retirer(k)}>Retirer</button>
+    </div>)}
+    {i !== null && <div style={{ borderTop: '1px solid var(--line)', marginTop: 10, paddingTop: 10 }}>
+      <div className="section-title">Nouvelle saisie — ligne {i + 1}</div>
+      <div className="grid2">
+        <Champ label="N° conteneur (ISO 6346)" className="mono" value={String(f['num'])} onChange={(e) => set('num', masks.tc(e.target.value))} />
+        <Champ label="Taille" value={String(f['taille'])} onChange={(e) => set('taille', masks.upper(e.target.value))} placeholder="20' / 40' / 45'" />
+        <Champ label="Type (facultatif)" value={String(f['type'])} onChange={(e) => set('type', masks.upper(e.target.value))} />
+        {estEnl && <Champ label="Scellé / Plomb" value={String(f['plomb'])} onChange={(e) => set('plomb', masks.upper(e.target.value))} />}
+        <label className="help" style={{ alignSelf: 'end' }}><input type="checkbox" style={{ width: 'auto' }} checked={!!f['manuel']} onChange={(e) => set('manuel', e.target.checked)} /> Saisie manuelle (conteneur hors stock / partagé)</label>
+      </div>
+      <div className="row" style={{ marginTop: 12 }}>
+        <button onClick={corriger}>Enregistrer la correction</button>
+        <button className="ghost" onClick={() => setI(null)}>Annuler</button>
+      </div>
+    </div>}
+  </details>;
+}
+
+/** v4 — Correction des informations de déclaration déjà enregistrées. */
+function PanneauEditDecl({ c, action }: { c: O; action: ActionFn }) {
+  const id = c['id'] as string;
+  const [d, setD] = useState<O>({
+    declarant: String(c['declarant'] ?? ''), contactDeclarant: String(c['contactDeclarant'] ?? ''),
+    destinationMarchandise: String(c['destinationMarchandise'] ?? ''), bureauDeclaration: String(c['bureauDeclaration'] ?? 'TG120'),
+    typeDeclaration: String(c['typeDeclaration'] ?? 'T'), numeroDeclaration: String(c['numeroDeclaration'] ?? ''),
+    anneeDeclaration: String(c['anneeDeclaration'] ?? ''), descriptionMarchandise: String(c['descriptionMarchandise'] ?? ''),
+  });
+  const [consoMode, setConsoMode] = useState('balise');
+  const setDd = (k: string, v: unknown) => setD((o) => ({ ...o, [k]: v }));
+  const estConso = String(d['typeDeclaration']) === 'C';
+  return <details className="card"><summary style={{ cursor: 'pointer', fontWeight: 600 }}>Corriger les informations de déclaration</summary>
+    <p className="help" style={{ marginTop: 10 }}>Corrige le déclarant, la déclaration et la marchandise de ce camion et de ses conteneurs.</p>
+    <div className="grid2">
+      <Champ label="Déclarant" value={String(d['declarant'])} onChange={(e) => setDd('declarant', masks.upper(e.target.value))} />
+      <Champ label="Contact (téléphone)" value={String(d['contactDeclarant'])} onChange={(e) => setDd('contactDeclarant', masks.tel(e.target.value))} />
+      <Champ label="Destination" value={String(d['destinationMarchandise'])} onChange={(e) => setDd('destinationMarchandise', masks.upper(e.target.value))} />
+      <Champ label="Bureau" value={String(d['bureauDeclaration'])} onChange={(e) => setDd('bureauDeclaration', masks.upper(e.target.value))} />
+      <div><label className="help">Type déclaration</label><select value={String(d['typeDeclaration'])} onChange={(e) => setDd('typeDeclaration', e.target.value)}>{TYPES_DECLARATION.map((t) => <option key={t}>{t}</option>)}</select></div>
+      {estConso && <div><label className="help">Conso (type C) — balise</label><select value={consoMode} onChange={(e) => setConsoMode(e.target.value)}><option value="balise">À baliser</option><option value="sansbalise">Non balisée (dispense)</option></select></div>}
+      <Champ label="N° déclaration" value={String(d['numeroDeclaration'])} onChange={(e) => setDd('numeroDeclaration', masks.upper(e.target.value))} />
+      <Champ label="Année" value={String(d['anneeDeclaration'])} onChange={(e) => setDd('anneeDeclaration', e.target.value)} />
+      <Champ label="Description marchandise" value={String(d['descriptionMarchandise'])} onChange={(e) => setDd('descriptionMarchandise', masks.upper(e.target.value))} />
+    </div>
+    <div style={{ marginTop: 12 }}><button onClick={() => action(() => call('cargo.editdecl', { id, declaration: d, consoMode }), 'Déclaration corrigée.')}>Enregistrer la correction</button></div>
   </details>;
 }
 

@@ -121,6 +121,115 @@ SCREENS.creercamion = ({ go }) => {
   </div>;
 };
 
+/* --------- Plusieurs camions sur une même déclaration (saisie en lot) --- */
+/**
+ * v4 — La déclaration (déclarant, n°, marchandise…) est saisie UNE SEULE FOIS,
+ * puis on aligne autant de camions que nécessaire avec leurs conteneurs.
+ * Répond au geste le plus répétitif du CFS : plusieurs camions enlèvent des
+ * conteneurs de la même déclaration, et tout était à re-saisir à chaque fois.
+ */
+type LigneCam = { numeroCamion: string; conteneurs: O[] };
+const ctVide = (): O => ({ num: '', taille: '', type: '', plomb: '' });
+const ligneVide = (): LigneCam => ({ numeroCamion: '', conteneurs: [ctVide()] });
+
+SCREENS.lotcamions = ({ go }) => {
+  const [op, setOp] = useState(OPERATIONS.ENLEVEMENT as string);
+  const [d, setD] = useState<O>({});
+  const [consoMode, setConsoMode] = useState('balise');
+  const [lignes, setLignes] = useState<LigneCam[]>([ligneVide(), ligneVide()]);
+  const [busy, setBusy] = useState(false);
+  const [res, setRes] = useState<{ crees: O[]; erreurs: O[] } | null>(null);
+  const set = (k: string, v: unknown) => setD((o) => ({ ...o, [k]: v }));
+  const estEnl = op === OPERATIONS.ENLEVEMENT;
+
+  // Conteneurs proposés à la frappe : enlèvement → stock PIA, dépotage → positionnés du jour.
+  const statutStock = estEnl ? 'En stock' : 'Positionné';
+  const { data: stk } = useAsync<{ rows: O[] }>(() => call('stock.list', { statut: statutStock }), [statutStock]);
+  const stockRows = (stk?.rows ?? []) as O[];
+  const stockByTc = Object.fromEntries(stockRows.map((r) => [String(r['numeroTC'] ?? ''), r]));
+
+  const majLigne = (i: number, patch: Partial<LigneCam>) => setLignes((a) => a.map((l, j) => (j === i ? { ...l, ...patch } : l)));
+  const majCt = (i: number, k: number, patch: O) =>
+    majLigne(i, { conteneurs: lignes[i]!.conteneurs.map((ct, j) => (j === k ? { ...ct, ...patch } : ct)) });
+  // Taille / type repris de la fiche stock dès que le N° est reconnu (zéro ressaisie).
+  function choisirCt(i: number, k: number, v: string) {
+    const num = masks.tc(v);
+    const hit = stockByTc[num] as O | undefined;
+    majCt(i, k, { num, ...(hit ? { taille: String(hit['taille'] ?? ''), type: String(hit['typeConteneur'] ?? '') } : {}) });
+  }
+
+  async function envoyer() {
+    const camions = lignes.filter((l) => l.numeroCamion.trim()).map((l) => ({
+      numeroCamion: l.numeroCamion, conteneurs: l.conteneurs.filter((ct) => String(ct['num'] ?? '').trim()),
+    }));
+    if (!camions.length) { toast('Indiquez au moins un camion.', 'err'); return; }
+    setBusy(true);
+    try {
+      const r = await call<{ crees: O[]; erreurs: O[] }>('cargo.lotcamions', {
+        typeOperation: op, declaration: d, consoMode, camions,
+      });
+      setRes(r);
+      toast(`${r.crees.length} camion(s) enregistré(s)${r.erreurs.length ? ` · ${r.erreurs.length} en erreur` : ''}.`, r.erreurs.length ? 'err' : 'ok');
+      // Les camions passés restent visibles dans le récapitulatif ; on ne garde
+      // à l'écran que les lignes en échec, à corriger et à renvoyer.
+      const kos = new Set(r.erreurs.map((e) => String(e['numeroCamion'])));
+      setLignes((a) => { const reste = a.filter((l) => kos.has(masks.alnum(l.numeroCamion))); return reste.length ? reste : [ligneVide()]; });
+    } catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(false); }
+  }
+
+  return <div className="card">
+    <h2>Plusieurs camions — une seule déclaration</h2>
+    <p className="help" style={{ marginTop: 0 }}>Saisissez la déclaration <b>une fois</b>, puis alignez les camions et leurs conteneurs. Chaque camion est créé et rattaché à cette déclaration ; un camion en erreur n'annule pas les autres.</p>
+
+    <div className="grid2">
+      <div><label className="help">Type d'opération</label>
+        <select value={op} onChange={(e) => setOp(e.target.value)}><option>{OPERATIONS.ENLEVEMENT}</option><option>{OPERATIONS.DEPOTAGE}</option></select></div>
+      {String(d['typeDeclaration'] ?? 'T') === 'C' && <div><label className="help">Conso (type C) — balise</label>
+        <select value={consoMode} onChange={(e) => setConsoMode(e.target.value)}><option value="balise">À baliser</option><option value="sansbalise">Non balisée (dispense)</option></select></div>}
+    </div>
+
+    <div className="section-title" style={{ marginTop: 14 }}>Déclaration (saisie une seule fois)</div>
+    <DeclFields d={d} set={set} />
+
+    <div className="row" style={{ alignItems: 'center', marginTop: 14 }}>
+      <div className="section-title" style={{ flex: 1, margin: 0 }}>Camions ({lignes.length})</div>
+      <button className="ghost xs" onClick={() => setLignes((a) => [...a, ligneVide()])}>＋ Ajouter un camion</button>
+    </div>
+    <datalist id="dl-lot-tc">{stockRows.map((r) => <option key={String(r['numeroTC'])} value={String(r['numeroTC'])} />)}</datalist>
+    {lignes.map((l, i) => <div key={i} style={{ border: '1px solid var(--line)', borderRadius: 6, padding: 10, marginTop: 8 }}>
+      <div className="row" style={{ alignItems: 'center' }}>
+        <div style={{ flex: 1 }}><label className="help">N° camion {i + 1}</label>
+          <input className="mono" value={l.numeroCamion} onChange={(e) => majLigne(i, { numeroCamion: masks.alnum(e.target.value) })} /></div>
+        <button className="ghost xs" onClick={() => majLigne(i, { conteneurs: [...l.conteneurs, ctVide()] })}>＋ Conteneur</button>
+        {lignes.length > 1 && <button className="ghost xs" onClick={() => setLignes((a) => a.filter((_, j) => j !== i))}>Retirer</button>}
+      </div>
+      {l.conteneurs.map((ct, k) => <div key={k} className="grid2" style={{ marginTop: 6 }}>
+        <div><label className="help">Conteneur {k + 1}</label>
+          <input className="mono" value={String(ct['num'])} onChange={(e) => choisirCt(i, k, e.target.value)} list="dl-lot-tc" autoComplete="off" /></div>
+        <div><label className="help">Taille</label>
+          <input value={String(ct['taille'])} onChange={(e) => majCt(i, k, { taille: masks.upper(e.target.value) })} placeholder="20' / 40' / 45'" /></div>
+        <div><label className="help">Type (facultatif)</label>
+          <input value={String(ct['type'])} onChange={(e) => majCt(i, k, { type: masks.upper(e.target.value) })} /></div>
+        {estEnl && <div><label className="help">Scellé / Plomb</label>
+          <input value={String(ct['plomb'])} onChange={(e) => majCt(i, k, { plomb: masks.upper(e.target.value) })} /></div>}
+      </div>)}
+    </div>)}
+
+    <div style={{ marginTop: 14 }}><button disabled={busy} onClick={envoyer}>{busy ? 'Enregistrement…' : 'Enregistrer tous les camions'}</button></div>
+
+    {res && <div style={{ marginTop: 16 }}>
+      {res.crees.length > 0 && <>
+        <div className="section-title">Camions enregistrés ({res.crees.length})</div>
+        <Table cols={[['id', 'ID'], ['numeroCamion', 'Camion'], ['conteneurs', 'Conteneurs']]} rows={res.crees} onRow={(r) => go('detail', r['id'])} />
+      </>}
+      {res.erreurs.length > 0 && <>
+        <div className="section-title" style={{ marginTop: 12 }}>En erreur ({res.erreurs.length}) — à corriger ci-dessus</div>
+        {res.erreurs.map((e, i) => <div key={i} className="err-msg"><b className="mono">{String(e['numeroCamion'])}</b> — {String(e['message'])}</div>)}
+      </>}
+    </div>}
+  </div>;
+};
+
 /* ------------------------ Recherche (N° camion) ------------------------ */
 SCREENS.search = ({ go }) => {
   const [q, setQ] = useState('');

@@ -9,7 +9,7 @@ export type MenuItem = [string, string, string];
 
 export const MENUS: Record<string, MenuItem[]> = {
   CFS: [
-    ['dash', 'Tableau de bord', '▦'], ['creercamion', 'Créer un camion', '＋'], ['completer', 'Saisir / compléter', '✎'],
+    ['dash', 'Tableau de bord', '▦'], ['creercamion', 'Créer un camion', '＋'], ['lotcamions', 'Plusieurs camions (1 déclaration)', '⧉'], ['completer', 'Saisir / compléter', '✎'],
     ['new', 'Nouveau (Véhic./Conso/MAD)', '＋'], ['list', 'Cargaisons', '▤'], ['vehicules', 'Véhicules', '🚗'], ['search', 'Recherche', '⌕'],
     ['etatcfs', 'Pointage camions (sortie)', '◨'], ['chargement', 'Bon de chargement', '▤'], ['confentree', 'Confirmer entrée (annoncé)', '✔'], ['stockjour', 'Stock CFS journalier', '◧'],
     ['stock', 'Stock conteneurs', '▦'], ['pointage', 'Pointage matinal', '◉'], ['import', 'Stock initial (import)', '⮉'], ['annonce', 'Stock annoncé', '⮈'], ['magasin', 'Entrée Magasin/MAD', '▥'],
@@ -30,7 +30,7 @@ export const MENUS: Record<string, MenuItem[]> = {
   BON_SORTIE: [['dash', 'Tableau de bord', '▦'], ['bonsortie', 'Cellule Bon de Sortie', '▣'], ['wait_bs', 'En attente Bon de Sortie', '◷'], ['search', 'Recherche', '⌕'], ['account', 'Mon compte', '◔']],
   PP: [['dash', 'Tableau de bord', '▦'], ['pointentree', 'Pointage entrée (annoncé)', '◉'], ['confentree', 'Confirmer entrée (port sec)', '✔'], ['annonce', 'Stock annoncé', '⮈'], ['sortie', 'Sortie (checklist)', '⇲'], ['wait_sortie', 'En attente sortie', '◷'], ['vehicules', 'Véhicules', '🚗'], ['search', 'Recherche', '⌕'], ['pprep', 'Rapport PP', '∑'], ['account', 'Mon compte', '◔']],
   ADMIN: [
-    ['dash', 'Tableau de bord', '▦'], ['creercamion', 'Créer un camion', '＋'], ['completer', 'Saisir / compléter', '✎'], ['wait_valid', 'À valider', '✔'], ['new', 'Nouveau (Véhic./Conso/MAD)', '＋'], ['list', 'Cargaisons', '▤'], ['vehicules', 'Véhicules', '🚗'], ['search', 'Recherche', '⌕'],
+    ['dash', 'Tableau de bord', '▦'], ['creercamion', 'Créer un camion', '＋'], ['lotcamions', 'Plusieurs camions (1 déclaration)', '⧉'], ['completer', 'Saisir / compléter', '✎'], ['wait_valid', 'À valider', '✔'], ['new', 'Nouveau (Véhic./Conso/MAD)', '＋'], ['list', 'Cargaisons', '▤'], ['vehicules', 'Véhicules', '🚗'], ['search', 'Recherche', '⌕'],
     ['stock', 'Stock conteneurs', '▦'], ['pointage', 'Pointage matinal', '◉'], ['import', 'Stock initial (import)', '⮉'], ['importannonce', 'Annonce de transfert', '⮈'], ['annonce', 'Stock annoncé', '▦'], ['pointentree', 'Pointage entrée', '◉'], ['confentree', 'Confirmer entrée', '✔'], ['etatcfs', 'Pointage camions (sortie)', '◨'], ['chargement', 'Bon de chargement', '▤'], ['magasin', 'Entrée Magasin/MAD', '▥'],
     ['kpi', 'KPI / EVP', '◫'], ['cfsreport', 'Rapport CFS', '∑'], ['vehreport', 'Rapport véhicules', '∑'], ['baliserep', 'Rapport Balise', '∑'], ['pprep', 'Rapport PP', '∑'], ['dispenses', 'Dispenses', '⚑'],
     ['flux', 'Analyse des flux', '⇄'], ['dwell', 'Délai & instance', '⏱'], ['stockdwell', 'Séjour conteneurs', '⏱'], ['history', 'Historique', '◵'], ['users', 'Utilisateurs', '◑'], ['account', 'Mon compte', '◔'],
@@ -39,7 +39,8 @@ export const MENUS: Record<string, MenuItem[]> = {
 
 export const TITLES: Record<string, string> = {
   dash: 'Tableau de bord', new: 'Nouveau rapport', list: 'Cargaisons', search: 'Recherche',
-  creercamion: 'Créer un camion (entrée)', completer: 'Saisir / compléter les camions', stockjour: 'Stock CFS journalier',
+  creercamion: 'Créer un camion (entrée)', lotcamions: 'Plusieurs camions — une seule déclaration',
+  completer: 'Saisir / compléter les camions', stockjour: 'Stock CFS journalier',
   wait_valid: 'À valider — chef brigade', etatcfs: 'Pointage des camions à la sortie', t1: 'Cellule T1', wait_t1: 'En attente T1',
   chargement: 'Bon de chargement — par déclaration',
   gps: 'Cellule Balise', wait_gps: 'En attente Balise', bonsortie: 'Cellule Bon de Sortie', wait_bs: 'En attente Bon de Sortie',
