@@ -62,7 +62,7 @@ test('cycle de vie complet — ENLÈVEMENT (2 conteneurs 20\', binôme)', async 
   // 3) Chef brigade valide (signature).
   await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'Chef Brigade'), { id });
   assert.ok(db.store['cargaisons'][0]!['date_validation']);
-  assert.deepEqual(etapesEnAttente(versCamel(db.store['cargaisons'][0]!) as never), ['T1']);
+  assert.deepEqual(etapesEnAttente(versCamel(db.store['cargaisons'][0]!) as never), ['T1', 'BALISE', 'BS']);
 
   // 4) Cellule T1 (1 T1 par conteneur).
   await ecr.t1(ctxRole(db, 'T1', 'Agent T1'), {
@@ -76,7 +76,7 @@ test('cycle de vie complet — ENLÈVEMENT (2 conteneurs 20\', binôme)', async 
   // 5) Balise posée (le statut avance à « GPS Installé »).
   await ecr.gps(ctxRole(db, 'BALISE', 'Agent Balise'), { id, baliseRequise: 'Oui', t1Correct: 'Oui', numeroGPS: 'GPS-1' });
   assert.equal(statutDe(db, id), STATUTS.GPS);
-  assert.deepEqual(etapesEnAttente(versCamel(db.store['cargaisons'][0]!) as never), ['BS']);
+  assert.deepEqual(etapesEnAttente(versCamel(db.store['cargaisons'][0]!) as never), ['BS', 'PP']);
 
   // 6) Bon de sortie (le PP devient possible).
   await ecr.bonsortie(ctxRole(db, 'BON_SORTIE', 'Agent BS'), {
@@ -122,9 +122,9 @@ test('déclaration type C non balisée : saute le T1 ET la Balise', async () => 
   const c = versCamel(db.store['cargaisons'][0]!);
   assert.equal(c['sauteT1'], true);
   assert.equal(c['sauteBalise'], true);
-  // Après validation : T1 et Balise sautés → seul le Bon de sortie reste.
+  // Après validation : T1 et Balise sautés → Bon de sortie + PP disponibles.
   await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'), { id });
-  assert.deepEqual(etapesEnAttente(versCamel(db.store['cargaisons'][0]!) as never), ['BS']);
+  assert.deepEqual(etapesEnAttente(versCamel(db.store['cargaisons'][0]!) as never), ['BS', 'PP']);
 });
 
 test('nouvelle déclaration : la date en douane est exigée (ordre d\'exécution)', async () => {
@@ -293,7 +293,7 @@ test('import stock : format annoncé sans bureau + N° décl. réduit aux chiffr
   assert.equal('bureau_declaration' in (a ?? {}), false);
 });
 
-test('garde-fou : sortie refusée si le Bon de sortie manque', async () => {
+test('garde-fou : sortie refusée tant que la Balise n\'est pas posée', async () => {
   const db = new FakeDB();
   db.store['stock'].push({ numero_tc: 'MSKU1234567', taille: "40'", statut: 'En stock' });
   const cfs = ctxAvec(db);
@@ -303,13 +303,15 @@ test('garde-fou : sortie refusée si le Bon de sortie manque', async () => {
     declaration: { declarant: 'A', contactDeclarant: '901234', destinationMarchandise: 'D', bureauDeclaration: 'TG120', typeDeclaration: 'T', numeroDeclaration: '1', anneeDeclaration: '2026', dateDeclaration: '2026-06-24', descriptionMarchandise: 'X', nombreConteneurs: 1 },
   });
   await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'), { id });
-  await ecr.t1(ctxRole(db, 'T1', 'T1'), { id, bureauDestination: 'TG120', t1Numeros: [{ conteneur: 'MSKU1234567', numero: 'T1' }] });
-  await ecr.gps(ctxRole(db, 'BALISE', 'B'), { id, baliseRequise: 'Oui', t1Correct: 'Oui', numeroGPS: 'G' });
-  // BS pas encore fait → sortie refusée avec le message v3.6.
+  // Balise pas encore posée → la PP ne peut pas clôturer.
   await assert.rejects(
     () => ecr.sortie(ctxRole(db, 'PP', 'PP'), { id, ckCfs: true, ckT1: true, ckBalise: true, ckBs: true }),
-    /la Balise ET le Bon de Sortie doivent être faits/,
+    /la Balise doit être posée/,
   );
+  // Une fois la Balise posée, la sortie passe (les autres cellules travaillent en parallèle).
+  await ecr.gps(ctxRole(db, 'BALISE', 'B'), { id, baliseRequise: 'Oui', t1Correct: 'Oui', numeroGPS: 'G' });
+  await ecr.sortie(ctxRole(db, 'PP', 'PP'), { id, ckCfs: true, ckT1: true, ckBalise: true, ckBs: true });
+  assert.equal(statutDe(db, id), STATUTS.SORTIE);
 });
 
 test('anti-doublon : recréer un camion actif est refusé', async () => {

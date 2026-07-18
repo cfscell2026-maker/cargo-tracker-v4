@@ -352,7 +352,9 @@ export async function t1(ctx: Ctx, p: Record<string, unknown>) {
     date_t1: new Date().toISOString(), agent_t1: ctx.session.nomComplet, agent_t1_id: ctx.session.userId,
     observations_t1: txt(p['observations'], 1000),
   };
-  if (avancer) patch['statut'] = STATUTS.T1;
+  // Le statut n'avance qu'à partir de « Créée » (jamais de régression si la Balise
+  // ou le Bon de sortie ont déjà fait progresser la cargaison).
+  if (avancer && c['statut'] === STATUTS.CREEE) patch['statut'] = STATUTS.T1;
   await patchCargo(ctx, cargo, patch);
   await ctx.log('Saisie T1', id, numeros.join(', ') + ' · ' + bureau);
   return { id };
@@ -374,7 +376,7 @@ export async function gps(ctx: Ctx, p: Record<string, unknown>) {
   const c = cargo.o;
   if (c['estVehicule'] === true || c['estVehicule'] === 'Oui') throw new Error('Les véhicules ne passent pas par la cellule Balise.');
   if (ctx.session.role !== ROLES.ADMIN && etapesEnAttente(c as never).indexOf('BALISE') < 0)
-    throw new Error("Étape Balise impossible : faites d'abord le T1 (statut « " + c['statut'] + " »).");
+    throw new Error('Étape Balise impossible : cargaison non validée ou déjà balisée (statut « ' + c['statut'] + ' »).');
   const avancer = etapesEnAttente(c as never).indexOf('BALISE') >= 0;
   const patch: Record<string, unknown> = {
     numero_gps: requise ? numeroGPS : '', date_pose_gps: new Date().toISOString(),
@@ -435,7 +437,7 @@ export async function bonsortie(ctx: Ctx, p: Record<string, unknown>) {
   const cargo = await getCargo(ctx, id);
   const c = cargo.o;
   if (ctx.session.role !== ROLES.ADMIN && etapesEnAttente(c as never).indexOf('BS') < 0)
-    throw new Error("Bon de sortie impossible : faites d'abord le T1 (statut « " + c['statut'] + " »).");
+    throw new Error('Bon de sortie impossible : cargaison non validée ou bon déjà émis (statut « ' + c['statut'] + ' »).');
   const avancer = etapesEnAttente(c as never).indexOf('BS') >= 0;
   const patch: Record<string, unknown> = {
     bon_sortie_numero: stored, date_bon_sortie: new Date().toISOString(),
@@ -456,7 +458,7 @@ export async function sortie(ctx: Ctx, p: Record<string, unknown>) {
   const c = cargo.o;
   const estVeh = c['estVehicule'] === true || c['estVehicule'] === 'Oui';
   if (ctx.session.role !== ROLES.ADMIN && etapesEnAttente(c as never).indexOf('PP') < 0)
-    throw new Error('Sortie impossible : la Balise ET le Bon de Sortie doivent être faits (statut « ' + c['statut'] + ' »).');
+    throw new Error('Sortie impossible : la Balise doit être posée (statut « ' + c['statut'] + ' »).');
   let checklist: Record<string, boolean> = {};
   if (estVeh) {
     if (p['infosValidees'] !== true) throw new Error('Veuillez cocher « Informations validées ».');

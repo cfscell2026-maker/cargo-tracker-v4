@@ -24,8 +24,8 @@ test('après CFS (Créée) → VALIDATION avant T1', () => {
   assert.deepEqual(etapesEnAttente({ statut: STATUTS.CREEE }), ['VALIDATION']);
 });
 
-test('validé mais pas T1 → T1', () => {
-  assert.deepEqual(etapesEnAttente({ statut: STATUTS.CREEE, dateValidation: '2026-01-01' }), ['T1']);
+test('validé → T1 / Balise / Bon de sortie en parallèle', () => {
+  assert.deepEqual(etapesEnAttente({ statut: STATUTS.CREEE, dateValidation: '2026-01-01' }), ['T1', 'BALISE', 'BS']);
 });
 
 test('après T1 → BALISE et BS EN PARALLÈLE', () => {
@@ -33,9 +33,9 @@ test('après T1 → BALISE et BS EN PARALLÈLE', () => {
   assert.deepEqual(etapesEnAttente(c), ['BALISE', 'BS']);
 });
 
-test('balise faite, BS pas encore → BS seul (pas PP)', () => {
+test('balise posée → Bon de sortie ouvert + PP possible', () => {
   const c = { statut: STATUTS.T1, dateValidation: 'x', dateT1: 'x', datePoseGps: 'x' };
-  assert.deepEqual(etapesEnAttente(c), ['BS']);
+  assert.deepEqual(etapesEnAttente(c), ['BS', 'PP']);
 });
 
 test('balise ET bs faits → PP', () => {
@@ -47,14 +47,14 @@ test('sorti → aucune étape', () => {
   assert.deepEqual(etapesEnAttente({ statut: STATUTS.SORTIE }), []);
 });
 
-test('véhicule saute la balise (parallèle = BS seul puis PP)', () => {
+test('véhicule saute la balise → Bon de sortie + PP', () => {
   const c = { statut: STATUTS.T1, estVehicule: 'Oui', dateValidation: 'x', dateT1: 'x' };
-  assert.deepEqual(etapesEnAttente(c), ['BS']);
+  assert.deepEqual(etapesEnAttente(c), ['BS', 'PP']);
 });
 
-test('conso non balisée : sauts T1 + Balise', () => {
+test('conso non balisée : sauts T1 + Balise → Bon de sortie + PP', () => {
   const c = { statut: STATUTS.CREEE, dateValidation: 'x', sauteT1: 'Oui', sauteBalise: 'Oui' };
-  assert.deepEqual(etapesEnAttente(c), ['BS']);
+  assert.deepEqual(etapesEnAttente(c), ['BS', 'PP']);
 });
 
 test('ouillage saute le BS', () => {

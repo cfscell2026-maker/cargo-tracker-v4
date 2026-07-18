@@ -5,12 +5,12 @@
  *  _prochaineEtape_ (v3.6). Utilisé par le FRONT (affichage) et par l'EDGE
  *  FUNCTION (autorité) — une seule source, plus de double maintenance.
  *
- *  Modèle PARALLÈLE (v2.7) :
- *    CFS (fin de chargement) → VALIDATION (chef brigade, v3.0) → T1
- *      → { BALISE ∥ BON DE SORTIE } → PP.
- *  Après le T1, la Balise et le Bon de Sortie travaillent EN PARALLÈLE ; la PP
- *  ne peut clôturer que lorsque les DEUX sont faits. Les sauts (conso/magasin/
- *  véhicule/ouillage) marquent la cellule concernée comme déjà « faite ».
+ *  Modèle PARALLÈLE :
+ *    CFS (fin de chargement) → VALIDATION (chef brigade)
+ *      → { T1 ∥ BALISE ∥ BON DE SORTIE } → PP.
+ *  Après la validation, les cellules travaillent EN PARALLÈLE ; la PP peut
+ *  clôturer dès que la Balise est posée. Les sauts (conso/magasin/véhicule/
+ *  ouillage) marquent la cellule concernée comme déjà « faite ».
  * ============================================================================
  */
 
@@ -78,12 +78,14 @@ export function etapesEnAttente(c: SourceEtapes): Etape[] {
   const e = etatCellules(c);
   if (e.sorti) return [];
   if (!e.cfs) return ['CFS']; // camion vide / en cours -> à compléter par le CFS
-  if (!e.valide) return ['VALIDATION']; // v3.0 : validation chef brigade AVANT T1/Balise/BS
-  if (!e.t1) return ['T1']; // puis la cellule T1
+  if (!e.valide) return ['VALIDATION']; // validation chef brigade AVANT les cellules
+  // Après la validation, les cellules sont ouvertes EN PARALLÈLE ; la PP peut
+  // clôturer dès que la Balise est posée.
   const p: Etape[] = [];
-  if (!e.balise) p.push('BALISE'); // après le T1 : Balise et Bon de Sortie EN PARALLÈLE
+  if (!e.t1) p.push('T1');
+  if (!e.balise) p.push('BALISE');
   if (!e.bs) p.push('BS');
-  if (e.balise && e.bs) p.push('PP'); // PP seulement quand les DEUX sont faits
+  if (e.balise) p.push('PP');
   return p;
 }
 
