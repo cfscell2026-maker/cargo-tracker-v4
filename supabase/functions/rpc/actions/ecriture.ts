@@ -12,7 +12,7 @@ import {
   ROLES, STATUTS, STOCK_STATUTS, OPERATIONS, ETATS_SORTIE, HAUTEUR_HORS_GABARIT, CONTENEURS_MAX,
   alphaNumMaj, maj, txt, tcValide, normaliserConteneur, normaliserDeclaration, parseConteneursDetails,
   declKey, typeDeRoutage, tailleBucket, construireCamion, verifierBinome, apercuConteneurs,
-  etapesEnAttente, prochaineEtape, estOui, aFait, sautsTypeC,
+  etapesEnAttente, estOui, aFait, sautsTypeC,
 } from '../../_shared/domaine/src/index.ts';
 import {
   getCargo, patchCargo, nextId, nextRapportId, ajouterConteneurs, supprimerConteneursDe,
@@ -332,7 +332,7 @@ export async function t1(ctx: Ctx, p: Record<string, unknown>) {
 
   const cargo = await getCargo(ctx, id);
   const c = cargo.o;
-  if (ctx.session.role !== ROLES.ADMIN && prochaineEtape(c as never) !== 'T1')
+  if (ctx.session.role !== ROLES.ADMIN && etapesEnAttente(c as never).indexOf('T1') < 0)
     throw new Error('Cellule T1 impossible : étape non attendue (statut « ' + c['statut'] + ' »).');
   if (c['typeOperation'] === OPERATIONS.ENLEVEMENT) {
     const nb = Number(c['nbConteneurs'] || 0) || 1;
@@ -347,7 +347,7 @@ export async function t1(ctx: Ctx, p: Record<string, unknown>) {
       lies.push(o.conteneur);
     });
   }
-  const avancer = prochaineEtape(c as never) === 'T1';
+  const avancer = etapesEnAttente(c as never).indexOf('T1') >= 0;
   const patch: Record<string, unknown> = {
     bureau_destination: bureau, t1_numeros: items,
     date_t1: new Date().toISOString(), agent_t1: ctx.session.nomComplet, agent_t1_id: ctx.session.userId,
@@ -377,7 +377,7 @@ export async function gps(ctx: Ctx, p: Record<string, unknown>) {
   const c = cargo.o;
   if (c['estVehicule'] === true || c['estVehicule'] === 'Oui') throw new Error('Les véhicules ne passent pas par la cellule Balise.');
   if (ctx.session.role !== ROLES.ADMIN && etapesEnAttente(c as never).indexOf('BALISE') < 0)
-    throw new Error('Étape Balise impossible : cargaison non validée ou déjà balisée (statut « ' + c['statut'] + ' »).');
+    throw new Error('Étape Balise impossible : chargement non terminé ou déjà balisée (statut « ' + c['statut'] + ' »).');
   const avancer = etapesEnAttente(c as never).indexOf('BALISE') >= 0;
   const patch: Record<string, unknown> = {
     numero_gps: requise ? numeroGPS : '', date_pose_gps: new Date().toISOString(),
@@ -438,7 +438,7 @@ export async function bonsortie(ctx: Ctx, p: Record<string, unknown>) {
   const cargo = await getCargo(ctx, id);
   const c = cargo.o;
   if (ctx.session.role !== ROLES.ADMIN && etapesEnAttente(c as never).indexOf('BS') < 0)
-    throw new Error('Bon de sortie impossible : cargaison non validée ou bon déjà émis (statut « ' + c['statut'] + ' »).');
+    throw new Error('Bon de sortie impossible : chargement non terminé ou bon déjà émis (statut « ' + c['statut'] + ' »).');
   const avancer = etapesEnAttente(c as never).indexOf('BS') >= 0;
   const patch: Record<string, unknown> = {
     bon_sortie_numero: stored, date_bon_sortie: new Date().toISOString(),

@@ -20,8 +20,8 @@ test('camion vide → étape CFS', () => {
   assert.deepEqual(etapesEnAttente({ statut: STATUTS.VEHICULE_OUILLAGE }), ['CFS']);
 });
 
-test('après CFS (Créée) → VALIDATION avant T1', () => {
-  assert.deepEqual(etapesEnAttente({ statut: STATUTS.CREEE }), ['VALIDATION']);
+test('après CFS (Créée) → validation + cellules en parallèle', () => {
+  assert.deepEqual(etapesEnAttente({ statut: STATUTS.CREEE }), ['VALIDATION', 'T1', 'BALISE', 'BS']);
 });
 
 test('validé → T1 / Balise / Bon de sortie en parallèle', () => {

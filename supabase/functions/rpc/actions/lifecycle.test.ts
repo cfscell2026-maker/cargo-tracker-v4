@@ -279,6 +279,22 @@ test('confirmation entrée port sec EN LOT : confirme les pointés cochés, igno
   assert.equal(db.store['stock'].length, 2);
 });
 
+test('validation non bloquante : T1 / Balise / sortie possibles sans validation', async () => {
+  const db = new FakeDB();
+  db.store['stock'].push({ numero_tc: 'MSKU1234567', taille: "40'", statut: 'En stock' });
+  const cfs = ctxAvec(db);
+  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'NOVAL1', routage: 'Enlèvement' })) as { id: string };
+  await ecr.cfs(cfs, {
+    id, conteneur: { num: 'MSKU1234567', taille: "40'", type: 'DRY', plomb: 'S1' },
+    declaration: { declarant: 'A', contactDeclarant: '901234', destinationMarchandise: 'D', bureauDeclaration: 'TG120', typeDeclaration: 'T', numeroDeclaration: '60', anneeDeclaration: '2026', descriptionMarchandise: 'X', nombreConteneurs: 1 },
+  });
+  // AUCUNE validation chef brigade — le process continue quand même.
+  await ecr.t1(ctxRole(db, 'T1', 'T1'), { id, bureauDestination: 'TG120', t1Numeros: [{ conteneur: 'MSKU1234567', numero: 'T1' }] });
+  await ecr.gps(ctxRole(db, 'BALISE', 'B'), { id, baliseRequise: 'Oui', t1Correct: 'Oui', numeroGPS: 'G' });
+  await ecr.sortie(ctxRole(db, 'PP', 'PP'), { id, ckCfs: true, ckT1: true, ckBalise: true, ckBs: true });
+  assert.equal(statutDe(db, id), STATUTS.SORTIE);
+});
+
 test('correction du type : dépotage → enlèvement (scellés camion → plombs conteneur)', async () => {
   const db = new FakeDB();
   db.store['stock'].push({ numero_tc: 'MSKU1234567', taille: "40'", statut: 'Positionné' });

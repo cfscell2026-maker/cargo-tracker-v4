@@ -6,11 +6,10 @@
  *  FUNCTION (autorité) — une seule source, plus de double maintenance.
  *
  *  Modèle PARALLÈLE :
- *    CFS (fin de chargement) → VALIDATION (chef brigade)
- *      → { T1 ∥ BALISE ∥ BON DE SORTIE } → PP.
- *  Après la validation, les cellules travaillent EN PARALLÈLE ; la PP peut
- *  clôturer dès que la Balise est posée. Les sauts (conso/magasin/véhicule/
- *  ouillage) marquent la cellule concernée comme déjà « faite ».
+ *    CFS (fin de chargement) → { VALIDATION ∥ T1 ∥ BALISE ∥ BON DE SORTIE } → PP.
+ *  Après le CFS, les cellules travaillent EN PARALLÈLE ; la PP peut clôturer dès
+ *  que la Balise est posée. Les sauts (conso/magasin/véhicule/ouillage) marquent
+ *  la cellule concernée comme déjà « faite ».
  * ============================================================================
  */
 
@@ -78,10 +77,10 @@ export function etapesEnAttente(c: SourceEtapes): Etape[] {
   const e = etatCellules(c);
   if (e.sorti) return [];
   if (!e.cfs) return ['CFS']; // camion vide / en cours -> à compléter par le CFS
-  if (!e.valide) return ['VALIDATION']; // validation chef brigade AVANT les cellules
-  // Après la validation, les cellules sont ouvertes EN PARALLÈLE ; la PP peut
-  // clôturer dès que la Balise est posée.
+  // Après le CFS, les cellules sont ouvertes EN PARALLÈLE ; la PP peut clôturer
+  // dès que la Balise est posée.
   const p: Etape[] = [];
+  if (!e.valide) p.push('VALIDATION');
   if (!e.t1) p.push('T1');
   if (!e.balise) p.push('BALISE');
   if (!e.bs) p.push('BS');
