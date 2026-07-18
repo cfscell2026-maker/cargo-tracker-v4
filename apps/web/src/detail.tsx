@@ -81,6 +81,9 @@ export function Detail({ user, arg, go }: Nav) {
 
       {c['typeOperation'] === OPERATIONS.ENLEVEMENT && can(ROLES.CFS, A) && !!c['numeroDeclaration'] &&
         <AjouterCamion c={c} go={go} />}
+      {[OPERATIONS.DEPOTAGE, OPERATIONS.ENLEVEMENT].includes(c['typeOperation'] as never) &&
+        [STATUTS.CAMION, STATUTS.CHARGEMENT, STATUTS.CREEE].includes(c['statut'] as never) && can(ROLES.CFS, A) &&
+        <PanneauEditType c={c} action={action} />}
       <PanneauEditCamion c={c} action={action} />
     </div>
   );
@@ -387,5 +390,17 @@ function PanneauEditCamion({ c, action }: { c: O; action: ActionFn }) {
       <input value={num} onChange={(e) => setNum(masks.alnum(e.target.value))} style={{ maxWidth: 200 }} />
       <button className="ghost" onClick={() => action(() => call('cargo.editcamion', { id, numeroCamion: num }), 'N° camion corrigé.')}>Corriger</button>
     </div>
+  </details>;
+}
+
+/** v4 — Correction du type d'opération (Dépotage ↔ Enlèvement), phase CFS. */
+function PanneauEditType({ c, action }: { c: O; action: ActionFn }) {
+  const id = c['id'] as string;
+  const actuel = String(c['typeOperation']);
+  const autre = actuel === OPERATIONS.DEPOTAGE ? OPERATIONS.ENLEVEMENT : OPERATIONS.DEPOTAGE;
+  return <details className="card"><summary style={{ cursor: 'pointer', fontWeight: 600 }}>Corriger le type d'opération</summary>
+    <p className="help" style={{ marginTop: 10 }}>Actuel : <b>{actuel}</b>. En passant à « {autre} », les scellés sont ré-adaptés au nouveau modèle
+      (par conteneur en enlèvement / au niveau camion en dépotage). En dépotage, <b>refaites la finalisation</b> (scellés camion + hauteur) ; vérifiez les scellés après.</p>
+    <button className="ghost" onClick={() => action(() => call('cargo.edittype', { id, typeOperation: autre }), `Type corrigé → ${autre}.`)}>Passer en « {autre} »</button>
   </details>;
 }

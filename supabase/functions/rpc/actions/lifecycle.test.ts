@@ -279,6 +279,39 @@ test('confirmation entrée port sec EN LOT : confirme les pointés cochés, igno
   assert.equal(db.store['stock'].length, 2);
 });
 
+test('correction du type : dépotage → enlèvement (scellés camion → plombs conteneur)', async () => {
+  const db = new FakeDB();
+  db.store['stock'].push({ numero_tc: 'MSKU1234567', taille: "40'", statut: 'Positionné' });
+  const cfs = ctxAvec(db);
+  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'CORR1', routage: 'Dépotage' })) as { id: string };
+  await ecr.cfs(cfs, {
+    id, conteneur: { num: 'MSKU1234567', taille: "40'", type: 'DRY' },
+    declaration: { declarant: 'A', contactDeclarant: '901234', destinationMarchandise: 'D', bureauDeclaration: 'TG120', typeDeclaration: 'T', numeroDeclaration: '50', anneeDeclaration: '2026', dateDeclaration: '2026-06-24', descriptionMarchandise: 'X', nombreConteneurs: 1 },
+  });
+  await ecr.declaration(cfs, { id, hauteurChargement: '3', nbColis: '10', scellesCamion: ['S1', 'S2'] });
+  // Correction du type → enlèvement.
+  await ecr.edittype(cfs, { id, typeOperation: 'Enlèvement' });
+  const c = versCamel(db.store['cargaisons'][0]!);
+  assert.equal(c['typeOperation'], 'Enlèvement');
+  assert.equal(c['statut'], STATUTS.CREEE);
+  const pd = c['conteneursDetails'] as { conteneurs: { plomb: string }[]; scellesCamion: string[] };
+  assert.deepEqual(pd.scellesCamion, []); // plus de scellés camion
+  assert.equal(pd.conteneurs[0]!.plomb, 'S1'); // 1er scellé camion repris comme plomb conteneur
+});
+
+test('correction du type refusée après validation (hors ADMIN)', async () => {
+  const db = new FakeDB();
+  db.store['stock'].push({ numero_tc: 'MSKU1234567', taille: "40'", statut: 'En stock' });
+  const cfs = ctxAvec(db);
+  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'CORR2', routage: 'Enlèvement' })) as { id: string };
+  await ecr.cfs(cfs, {
+    id, conteneur: { num: 'MSKU1234567', taille: "40'", type: 'DRY', plomb: 'S1' },
+    declaration: { declarant: 'A', contactDeclarant: '901234', destinationMarchandise: 'D', bureauDeclaration: 'TG120', typeDeclaration: 'T', numeroDeclaration: '51', anneeDeclaration: '2026', dateDeclaration: '2026-06-24', descriptionMarchandise: 'X', nombreConteneurs: 1 },
+  });
+  await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'), { id });
+  await assert.rejects(() => ecr.edittype(cfs, { id, typeOperation: 'Dépotage' }), /déjà validée/);
+});
+
 test('confirmation en lot : refuse une sélection vide', async () => {
   const db = new FakeDB();
   const cfs = ctxRole(db, 'CFS', 'Agent Port Sec');

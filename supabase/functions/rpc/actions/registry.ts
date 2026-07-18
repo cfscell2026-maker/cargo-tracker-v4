@@ -41,6 +41,7 @@ export const ACTIONS: Record<string, H> = {
   'cargo.etatcfs': d(ecr.etatcfs),
   'cargo.arriveebureau': d(ecr.arriveebureau),
   'cargo.editcamion': d(ecr.editcamion),
+  'cargo.edittype': d(ecr.edittype),
   'cargo.update': d(ecr.update),
   'cargo.mixte': d(ecr.mixte),
 

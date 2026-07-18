@@ -522,6 +522,57 @@ export async function editcamion(ctx: Ctx, p: Record<string, unknown>) {
   return { id, numeroCamion: nouveau, ancien };
 }
 
+/* ------------------------------- edittype ------------------------------ */
+
+/**
+ * v4 — Correction du TYPE d'opération (Dépotage ↔ Enlèvement). Réservée à la
+ * phase CFS (avant validation) ; ADMIN partout. Ré-adapte les scellés au modèle
+ * du nouveau type (par conteneur en enlèvement / au niveau camion en dépotage)
+ * et remet le statut à un point cohérent (dépotage → à re-finaliser).
+ */
+export async function edittype(ctx: Ctx, p: Record<string, unknown>) {
+  const id = String(p['id'] ?? '').trim();
+  const nouveau = String(p['typeOperation'] ?? '').trim();
+  if ([OPERATIONS.DEPOTAGE, OPERATIONS.ENLEVEMENT].indexOf(nouveau as never) === -1)
+    throw new Error("Type d'opération invalide (Dépotage ou Enlèvement).");
+  const cargo = await getCargo(ctx, id);
+  const c = cargo.o;
+  const estAdmin = ctx.session.role === ROLES.ADMIN;
+  if (!estAdmin && [STATUTS.CAMION, STATUTS.CHARGEMENT, STATUTS.CREEE].indexOf(c['statut'] as never) === -1)
+    throw new Error('Correction du type impossible : la cargaison a déjà avancé (statut « ' + c['statut'] + ' »).');
+  if (!estAdmin && aFait(c['dateValidation']))
+    throw new Error('Correction du type impossible : cargaison déjà validée.');
+  const ancien = String(c['typeOperation'] || '');
+  if (ancien === nouveau) return { id, typeOperation: nouveau, inchange: true };
+
+  const estEnl = nouveau === OPERATIONS.ENLEVEMENT;
+  const pd = parseConteneursDetails(c['conteneursDetails']);
+  const conts = pd.conteneurs;
+  let scellesCamion = pd.scellesCamion;
+  if (estEnl) {
+    // → Enlèvement : le scellé est porté PAR conteneur. On reprend les scellés
+    //   camion comme plombs (best-effort, par position) puis on les efface.
+    conts.forEach((ct, i) => { if (!ct.plomb) ct.plomb = scellesCamion[i] || ''; });
+    scellesCamion = [];
+  } else {
+    // → Dépotage : scellés au niveau camion. On récupère les plombs conteneur.
+    const migr = [...new Set(conts.map((ct) => ct.plomb).filter(Boolean))].slice(0, 3);
+    if (migr.length) scellesCamion = migr;
+    conts.forEach((ct) => { ct.plomb = ''; });
+  }
+  // Statut cohérent : vide → « Camion créé » ; sinon enlèvement → « Créée »,
+  // dépotage → « En cours de chargement » (finalisation scellés/hauteur à refaire).
+  const statut = !conts.length ? STATUTS.CAMION : estEnl ? STATUTS.CREEE : STATUTS.CHARGEMENT;
+  await patchCargo(ctx, cargo, {
+    type_operation: nouveau, routage_entree: nouveau,
+    twins: estEnl && conts.length >= 2,
+    conteneurs_details: { conteneurs: conts, scellesCamion },
+    statut,
+  });
+  await ctx.log("Correction type d'opération", id, ancien + ' → ' + nouveau);
+  return { id, typeOperation: nouveau, ancien };
+}
+
 /* -------------------------------- update ------------------------------- */
 
 /** Édition d'une cargaison (champs CFS). CFS limité au statut « Créée » ; ADMIN partout. */

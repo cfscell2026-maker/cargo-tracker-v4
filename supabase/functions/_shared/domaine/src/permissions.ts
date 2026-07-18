@@ -27,6 +27,7 @@ export const PERMISSIONS: Record<string, Role[]> = {
   'cargo.create': [ROLES.CFS, ROLES.ADMIN],
   'cargo.update': [ROLES.CFS, ROLES.ADMIN],
   'cargo.editcamion': TOUS_ROLES, // correction ciblée du N° camion (tous rôles, tout statut) — I-3 conservé
+  'cargo.edittype': [ROLES.CFS, ROLES.ADMIN], // correction du type d'opération (phase CFS ; ADMIN partout)
   'cargo.sceller': [ROLES.CFS, ROLES.ADMIN],
   'cargo.visite': [ROLES.CFS, ROLES.ADMIN],
   'cargo.mixte': [ROLES.CFS, ROLES.ADMIN],
