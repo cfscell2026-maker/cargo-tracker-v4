@@ -61,7 +61,9 @@ export async function create(ctx: Ctx, p: Record<string, unknown>) {
   if (!(await lookupDeclaration(ctx, decl)).exists) {
     if (!(Number((p['declaration'] as Record<string, unknown>)?.['nombreConteneurs']) >= 1))
       throw new Error('Nouvelle déclaration : indiquez le « nombre de conteneurs » déclarés.');
-    if (!decl.dateDeclaration) throw new Error('Nouvelle déclaration : indiquez la « date de la déclaration ».');
+    // Date en douane : exigée sauf en enlèvement.
+    if (type !== OPERATIONS.ENLEVEMENT && !decl.dateDeclaration)
+      throw new Error('Nouvelle déclaration : indiquez la « date de la déclaration ».');
   }
 
   const rapportId = await nextRapportId(ctx);

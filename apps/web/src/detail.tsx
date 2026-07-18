@@ -16,7 +16,9 @@ type O = Record<string, unknown>;
 const A = ROLES.ADMIN;
 
 export function Detail({ user, arg, go }: Nav) {
-  const id = String(arg ?? '');
+  // `arg` = id (chaîne) OU { id, prefillDecl } quand on enchaîne un 2e camion.
+  const a = arg && typeof arg === 'object' ? (arg as { id?: unknown; prefillDecl?: O }) : { id: arg };
+  const id = String(a.id ?? '');
   const { data: c, loading, error, reload } = useAsync<O>(() => call('cargo.get', { id }), [id]);
   if (loading) return <Spinner />;
   if (error) return <div className="card err-msg">{error}</div>;
@@ -64,7 +66,7 @@ export function Detail({ user, arg, go }: Nav) {
 
       {/* Panneaux d'action selon rôle × étape */}
       {(c['statut'] === STATUTS.CAMION || c['statut'] === STATUTS.CHARGEMENT) && can(ROLES.CFS, A) &&
-        <PanneauCFS c={c} dets={dets} action={action} />}
+        <PanneauCFS c={c} dets={dets} action={action} prefillDecl={a.prefillDecl} />}
       {c['statut'] === STATUTS.VEHICULE_OUILLAGE && can(ROLES.CFS, A) && <PanneauOuillage c={c} action={action} />}
       {pend.includes('VALIDATION') && can(ROLES.CHEF_BRIGADE, A) && <PanneauValidation c={c} action={action} />}
       {pend.includes('T1') && can(ROLES.T1, A) && <PanneauT1 c={c} dets={dets} action={action} />}
@@ -77,6 +79,8 @@ export function Detail({ user, arg, go }: Nav) {
           <button onClick={() => action(() => call('cargo.arriveebureau', { id }), 'Arrivée confirmée.')}>Confirmer l'arrivée (solder la dispense)</button></div>}
       {!estVeh && c['statut'] !== STATUTS.SORTIE && can(ROLES.CFS, A) && <PanneauEtatCFS c={c} action={action} />}
 
+      {c['typeOperation'] === OPERATIONS.ENLEVEMENT && can(ROLES.CFS, A) && !!c['numeroDeclaration'] &&
+        <AjouterCamion c={c} go={go} />}
       <PanneauEditCamion c={c} action={action} />
     </div>
   );
@@ -124,19 +128,36 @@ function Champ({ label, ...p }: { label: string } & React.InputHTMLAttributes<HT
   return <div><label className="help">{label}</label><input {...p} /></div>;
 }
 
-function PanneauCFS({ c, dets, action }: { c: O; dets: ReturnType<typeof parseConteneursDetails>; action: ActionFn }) {
+function PanneauCFS({ c, dets, action, prefillDecl }: { c: O; dets: ReturnType<typeof parseConteneursDetails>; action: ActionFn; prefillDecl?: O }) {
   const id = c['id'] as string;
   const estEnl = c['typeOperation'] === OPERATIONS.ENLEVEMENT;
   const premier = c['statut'] === STATUTS.CAMION;
   const [f, setF] = useState<O>({ num: '', taille: '', type: '', poids: '', plomb: '', manuel: false });
-  const [d, setD] = useState<O>({ declarant: '', contactDeclarant: '', destinationMarchandise: '', bureauDeclaration: 'TG120', typeDeclaration: 'T', numeroDeclaration: '', anneeDeclaration: String(new Date().getFullYear()), descriptionMarchandise: '', nombreConteneurs: '', dateDeclaration: '' });
+  const [d, setD] = useState<O>({ declarant: '', contactDeclarant: '', destinationMarchandise: '', bureauDeclaration: 'TG120', typeDeclaration: 'T', numeroDeclaration: '', anneeDeclaration: String(new Date().getFullYear()), descriptionMarchandise: '', nombreConteneurs: '', dateDeclaration: '', ...(prefillDecl ?? {}) });
   const [consoMode, setConsoMode] = useState('balise'); // type C : balisée / non balisée (dispense)
   // v4 — propose les TC de la bonne source à la frappe : dépotage → stock du jour
   // (Positionné) ; enlèvement → stock du PIA (En stock).
   const statutStock = estEnl ? 'En stock' : 'Positionné';
   const { data: stk } = useAsync<{ rows: O[] }>(() => call('stock.list', { statut: statutStock }), [statutStock]);
-  const tcOptions = ((stk?.rows ?? []) as O[]).map((r) => String(r['numeroTC'] ?? '')).filter(Boolean);
+  const stockRows = (stk?.rows ?? []) as O[];
+  const tcOptions = stockRows.map((r) => String(r['numeroTC'] ?? '')).filter(Boolean);
+  const stockByTc = Object.fromEntries(stockRows.map((r) => [String(r['numeroTC'] ?? ''), r]));
   const set = (k: string, v: unknown) => setF((o) => ({ ...o, [k]: v }));
+
+  // v4 — à la saisie/choix d'un conteneur du stock, pré-remplit taille + type
+  // depuis la fiche stock (l'agent n'a plus à les ressaisir ; reste modifiable).
+  function choisirConteneur(v: string) {
+    const num = masks.tc(v);
+    setF((o) => {
+      const next: O = { ...o, num };
+      const hit = stockByTc[num] as O | undefined;
+      if (hit) {
+        if (hit['taille']) next['taille'] = String(hit['taille']);
+        if (hit['typeConteneur']) next['type'] = String(hit['typeConteneur']);
+      }
+      return next;
+    });
+  }
   const setDd = (k: string, v: unknown) => setD((o) => ({ ...o, [k]: v }));
   const montrerDecl = premier || !estEnl; // enlèvement 1er conteneur / dépotage : chaque conteneur
   const estConso = String(d['typeDeclaration']) === 'C'; // mise à la consommation → saute le T1
@@ -154,7 +175,7 @@ function PanneauCFS({ c, dets, action }: { c: O; dets: ReturnType<typeof parseCo
       <h2>CFS — associer / ajouter un conteneur</h2>
       <p style={{ color: '#5c6b7a', marginTop: 0 }}>Opération : <b>{c['typeOperation'] as string}</b>. {estEnl ? 'Enlèvement : scellé par conteneur, déclaration au 1er.' : 'Dépotage : conteneurs du stock (Positionné), déclaration par conteneur, puis scellés camion.'}</p>
       <div className="grid2">
-        <Champ label="N° conteneur (ISO 6346)" className="mono" value={String(f['num'])} onChange={(e) => set('num', masks.tc(e.target.value))} list="dl-cfs-tc" autoComplete="off" />
+        <Champ label="N° conteneur (ISO 6346)" className="mono" value={String(f['num'])} onChange={(e) => choisirConteneur(e.target.value)} list="dl-cfs-tc" autoComplete="off" />
         <datalist id="dl-cfs-tc">{tcOptions.map((t) => <option key={t} value={t} />)}</datalist>
         <Champ label="Taille" value={String(f['taille'])} onChange={(e) => set('taille', masks.upper(e.target.value))} placeholder="20' / 40' / 45'" />
         <Champ label="Type (facultatif)" value={String(f['type'])} onChange={(e) => set('type', masks.upper(e.target.value))} />
@@ -175,8 +196,8 @@ function PanneauCFS({ c, dets, action }: { c: O; dets: ReturnType<typeof parseCo
             {estConso && <div><label className="help">Conso (type C) — balise</label><select value={consoMode} onChange={(e) => setConsoMode(e.target.value)}><option value="balise">À baliser</option><option value="sansbalise">Non balisée (dispense)</option></select></div>}
             <Champ label="N° déclaration" value={String(d['numeroDeclaration'])} onChange={(e) => setDd('numeroDeclaration', masks.upper(e.target.value))} />
             <Champ label="Année" value={String(d['anneeDeclaration'])} onChange={(e) => setDd('anneeDeclaration', e.target.value)} />
-            {/* v4 — date en douane, imprimée sur l'ordre d'exécution (exigée si nouvelle déclaration). */}
-            <Champ label="Date de la déclaration (si nouvelle)" type="date" value={String(d['dateDeclaration'] ?? '')} onChange={(e) => setDd('dateDeclaration', e.target.value)} />
+            {/* v4 — date en douane, imprimée sur l'ordre d'exécution (exigée si nouvelle déclaration, sauf enlèvement). */}
+            {!estEnl && <Champ label="Date de la déclaration (si nouvelle)" type="date" value={String(d['dateDeclaration'] ?? '')} onChange={(e) => setDd('dateDeclaration', e.target.value)} />}
             <Champ label="Nb conteneurs déclarés (si nouvelle)" type="number" value={String(d['nombreConteneurs'])} onChange={(e) => setDd('nombreConteneurs', e.target.value)} />
             <Champ label="Description marchandise" value={String(d['descriptionMarchandise'])} onChange={(e) => setDd('descriptionMarchandise', masks.upper(e.target.value))} />
           </div>
@@ -188,6 +209,32 @@ function PanneauCFS({ c, dets, action }: { c: O; dets: ReturnType<typeof parseCo
       {!estEnl && c['statut'] === STATUTS.CHARGEMENT && <FinaliserDepotage id={id} action={action} />}
     </div>
   );
+}
+
+/** v4 — Enlèvement : enchaîner un 2e camion en reprenant la déclaration courante. */
+function AjouterCamion({ c, go }: { c: O; go: Nav['go'] }) {
+  const [num, setNum] = useState('');
+  const [busy, setBusy] = useState(false);
+  async function creer() {
+    if (!num) { toast('N° camion requis.', 'err'); return; }
+    setBusy(true);
+    try {
+      const r = await call<{ id: string }>('cargo.createcamion', { numeroCamion: num, routage: OPERATIONS.ENLEVEMENT });
+      const prefillDecl: O = {
+        declarant: String(c['declarant'] ?? ''), contactDeclarant: String(c['contactDeclarant'] ?? ''),
+        destinationMarchandise: String(c['destinationMarchandise'] ?? ''), bureauDeclaration: String(c['bureauDeclaration'] ?? 'TG120'),
+        typeDeclaration: String(c['typeDeclaration'] ?? 'T'), numeroDeclaration: String(c['numeroDeclaration'] ?? ''),
+        anneeDeclaration: String(c['anneeDeclaration'] ?? ''), descriptionMarchandise: String(c['descriptionMarchandise'] ?? ''),
+      };
+      toast('Nouveau camion créé.', 'ok');
+      go('detail', { id: r.id, prefillDecl });
+    } catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(false); }
+  }
+  return <div className="card"><h2>Ajouter un autre camion (même déclaration)</h2>
+    <p className="help" style={{ marginTop: 0 }}>Crée un nouveau camion d'enlèvement en reprenant la déclaration de ce camion — vous n'aurez qu'à saisir le conteneur.</p>
+    <div className="row"><input className="mono" value={num} onChange={(e) => setNum(masks.alnum(e.target.value))} placeholder="N° du nouveau camion" style={{ flex: 1 }} />
+      <button disabled={busy} onClick={creer}>Créer et associer</button></div>
+  </div>;
 }
 
 function FinaliserDepotage({ id, action }: { id: string; action: ActionFn }) {

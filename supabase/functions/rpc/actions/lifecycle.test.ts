@@ -127,22 +127,35 @@ test('déclaration type C non balisée : saute le T1 ET la Balise', async () => 
   assert.deepEqual(etapesEnAttente(versCamel(db.store['cargaisons'][0]!) as never), ['BS', 'PP']);
 });
 
-test('nouvelle déclaration : la date en douane est exigée (ordre d\'exécution)', async () => {
+test('nouvelle déclaration (dépotage) : la date en douane est exigée (ordre d\'exécution)', async () => {
   const db = new FakeDB();
-  db.store['stock'].push({ numero_tc: 'MSKU1234567', taille: "40'", statut: 'En stock' });
+  db.store['stock'].push({ numero_tc: 'MSKU1234567', taille: "40'", statut: 'Positionné' });
   const cfs = ctxAvec(db);
-  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'SANSDATE', routage: 'Enlèvement' })) as { id: string };
+  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'SANSDATE', routage: 'Dépotage' })) as { id: string };
   const sansDate = { declarant: 'A', contactDeclarant: '901234', destinationMarchandise: 'D', bureauDeclaration: 'TG120', typeDeclaration: 'T', numeroDeclaration: '4242', anneeDeclaration: '2026', descriptionMarchandise: 'X', nombreConteneurs: 1 };
   await assert.rejects(
-    () => ecr.cfs(cfs, { id, conteneur: { num: 'MSKU1234567', taille: "40'", type: 'DRY', plomb: 'S1' }, declaration: sansDate }),
+    () => ecr.cfs(cfs, { id, conteneur: { num: 'MSKU1234567', taille: "40'", type: 'DRY' }, declaration: sansDate }),
     /indiquez la « date de la déclaration »/,
   );
   // Avec la date : la déclaration passe et la date est stockée en base.
   await ecr.cfs(cfs, {
-    id, conteneur: { num: 'MSKU1234567', taille: "40'", type: 'DRY', plomb: 'S1' },
+    id, conteneur: { num: 'MSKU1234567', taille: "40'", type: 'DRY' },
     declaration: { ...sansDate, dateDeclaration: '24/06/2026' }, // format jj/mm/aaaa accepté
   });
   assert.equal(db.store['declarations'][0]?.['date_declaration'], '2026-06-24');
+});
+
+test('enlèvement : la date en douane n\'est PAS exigée', async () => {
+  const db = new FakeDB();
+  db.store['stock'].push({ numero_tc: 'MSKU1234567', taille: "40'", statut: 'En stock' });
+  const cfs = ctxAvec(db);
+  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'ENLSANSDATE', routage: 'Enlèvement' })) as { id: string };
+  // Nouvelle déclaration sans date : accepté en enlèvement.
+  await ecr.cfs(cfs, {
+    id, conteneur: { num: 'MSKU1234567', taille: "40'", type: 'DRY', plomb: 'S1' },
+    declaration: { declarant: 'A', contactDeclarant: '901234', destinationMarchandise: 'D', bureauDeclaration: 'TG120', typeDeclaration: 'T', numeroDeclaration: '7777', anneeDeclaration: '2026', descriptionMarchandise: 'X', nombreConteneurs: 1 },
+  });
+  assert.equal(statutDe(db, id), STATUTS.CREEE);
 });
 
 test('véhicule : le conteneur d\'origine (TC) est obligatoire', async () => {
