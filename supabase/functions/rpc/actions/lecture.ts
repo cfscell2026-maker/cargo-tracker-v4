@@ -95,7 +95,8 @@ export async function cargoList(
   if (statut !== 'tous') all = all.filter((r) => r['statut'] === statut);
   if (search) {
     all = all.filter((r) =>
-      [r['id'], r['reference'], r['rapportId'], r['numeroCamion'], r['conteneur1'], r['numeroGps']]
+      [r['id'], r['reference'], r['rapportId'], r['numeroCamion'],
+        r['conteneur1'], r['conteneur2'], r['conteneur3'], r['conteneur4'], r['numeroGps']]
         .some((x) => String(x ?? '').toLowerCase().indexOf(search) > -1),
     );
   }

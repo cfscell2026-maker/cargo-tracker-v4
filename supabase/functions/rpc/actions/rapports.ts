@@ -563,21 +563,21 @@ export async function ordreExecution(ctx: Ctx, p: Record<string, unknown>) {
   const html = `<!doctype html><html lang="fr"><meta charset="utf-8">
 <title>Ordre d'exécution — déclaration ${esc(d['numeroDeclaration'])}</title>
 <style>
-  @page { size: A4; margin: 14mm; }
-  body { font-family: "Times New Roman", serif; color: #000; font-size: 12px; line-height: 1.5; }
-  .head { display: flex; justify-content: space-between; align-items: flex-start; }
-  .head .g { font-weight: bold; font-size: 11px; text-transform: uppercase; line-height: 1.35; }
-  .head .d { text-align: center; font-size: 11px; }
-  .head .d b { font-size: 12px; }
-  h1 { text-align: center; font-size: 15px; letter-spacing: .06em; margin: 14px 0 10px; text-decoration: underline; }
-  .num { font-size: 11px; margin-top: 6px; }
-  .l { margin: 5px 0; }
-  .sec { font-weight: bold; text-decoration: underline; margin-top: 10px; }
-  .sig { display: flex; justify-content: space-between; margin-top: 6px; }
-  table { border-collapse: collapse; width: 100%; margin-top: 8px; }
-  td, th { border: 1px solid #000; padding: 4px 6px; font-size: 11px; text-align: left; }
-  th { font-weight: bold; }
-  .nb { font-size: 9px; font-style: italic; margin-top: 10px; }
+  @page { size: A4; margin: 16mm 18mm; }
+  body { font-family: "Times New Roman", "Liberation Serif", Georgia, serif; color: #000; font-size: 12.5px; line-height: 1.55; margin: 0; }
+  .head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
+  .head .g { font-weight: bold; font-size: 10.5px; text-transform: uppercase; line-height: 1.4; }
+  .head .d { text-align: center; font-size: 11px; padding-top: 2px; }
+  .head .d b { font-size: 12.5px; letter-spacing: .03em; }
+  h1 { text-align: center; font-size: 16px; letter-spacing: .12em; margin: 18px 0 4px; text-decoration: underline; text-underline-offset: 3px; }
+  .num { font-size: 11px; margin: 2px 0 14px; }
+  .l { margin: 7px 0; }
+  .sec { font-weight: bold; text-decoration: underline; text-underline-offset: 2px; }
+  .sig { display: flex; justify-content: space-between; margin-top: 14px; }
+  table { border-collapse: collapse; width: 100%; margin-top: 10px; }
+  td, th { border: 1px solid #000; padding: 6px 8px; font-size: 11.5px; text-align: center; }
+  th { font-weight: bold; background: #f2f2f2; }
+  .nb { font-size: 9.5px; font-style: italic; margin-top: 12px; }
   .blank { display: inline-block; border-bottom: 1px dotted #000; min-width: 60px; }
 </style>
 <div class="head">

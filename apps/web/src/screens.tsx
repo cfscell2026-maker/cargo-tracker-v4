@@ -8,7 +8,9 @@ import { useAsync } from './lib/hooks.ts';
 import { Spinner, StatCard, Tag, Modal, masks, toast, fmtDate, fmtJour, isoDate } from './lib/ui.tsx';
 import { Detail } from './detail.tsx';
 import type { Nav } from './App.tsx';
-import { OPERATIONS, VEHICULE_DESTINATIONS, TYPES_DECLARATION, tcValide } from '../../../supabase/functions/_shared/domaine/src/index.ts';
+import { OPERATIONS, VEHICULE_DESTINATIONS, TYPES_DECLARATION, STATUTS, tcValide } from '../../../supabase/functions/_shared/domaine/src/index.ts';
+
+const STATUT_OPTIONS = Object.values(STATUTS);
 
 type O = Record<string, unknown>;
 type Screen = (p: Nav) => JSX.Element;
@@ -27,13 +29,26 @@ function Table({ cols, rows, onRow }: { cols: [string, string][]; rows: O[]; onR
 }
 
 /* --------------------------- Liste de cargaisons ----------------------- */
-function CargoList({ go, filtre, titre }: Nav & { filtre: O; titre?: string }) {
+function CargoList({ go, filtre, titre, barre }: Nav & { filtre: O; titre?: string; barre?: boolean }) {
   const [page, setPage] = useState(1);
+  const [statut, setStatut] = useState(String(filtre['statut'] ?? 'tous'));
+  const [search, setSearch] = useState('');
+  const reset = () => setPage(1);
+  const eff = barre ? { ...filtre, statut, search } : filtre;
   const { data, loading, error } = useAsync<{ rows: O[]; total: number; pages: number }>(
-    () => call('cargo.list', { ...filtre, page }), [JSON.stringify(filtre), page]);
+    () => call('cargo.list', { ...eff, page }), [JSON.stringify(filtre), statut, search, page]);
   return <div className="card">
     {titre && <h2>{titre}</h2>}
+    {barre && <div className="row" style={{ alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
+      <input className="mono" value={search} onChange={(e) => { setSearch(e.target.value); reset(); }}
+        placeholder="Rechercher — N° conteneur, ID, camion, GPS" style={{ flex: 1, minWidth: 220 }} />
+      <select value={statut} onChange={(e) => { setStatut(e.target.value); reset(); }} style={{ maxWidth: 220 }}>
+        <option value="tous">Tous les statuts</option>
+        {STATUT_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
+      </select>
+    </div>}
     {loading ? <Spinner /> : error ? <div className="err-msg">{error}</div> : <>
+      {barre && <div className="help" style={{ marginBottom: 6 }}>{data?.total ?? 0} cargaison(s)</div>}
       <Table cols={[['id', 'ID'], ['dateCreation', 'Date'], ['numeroCamion', 'Camion'], ['typeOperation', 'Opération'], ['statut', 'Statut'], ['numeroGps', 'GPS']]}
         rows={data?.rows ?? []} onRow={(r) => go('detail', r['id'])} />
       {(data?.pages ?? 1) > 1 && <div className="row" style={{ marginTop: 10, justifyContent: 'center' }}>
@@ -85,7 +100,7 @@ SCREENS.dash = (nav) => {
 };
 
 SCREENS.detail = (nav) => <Detail {...nav} />;
-SCREENS.list = (nav) => <CargoList {...nav} filtre={{ categorie: 'camion', ...((nav.arg as O) ?? {}) }} />;
+SCREENS.list = (nav) => <CargoList {...nav} filtre={{ categorie: 'camion', ...((nav.arg as O) ?? {}) }} titre="Cargaisons" barre />;
 SCREENS.vehicules = (nav) => <CargoList {...nav} filtre={{ categorie: 'vehicule' }} titre="Véhicules" />;
 SCREENS.completer = (nav) => <CargoList {...nav} filtre={{ etape: 'CFS' }} titre="À compléter (CFS)" />;
 SCREENS.wait_valid = (nav) => <CargoList {...nav} filtre={{ etape: 'VALIDATION' }} titre="À valider" />;

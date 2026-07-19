@@ -9,7 +9,7 @@ import { Spinner, Tag, masks, toast, fmtDate } from './lib/ui.tsx';
 import type { Nav } from './App.tsx';
 import {
   STATUTS, OPERATIONS, ROLES, TYPES_DECLARATION, ETATS_SORTIE,
-  etapesEnAttente, estOui, tcValide, parseConteneursDetails,
+  etapesEnAttente, estOui, tcValide, parseConteneursDetails, tailleBucket,
 } from '../../../supabase/functions/_shared/domaine/src/index.ts';
 
 type O = Record<string, unknown>;
@@ -29,6 +29,9 @@ export function Detail({ user, arg, go }: Nav) {
   const can = (...roles: string[]) => roles.includes(role);
   const dets = parseConteneursDetails(c['conteneursDetails']);
   const estVeh = estOui(c['estVehicule']);
+  // Enlèvement binôme : après UN conteneur 20', on peut en ajouter un 2e (20').
+  const binomePossible = c['typeOperation'] === OPERATIONS.ENLEVEMENT
+    && dets.conteneurs.length === 1 && tailleBucket(dets.conteneurs[0]?.taille) === 't20';
 
   async function action(fn: () => Promise<unknown>, ok: string) {
     try { await fn(); toast(ok, 'ok'); reload(); } catch (e) { toast((e as Error).message, 'err'); }
@@ -50,8 +53,7 @@ export function Detail({ user, arg, go }: Nav) {
         {'horsGabarit' in c ? <div className="kv"><b>Hors gabarit</b>{estOui(c['horsGabarit']) ? `Oui (${(c['hauteurChargement'] as string) || '?'} m)` : 'Non'}</div> : null}
       </div>
 
-      <Timeline c={c} />
-
+      {/* Conteneurs AVANT le parcours (info liée à la cargaison en premier). */}
       {dets.conteneurs.length > 0 && (
         <div className="card">
           <h2>Conteneurs ({dets.conteneurs.length})</h2>
@@ -64,8 +66,10 @@ export function Detail({ user, arg, go }: Nav) {
         </div>
       )}
 
+      <Timeline c={c} />
+
       {/* Panneaux d'action selon rôle × étape */}
-      {(c['statut'] === STATUTS.CAMION || c['statut'] === STATUTS.CHARGEMENT) && can(ROLES.CFS, A) &&
+      {(c['statut'] === STATUTS.CAMION || c['statut'] === STATUTS.CHARGEMENT || (c['statut'] === STATUTS.CREEE && binomePossible)) && can(ROLES.CFS, A) &&
         <PanneauCFS c={c} dets={dets} action={action} prefillDecl={a.prefillDecl} />}
       {c['statut'] === STATUTS.VEHICULE_OUILLAGE && can(ROLES.CFS, A) && <PanneauOuillage c={c} action={action} />}
       {pend.includes('VALIDATION') && can(ROLES.CHEF_BRIGADE, A) && <PanneauValidation c={c} action={action} />}
