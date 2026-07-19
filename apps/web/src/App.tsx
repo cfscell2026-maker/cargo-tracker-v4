@@ -2,12 +2,12 @@
  * Coquille applicative : authentification (mot de passe + 2FA TOTP obligatoire),
  * menu par rôle (MENUS v3.6) et routeur d'écrans.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import './styles.css';
 import { supabase } from './lib/supabase.ts';
 import { call } from './lib/rpc.ts';
 import { MENUS, TITLES, roleLabel, ToastHost, toast, Spinner } from './lib/ui.tsx';
-import { empiler, depiler, vueInitiale, ecranPrecedentDe, type EtatNav } from './lib/navigation.ts';
+import { empiler, vueInitiale, vueCourante, ecranPrecedentDe, allerA, type EtatNav } from './lib/navigation.ts';
 import { SCREENS } from './screens.tsx';
 
 export interface User { username: string; nomComplet: string; role: string }
@@ -37,29 +37,64 @@ const MFA_REQUISE = false;
 export function App() {
   const [phase, setPhase] = useState<Phase>('loading');
   const [user, setUser] = useState<User | null>(null);
-  // Vue courante + PILE des vues précédentes (logique pure dans lib/navigation).
-  // Un seul état pour les deux : empiler depuis l'updater d'un autre état
-  // provoquerait un double-push en StrictMode (les updaters y sont appelés deux fois).
+  // Historique de navigation (logique pure dans lib/navigation).
   const [nav, setNav] = useState<EtatNav>(vueInitiale);
   const [sideOpen, setSideOpen] = useState(false);
-  const { screen, arg } = nav.vue;
+  const { screen, arg } = vueCourante(nav);
 
+  /**
+   * Miroir synchrone de `nav` : `go`/`retour` doivent connaître l'état COURANT
+   * pour piloter l'historique du navigateur dans le même tour, alors que
+   * `setNav` est asynchrone.
+   */
+  const navRef = useRef(nav);
+  const majNav = useCallback((etat: EtatNav) => { navRef.current = etat; setNav(etat); }, []);
+
+  /**
+   * Chaque vue de l'appli = une entrée d'historique du navigateur, portant son
+   * index. Le bouton Retour du téléphone devient donc le retour de l'appli au
+   * lieu de faire quitter l'application.
+   */
   const go = useCallback((s: string, a?: unknown) => {
-    setNav((etat) => empiler(etat, s, a));
+    const apres = empiler(navRef.current, s, a);
     setSideOpen(false);
+    if (apres === navRef.current) return; // même vue : ni entrée, ni rendu
+    majNav(apres);
+    window.history.pushState({ indexNav: apres.index }, '');
+  }, [majNav]);
+
+  /**
+   * Retour de l'appli : on délègue au navigateur (`history.back()`) et c'est
+   * `popstate` qui déplace le curseur. Une seule voie de retour, donc pas de
+   * désynchronisation entre notre historique et celui du navigateur.
+   */
+  const retour = useCallback(() => {
+    setSideOpen(false);
+    if (navRef.current.index > 0) window.history.back();
   }, []);
 
-  const retour = useCallback(() => {
-    setNav(depiler);
-    setSideOpen(false);
-  }, []);
+  // Retour / Suivant du navigateur (et du téléphone) : l'entrée atteinte porte
+  // son index, on s'y aligne. Sans état (entrée étrangère), on revient au début.
+  useEffect(() => {
+    window.history.replaceState({ indexNav: navRef.current.index }, '');
+    const surPop = (e: PopStateEvent) => {
+      const cible = typeof (e.state as { indexNav?: unknown } | null)?.indexNav === 'number'
+        ? (e.state as { indexNav: number }).indexNav : 0;
+      majNav(allerA(navRef.current, cible));
+      setSideOpen(false);
+    };
+    window.addEventListener('popstate', surPop);
+    return () => window.removeEventListener('popstate', surPop);
+  }, [majNav]);
 
   const entrerApp = useCallback(async () => {
     const u = await call<User>('account.me');
     // Nouvelle session = historique repartant de zéro (on ne remonte pas dans
     // la navigation de l'utilisateur précédent).
-    setUser(u); setNav(vueInitiale()); setPhase('app');
-  }, []);
+    const depart = vueInitiale();
+    setUser(u); majNav(depart); setPhase('app');
+    window.history.replaceState({ indexNav: 0 }, '');
+  }, [majNav]);
 
   const evaluerSession = useCallback(async () => {
     const { data } = await supabase.auth.getSession();
