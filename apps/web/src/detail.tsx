@@ -14,6 +14,8 @@ import {
 
 type O = Record<string, unknown>;
 const A = ROLES.ADMIN;
+// Sous-panneau d'édition (rendu à l'intérieur du bloc « Éditer », sans chrome de carte).
+const EDIT_ITEM = { border: '1px solid var(--line)', borderRadius: 6, padding: '8px 12px' } as const;
 
 export function Detail({ user, arg, go }: Nav) {
   // `arg` = id (chaîne) OU { id, prefillDecl } quand on enchaîne un 2e camion.
@@ -86,16 +88,31 @@ export function Detail({ user, arg, go }: Nav) {
       {/* v4 — enchaîner un autre camion sur la même déclaration : enlèvement ET dépotage. */}
       {[OPERATIONS.DEPOTAGE, OPERATIONS.ENLEVEMENT].includes(c['typeOperation'] as never) && can(ROLES.CFS, A) && !!c['numeroDeclaration'] &&
         <AjouterCamion c={c} go={go} />}
-      {/* v4 — corrections de saisie (conteneur, déclaration, type) en phase CFS ; ADMIN partout. */}
-      {([STATUTS.CAMION, STATUTS.CHARGEMENT, STATUTS.CREEE].includes(c['statut'] as never) || role === A) && can(ROLES.CFS, A) && <>
-        {dets.conteneurs.length > 0 && <PanneauEditConteneurs c={c} dets={dets} action={action} />}
-        {!!c['numeroDeclaration'] && <PanneauEditDecl c={c} action={action} />}
-        {[OPERATIONS.DEPOTAGE, OPERATIONS.ENLEVEMENT].includes(c['typeOperation'] as never) && <PanneauEditType c={c} action={action} />}
-      </>}
-      <PanneauEditCamion c={c} action={action} />
-      {role === A && <PanneauSupprimer c={c} go={go} />}
+      {/* v4 — Éditer : le CFS a la main JUSQU'À la fin de chargement ; l'ADMIN toujours. */}
+      {(role === A || (role === ROLES.CFS && [STATUTS.CAMION, STATUTS.CHARGEMENT, STATUTS.CREEE].includes(c['statut'] as never))) &&
+        <PanneauEditer c={c} dets={dets} action={action} go={go} admin={role === A} />}
     </div>
   );
+}
+
+/**
+ * v4 — Bouton « Éditer » regroupant TOUTES les corrections (conteneur,
+ * déclaration, type, N° camion) + suppression (ADMIN). Le CFS y a accès
+ * jusqu'à la fin de chargement ; l'ADMIN à tout moment (erreurs fatales).
+ */
+function PanneauEditer({ c, dets, action, go, admin }: { c: O; dets: ReturnType<typeof parseConteneursDetails>; action: ActionFn; go: Nav['go']; admin: boolean }) {
+  const estCamionOp = [OPERATIONS.DEPOTAGE, OPERATIONS.ENLEVEMENT].includes(c['typeOperation'] as never);
+  return <details className="card">
+    <summary style={{ cursor: 'pointer', fontWeight: 700 }}>✎ Éditer la cargaison</summary>
+    <p className="help" style={{ marginTop: 8 }}>Corrections de saisie. {admin ? 'Accès administrateur (à tout moment).' : 'Possible jusqu\'à la fin de chargement.'}</p>
+    <div style={{ display: 'grid', gap: 8 }}>
+      {dets.conteneurs.length > 0 && <PanneauEditConteneurs c={c} dets={dets} action={action} />}
+      {!!c['numeroDeclaration'] && <PanneauEditDecl c={c} action={action} />}
+      {estCamionOp && <PanneauEditType c={c} action={action} />}
+      <PanneauEditCamion c={c} action={action} />
+      {admin && <PanneauSupprimer c={c} go={go} />}
+    </div>
+  </details>;
 }
 
 /** v4 — Suppression d'un doublon de cargaison (ADMIN uniquement). */
@@ -111,7 +128,7 @@ function PanneauSupprimer({ c, go }: { c: O; go: Nav['go'] }) {
       go('list');
     } catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(false); }
   }
-  return <details className="card"><summary style={{ cursor: 'pointer', fontWeight: 600, color: 'var(--warn)' }}>Supprimer cette cargaison (doublon) — ADMIN</summary>
+  return <details style={EDIT_ITEM}><summary style={{ cursor: 'pointer', fontWeight: 600, color: 'var(--warn)' }}>Supprimer cette cargaison (doublon) — ADMIN</summary>
     <p className="help" style={{ marginTop: 10 }}>Action réservée à l'administrateur, pour retirer un <b>doublon de saisie</b>. Irréversible ; l'action est tracée dans l'historique.</p>
     <button className="ghost" disabled={busy} style={{ color: 'var(--warn)' }} onClick={supprimer}>Supprimer définitivement</button>
   </details>;
@@ -420,7 +437,7 @@ function PanneauEtatCFS({ c, action }: { c: O; action: ActionFn }) {
 function PanneauEditCamion({ c, action }: { c: O; action: ActionFn }) {
   const id = c['id'] as string;
   const [num, setNum] = useState((c['numeroCamion'] as string) || '');
-  return <details className="card"><summary style={{ cursor: 'pointer', fontWeight: 600 }}>Corriger le N° de camion</summary>
+  return <details style={EDIT_ITEM}><summary style={{ cursor: 'pointer', fontWeight: 600 }}>Corriger le N° de camion</summary>
     <div className="row" style={{ marginTop: 10 }}>
       <input value={num} onChange={(e) => setNum(masks.alnum(e.target.value))} style={{ maxWidth: 200 }} />
       <button className="ghost" onClick={() => action(() => call('cargo.editcamion', { id, numeroCamion: num }), 'N° camion corrigé.')}>Corriger</button>
@@ -457,7 +474,7 @@ function PanneauEditConteneurs({ c, dets, action }: { c: O; dets: ReturnType<typ
     setI(null);
   }
 
-  return <details className="card"><summary style={{ cursor: 'pointer', fontWeight: 600 }}>Corriger un conteneur (N° erroné, taille, scellé)</summary>
+  return <details style={EDIT_ITEM}><summary style={{ cursor: 'pointer', fontWeight: 600 }}>Corriger un conteneur (N° erroné, taille, scellé)</summary>
     <p className="help" style={{ marginTop: 10 }}>Le conteneur retiré ou remplacé <b>revient au stock</b> et redevient sélectionnable ; le nouveau lui est rattaché.</p>
     {dets.conteneurs.map((ct, k) => <div key={k} className="row" style={{ alignItems: 'center', marginBottom: 6 }}>
       <span className="mono" style={{ flex: 1 }}>{k + 1}. {ct.num} · {ct.taille || '—'}{ct.plomb ? ` · scellé ${ct.plomb}` : ''}</span>
@@ -493,7 +510,7 @@ function PanneauEditDecl({ c, action }: { c: O; action: ActionFn }) {
   const [consoMode, setConsoMode] = useState('balise');
   const setDd = (k: string, v: unknown) => setD((o) => ({ ...o, [k]: v }));
   const estConso = String(d['typeDeclaration']) === 'C';
-  return <details className="card"><summary style={{ cursor: 'pointer', fontWeight: 600 }}>Corriger les informations de déclaration</summary>
+  return <details style={EDIT_ITEM}><summary style={{ cursor: 'pointer', fontWeight: 600 }}>Corriger les informations de déclaration</summary>
     <p className="help" style={{ marginTop: 10 }}>Corrige le déclarant, la déclaration et la marchandise de ce camion et de ses conteneurs.</p>
     <div className="grid2">
       <Champ label="Déclarant" value={String(d['declarant'])} onChange={(e) => setDd('declarant', masks.upper(e.target.value))} />
@@ -515,7 +532,7 @@ function PanneauEditType({ c, action }: { c: O; action: ActionFn }) {
   const id = c['id'] as string;
   const actuel = String(c['typeOperation']);
   const autre = actuel === OPERATIONS.DEPOTAGE ? OPERATIONS.ENLEVEMENT : OPERATIONS.DEPOTAGE;
-  return <details className="card"><summary style={{ cursor: 'pointer', fontWeight: 600 }}>Corriger le type d'opération</summary>
+  return <details style={EDIT_ITEM}><summary style={{ cursor: 'pointer', fontWeight: 600 }}>Corriger le type d'opération</summary>
     <p className="help" style={{ marginTop: 10 }}>Actuel : <b>{actuel}</b>. En passant à « {autre} », les scellés sont ré-adaptés au nouveau modèle
       (par conteneur en enlèvement / au niveau camion en dépotage). En dépotage, <b>refaites la finalisation</b> (scellés camion + hauteur) ; vérifiez les scellés après.</p>
     <button className="ghost" onClick={() => action(() => call('cargo.edittype', { id, typeOperation: autre }), `Type corrigé → ${autre}.`)}>Passer en « {autre} »</button>
