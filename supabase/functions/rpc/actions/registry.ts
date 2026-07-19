@@ -32,6 +32,7 @@ export const ACTIONS: Record<string, H> = {
   'cargo.sceller': d(ecr.sceller),
   'cargo.visite': d(ecr.visite),
   'cargo.valider': d(ecr.valider),
+  'cargo.validerlot': d(ecr.validerLot), // v4 : validation de toute une déclaration
   'cargo.horsgabarit': d(ecr.horsgabarit),
   'cargo.t1': d(ecr.t1),
   'cargo.gps': d(ecr.gps),
@@ -71,6 +72,7 @@ export const ACTIONS: Record<string, H> = {
   'report.loading': d((ctx, data: { id?: string }) => rap.rapportChargement(ctx, String(data?.id ?? ''))),
   'report.loadingdecl': d(rap.rapportChargementDecl), // v4 : bon de chargement par déclaration
   'report.ordre': d(rap.ordreExecution), // v4 : ORDRE D'EXÉCUTION imprimable (trame OTR)
+  'report.validationdecl': d(rap.validationParDeclaration), // v4 : dossier de validation par déclaration
   'report.cfs': d(rap.rapportCFS),
   'report.cfsdetail': d(rap.rapportCFSDetail),
   'report.vehicule': d(rap.rapportVehicules),

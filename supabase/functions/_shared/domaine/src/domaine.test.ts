@@ -10,6 +10,7 @@ import {
   tcValide, maj, alphaNumMaj, normAlphaNum, declKey, normaliserDeclaration,
   parseConteneursDetails, parseDateImport, tailleBucket, evpDeTaille, trancheAge,
   verifierPermission, PERMISSIONS, TYPES_DECLARATION,
+  groupesDeclaration, estChargementMixte, libelleDeclaration,
 } from './index.ts';
 
 /* ------------------------------ Moteur workflow ------------------------ */
@@ -142,6 +143,34 @@ test('parseConteneursDetails gère les 2 formes', () => {
   assert.deepEqual(c, { conteneurs: [], scellesCamion: [] });
 });
 
+test('chargement mixte : reconnu dès que les conteneurs portent 2 déclarations', () => {
+  const camion = { numeroDeclaration: '111', anneeDeclaration: '2026', bureauDeclaration: 'TG120', typeDeclaration: 'T', declarant: 'ACME' };
+  const ct = (num: string, decl?: string) => ({
+    num, plomb: '', taille: "20'", type: '', poids: '', extra: [],
+    ...(decl ? { numeroDeclaration: decl, anneeDeclaration: '2026', bureauDeclaration: 'TG120', typeDeclaration: 'T' } : {}),
+  });
+
+  // Homogène : conteneurs sans déclaration propre → celle du camion.
+  const homo = groupesDeclaration([ct('AAAU1111111'), ct('AAAU2222222')], camion);
+  assert.equal(homo.length, 1);
+  assert.equal(estChargementMixte([ct('AAAU1111111'), ct('AAAU2222222')], camion), false);
+
+  // Mixte : le 2e conteneur relève d'une autre déclaration.
+  const conts = [ct('AAAU1111111', '111'), ct('BBBU2222222', '222')];
+  const g = groupesDeclaration(conts, camion);
+  assert.equal(g.length, 2);
+  assert.equal(estChargementMixte(conts, camion), true);
+  assert.deepEqual(g[0]!.rangs, [1]);
+  assert.deepEqual(g[1]!.rangs, [2]);
+  assert.equal(g[1]!.numeroDeclaration, '222');
+  // Le déclarant du camion sert de repli quand le conteneur ne le porte pas.
+  assert.equal(g[1]!.declarant, 'ACME');
+  assert.equal(libelleDeclaration(g[0]!), '111 · 2026 · TG120 · T');
+
+  // Même déclaration écrite différemment (casse / ponctuation) = un seul groupe.
+  assert.equal(estChargementMixte([ct('AAAU1111111', '111'), ct('BBBU2222222', ' 1-1-1 ')], camion), false);
+});
+
 test('parseDateImport : formats variés', () => {
   assert.equal(parseDateImport('2026-07-15')?.getFullYear(), 2026);
   assert.equal(parseDateImport('15/07/2026')?.getMonth(), 6);
@@ -177,9 +206,13 @@ test('verifierPermission : CFS peut faire cargo.cfs', () => {
   assert.throws(() => verifierPermission(ROLES.PP, 'cargo.gpsedit'), /Accès refusé/);
 });
 
-test('matrice PERMISSIONS complète (60 actions + resetmfa)', () => {
-  assert.ok(Object.keys(PERMISSIONS).length >= 60);
+test('matrice PERMISSIONS complète (72 actions + resetmfa)', () => {
+  assert.ok(Object.keys(PERMISSIONS).length >= 72);
   assert.ok(PERMISSIONS['user.resetmfa']);
+  // La validation en lot est réservée au chef brigade : si elle s'ouvrait au CFS,
+  // le même agent chargerait ET signerait — la règle « 1 cellule = 1 rôle » tombe.
+  assert.deepEqual(PERMISSIONS['cargo.validerlot'], PERMISSIONS['cargo.valider']);
+  assert.ok(!PERMISSIONS['cargo.validerlot']!.includes(ROLES.CFS));
 });
 
 test('TYPES_DECLARATION = T,C,S,A,E', () => {

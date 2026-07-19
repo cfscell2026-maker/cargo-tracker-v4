@@ -8,7 +8,7 @@ import { useAsync } from './lib/hooks.ts';
 import { Spinner, StatCard, Tag, Modal, masks, toast, fmtDate, fmtJour, isoDate } from './lib/ui.tsx';
 import { Detail } from './detail.tsx';
 import type { Nav } from './App.tsx';
-import { OPERATIONS, VEHICULE_DESTINATIONS, TYPES_DECLARATION, STATUTS, tcValide } from '../../../supabase/functions/_shared/domaine/src/index.ts';
+import { OPERATIONS, VEHICULE_DESTINATIONS, TYPES_DECLARATION, STATUTS, tcValide, etapesEnAttente } from '../../../supabase/functions/_shared/domaine/src/index.ts';
 
 const STATUT_OPTIONS = Object.values(STATUTS);
 
@@ -103,7 +103,7 @@ SCREENS.detail = (nav) => <Detail {...nav} />;
 SCREENS.list = (nav) => <CargoList {...nav} filtre={{ categorie: 'camion', ...((nav.arg as O) ?? {}) }} titre="Cargaisons" barre />;
 SCREENS.vehicules = (nav) => <CargoList {...nav} filtre={{ categorie: 'vehicule' }} titre="Véhicules" />;
 SCREENS.completer = (nav) => <CargoList {...nav} filtre={{ etape: 'CFS' }} titre="À compléter (CFS)" />;
-SCREENS.wait_valid = (nav) => <CargoList {...nav} filtre={{ etape: 'VALIDATION' }} titre="À valider" />;
+SCREENS.wait_valid = (nav) => <ValidationDeclaration {...nav} />;
 SCREENS.wait_t1 = (nav) => <CargoList {...nav} filtre={{ etape: 'T1' }} titre="En attente T1" />;
 SCREENS.wait_gps = (nav) => <CargoList {...nav} filtre={{ etape: 'BALISE' }} titre="En attente Balise" />;
 SCREENS.wait_bs = (nav) => <CargoList {...nav} filtre={{ etape: 'BS' }} titre="En attente Bon de Sortie" />;
@@ -245,18 +245,53 @@ SCREENS.lotcamions = ({ go }) => {
   </div>;
 };
 
-/* ------------------------ Recherche (N° camion) ------------------------ */
+/* -------------------- Recherche — cargaisons ACTIVES ------------------- */
+/**
+ * v4 — Écran de recherche RÉTABLI, mais recentré sur son seul usage réel :
+ * retrouver un camion ou un conteneur ENCORE DANS L'ENCEINTE (pas encore sorti
+ * par la Porte Principale). C'est la question posée au guichet — « ce camion,
+ * il est où ? » — et non une consultation de l'historique, qui reste l'écran
+ * « Cargaisons ». Camions ET véhicules sont cherchés ensemble.
+ */
 SCREENS.search = ({ go }) => {
   const [q, setQ] = useState('');
-  const { data, loading } = useAsync<O[]>(() => (q ? call('cargo.search', { valeur: q }) : Promise.resolve([])), [q]);
+  const cherche = q.trim().length >= 2;
+  const { data, loading } = useAsync<{ rows: O[]; total: number }>(
+    () => (cherche ? call('cargo.list', { categorie: 'tous', actifs: true, search: q.trim(), pageSize: 100 })
+      : call('cargo.list', { categorie: 'tous', actifs: true, pageSize: 100 })), [q]);
+  const rows = data?.rows ?? [];
   return <div className="card">
-    <label className="help">Rechercher un N° de camion</label>
-    <input className="mono" value={q} onChange={(e) => setQ(e.target.value)} placeholder="ex. AB 12 CD" autoFocus />
-    <div style={{ marginTop: 12 }}>
-      {loading ? <Spinner /> : <Table cols={[['id', 'ID'], ['dateCreation', 'Date'], ['numeroCamion', 'Camion'], ['typeOperation', 'Opération'], ['statut', 'Statut']]} rows={data ?? []} onRow={(r) => go('detail', r['id'])} />}
+    <h2>Rechercher une cargaison en cours</h2>
+    <p className="help" style={{ marginTop: 0 }}>
+      Uniquement les cargaisons <b>encore présentes</b> (non sorties). Cherchez par
+      N° de camion, N° de conteneur, ID de cargaison ou N° de balise — les espaces et
+      tirets sont ignorés.
+    </p>
+    <input className="mono" value={q} onChange={(e) => setQ(e.target.value)}
+      placeholder="N° camion, conteneur, ID ou balise…" autoFocus />
+    <div className="help" style={{ marginTop: 8 }}>
+      {loading ? 'Recherche…' : cherche
+        ? `${data?.total ?? 0} résultat(s) actif(s)`
+        : `${data?.total ?? 0} cargaison(s) active(s) — tapez au moins 2 caractères pour filtrer`}
+    </div>
+    <div style={{ marginTop: 10 }}>
+      {loading ? <Spinner /> : <Table
+        cols={[['numeroCamion', 'Camion / Châssis'], ['conteneur1', 'Conteneur'], ['typeOperation', 'Opération'],
+          ['statut', 'Statut'], ['etapeEnCours', 'Attendu à'], ['dateCreation', 'Entré le']]}
+        rows={rows.map(avecEtape)} onRow={(r) => go('detail', r['id'])} />}
     </div>
   </div>;
 };
+
+/** Prochaine cellule qui doit traiter la cargaison — la réponse cherchée au guichet. */
+const ETAPE_LABELS: Record<string, string> = {
+  CFS: 'CFS (chargement)', VALIDATION: 'Chef brigade', T1: 'Cellule T1',
+  BALISE: 'Cellule Balise', BS: 'Bon de sortie', PP: 'Porte principale',
+};
+function avecEtape(r: O): O {
+  const pend = etapesEnAttente(r as never).map((e) => ETAPE_LABELS[e] ?? e);
+  return { ...r, etapeEnCours: pend.join(' + ') || '—' };
+}
 
 /* --------------------- Nouveau (Véhicule/Conso/MAD) -------------------- */
 SCREENS.new = ({ go }) => {
@@ -692,18 +727,190 @@ function LigneChargement({ r }: { r: O }) {
   const conts = (r['conteneurs'] as O[]) ?? [];
   const sc = (r['scellesCamion'] as string[]) ?? [];
   const v = r['vehicule'] as O | undefined;
+  const autres = (r['autresDeclarations'] as O[]) ?? [];
   return <div style={{ border: '1px solid var(--line)', borderRadius: 6, padding: 10, marginBottom: 8 }}>
     <div className="row" style={{ alignItems: 'center', gap: 8 }}>
       <b className="mono">{String(r['numeroCamion'])}</b>
       <span className="help">{String(r['id'])} · {String(r['typeOperation'])}</span>
-      {Boolean(r['chargementMixte']) && <span className="help" style={{ color: 'var(--warn)' }}>⚠ chargement mixte</span>}
+      {Boolean(r['chargementMixte']) && <span className="tag st-charge">⊞ Chargement mixte</span>}
     </div>
+    {/* Mixte : dire lesquelles des déclarations du camion ne sont PAS sur ce bon,
+        sinon le total de conteneurs affiché paraît incomplet à la lecture. */}
+    {autres.length > 0 && <div className="help" style={{ color: 'var(--warn)' }}>
+      Ce camion porte aussi : {autres.map((a) => `${String(a['libelle'])} (${String(a['nbConteneurs'])} TC)`).join(' · ')} — non repris sur ce bon.
+    </div>}
     <div className="help">Date {fmtDate(r['dateCreation'])} · Agent CFS {String(r['agentCfs'] || '—')} · Destination {String(r['destinationMarchandise'] || '—')}{r['nbColis'] ? ` · ${String(r['nbColis'])} colis` : ''}</div>
     {v && <div className="help">Châssis {String(v['chassis'] ?? '')} · {String(v['marque'] ?? '')} {String(v['modele'] ?? '')} · {String(v['destination'] ?? '')}{r['conteneurOrigine'] ? ` · TC origine ${String(r['conteneurOrigine'])}` : ''}</div>}
     {sc.length > 0 && <div className="help">Scellés camion : {sc.join(' · ')}</div>}
     {/* v4 — camion d'effets divers : pas de conteneur propre, une désignation. */}
     {!conts.length && !v && r['descriptionMarchandise'] ? <div className="help">Effets divers : {String(r['descriptionMarchandise'])}</div> : null}
     {conts.length > 0 && <Table cols={[['num', 'Conteneur'], ['plomb', 'Scellé'], ['taille', 'Taille'], ['type', 'Type']]} rows={conts} />}
+  </div>;
+}
+
+/* ---------- Validation du chef brigade — PAR DÉCLARATION --------------- */
+/**
+ * v4 — Le chef brigade ne signe plus camion par camion (décision utilisateur
+ * 2026-07-19). Il ouvre une déclaration, voit tout ce qu'elle contient et signe
+ * l'ensemble d'un geste. L'écran s'ouvre sur la file des déclarations en attente
+ * — le chef n'a pas à connaître les numéros par cœur — et une recherche directe
+ * reste possible quand il a le dossier papier sous les yeux.
+ */
+type QDecl = { numeroDeclaration: string; anneeDeclaration: string; bureauDeclaration: string; typeDeclaration: string };
+const qVide = (): QDecl => ({ numeroDeclaration: '', anneeDeclaration: '', bureauDeclaration: '', typeDeclaration: '' });
+
+function ValidationDeclaration({ go }: Nav) {
+  const [q, setQ] = useState<QDecl>(qVide());
+  const [ouverte, setOuverte] = useState<QDecl | null>(null);
+
+  // Sans déclaration ouverte : la file d'attente. Avec : le dossier complet.
+  const { data, loading, error, reload } = useAsync<O>(
+    () => call('report.validationdecl', ouverte ?? {}), [JSON.stringify(ouverte)]);
+
+  if (ouverte) return <DossierValidation decl={ouverte} data={data} loading={loading} error={error}
+    reload={reload} fermer={() => setOuverte(null)} go={go} />;
+
+  const decls = (data?.['declarations'] as O[]) ?? [];
+  return <div className="card">
+    <h2>Déclarations à valider</h2>
+    <p className="help" style={{ marginTop: 0 }}>
+      Ouvrez une déclaration pour examiner <b>tous</b> ses camions, véhicules et conteneurs,
+      puis signer l'ensemble en une fois.
+    </p>
+    <div className="row" style={{ alignItems: 'flex-end', gap: 8, marginBottom: 12 }}>
+      <div style={{ flex: 1, minWidth: 200 }}><label className="help">Ouvrir directement un N° de déclaration</label>
+        <input className="mono" value={q.numeroDeclaration} onChange={(e) => setQ({ ...q, numeroDeclaration: masks.upper(e.target.value) })}
+          onKeyDown={(e) => e.key === 'Enter' && q.numeroDeclaration.trim() && setOuverte(q)} /></div>
+      <div><label className="help">Année</label><input value={q.anneeDeclaration} style={{ maxWidth: 90 }}
+        onChange={(e) => setQ({ ...q, anneeDeclaration: e.target.value })} /></div>
+      <button disabled={!q.numeroDeclaration.trim()} onClick={() => setOuverte(q)}>Ouvrir</button>
+    </div>
+
+    {loading ? <Spinner /> : error ? <div className="err-msg">{error}</div> : decls.length === 0
+      ? <div className="empty">Aucune déclaration en attente de validation.</div>
+      : <>
+        <div className="help" style={{ marginBottom: 6 }}>{decls.length} déclaration(s) en attente — la plus ancienne en tête.</div>
+        <div className="tbl"><table>
+          <thead><tr><th>Déclaration</th><th>Déclarant</th><th>Camions</th><th>Véhicules</th><th>Conteneurs</th><th>Plus ancienne</th></tr></thead>
+          <tbody>{decls.map((r) => (
+            <tr key={String(r['cle'])} className="clk" onClick={() => setOuverte({
+              numeroDeclaration: String(r['numeroDeclaration']), anneeDeclaration: String(r['anneeDeclaration'] ?? ''),
+              bureauDeclaration: String(r['bureauDeclaration'] ?? ''), typeDeclaration: String(r['typeDeclaration'] ?? ''),
+            })}>
+              <td className="mono">{String(r['libelle'])}</td><td>{String(r['declarant'] || '—')}</td>
+              <td>{String(r['camions'])}</td><td>{String(r['vehicules'])}</td><td>{String(r['conteneurs'])}</td>
+              <td>{fmtJour(r['plusAncienne'])}</td>
+            </tr>
+          ))}</tbody>
+        </table></div>
+      </>}
+  </div>;
+}
+
+/** Dossier complet d'une déclaration + signature en lot. */
+function DossierValidation({ decl, data, loading, error, reload, fermer, go }: {
+  decl: QDecl; data: O | null; loading: boolean; error: string | null;
+  reload: () => void; fermer: () => void; go: Nav['go'];
+}) {
+  const [busy, setBusy] = useState(false);
+  const cam = (data?.['camions'] as O[]) ?? [];
+  const veh = (data?.['vehicules'] as O[]) ?? [];
+  const cpt = (data?.['compte'] as O) ?? {};
+  const d = (data?.['declaration'] as O) ?? {};
+  const apu = data?.['apurement'] as O | null;
+  const aValider = (data?.['aValider'] as string[]) ?? [];
+
+  async function signer() {
+    if (!window.confirm(
+      `Valider et signer ${aValider.length} cargaison(s) de la déclaration ${String(d['numeroDeclaration'] ?? decl.numeroDeclaration)} ?\n\n`
+      + `${Number(cpt['conteneursAValider'] ?? 0)} conteneur(s) concerné(s). Votre signature numérique sera apposée sur chacune.`)) return;
+    setBusy(true);
+    try {
+      const r = await call<{ compte: O; erreurs: O[] }>('cargo.validerlot', { ids: aValider });
+      const nb = Number(r.compte['validees'] ?? 0);
+      toast(`${nb} cargaison(s) validée(s)${r.erreurs.length ? ` · ${r.erreurs.length} en erreur` : ''}.`,
+        r.erreurs.length ? 'err' : 'ok');
+      r.erreurs.forEach((e) => toast(`${String(e['id'])} : ${String(e['message'])}`, 'err'));
+      reload();
+    } catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(false); }
+  }
+
+  return <div>
+    <button className="ghost" onClick={fermer}>← Retour aux déclarations</button>
+    <div className="card" style={{ marginTop: 10 }}>
+      <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
+        <div>
+          <h2 style={{ margin: 0 }}>Déclaration {String(d['numeroDeclaration'] ?? decl.numeroDeclaration)}</h2>
+          <div className="help" style={{ marginTop: 2 }}>
+            {[d['anneeDeclaration'], d['bureauDeclaration'], d['typeDeclaration']].filter(Boolean).join(' · ') || '—'}
+            {' · Déclarant '}<b>{String(d['declarant'] || '—')}</b>
+            {apu?.['exists'] ? ` · Apurement ${String(apu['apures'])}/${String(apu['nombreConteneurs'])} (restant ${String(apu['restant'])})` : ''}
+          </div>
+        </div>
+        <button className="ghost xs" onClick={reload}>⟳ Actualiser</button>
+      </div>
+
+      {loading ? <Spinner /> : error ? <div className="err-msg">{error}</div> : <>
+        <div className="stats" style={{ marginTop: 12 }}>
+          <StatCard n={Number(cpt['camions'] ?? 0)} l="Camions" />
+          <StatCard n={Number(cpt['vehicules'] ?? 0)} l="Véhicules" />
+          <StatCard n={Number(cpt['conteneurs'] ?? 0)} l="Conteneurs" />
+          <StatCard n={Number(cpt['aValider'] ?? 0)} l="À valider" tone="warn" />
+          <StatCard n={Number(cpt['dejaValidees'] ?? 0)} l="Déjà validées" tone="ok" />
+        </div>
+
+        {aValider.length > 0
+          ? <div className="row" style={{ alignItems: 'center', marginTop: 4 }}>
+            <button disabled={busy} onClick={signer}>
+              {busy ? 'Signature…' : `✔ Valider et signer les ${aValider.length} cargaison(s)`}
+            </button>
+            <span className="help">Signature apposée sur chacune ; débloque T1, Balise et Bon de sortie.</span>
+          </div>
+          : <div className="help" style={{ color: 'var(--ok)' }}>✓ Tout est validé pour cette déclaration.</div>}
+
+        {!cam.length && !veh.length && <div className="empty">Aucune cargaison en fin de chargement pour cette déclaration.</div>}
+        {[['Camions', cam] as const, ['Véhicules', veh] as const].map(([titre, lst]) => lst.length ? <div key={titre} style={{ marginTop: 14 }}>
+          <div className="section-title">{titre} ({lst.length})</div>
+          {lst.map((r) => <LigneValidation key={String(r['id'])} r={r} go={go} />)}
+        </div> : null)}
+      </>}
+    </div>
+  </div>;
+}
+
+/** Une cargaison du dossier : tout ce qu'il faut voir AVANT de signer. */
+function LigneValidation({ r, go }: { r: O; go: Nav['go'] }) {
+  const conts = (r['conteneurs'] as O[]) ?? [];
+  const sc = (r['scellesCamion'] as string[]) ?? [];
+  const autres = (r['autresDeclarations'] as O[]) ?? [];
+  const v = r['vehicule'] as O | undefined;
+  const valide = Boolean(r['dateValidation']);
+  const reste = ((r['etapesEnAttente'] as string[]) ?? []).filter((e) => e !== 'VALIDATION');
+  return <div style={{
+    border: '1px solid var(--line)', borderLeft: `3px solid var(--${valide ? 'ok' : 'warn'})`,
+    borderRadius: 6, padding: 10, marginBottom: 8,
+  }}>
+    <div className="row" style={{ alignItems: 'center', gap: 8 }}>
+      <b className="mono">{String(r['numeroCamion'])}</b>
+      <span className={`tag ${valide ? 'st-gps' : 'st-charge'}`}>{valide ? '✓ validée' : 'à valider'}</span>
+      {Boolean(r['chargementMixte']) && <span className="tag st-charge">⊞ mixte</span>}
+      {/* Hors gabarit : le chef doit le voir AVANT de signer, c'est sa décision. */}
+      {Boolean(r['horsGabarit']) && <span className="tag" style={{ background: 'var(--warn-soft)', color: 'var(--warn)' }}>
+        ⚠ hors gabarit {String(r['hauteurChargement'] || '?')} m</span>}
+      <span style={{ flex: 1 }} />
+      <button className="ghost xs" onClick={() => go('detail', r['id'])}>Ouvrir la fiche</button>
+    </div>
+    <div className="help">{String(r['id'])} · {String(r['typeOperation'])} · {fmtDate(r['dateCreation'])} · Agent CFS {String(r['agentCfs'] || '—')}</div>
+    <div className="help">Destination {String(r['destinationMarchandise'] || '—')}{r['nbColis'] ? ` · ${String(r['nbColis'])} colis` : ''}{r['descriptionMarchandise'] ? ` · ${String(r['descriptionMarchandise'])}` : ''}</div>
+    {v && <div className="help">Châssis {String(v['chassis'] ?? '')} · {String(v['marque'] ?? '')} {String(v['modele'] ?? '')} · {String(v['destination'] ?? '')}</div>}
+    {sc.length > 0 && <div className="help">Scellés camion : {sc.join(' · ')}</div>}
+    {autres.length > 0 && <div className="help" style={{ color: 'var(--warn)' }}>
+      Porte aussi : {autres.map((a) => `${String(a['libelle'])} (${String(a['nbConteneurs'])} TC)`).join(' · ')} — hors de cette déclaration.
+    </div>}
+    {valide && <div className="help" style={{ color: 'var(--ok)' }}>Validée par {String(r['agentValidation'] || '—')} le {fmtDate(r['dateValidation'])}</div>}
+    {!valide && reste.length > 0 && <div className="help">Restera ensuite : {reste.join(' · ')}</div>}
+    {conts.length > 0 && <Table cols={[['num', 'Conteneur'], ['plomb', 'Scellé'], ['taille', 'Taille'], ['type', 'Type']]} rows={conts} />}
+    {!conts.length && !v && r['descriptionMarchandise'] ? <div className="help">Effets divers : {String(r['descriptionMarchandise'])}</div> : null}
   </div>;
 }
 

@@ -200,3 +200,90 @@ export function parseConteneursDetails(raw: unknown): ConteneursDetails {
     scellesCamion: Array.isArray(o.scellesCamion) ? o.scellesCamion : [],
   };
 }
+
+/* ------------------------ Chargement mixte (v4) ------------------------ */
+
+/**
+ * CHARGEMENT MIXTE — un camion qui emporte des conteneurs relevant de
+ * PLUSIEURS déclarations. L'Apps Script (v3.x) le marquait par un drapeau
+ * `chargementMixte` posé à l'ajout du conteneur ; en v4 chaque conteneur porte
+ * SA déclaration (LOT D), donc le mixte se DÉDUIT des données au lieu d'être
+ * stocké : plus de drapeau à maintenir, et les cargaisons migrées sans drapeau
+ * sont reconnues elles aussi.
+ *
+ * La clé de regroupement est la déclaration complète (n° + année + bureau +
+ * type) ; un conteneur sans déclaration propre hérite de celle du camion.
+ */
+export interface GroupeDeclaration {
+  cle: string;
+  numeroDeclaration: string;
+  anneeDeclaration: string;
+  bureauDeclaration: string;
+  typeDeclaration: string;
+  declarant: string;
+  /** Index (base 1) des conteneurs du camion appartenant à ce groupe. */
+  rangs: number[];
+  conteneurs: Conteneur[];
+}
+
+/** Clé de déclaration normalisée (insensible à la casse et à la ponctuation). */
+export function cleDeclaration(o: Record<string, unknown> | Conteneur | null | undefined): string {
+  const r = (o ?? {}) as Record<string, unknown>;
+  return [
+    normAlphaNum(r['numeroDeclaration']),
+    normAlphaNum(r['anneeDeclaration']),
+    normAlphaNum(r['bureauDeclaration']),
+    normAlphaNum(r['typeDeclaration']),
+  ].join('|');
+}
+
+/**
+ * Regroupe les conteneurs d'un camion par déclaration. Un seul groupe = chargement
+ * homogène ; deux ou plus = chargement mixte.
+ */
+export function groupesDeclaration(
+  conteneurs: Conteneur[],
+  camion?: Record<string, unknown> | null,
+): GroupeDeclaration[] {
+  const cam = (camion ?? {}) as Record<string, unknown>;
+  const groupes: GroupeDeclaration[] = [];
+  const parCle: Record<string, GroupeDeclaration> = {};
+  conteneurs.forEach((ct, i) => {
+    // Le conteneur porte sa propre déclaration dès qu'il en a un numéro ; sinon
+    // (saisies anciennes / migrées) il relève de la déclaration du camion.
+    const src = txt(ct?.numeroDeclaration) ? (ct as unknown as Record<string, unknown>) : cam;
+    const cle = cleDeclaration(src);
+    let g = parCle[cle];
+    if (!g) {
+      g = parCle[cle] = {
+        cle,
+        numeroDeclaration: txt(src['numeroDeclaration']),
+        anneeDeclaration: txt(src['anneeDeclaration']),
+        bureauDeclaration: txt(src['bureauDeclaration']),
+        typeDeclaration: txt(src['typeDeclaration']),
+        declarant: txt(src['declarant']) || txt(cam['declarant']),
+        rangs: [],
+        conteneurs: [],
+      };
+      groupes.push(g);
+    }
+    g.rangs.push(i + 1);
+    g.conteneurs.push(ct);
+  });
+  return groupes;
+}
+
+/** Vrai si le camion emporte des conteneurs de plusieurs déclarations. */
+export function estChargementMixte(
+  conteneurs: Conteneur[],
+  camion?: Record<string, unknown> | null,
+): boolean {
+  return groupesDeclaration(conteneurs, camion).length > 1;
+}
+
+/** Libellé court d'une déclaration : « 12345 · 2026 · TG120 · T ». */
+export function libelleDeclaration(o: Record<string, unknown> | GroupeDeclaration): string {
+  const r = o as Record<string, unknown>;
+  return [r['numeroDeclaration'], r['anneeDeclaration'], r['bureauDeclaration'], r['typeDeclaration']]
+    .map((v) => txt(v)).filter(Boolean).join(' · ') || '—';
+}

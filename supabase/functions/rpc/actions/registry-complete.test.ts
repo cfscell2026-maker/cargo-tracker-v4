@@ -29,6 +29,6 @@ test('chaque handler du routeur correspond à une permission connue', () => {
   assert.deepEqual(inconnues, [], 'Handlers sans permission : ' + inconnues.join(', '));
 });
 
-test('le routeur couvre les 61 actions attendues', () => {
-  assert.ok(Object.keys(PERMISSIONS).length >= 61, 'PERMISSIONS incomplet');
+test('le routeur couvre les 72 actions attendues', () => {
+  assert.ok(Object.keys(PERMISSIONS).length >= 72, 'PERMISSIONS incomplet');
 });

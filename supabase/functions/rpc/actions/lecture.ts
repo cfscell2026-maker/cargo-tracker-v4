@@ -72,11 +72,12 @@ export async function cargoSearch(ctx: Ctx, data: { valeur?: string }) {
 
 export async function cargoList(
   ctx: Ctx,
-  opts: { statut?: string; etape?: string; categorie?: string; page?: number; pageSize?: number; search?: string },
+  opts: { statut?: string; etape?: string; categorie?: string; page?: number; pageSize?: number; search?: string; actifs?: boolean },
 ) {
   const statut = opts.statut || 'tous';
   const etape = opts.etape || '';
   const categorie = opts.categorie || 'camion';
+  const actifs = opts.actifs === true;
   const page = Math.max(1, Number(opts.page || 1));
   const pageSize = Math.min(200, Number(opts.pageSize || APP.PAGE_SIZE));
   const search = String(opts.search ?? '').trim().toLowerCase();
@@ -88,16 +89,26 @@ export async function cargoList(
     // À LA FOIS dans la file Balise et Bon de Sortie).
     all = all.filter((r) => etapesEnAttente(r as never).indexOf(etape as never) >= 0);
     if (etape === 'BALISE') all = all.filter((r) => !estOui(r['estVehicule']));
-  } else {
+  } else if (categorie !== 'tous') {
     // Les véhicules sont suivis à part : on ne les mélange pas aux camions.
+    // (`tous` = écran Recherche, qui cherche indifféremment camions et véhicules.)
     all = all.filter((r) => (categorie === 'vehicule' ? estOui(r['estVehicule']) : !estOui(r['estVehicule'])));
   }
+  // ACTIFS = encore dans l'enceinte : tout ce qui n'est pas sorti par la PP.
+  if (actifs) all = all.filter((r) => r['statut'] !== STATUTS.SORTIE);
   if (statut !== 'tous') all = all.filter((r) => r['statut'] === statut);
   if (search) {
+    // Recherche tolérante : on compare AUSSI en alphanumérique pur, pour que
+    // « AB 12 CD », « AB-12-CD » et « ab12cd » trouvent le même camion.
+    const brut = normAlphaNum(search);
     all = all.filter((r) =>
       [r['id'], r['reference'], r['rapportId'], r['numeroCamion'],
         r['conteneur1'], r['conteneur2'], r['conteneur3'], r['conteneur4'], r['numeroGps']]
-        .some((x) => String(x ?? '').toLowerCase().indexOf(search) > -1),
+        .some((x) => {
+          const v = String(x ?? '');
+          if (v.toLowerCase().indexOf(search) > -1) return true;
+          return !!brut && normAlphaNum(v).indexOf(brut) > -1;
+        }),
     );
   }
   all.sort((a, b) => ts(b['dateCreation']) - ts(a['dateCreation']));

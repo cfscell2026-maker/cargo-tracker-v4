@@ -13,6 +13,7 @@ import { FakeDB } from './fake-db.ts';
 import * as ecr from './ecriture.ts';
 import * as spe from './speciaux.ts';
 import * as stk from './stock.ts';
+import * as rap from './rapports.ts';
 
 function ctxAvec(db: FakeDB): Ctx {
   return {
@@ -517,4 +518,106 @@ test('correction déclaration : camion ET conteneurs réalignés', async () => {
   const ct = (c['conteneursDetails'] as { conteneurs: Record<string, unknown>[] }).conteneurs[0]!;
   assert.equal(ct['numeroDeclaration'], '9999');
   assert.equal(ct['declarant'], 'STE Z');
+});
+
+/* ---------- Validation du chef brigade PAR DÉCLARATION (v4) ----------- */
+
+test('validation par déclaration : le chef voit tout puis signe en une fois', async () => {
+  const db = new FakeDB();
+  db.store['stock'].push(
+    { numero_tc: 'MSKU1111111', taille: "40'", statut: 'En stock' },
+    { numero_tc: 'TCLU2222222', taille: "20'", statut: 'En stock' },
+    { numero_tc: 'GLDU3333333', taille: "20'", statut: 'En stock' },
+  );
+  const cfs = ctxAvec(db);
+  const chef = ctxRole(db, 'CHEF_BRIGADE', 'Chef Brigade');
+
+  // Deux camions sur la déclaration 4242, un troisième sur une AUTRE déclaration.
+  const a = (await ecr.createcamion(cfs, { numeroCamion: 'VAL001', routage: 'Enlèvement' })) as { id: string };
+  await ecr.cfs(cfs, { id: a.id, conteneur: { num: 'MSKU1111111', taille: "40'", type: 'DRY', plomb: 'S1' }, declaration: DECL_OK });
+  const b = (await ecr.createcamion(cfs, { numeroCamion: 'VAL002', routage: 'Enlèvement' })) as { id: string };
+  await ecr.cfs(cfs, { id: b.id, conteneur: { num: 'TCLU2222222', taille: "20'", type: 'DRY', plomb: 'S2' }, declaration: DECL_OK });
+  const autre = (await ecr.createcamion(cfs, { numeroCamion: 'VAL003', routage: 'Enlèvement' })) as { id: string };
+  await ecr.cfs(cfs, { id: autre.id, conteneur: { num: 'GLDU3333333', taille: "20'", type: 'DRY', plomb: 'S3' },
+    declaration: { ...DECL_OK, numeroDeclaration: '5555' } });
+
+  // Sans numéro : la FILE des déclarations en attente, la plus ancienne en tête.
+  const file = (await rap.validationParDeclaration(chef, {})) as { declarations: Record<string, unknown>[]; total: number };
+  assert.equal(file.total, 2);
+  const d4242 = file.declarations.find((x) => x['numeroDeclaration'] === '4242')!;
+  assert.equal(d4242['camions'], 2);
+  assert.equal(d4242['conteneurs'], 2);
+
+  // Avec numéro : le dossier complet de la déclaration, et elle seule.
+  const dossier = (await rap.validationParDeclaration(chef, { numeroDeclaration: '4242' })) as {
+    camions: Record<string, unknown>[]; aValider: string[]; compte: Record<string, number>;
+  };
+  assert.equal(dossier.compte['camions'], 2);
+  assert.equal(dossier.compte['conteneurs'], 2);
+  assert.equal(dossier.compte['aValider'], 2);
+  assert.equal(dossier.compte['dejaValidees'], 0);
+  assert.deepEqual([...dossier.aValider].sort(), [a.id, b.id].sort());
+  // Le camion de la déclaration 5555 n'est PAS embarqué dans le lot.
+  assert.ok(!dossier.aValider.includes(autre.id));
+
+  // Signature en lot : les deux cargaisons sont validées d'un geste.
+  const res = (await ecr.validerLot(chef, { ids: dossier.aValider })) as {
+    validees: string[]; erreurs: unknown[]; compte: Record<string, number>;
+  };
+  assert.equal(res.compte['validees'], 2);
+  assert.equal(res.compte['erreurs'], 0);
+
+  // Chaque cargaison porte SA propre signature (valeur probante à l'unité).
+  const lignes = db.store['cargaisons'].filter((c) => [a.id, b.id].includes(String(c['id'])));
+  assert.equal(lignes.length, 2);
+  for (const l of lignes) {
+    assert.ok(l['date_validation'], 'date de validation posée');
+    assert.equal(l['agent_validation'], 'Chef Brigade');
+    assert.ok(l['signature_validation'], 'signature posée');
+  }
+  assert.notEqual(lignes[0]!['signature_validation'], lignes[1]!['signature_validation']);
+  // Le camion de l'autre déclaration reste intact.
+  assert.ok(!db.store['cargaisons'].find((c) => c['id'] === autre.id)!['date_validation']);
+
+  // Rouvrir la déclaration : plus rien à valider, tout est signé.
+  const apres = (await rap.validationParDeclaration(chef, { numeroDeclaration: '4242' })) as {
+    aValider: string[]; compte: Record<string, number>;
+  };
+  assert.equal(apres.compte['aValider'], 0);
+  assert.equal(apres.compte['dejaValidees'], 2);
+  assert.deepEqual(apres.aValider, []);
+  // La file ne retient plus que l'autre déclaration.
+  const file2 = (await rap.validationParDeclaration(chef, {})) as { total: number; declarations: Record<string, unknown>[] };
+  assert.equal(file2.total, 1);
+  assert.equal(file2.declarations[0]!['numeroDeclaration'], '5555');
+});
+
+test('validation en lot : une cargaison en erreur n\'annule pas les autres', async () => {
+  const db = new FakeDB();
+  db.store['stock'].push({ numero_tc: 'MSKU1111111', taille: "40'", statut: 'En stock' });
+  const cfs = ctxAvec(db);
+  const chef = ctxRole(db, 'CHEF_BRIGADE', 'Chef Brigade');
+
+  const ok = (await ecr.createcamion(cfs, { numeroCamion: 'VAL010', routage: 'Enlèvement' })) as { id: string };
+  await ecr.cfs(cfs, { id: ok.id, conteneur: { num: 'MSKU1111111', taille: "40'", type: 'DRY', plomb: 'S1' }, declaration: DECL_OK });
+  // Camion encore EN CHARGEMENT : le CFS n'a pas fini, il ne peut pas être validé.
+  const pasPret = (await ecr.createcamion(cfs, { numeroCamion: 'VAL011', routage: 'Enlèvement' })) as { id: string };
+
+  const res = (await ecr.validerLot(chef, { ids: [ok.id, pasPret.id, 'INEXISTANT'] })) as {
+    validees: string[]; erreurs: Record<string, unknown>[];
+  };
+  assert.deepEqual(res.validees, [ok.id]);
+  assert.equal(res.erreurs.length, 2);
+  assert.match(String(res.erreurs[0]!['message']), /le CFS doit d'abord terminer/);
+  assert.match(String(res.erreurs[1]!['message']), /introuvable/);
+  // Le camion valide est bien passé malgré les deux échecs.
+  assert.ok(db.store['cargaisons'].find((c) => c['id'] === ok.id)!['date_validation']);
+});
+
+test('validation en lot : refuse un appel sans identifiants', async () => {
+  const db = new FakeDB();
+  await assert.rejects(
+    () => ecr.validerLot(ctxRole(db, 'CHEF_BRIGADE', 'CB'), { ids: [] }),
+    /Aucune cargaison à valider/,
+  );
 });

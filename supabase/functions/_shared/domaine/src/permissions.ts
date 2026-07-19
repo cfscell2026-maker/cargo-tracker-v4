@@ -36,6 +36,7 @@ export const PERMISSIONS: Record<string, Role[]> = {
   'cargo.visite': [ROLES.CFS, ROLES.ADMIN],
   'cargo.mixte': [ROLES.CFS, ROLES.ADMIN],
   'cargo.valider': [ROLES.CHEF_BRIGADE, ROLES.ADMIN],
+  'cargo.validerlot': [ROLES.CHEF_BRIGADE, ROLES.ADMIN], // v4 : signature de toute une déclaration
   'cargo.horsgabarit': [ROLES.CHEF_BRIGADE, ROLES.CHEF_BRIGADE_ADJOINT, ROLES.CHEF_VISITE, ROLES.CHEF_DIVISION, ROLES.ADMIN],
   'cargo.t1': [ROLES.T1, ROLES.ADMIN],
   'cargo.gps': [ROLES.BALISE, ROLES.ADMIN],
@@ -69,6 +70,9 @@ export const PERMISSIONS: Record<string, Role[]> = {
   'report.loading': [ROLES.CFS, ROLES.CHEF_BRIGADE, ROLES.ADMIN],
   'report.loadingdecl': [ROLES.CFS, ROLES.CHEF_BRIGADE, ROLES.ADMIN], // v4 : bon de chargement par déclaration
   'report.ordre': [ROLES.CFS, ROLES.CHEF_BRIGADE, ROLES.ADMIN], // v4 : ordre d'exécution imprimable
+  // v4 : dossier de validation par déclaration — même périmètre que cargo.valider
+  // (le chef signe ; l'ADMIN dépanne). Le CFS n'y a PAS accès : il ne valide pas.
+  'report.validationdecl': [ROLES.CHEF_BRIGADE, ROLES.ADMIN],
   'report.cfs': [ROLES.CFS, ROLES.CHEF_BRIGADE, ROLES.ADMIN],
   'report.cfsdetail': [ROLES.CFS, ROLES.CHEF_BRIGADE, ROLES.ADMIN],
   'report.vehicule': [ROLES.CFS, ROLES.CHEF_BRIGADE, ROLES.ADMIN],

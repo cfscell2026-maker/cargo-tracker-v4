@@ -10,6 +10,7 @@ import type { Nav } from './App.tsx';
 import {
   STATUTS, OPERATIONS, ROLES, TYPES_DECLARATION, ETATS_SORTIE,
   etapesEnAttente, estOui, tcValide, parseConteneursDetails, tailleBucket,
+  groupesDeclaration, libelleDeclaration,
 } from '../../../supabase/functions/_shared/domaine/src/index.ts';
 
 type O = Record<string, unknown>;
@@ -30,6 +31,8 @@ export function Detail({ user, arg, go }: Nav) {
   const role = user.role;
   const can = (...roles: string[]) => roles.includes(role);
   const dets = parseConteneursDetails(c['conteneursDetails']);
+  // Chargement mixte : déduit des déclarations portées par chaque conteneur.
+  const groupes = groupesDeclaration(dets.conteneurs, c);
   const estVeh = estOui(c['estVehicule']);
   // Enlèvement binôme : après UN conteneur 20', on peut en ajouter un 2e (20').
   const binomePossible = c['typeOperation'] === OPERATIONS.ENLEVEMENT
@@ -42,31 +45,8 @@ export function Detail({ user, arg, go }: Nav) {
   return (
     <div>
       <button className="ghost" onClick={() => go('list')}>← Retour</button>
-      <div className="card" style={{ marginTop: 10 }}>
-        <div className="row" style={{ justifyContent: 'space-between' }}>
-          <h2 style={{ margin: 0 }}>{c['numeroCamion'] as string} <span className="mono" style={{ color: '#5c6b7a', fontSize: 13 }}>{c['id'] as string}</span></h2>
-          <Tag statut={c['statut'] as string} o={c} />
-        </div>
-        <div className="kv"><b>Opération</b>{c['typeOperation'] as string}</div>
-        <div className="kv"><b>Déclarant</b>{(c['declarant'] as string) || '—'}</div>
-        <div className="kv"><b>Déclaration</b>{[c['numeroDeclaration'], c['anneeDeclaration'], c['bureauDeclaration'], c['typeDeclaration']].filter(Boolean).join(' · ') || '—'}</div>
-        <div className="kv"><b>Destination</b>{(c['destinationMarchandise'] as string) || '—'}</div>
-        {c['nbColis'] ? <div className="kv"><b>Nombre de colis</b>{c['nbColis'] as string}</div> : null}
-        {'horsGabarit' in c ? <div className="kv"><b>Hors gabarit</b>{estOui(c['horsGabarit']) ? `Oui (${(c['hauteurChargement'] as string) || '?'} m)` : 'Non'}</div> : null}
-      </div>
-
-      {/* Conteneurs AVANT le parcours (info liée à la cargaison en premier). */}
-      {dets.conteneurs.length > 0 && (
-        <div className="card">
-          <h2>Conteneurs ({dets.conteneurs.length})</h2>
-          <div className="tbl"><table><thead><tr><th>#</th><th>Conteneur</th><th>Scellé</th><th>Taille</th><th>Type</th></tr></thead>
-            <tbody>{dets.conteneurs.map((ct, i) => (
-              <tr key={i}><td>{i + 1}</td><td className="mono">{ct.num}</td><td>{ct.plomb || (dets.scellesCamion[i] ?? '')}</td><td>{ct.taille}</td><td>{ct.type}</td></tr>
-            ))}</tbody></table></div>
-          {c['typeOperation'] === OPERATIONS.DEPOTAGE && dets.scellesCamion.length > 0 &&
-            <div className="kv" style={{ marginTop: 8 }}><b>Scellés camion</b>{dets.scellesCamion.join(', ')}</div>}
-        </div>
-      )}
+      <FicheCargaison c={c} groupes={groupes} />
+      <CarteConteneurs c={c} dets={dets} groupes={groupes} />
 
       <Timeline c={c} />
 
@@ -93,6 +73,88 @@ export function Detail({ user, arg, go }: Nav) {
         <PanneauEditer c={c} dets={dets} action={action} go={go} admin={role === A} />}
     </div>
   );
+}
+
+type Groupe = ReturnType<typeof groupesDeclaration>[number];
+
+/**
+ * Fiche d'identité de la cargaison — en-tête du détail.
+ *
+ * v4 — la déclaration n'est plus affichée comme une ligne unique : un camion
+ * peut être en CHARGEMENT MIXTE (conteneurs relevant de plusieurs déclarations,
+ * cas courant en enlèvement). L'Apps Script l'affichait par un bandeau, mais
+ * sur la foi d'un drapeau posé à la saisie ; ici il est reconnu automatiquement
+ * à partir des déclarations des conteneurs, donc jamais oublié.
+ */
+function FicheCargaison({ c, groupes }: { c: O; groupes: Groupe[] }) {
+  const mixte = groupes.length > 1;
+  return <div className="card" style={{ marginTop: 10 }}>
+    <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
+      <div>
+        <h2 style={{ margin: 0 }}>{(c['numeroCamion'] as string) || '—'}</h2>
+        <div className="help mono" style={{ marginTop: 2 }}>{c['id'] as string}{c['rapportId'] ? ` · rapport ${String(c['rapportId'])}` : ''}</div>
+      </div>
+      <Tag statut={c['statut'] as string} o={c} />
+    </div>
+
+    <div className="fiche">
+      <div className="kv"><b>Opération</b>{(c['typeOperation'] as string) || '—'}</div>
+      <div className="kv"><b>Date d'entrée</b>{fmtDate(c['dateCreation'])}</div>
+      <div className="kv"><b>Déclarant</b>{(c['declarant'] as string) || '—'}</div>
+      <div className="kv"><b>Contact</b>{(c['contactDeclarant'] as string) || '—'}</div>
+      <div className="kv"><b>Déclaration</b>{mixte
+        ? <span style={{ color: 'var(--warn)', fontWeight: 600 }}>{groupes.length} déclarations (mixte)</span>
+        : libelleDeclaration(groupes[0] ?? c)}</div>
+      <div className="kv"><b>Destination</b>{(c['destinationMarchandise'] as string) || '—'}</div>
+      {c['descriptionMarchandise'] ? <div className="kv"><b>Marchandise</b>{c['descriptionMarchandise'] as string}</div> : null}
+      {c['nbColis'] ? <div className="kv"><b>Nombre de colis</b>{c['nbColis'] as string}</div> : null}
+      {c['agentCfs'] ? <div className="kv"><b>Agent CFS</b>{c['agentCfs'] as string}</div> : null}
+      {'horsGabarit' in c ? <div className="kv"><b>Hors gabarit</b>{estOui(c['horsGabarit']) ? `Oui (${(c['hauteurChargement'] as string) || '?'} m)` : 'Non'}</div> : null}
+    </div>
+
+    {mixte && <div className="bandeau">
+      <div className="t">⊞ Chargement mixte — {groupes.length} déclarations sur ce camion</div>
+      {groupes.map((g) => <div key={g.cle} className="l">
+        <b>{libelleDeclaration(g)}</b>{g.declarant ? ` — ${g.declarant}` : ''} · conteneur{g.rangs.length > 1 ? 's' : ''} n° {g.rangs.join(', ')}
+      </div>)}
+      <div className="help" style={{ marginTop: 6 }}>Un bon de chargement et un ordre d'exécution sont édités <b>par déclaration</b> : ce camion apparaîtra sur chacun d'eux, avec ses seuls conteneurs concernés.</div>
+    </div>}
+  </div>;
+}
+
+/**
+ * Conteneurs du camion, placés AVANT le parcours (l'agent cherche d'abord ce
+ * qu'il y a dans le camion). En chargement mixte, les conteneurs sont groupés
+ * par déclaration au lieu d'être listés à plat — sans ce regroupement, rien à
+ * l'écran ne disait quel conteneur relevait de quelle déclaration.
+ */
+function CarteConteneurs({ c, dets, groupes }: { c: O; dets: ReturnType<typeof parseConteneursDetails>; groupes: Groupe[] }) {
+  if (!dets.conteneurs.length) return null;
+  const estDep = c['typeOperation'] === OPERATIONS.DEPOTAGE;
+  const mixte = groupes.length > 1;
+  const rang = (ct: unknown) => dets.conteneurs.indexOf(ct as never) + 1;
+
+  const table = (liste: Groupe['conteneurs']) => <div className="tbl"><table>
+    <thead><tr><th style={{ width: 40 }}>#</th><th>Conteneur</th><th>Taille</th><th>Type</th>{!estDep && <th>Scellé</th>}</tr></thead>
+    <tbody>{liste.map((ct) => { const i = rang(ct); return (
+      <tr key={i}><td>{i}</td><td className="mono">{ct.num}</td><td>{ct.taille || '—'}</td><td>{ct.type || '—'}</td>
+        {/* Repli sur les scellés camion : certaines saisies migrées les portent
+            là même en enlèvement, où ils devraient être sur le conteneur. */}
+        {!estDep && <td>{ct.plomb || dets.scellesCamion[i - 1] || '—'}</td>}</tr>
+    ); })}</tbody></table></div>;
+
+  return <div className="card">
+    <h2>Conteneurs ({dets.conteneurs.length})</h2>
+    {/* Dépotage : le scellé est posé sur le CAMION, pas sur chaque conteneur. */}
+    {estDep && <div className="kv" style={{ marginBottom: 10 }}>
+      <b>Scellés camion</b>{dets.scellesCamion.length ? dets.scellesCamion.join(' · ') : '—'}</div>}
+    {mixte
+      ? groupes.map((g) => <div key={g.cle} style={{ marginBottom: 12 }}>
+        <div className="section-title" style={{ marginTop: 0 }}>Déclaration {libelleDeclaration(g)}{g.declarant ? ` — ${g.declarant}` : ''}</div>
+        {table(g.conteneurs)}
+      </div>)
+      : table(dets.conteneurs)}
+  </div>;
 }
 
 /**

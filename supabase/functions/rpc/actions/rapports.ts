@@ -13,9 +13,12 @@ import { versCamel } from '../ctx.ts';
 // BOOT_ERROR / 503 sur toutes les requêtes. Chargé seulement lors d'un export.
 import {
   ROLES, STATUTS, OPERATIONS, TRANCHES_SEJOUR, SEUIL_ALERTE_SEJOUR,
-  tailleBucket, evpDeTaille, trancheAge, parseConteneursDetails, estOui,
+  tailleBucket, evpDeTaille, trancheAge, parseConteneursDetails, estOui, aFait,
+  groupesDeclaration, estChargementMixte, libelleDeclaration,
+  etapesEnAttente, etatCellules,
 } from '../../_shared/domaine/src/index.ts';
 import { fetchAll, lookupDeclaration } from './helpers.ts';
+import { filtrerConfidentiel } from './lecture.ts';
 
 /* ------------------------------- Helpers ------------------------------- */
 
@@ -374,17 +377,93 @@ export async function rapportChargement(ctx: Ctx, id: string) {
   if (error) throw new Error(error.message);
   if (!data) throw new Error('Cargaison introuvable : ' + id);
   const c = versCamel(data);
-  const conts = detsDeRow(c);
+  const pd = parseConteneursDetails(c['conteneursDetails']);
+  const conts = pd.conteneurs;
   const esc = (v: unknown) => String(v ?? '').replace(/[&<>]/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[m]!));
-  const lignes = conts.map((ct, i) => `<tr><td>${i + 1}</td><td>${esc(ct.num)}</td><td>${esc(ct.plomb)}</td><td>${esc(ct.taille)}</td><td>${esc(ct.type)}</td></tr>`).join('');
-  const html = `<!doctype html><html lang="fr"><meta charset="utf-8"><title>Bon de chargement ${esc(c['id'])}</title>
-  <style>body{font-family:system-ui;padding:24px;color:#111}h1{font-size:18px}table{border-collapse:collapse;width:100%;margin-top:12px}td,th{border:1px solid #999;padding:6px;font-size:13px;text-align:left}.kv{margin:4px 0}</style>
-  <h1>Bon de chargement — ${esc(c['id'])}</h1>
-  <div class="kv"><b>Camion :</b> ${esc(c['numeroCamion'])} &nbsp; <b>Opération :</b> ${esc(c['typeOperation'])}</div>
-  <div class="kv"><b>Déclarant :</b> ${esc(c['declarant'])} &nbsp; <b>Déclaration :</b> ${esc(c['numeroDeclaration'])}/${esc(c['anneeDeclaration'])} ${esc(c['bureauDeclaration'])} ${esc(c['typeDeclaration'])}</div>
-  <div class="kv"><b>Destination :</b> ${esc(c['destinationMarchandise'])}</div>
-  <table><thead><tr><th>#</th><th>Conteneur</th><th>Scellé</th><th>Taille</th><th>Type</th></tr></thead><tbody>${lignes}</tbody></table>
-  <p style="margin-top:24px">Agent CFS : ${esc(c['agentCfs'])}</p></html>`;
+  const estDep = c['typeOperation'] === OPERATIONS.DEPOTAGE;
+  const groupes = groupesDeclaration(conts, c);
+  const mixte = groupes.length > 1;
+  const dt = c['dateCreation'] ? new Date(String(c['dateCreation'])) : null;
+  const dateFr = dt && !isNaN(dt.getTime())
+    ? dt.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' })
+      + ' à ' + dt.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
+    : '—';
+  const val = (v: unknown) => esc(v) || '—';
+
+  // En chargement MIXTE, le tableau est scindé par déclaration : sans cela, le bon
+  // laissait croire que tous les conteneurs relevaient de la même déclaration.
+  const tableau = (liste: typeof conts) => `<table>
+    <thead><tr><th style="width:10%">#</th><th style="width:34%">Conteneur</th><th style="width:16%">Taille</th><th style="width:16%">Type</th>${estDep ? '' : '<th style="width:24%">Scellé</th>'}</tr></thead>
+    <tbody>${liste.map((ct) => {
+      const i = conts.indexOf(ct) + 1;
+      return `<tr><td>${i}</td><td class="tc">${esc(ct.num)}</td><td>${val(ct.taille)}</td><td>${val(ct.type)}</td>${estDep ? '' : `<td>${val(ct.plomb)}</td>`}</tr>`;
+    }).join('')}</tbody></table>`;
+
+  const corpsConteneurs = !conts.length
+    ? `<div class="l">Aucun conteneur — ${val(c['descriptionMarchandise'])}</div>`
+    : mixte
+      ? groupes.map((g) => `<div class="grp"><div class="grp-t">Déclaration ${esc(libelleDeclaration(g))}${g.declarant ? ' — ' + esc(g.declarant) : ''}</div>${tableau(g.conteneurs)}</div>`).join('')
+      : tableau(conts);
+
+  const html = `<!doctype html><html lang="fr"><meta charset="utf-8">
+<title>Bon de chargement — ${esc(c['numeroCamion'])}</title>
+<style>
+  /* Même trame typographique que l'ordre d'exécution : ce bon est présenté au
+     poste de contrôle, il doit être lisible d'un coup d'œil et tenir sur une page. */
+  @page { size: A4; margin: 15mm 20mm; }
+  body { font-family: "Times New Roman", "Liberation Serif", Georgia, serif; color: #000;
+         font-size: 11pt; line-height: 1.65; margin: 0; }
+  .head { text-align: center; margin-bottom: 6mm; }
+  .head .g { font-size: 8.5pt; font-weight: bold; text-transform: uppercase; letter-spacing: .04em; line-height: 1.5; }
+  h1 { text-align: center; font-size: 13.5pt; letter-spacing: .18em; margin: 4mm 0 1mm;
+       text-decoration: underline; text-underline-offset: 4pt; page-break-after: avoid; }
+  .ref { text-align: center; font-size: 9.5pt; margin-bottom: 6mm; }
+  /* Identité du camion : deux colonnes de couples libellé / valeur alignés. */
+  .fiche { display: grid; grid-template-columns: 1fr 1fr; gap: 0 10mm; margin-bottom: 5mm; }
+  .fiche div { border-bottom: .4pt dotted #000; padding: 1.4mm 0; font-size: 10.5pt; }
+  .fiche b { display: inline-block; min-width: 34mm; font-weight: bold; }
+  .l { margin: 0 0 3mm; font-size: 10.5pt; }
+  .grp { margin-bottom: 4mm; page-break-inside: avoid; }
+  .grp-t { font-weight: bold; font-size: 10pt; text-decoration: underline;
+           text-underline-offset: 3pt; margin-bottom: 1.5mm; }
+  table { border-collapse: collapse; width: 100%; margin-bottom: 4mm; }
+  thead { display: table-header-group; }
+  tr { page-break-inside: avoid; }
+  th, td { border: .6pt solid #000; padding: 1.8mm 2mm; font-size: 10pt; text-align: center; }
+  th { font-weight: bold; }
+  td.tc { font-family: "Courier New", monospace; font-size: 9.5pt; letter-spacing: .04em; }
+  .avert { border: .6pt solid #000; padding: 2mm 3mm; margin-bottom: 4mm; font-size: 10pt; }
+  .signatures { display: flex; justify-content: space-around; gap: 12mm; margin-top: 10mm; page-break-inside: avoid; }
+  .signatures div { flex: 1; text-align: center; }
+  .signatures .rule { border-top: .6pt solid #000; margin-top: 20mm; padding-top: 1.5mm; font-size: 9.5pt; }
+</style>
+<div class="head"><div class="g">République Togolaise — Commissariat des Douanes et Droits Indirects<br>Division des Opérations Douanières Lomé-Port 4 — Section Brigade PIA</div></div>
+<h1>BON DE CHARGEMENT</h1>
+<div class="ref">N° ${val(c['rapportId'] ?? c['id'])} — établi le ${dateFr}</div>
+
+<div class="fiche">
+  <div><b>N° camion</b>${val(c['numeroCamion'])}</div>
+  <div><b>Opération</b>${val(c['typeOperation'])}</div>
+  <div><b>Déclarant</b>${val(c['declarant'])}</div>
+  <div><b>Contact</b>${val(c['contactDeclarant'])}</div>
+  <div><b>Déclaration</b>${mixte ? esc(groupes.length) + ' déclarations (chargement mixte)' : esc(libelleDeclaration(groupes[0] ?? c))}</div>
+  <div><b>Destination</b>${val(c['destinationMarchandise'])}</div>
+  <div><b>Marchandise</b>${val(c['descriptionMarchandise'])}</div>
+  <div><b>Nombre de colis</b>${val(c['nbColis'])}</div>
+</div>
+
+${estDep ? `<div class="l"><b>Scellés du camion :</b> ${val(pd.scellesCamion.join(' · '))}</div>` : ''}
+${mixte ? '<div class="avert"><b>CHARGEMENT MIXTE</b> — ce camion emporte des conteneurs relevant de plusieurs déclarations. Les conteneurs sont présentés ci-dessous groupés par déclaration.</div>' : ''}
+
+${corpsConteneurs}
+
+<div class="l"><b>Agent CFS :</b> ${val(c['agentCfs'])}</div>
+<div class="signatures">
+  <div><div class="rule">L'agent CFS</div></div>
+  <div><div class="rule">Le chauffeur</div></div>
+  <div><div class="rule">Le Chef de Brigade</div></div>
+</div>
+</html>`;
   return { html, filename: 'BonChargement_' + c['id'] + '.html' };
 }
 
@@ -405,6 +484,23 @@ export async function rapportChargement(ctx: Ctx, id: string) {
  * cette collecte.
  */
 export async function rapportChargementDecl(ctx: Ctx, p: Record<string, unknown>) {
+  // Bon de chargement : fin de chargement UNIQUEMENT.
+  return await collecterParDeclaration(ctx, p, (c) => c['statut'] === STATUTS.CREEE);
+}
+
+/**
+ * Collecte partagée « tout ce qui relève d'une déclaration ».
+ *
+ * Le bon de chargement et la VALIDATION du chef brigade posent la même question
+ * (« que contient cette déclaration ? ») mais ne retiennent pas les mêmes
+ * cargaisons : le bon veut la fin de chargement, la validation veut ce qui
+ * attend encore une signature — d'où le prédicat `garder`.
+ */
+async function collecterParDeclaration(
+  ctx: Ctx,
+  p: Record<string, unknown>,
+  garder: (c: Record<string, unknown>) => boolean,
+) {
   const cle = (v: unknown) => String(v ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
   const num = cle(p['numeroDeclaration']);
   if (!num) throw new Error('Indiquez le N° de déclaration.');
@@ -426,7 +522,7 @@ export async function rapportChargementDecl(ctx: Ctx, p: Record<string, unknown>
   let totalConteneurs = 0;
 
   for (const c of await loadCargos(ctx)) {
-    if (c['statut'] !== STATUTS.CREEE) continue; // fin de chargement UNIQUEMENT
+    if (!garder(c)) continue;
     const pd = parseConteneursDetails(c['conteneursDetails']);
     const retenus = pd.conteneurs.filter((ct) => concorde(ct as never));
     // Repli : conteneurs sans déclaration propre (données migrées) → déclaration du camion.
@@ -443,13 +539,31 @@ export async function rapportChargementDecl(ctx: Ctx, p: Record<string, unknown>
       bureauDeclaration: c['bureauDeclaration'], typeDeclaration: c['typeDeclaration'],
       agentCfs: c['agentCfs'], nbColis: c['nbColis'], etatSortie: c['etatSortie'],
       observationsCfs: c['observationsCfs'],
-      chargementMixte: estOui(c['chargementMixte']),
+      // Éléments que le chef brigade doit voir AVANT de signer : ce qui reste dû
+      // sur le parcours, et le hors gabarit (champ confidentiel, filtré plus bas
+      // pour les rôles qui n'y ont pas droit).
+      dateValidation: c['dateValidation'], agentValidation: c['agentValidation'],
+      etapesEnAttente: etapesEnAttente(c as never),
+      horsGabarit: estOui(c['horsGabarit']), hauteurChargement: c['hauteurChargement'],
+      // Mixte DÉDUIT des déclarations portées par les conteneurs (le drapeau
+      // hérité de l'Apps Script n'est plus alimenté et manque sur les données
+      // migrées). Calculé sur TOUS les conteneurs du camion, pas seulement sur
+      // ceux retenus pour la déclaration éditée.
+      chargementMixte: estChargementMixte(pd.conteneurs, c) || estOui(c['chargementMixte']),
+      // Les autres déclarations du camion : ce que l'agent doit savoir en lisant
+      // le bon, puisque le camion emporte aussi des conteneurs qui n'y figurent pas.
+      autresDeclarations: groupesDeclaration(pd.conteneurs, c)
+        .filter((g) => !concorde(g as never))
+        .map((g) => ({ libelle: libelleDeclaration(g), nbConteneurs: g.conteneurs.length })),
       scellesCamion: pd.scellesCamion,
       nbConteneurs: conts.length,
       conteneurs: conts.map((ct) => ({
         num: ct.num, plomb: ct.plomb, taille: ct.taille, type: ct.type, poids: ct.poids,
       })),
     };
+    // Hors gabarit = confidentiel : mêmes règles que cargo.get, sinon le bon de
+    // chargement deviendrait une fuite pour les rôles qui n'y ont pas accès.
+    filtrerConfidentiel(ligne, ctx.session.role);
     if (estOui(c['estVehicule'])) {
       ligne['vehicule'] = c['vehiculeDetails'];
       ligne['conteneurOrigine'] = c['conteneurOrigine'];
@@ -481,6 +595,71 @@ export async function rapportChargementDecl(ctx: Ctx, p: Record<string, unknown>
       conteneurs: totalConteneurs, total: camions.length + vehicules.length,
     },
   };
+}
+
+/* ==================== Validation du chef brigade ====================== */
+
+/**
+ * v4 — VALIDATION PAR DÉCLARATION (décision utilisateur 2026-07-19).
+ *
+ * Le chef brigade ne valide plus camion par camion : il ouvre une déclaration,
+ * voit TOUT ce qu'elle contient (camions, véhicules, conteneurs, scellés, colis,
+ * hors gabarit, chargements mixtes) et signe l'ensemble d'un seul geste. Valider
+ * à l'unité obligeait à rouvrir dix fiches pour une seule opération de dépotage,
+ * et rien ne montrait l'ensemble avant de signer.
+ *
+ * Sans N° de déclaration, renvoie la LISTE des déclarations en attente : le chef
+ * n'a pas à connaître les numéros par cœur pour commencer sa tournée.
+ */
+export async function validationParDeclaration(ctx: Ctx, p: Record<string, unknown>) {
+  const enAttente = (c: Record<string, unknown>) =>
+    etapesEnAttente(c as never).indexOf('VALIDATION') >= 0;
+
+  if (!String(p['numeroDeclaration'] ?? '').trim()) return await declarationsAValider(ctx);
+
+  // Tout ce qui relève de la déclaration ET a fini le chargement — y compris ce
+  // qui est DÉJÀ validé, pour que le chef voie l'ensemble et non un reliquat.
+  const r = await collecterParDeclaration(ctx, p, (c) =>
+    etatCellules(c as never).cfs && c['statut'] !== STATUTS.SORTIE);
+  const lignes = [...r.camions, ...r.vehicules];
+  const aValider = lignes.filter((l) => !aFait(l['dateValidation']));
+  return {
+    ...r,
+    aValider: aValider.map((l) => l['id']),
+    compte: {
+      ...r.compte,
+      aValider: aValider.length,
+      dejaValidees: lignes.length - aValider.length,
+      conteneursAValider: aValider.reduce((n, l) => n + Number(l['nbConteneurs'] ?? 0), 0),
+    },
+  };
+}
+
+/** Déclarations ayant au moins une cargaison en attente de signature. */
+async function declarationsAValider(ctx: Ctx) {
+  const parCle: Record<string, Record<string, unknown>> = {};
+  for (const c of await loadCargos(ctx)) {
+    if (etapesEnAttente(c as never).indexOf('VALIDATION') < 0) continue;
+    const pd = parseConteneursDetails(c['conteneursDetails']);
+    // Un camion en chargement MIXTE alimente CHACUNE de ses déclarations : sinon
+    // il resterait invisible dans la file de la seconde.
+    for (const g of groupesDeclaration(pd.conteneurs, c)) {
+      if (!g.numeroDeclaration) continue;
+      const e = parCle[g.cle] ?? (parCle[g.cle] = {
+        cle: g.cle, numeroDeclaration: g.numeroDeclaration, anneeDeclaration: g.anneeDeclaration,
+        bureauDeclaration: g.bureauDeclaration, typeDeclaration: g.typeDeclaration,
+        declarant: g.declarant, libelle: libelleDeclaration(g),
+        camions: 0, vehicules: 0, conteneurs: 0, plusAncienne: c['dateCreation'],
+      });
+      if (estOui(c['estVehicule'])) e['vehicules'] = Number(e['vehicules']) + 1;
+      else e['camions'] = Number(e['camions']) + 1;
+      e['conteneurs'] = Number(e['conteneurs']) + g.conteneurs.length;
+      if (new Date(String(c['dateCreation'])) < new Date(String(e['plusAncienne']))) e['plusAncienne'] = c['dateCreation'];
+    }
+  }
+  const rows = Object.values(parCle).sort((a, b) =>
+    new Date(String(a['plusAncienne'])).getTime() - new Date(String(b['plusAncienne'])).getTime());
+  return { declarations: rows, total: rows.length };
 }
 
 /**
@@ -539,6 +718,17 @@ export async function ordreExecution(ctx: Ctx, p: Record<string, unknown>) {
   const desig = [...new Set(lignes.map((l) => String(l['descriptionMarchandise'] ?? '').trim()).filter(Boolean))];
   const denombre = [colis.join(' + '), desig.join(' / ')].filter(Boolean).join(' ');
 
+  // CHARGEMENT MIXTE — l'agent qui contrôle le camion sur le terrain y trouvera
+  // des conteneurs ABSENTS de ce tableau (ils relèvent d'une autre déclaration).
+  // Le signaler sur l'acte évite de faire constater un écart qui n'en est pas un.
+  const mixtes = lignes
+    .filter((l) => ((l['autresDeclarations'] as Record<string, unknown>[]) ?? []).length)
+    .map((l) => {
+      const a = (l['autresDeclarations'] as Record<string, unknown>[]).map(
+        (x) => `${String(x['libelle'])} (${String(x['nbConteneurs'])} TC)`).join(', ');
+      return `${String(l['numeroCamion'])} — ${a}`;
+    });
+
   const rapports = [...new Set(lignes.map((l) => String(l['rapportId'] ?? '')).filter(Boolean))].join(' / ');
   const agents = [...new Set(lignes.map((l) => String(l['agentCfs'] ?? '').trim()).filter(Boolean))].join(', ');
   const dateOp = jour(lignes[0]?.['dateCreation']);
@@ -550,67 +740,126 @@ export async function ordreExecution(ctx: Ctx, p: Record<string, unknown>) {
     // v4 — camion d'EFFETS DIVERS : pas de conteneur propre → une ligne avec la
     // désignation à la place du n° de TC (les véhicules sans TC restent hors tableau).
     if (!conts.length && !l['vehicule'] && (String(l['descriptionMarchandise'] ?? '').trim() || scam.length))
-      return [`<tr><td>${esc(String(l['descriptionMarchandise'] ?? '').trim() || 'EFFETS DIVERS')}</td><td></td><td>${esc(l['numeroCamion'])}</td><td>${esc(scam.join(' · '))}</td></tr>`];
+      return [`<tr><td>${esc(String(l['descriptionMarchandise'] ?? '').trim() || 'EFFETS DIVERS')}</td><td>—</td><td>${esc(l['numeroCamion'])}</td><td>${esc(scam.join(' · '))}</td></tr>`];
     return conts.map((ct, i) => {
       // Dépotage : scellés au camion (affichés sur la 1re ligne). Enlèvement : par conteneur.
       const plombs = String(l['typeOperation']) === OPERATIONS.ENLEVEMENT
         ? String(ct['plomb'] ?? '')
         : (i === 0 ? scam.join(' · ') : '');
-      return `<tr><td>${esc(ct['num'])}</td><td>${esc(ct['taille'])}</td><td>${esc(l['numeroCamion'])}</td><td>${esc(plombs)}</td></tr>`;
+      return `<tr><td class="tc">${esc(ct['num'])}</td><td>${esc(ct['taille']) || '—'}</td><td>${esc(l['numeroCamion'])}</td><td>${esc(plombs) || '—'}</td></tr>`;
     });
   }).join('');
 
   const html = `<!doctype html><html lang="fr"><meta charset="utf-8">
 <title>Ordre d'exécution — déclaration ${esc(d['numeroDeclaration'])}</title>
 <style>
-  @page { size: A4; margin: 16mm 18mm; }
-  body { font-family: "Times New Roman", "Liberation Serif", Georgia, serif; color: #000; font-size: 12.5px; line-height: 1.55; margin: 0; }
-  .head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
-  .head .g { font-weight: bold; font-size: 10.5px; text-transform: uppercase; line-height: 1.4; }
-  .head .d { text-align: center; font-size: 11px; padding-top: 2px; }
-  .head .d b { font-size: 12.5px; letter-spacing: .03em; }
-  h1 { text-align: center; font-size: 16px; letter-spacing: .12em; margin: 18px 0 4px; text-decoration: underline; text-underline-offset: 3px; }
-  .num { font-size: 11px; margin: 2px 0 14px; }
-  .l { margin: 7px 0; }
-  .sec { font-weight: bold; text-decoration: underline; text-underline-offset: 2px; }
-  .sig { display: flex; justify-content: space-between; margin-top: 14px; }
-  table { border-collapse: collapse; width: 100%; margin-top: 10px; }
-  td, th { border: 1px solid #000; padding: 6px 8px; font-size: 11.5px; text-align: center; }
-  th { font-weight: bold; background: #f2f2f2; }
-  .nb { font-size: 9.5px; font-style: italic; margin-top: 12px; }
-  .blank { display: inline-block; border-bottom: 1px dotted #000; min-width: 60px; }
+  /* ------------------------------------------------------------------
+     Mise en page d'un ACTE ADMINISTRATIF : pas de couleur, un seul corps
+     de texte sérif, une graisse pour hiérarchiser, et des interlignes
+     assez larges pour que les mentions manuscrites tiennent à la main.
+     Les unités sont en POINTS (pt) : à l'impression, un mm reste un mm,
+     alors qu'un px dépend du zoom du navigateur.
+     ------------------------------------------------------------------ */
+  /* Mesuré : le gabarit tient sur UNE page jusqu'à ~7 conteneurs (~5 quand la
+     mention de chargement mixte s'ajoute). Au-delà, le tableau déborde
+     proprement sur la page suivante, entêtes répétées. Les valeurs de corps et
+     d'interligne sont calées là-dessus — les réduire nuirait à la lisibilité
+     d'un acte administratif, les augmenter ferait déborder un ordre ordinaire. */
+  @page { size: A4; margin: 13mm 18mm 12mm; }
+  html { -webkit-print-color-adjust: exact; }
+  body {
+    font-family: "Times New Roman", "Liberation Serif", Georgia, serif;
+    color: #000; font-size: 10.5pt; line-height: 1.45; margin: 0;
+    text-align: justify; text-justify: inter-word;
+  }
+
+  /* En-tête : timbre de l'administration à gauche, État à droite, tous
+     deux centrés dans leur colonne et alignés sur la même ligne de base. */
+  .head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10mm; margin-bottom: 3mm; }
+  .head > div { flex: 1; }
+  .head .g { text-align: center; font-size: 8pt; font-weight: bold; text-transform: uppercase; line-height: 1.3; letter-spacing: .02em; }
+  .head .g hr { border: 0; border-top: .6pt solid #000; width: 44%; margin: .8mm auto; }
+  .head .d { text-align: center; font-size: 9.5pt; line-height: 1.4; }
+  .head .d b { font-size: 11pt; letter-spacing: .06em; display: block; }
+  .head .d i { font-size: 9pt; }
+
+  /* Intitulé de l'acte : centré, espacé, souligné — jamais coupé d'une page. */
+  h1 { text-align: center; font-size: 13.5pt; font-weight: bold; letter-spacing: .2em;
+       margin: 3mm 0 1mm; text-decoration: underline; text-underline-offset: 4pt;
+       page-break-after: avoid; }
+  .num { text-align: center; font-size: 9.5pt; margin: 0 0 4.5mm; letter-spacing: .02em; }
+
+  /* Corps : chaque mention est une ligne aérée, jamais coupée en fin de page. */
+  .l { margin: 0 0 2.3mm; page-break-inside: avoid; }
+  .l.center { text-align: center; }
+  .sec { font-weight: bold; text-decoration: underline; text-underline-offset: 3pt;
+         letter-spacing: .04em; font-size: 10pt; }
+  .sig { display: flex; justify-content: space-between; gap: 10mm; margin: 3.5mm 0 1.5mm; }
+
+  /* Cadre d'observations : une zone à remplir doit se VOIR comme telle. */
+  .zone { border: .6pt solid #000; min-height: 11mm; padding: 1.6mm 2.5mm; margin-bottom: 3mm; }
+
+  /* Tableau des conteneurs : centré, entêtes répétées à chaque page. */
+  table { border-collapse: collapse; width: 100%; margin: 3mm 0 2.5mm; page-break-inside: auto; }
+  thead { display: table-header-group; }
+  tr { page-break-inside: avoid; }
+  th, td { border: .6pt solid #000; padding: 1.3mm 2mm; font-size: 10pt;
+           text-align: center; vertical-align: middle; }
+  th { font-weight: bold; letter-spacing: .03em; }
+  td.tc { font-family: "Courier New", monospace; font-size: 9.5pt; letter-spacing: .04em; }
+
+  /* Emplacements de signature : de la place, et un trait pour signer. */
+  .signatures { display: flex; justify-content: space-around; gap: 12mm; margin-top: 3mm; page-break-inside: avoid; }
+  .signatures div { flex: 1; text-align: center; }
+  .signatures .rule { border-top: .6pt solid #000; margin-top: 15mm; padding-top: 1.2mm; font-size: 9.5pt; }
+
+  .blank { display: inline-block; border-bottom: .6pt dotted #000; min-width: 18mm; }
+  .nb { font-size: 8.5pt; font-style: italic; margin-top: 3mm; text-align: left; }
 </style>
 <div class="head">
   <div class="g">
-    Commissariat Général<br>
-    Commissariat des Douanes<br>et Droits Indirects<br>
-    Direction des Opérations<br>Douanières de Lomé Port<br>
-    Division des Opérations<br>Douanières Lomé-Port 4<br>
+    Commissariat Général<hr>
+    Commissariat des Douanes<br>et Droits Indirects<hr>
+    Direction des Opérations<br>Douanières de Lomé Port<hr>
+    Division des Opérations<br>Douanières Lomé-Port 4<hr>
     Section Brigade PIA
   </div>
-  <div class="d"><b>REPUBLIQUE TOGOLAISE</b><br><i>Travail-Liberté-Patrie</i></div>
+  <div class="d"><b>REPUBLIQUE TOGOLAISE</b><i>Travail — Liberté — Patrie</i></div>
 </div>
+
+<h1>ORDRE D'EXÉCUTION</h1>
 <div class="num">N° ${pointille(rapports, 14)}/${esc(String(d['anneeDeclaration'] ?? new Date().getFullYear()))}/OTR/CG/CDDI/DODLP/DODLP 4</div>
-<h1>ORDRE D'EXECUTION</h1>
-<div class="l">Il est ordonné aux agents <span class="blank" style="min-width:70%"></span></div>
+
+<div class="l">Il est ordonné aux agents <span class="blank" style="min-width:65%"></span></div>
 <div class="l">Avec toutes responsabilités d'assister effectivement à l'opération ci-après : ${pointille(estDep ? 'Dépotage' : 'Enlèvement', 24)}</div>
-<div class="l">Date : ${pointille(dateOp, 10)} Lieu : <u>&nbsp;PIA&nbsp;</u> Déclaration : Type ${pointille(d['typeDeclaration'], 6)} N° ${pointille(d['numeroDeclaration'], 12)} du ${pointille(jour((r.apurement as Record<string, unknown> | null)?.['dateDeclaration']), 10)}</div>
-<div class="l">Déclarant : ${pointille(d['declarant'], 22)} Tél : ${pointille(lignes[0]?.['contactDeclarant'], 14)} Destination m/ses : ${pointille(lignes[0]?.['destinationMarchandise'], 14)}</div>
+<div class="l">Date : ${pointille(dateOp, 10)} &nbsp; Lieu : <u>&nbsp;PIA&nbsp;</u> &nbsp; Déclaration : Type ${pointille(d['typeDeclaration'], 6)} &nbsp; N° ${pointille(d['numeroDeclaration'], 12)} du ${pointille(jour((r.apurement as Record<string, unknown> | null)?.['dateDeclaration']), 10)}</div>
+<div class="l">Déclarant : ${pointille(d['declarant'], 22)} &nbsp; Tél : ${pointille(lignes[0]?.['contactDeclarant'], 14)} &nbsp; Destination m/ses : ${pointille(lignes[0]?.['destinationMarchandise'], 14)}</div>
+
 <div class="sig"><span class="sec">OBSERVATIONS OU CONSIGNES</span><span class="sec">LE CHEF BRIGADE PIA</span></div>
-<div class="l">${esc([...new Set(lignes.map((l) => String(l['observationsCfs'] ?? '').trim()).filter(Boolean))].join(' · ')) || '.'.repeat(90)}</div>
-<div class="l" style="margin-top:26px">Le <span class="blank"></span> de <span class="blank" style="min-width:30px"></span>h<span class="blank" style="min-width:30px"></span> à <span class="blank" style="min-width:30px"></span>h<span class="blank" style="min-width:30px"></span></div>
+<div class="zone">${esc([...new Set(lignes.map((l) => String(l['observationsCfs'] ?? '').trim()).filter(Boolean))].join(' · '))}</div>
+
+<div class="l">Le <span class="blank"></span> de <span class="blank" style="min-width:9mm"></span> h <span class="blank" style="min-width:9mm"></span> à <span class="blank" style="min-width:9mm"></span> h <span class="blank" style="min-width:9mm"></span></div>
 <div class="l">Nous soussignés ${pointille(agents, 60)}</div>
 <div class="l">En service à la Section de la Brigade des Douanes de Lomé-Port,</div>
 <div class="l">Reconnaissons avoir exécuté l'ordre ci-dessus. Nous faisons état de ce qui suit :</div>
-<div class="l">Avons suivi ${coche(estDep)} le dépotage ${coche(estEnl)} l'enlèvement ${coche(!estDep && !estEnl)} autres : <span class="blank"></span> de ${pointille(recapTC, 22)}</div>
+<div class="l">Avons suivi ${coche(estDep)} le dépotage &nbsp; ${coche(estEnl)} l'enlèvement &nbsp; ${coche(!estDep && !estEnl)} autres : <span class="blank"></span> de ${pointille(recapTC, 22)}</div>
 <div class="l">et avons dénombré / disant contenir : ${pointille(denombre, 60)}</div>
+
 <table>
-  <thead><tr><th>Numéros TC</th><th>Type</th><th>Numéro du camion</th><th>Plombs</th></tr></thead>
+  <thead><tr><th style="width:30%">Numéros TC</th><th style="width:12%">Type</th><th style="width:30%">Numéro du camion</th><th style="width:28%">Plombs</th></tr></thead>
   <tbody>${rows}</tbody>
 </table>
-<div class="l" style="margin-top:8px">Autres mentions : <span class="blank" style="min-width:70%"></span></div>
-<div class="sec" style="text-align:center; margin-top:22px">Noms et signatures des agents</div>
-<div style="height:60px"></div>
+
+${mixtes.length ? `<div class="l"><b>Chargement mixte</b> — les camions suivants portent également des conteneurs relevant d'une autre déclaration, non repris au tableau ci-dessus : ${esc(mixtes.join(' ; '))}.</div>` : ''}
+<div class="l">Autres mentions : <span class="blank" style="min-width:66%"></span></div>
+
+<div class="sec" style="display:block; text-align:center; margin-top:7mm">Noms et signatures des agents</div>
+<div class="signatures">
+  <div><div class="rule">Agent</div></div>
+  <div><div class="rule">Agent</div></div>
+  <div><div class="rule">Le Chef de Brigade</div></div>
+</div>
+
 <div class="nb">NB : Biffer les mentions inutiles.</div>
 </html>`;
 

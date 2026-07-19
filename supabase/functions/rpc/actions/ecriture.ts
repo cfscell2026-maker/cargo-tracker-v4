@@ -291,6 +291,35 @@ export async function valider(ctx: Ctx, p: Record<string, unknown>) {
   return { id };
 }
 
+/**
+ * v4 — VALIDATION EN LOT (décision utilisateur 2026-07-19) : le chef brigade
+ * signe d'un seul geste tous les camions d'une déclaration.
+ *
+ * Chaque cargaison reçoit SA PROPRE signature (une signature couvrant le lot
+ * n'aurait aucune valeur probante sur une fiche prise isolément). Une cargaison
+ * en erreur n'annule pas les autres : elle est rapportée à part, comme pour la
+ * saisie en lot des camions — le chef voit ce qui est passé et ce qui reste.
+ */
+export async function validerLot(ctx: Ctx, p: Record<string, unknown>) {
+  const ids = (Array.isArray(p['ids']) ? (p['ids'] as unknown[]) : [])
+    .map((v) => String(v ?? '').trim()).filter(Boolean);
+  if (!ids.length) throw new Error('Aucune cargaison à valider.');
+
+  const validees: string[] = [];
+  const erreurs: Record<string, unknown>[] = [];
+  for (const id of ids) {
+    try {
+      await valider(ctx, { id });
+      validees.push(id);
+    } catch (e) {
+      erreurs.push({ id, message: (e as Error).message });
+    }
+  }
+  await ctx.log('Validation chef brigade (lot)', '',
+    `${validees.length} validée(s)${erreurs.length ? ` · ${erreurs.length} en erreur` : ''}`);
+  return { validees, erreurs, compte: { validees: validees.length, erreurs: erreurs.length } };
+}
+
 /** v3.0 — champ confidentiel Hors gabarit (I-7 : action conservée à l'identique). */
 export async function horsgabarit(ctx: Ctx, p: Record<string, unknown>) {
   const id = String(p['id'] ?? '').trim();
