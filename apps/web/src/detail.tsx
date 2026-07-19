@@ -89,8 +89,28 @@ export function Detail({ user, arg, go }: Nav) {
         {[OPERATIONS.DEPOTAGE, OPERATIONS.ENLEVEMENT].includes(c['typeOperation'] as never) && <PanneauEditType c={c} action={action} />}
       </>}
       <PanneauEditCamion c={c} action={action} />
+      {role === A && <PanneauSupprimer c={c} go={go} />}
     </div>
   );
+}
+
+/** v4 — Suppression d'un doublon de cargaison (ADMIN uniquement). */
+function PanneauSupprimer({ c, go }: { c: O; go: Nav['go'] }) {
+  const id = c['id'] as string;
+  const [busy, setBusy] = useState(false);
+  async function supprimer() {
+    if (!window.confirm(`Supprimer définitivement la cargaison ${id} (${String(c['numeroCamion'] || '')}) ? Le stock rattaché redevient « En stock ».`)) return;
+    setBusy(true);
+    try {
+      await call('cargo.delete', { id });
+      toast('Cargaison supprimée.', 'ok');
+      go('list');
+    } catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(false); }
+  }
+  return <details className="card"><summary style={{ cursor: 'pointer', fontWeight: 600, color: 'var(--warn)' }}>Supprimer cette cargaison (doublon) — ADMIN</summary>
+    <p className="help" style={{ marginTop: 10 }}>Action réservée à l'administrateur, pour retirer un <b>doublon de saisie</b>. Irréversible ; l'action est tracée dans l'historique.</p>
+    <button className="ghost" disabled={busy} style={{ color: 'var(--warn)' }} onClick={supprimer}>Supprimer définitivement</button>
+  </details>;
 }
 
 function Timeline({ c }: { c: O }) {
@@ -187,7 +207,7 @@ function PanneauCFS({ c, dets, action, prefillDecl }: { c: O; dets: ReturnType<t
         <Champ label="Taille" value={String(f['taille'])} onChange={(e) => set('taille', masks.upper(e.target.value))} placeholder="20' / 40' / 45'" />
         <Champ label="Type (facultatif)" value={String(f['type'])} onChange={(e) => set('type', masks.upper(e.target.value))} />
         {estEnl && <Champ label="Scellé / Plomb" value={String(f['plomb'])} onChange={(e) => set('plomb', masks.upper(e.target.value))} />}
-        {!estEnl && <label className="help" style={{ alignSelf: 'end' }}><input type="checkbox" style={{ width: 'auto' }} checked={!!f['manuel']} onChange={(e) => set('manuel', e.target.checked)} /> Saisie manuelle (conteneur partagé)</label>}
+        <label className="help" style={{ alignSelf: 'end' }}><input type="checkbox" style={{ width: 'auto' }} checked={!!f['manuel']} onChange={(e) => set('manuel', e.target.checked)} /> Saisie manuelle (conteneur hors stock)</label>
       </div>
       <div className="help" style={{ marginTop: 6 }}>{estEnl ? 'Enlèvement' : 'Dépotage'} : {tcOptions.length} conteneur(s) {estEnl ? 'en stock (PIA)' : 'positionné(s) du jour'} — tapez pour choisir.</div>
       {montrerDecl && (
@@ -203,9 +223,6 @@ function PanneauCFS({ c, dets, action, prefillDecl }: { c: O; dets: ReturnType<t
             {estConso && <div><label className="help">Conso (type C) — balise</label><select value={consoMode} onChange={(e) => setConsoMode(e.target.value)}><option value="balise">À baliser</option><option value="sansbalise">Non balisée (dispense)</option></select></div>}
             <Champ label="N° déclaration" value={String(d['numeroDeclaration'])} onChange={(e) => setDd('numeroDeclaration', masks.upper(e.target.value))} />
             <Champ label="Année" value={String(d['anneeDeclaration'])} onChange={(e) => setDd('anneeDeclaration', e.target.value)} />
-            {/* v4 — date en douane, imprimée sur l'ordre d'exécution (exigée si nouvelle déclaration, sauf enlèvement). */}
-            {!estEnl && <Champ label="Date de la déclaration (si nouvelle)" type="date" value={String(d['dateDeclaration'] ?? '')} onChange={(e) => setDd('dateDeclaration', e.target.value)} />}
-            <Champ label="Nb conteneurs déclarés (si nouvelle)" type="number" value={String(d['nombreConteneurs'])} onChange={(e) => setDd('nombreConteneurs', e.target.value)} />
             <Champ label="Description marchandise" value={String(d['descriptionMarchandise'])} onChange={(e) => setDd('descriptionMarchandise', masks.upper(e.target.value))} />
           </div>
         </>
@@ -385,12 +402,13 @@ function PanneauGpsEdit({ c, action }: { c: O; action: ActionFn }) {
 function PanneauEtatCFS({ c, action }: { c: O; action: ActionFn }) {
   const id = c['id'] as string;
   const [etat, setEtat] = useState((c['etatSortie'] as string) || '');
-  return <div className="card"><h2>État du camion (sortie zone CFS)</h2>
+  return <div className="card"><h2>État du camion à la sortie de la zone CFS</h2>
+    <p className="help" style={{ marginTop: 0 }}>Sans rapport avec l'ajout de conteneurs ci-dessus. Renseigne l'état du camion quand il quitte la zone.</p>
     <div className="row">
       <select value={etat} onChange={(e) => setEtat(e.target.value)} style={{ maxWidth: 240 }}>
         <option value="">— Choisir —</option>{ETATS_SORTIE.map((s) => <option key={s}>{s}</option>)}
       </select>
-      <button disabled={!etat} onClick={() => action(() => call('cargo.etatcfs', { id, etatSortie: etat }), 'État enregistré.')}>Enregistrer</button>
+      <button disabled={!etat} onClick={() => action(() => call('cargo.etatcfs', { id, etatSortie: etat }), 'État à la sortie enregistré.')}>Enregistrer l'état à la sortie</button>
     </div>
   </div>;
 }

@@ -197,8 +197,8 @@ export async function majApurement(
   const cle = declKey(decl);
   const found = await lookupDeclaration(ctx, decl);
   if (!found.exists) {
+    // Nb de conteneurs déclarés facultatif (décision user) : 0 = inconnu (apurement neutre).
     const nbDecl = Number(payloadNb || 0);
-    if (!nbDecl || nbDecl < 1) throw new Error('Nouvelle déclaration : indiquez le « nombre de conteneurs » déclarés.');
     const now = new Date().toISOString();
     const { error } = await ctx.db.from('declarations').insert({
       cle,

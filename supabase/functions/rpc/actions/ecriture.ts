@@ -116,17 +116,8 @@ export async function cfs(ctx: Ctx, p: Record<string, unknown>) {
   const declInput = p['declaration'] as Record<string, unknown> | undefined;
   let declRef: ReturnType<typeof normaliserDeclaration> | null = null;
   if (declInput && String(declInput['declarant'] ?? '').trim()) {
+    // Nb de conteneurs déclarés et date en douane sont facultatifs (décision user).
     declRef = normaliserDeclaration(declInput as never, type);
-    // v4 — à la CRÉATION d'une déclaration : nb de conteneurs (apurement) ET date
-    // en douane (ordre d'exécution) exigés. Les déclarations déjà connues (dont
-    // les migrées, sans date) ne sont jamais bloquées.
-    if (!(await lookupDeclaration(ctx, declRef)).exists) {
-      if (!(Number(declInput['nombreConteneurs']) >= 1))
-        throw new Error('Nouvelle déclaration : indiquez le « nombre de conteneurs » déclarés.');
-      // Date en douane : exigée sauf en enlèvement.
-      if (!estEnl && !declRef.dateDeclaration)
-        throw new Error('Nouvelle déclaration : indiquez la « date de la déclaration ».');
-    }
   }
 
   const declRefCamion: Record<string, unknown> = {
@@ -520,6 +511,29 @@ export async function editcamion(ctx: Ctx, p: Record<string, unknown>) {
   await renommerCamionConteneurs(ctx, id, nouveau);
   await ctx.log('Correction N° camion', id, ancien + ' → ' + nouveau);
   return { id, numeroCamion: nouveau, ancien };
+}
+
+/* ------------------------------ supprimer ------------------------------ */
+
+/**
+ * v4 — Suppression d'une cargaison (ADMIN uniquement) : pour retirer un DOUBLON
+ * de saisie. Libère le stock rattaché (redevient « En stock »), supprime les
+ * conteneurs normalisés puis la cargaison. Action tracée dans l'audit.
+ */
+export async function supprimerCargo(ctx: Ctx, p: Record<string, unknown>) {
+  const id = String(p['id'] ?? '').trim();
+  const cargo = await getCargo(ctx, id);
+  const c = cargo.o;
+  // Libère les conteneurs de stock rattachés à cette cargaison.
+  const { error: eStock } = await ctx.db.from('stock')
+    .update({ statut: STOCK_STATUTS.STOCK, cargaison_id: null, date_depote: null })
+    .eq('cargaison_id', id);
+  if (eStock) throw new Error(eStock.message);
+  await supprimerConteneursDe(ctx, id);
+  const { error } = await ctx.db.from('cargaisons').delete().eq('id', id);
+  if (error) throw new Error(error.message);
+  await ctx.log('Suppression cargaison (doublon)', id, String(c['numeroCamion'] || '') + ' · ' + String(c['typeOperation'] || ''));
+  return { id, supprime: true };
 }
 
 /* ------------------------------- edittype ------------------------------ */

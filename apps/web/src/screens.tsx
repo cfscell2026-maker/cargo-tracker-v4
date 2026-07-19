@@ -265,9 +265,6 @@ function DeclFields({ d, set }: { d: O; set: (k: string, v: unknown) => void }) 
     <div><label className="help">Type décl.</label><select value={String(d['typeDeclaration'] ?? 'T')} onChange={(e) => set('typeDeclaration', e.target.value)}>{TYPES_DECLARATION.map((t) => <option key={t}>{t}</option>)}</select></div>
     <div><label className="help">N° décl.</label><input value={String(d['numeroDeclaration'] ?? '')} onChange={(e) => set('numeroDeclaration', masks.upper(e.target.value))} /></div>
     <div><label className="help">Année</label><input value={String(d['anneeDeclaration'] ?? new Date().getFullYear())} onChange={(e) => set('anneeDeclaration', e.target.value)} /></div>
-    {/* v4 — date en douane, imprimée sur l'ordre d'exécution (exigée si nouvelle déclaration). */}
-    <div><label className="help">Date de la déclaration</label><input type="date" value={String(d['dateDeclaration'] ?? '')} onChange={(e) => set('dateDeclaration', e.target.value)} /></div>
-    <div><label className="help">Nb conteneurs déclarés</label><input type="number" value={String(d['nombreConteneurs'] ?? '')} onChange={(e) => set('nombreConteneurs', e.target.value)} /></div>
     <div><label className="help">Désignation des marchandises</label><input value={String(d['descriptionMarchandise'] ?? '')} onChange={(e) => set('descriptionMarchandise', masks.upper(e.target.value))} /></div>
   </div>;
 }

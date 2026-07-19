@@ -127,35 +127,35 @@ test('déclaration type C non balisée : saute le T1 ET la Balise', async () => 
   assert.deepEqual(etapesEnAttente(versCamel(db.store['cargaisons'][0]!) as never), ['BS', 'PP']);
 });
 
-test('nouvelle déclaration (dépotage) : la date en douane est exigée (ordre d\'exécution)', async () => {
+test('déclaration : date et nombre de conteneurs FACULTATIFS (dépotage)', async () => {
   const db = new FakeDB();
   db.store['stock'].push({ numero_tc: 'MSKU1234567', taille: "40'", statut: 'Positionné' });
   const cfs = ctxAvec(db);
-  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'SANSDATE', routage: 'Dépotage' })) as { id: string };
-  const sansDate = { declarant: 'A', contactDeclarant: '901234', destinationMarchandise: 'D', bureauDeclaration: 'TG120', typeDeclaration: 'T', numeroDeclaration: '4242', anneeDeclaration: '2026', descriptionMarchandise: 'X', nombreConteneurs: 1 };
-  await assert.rejects(
-    () => ecr.cfs(cfs, { id, conteneur: { num: 'MSKU1234567', taille: "40'", type: 'DRY' }, declaration: sansDate }),
-    /indiquez la « date de la déclaration »/,
-  );
-  // Avec la date : la déclaration passe et la date est stockée en base.
+  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'FAC1', routage: 'Dépotage' })) as { id: string };
+  // Nouvelle déclaration SANS date NI nombre de conteneurs : accepté.
   await ecr.cfs(cfs, {
     id, conteneur: { num: 'MSKU1234567', taille: "40'", type: 'DRY' },
-    declaration: { ...sansDate, dateDeclaration: '24/06/2026' }, // format jj/mm/aaaa accepté
+    declaration: { declarant: 'A', contactDeclarant: '901234', destinationMarchandise: 'D', bureauDeclaration: 'TG120', typeDeclaration: 'T', numeroDeclaration: '4242', anneeDeclaration: '2026', descriptionMarchandise: 'X' },
   });
-  assert.equal(db.store['declarations'][0]?.['date_declaration'], '2026-06-24');
+  assert.equal(statutDe(db, id), STATUTS.CHARGEMENT);
+  assert.equal(db.store['declarations'][0]?.['numero_declaration'], '4242');
+  assert.equal(Number(db.store['declarations'][0]?.['nombre_conteneurs']), 0); // inconnu = 0
 });
 
-test('enlèvement : la date en douane n\'est PAS exigée', async () => {
+test('suppression de doublon (ADMIN) : retire la cargaison et libère le stock', async () => {
   const db = new FakeDB();
-  db.store['stock'].push({ numero_tc: 'MSKU1234567', taille: "40'", statut: 'En stock' });
+  db.store['stock'].push({ numero_tc: 'MSKU1234567', taille: "40'", statut: 'Positionné' });
   const cfs = ctxAvec(db);
-  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'ENLSANSDATE', routage: 'Enlèvement' })) as { id: string };
-  // Nouvelle déclaration sans date : accepté en enlèvement.
+  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'DUP99', routage: 'Dépotage' })) as { id: string };
   await ecr.cfs(cfs, {
-    id, conteneur: { num: 'MSKU1234567', taille: "40'", type: 'DRY', plomb: 'S1' },
-    declaration: { declarant: 'A', contactDeclarant: '901234', destinationMarchandise: 'D', bureauDeclaration: 'TG120', typeDeclaration: 'T', numeroDeclaration: '7777', anneeDeclaration: '2026', descriptionMarchandise: 'X', nombreConteneurs: 1 },
+    id, conteneur: { num: 'MSKU1234567', taille: "40'", type: 'DRY' },
+    declaration: { declarant: 'A', contactDeclarant: '901234', destinationMarchandise: 'D', bureauDeclaration: 'TG120', typeDeclaration: 'T', numeroDeclaration: '70', anneeDeclaration: '2026', descriptionMarchandise: 'X' },
   });
-  assert.equal(statutDe(db, id), STATUTS.CREEE);
+  assert.equal(db.store['stock'][0]?.['statut'], 'Dépoté'); // conteneur lié
+  await ecr.supprimerCargo(ctxRole(db, 'ADMIN', 'Admin'), { id });
+  assert.equal(db.store['cargaisons'].length, 0);
+  assert.equal(db.store['conteneurs'].length, 0);
+  assert.equal(db.store['stock'][0]?.['statut'], 'En stock'); // stock libéré
 });
 
 test('véhicule : le conteneur d\'origine (TC) est obligatoire', async () => {
