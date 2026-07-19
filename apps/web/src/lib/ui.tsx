@@ -54,6 +54,21 @@ export const TITLES: Record<string, string> = {
 };
 
 export const roleLabel = (r: string) => ROLE_LABELS[r] ?? r;
+
+/**
+ * Bouton « Retour » qui remonte d'un cran dans la navigation (et NOMME l'écran
+ * de destination). Avant, chaque retour était codé en dur vers « Cargaisons » :
+ * on quittait donc sa file d'attente ou son dossier de validation pour atterrir
+ * ailleurs. `secours` sert quand la pile est vide (entrée directe sur l'écran).
+ */
+export function BoutonRetour({ retour, ecranPrecedent, secours }: {
+  retour: () => void; ecranPrecedent: string | null; secours?: () => void;
+}) {
+  const cible = ecranPrecedent ? TITLES[ecranPrecedent] : null;
+  return <button className="ghost" onClick={() => (ecranPrecedent ? retour() : secours?.())}>
+    ← Retour{cible ? ` — ${cible}` : ''}
+  </button>;
+}
 export const estChef = (r: string) => ['CHEF_BRIGADE', 'CHEF_BRIGADE_ADJOINT', 'CHEF_VISITE', 'CHEF_DIVISION', 'ADMIN'].includes(r);
 
 /** Classe CSS + libellé d'un statut (statutTag / statutLabelRow v3.6). */

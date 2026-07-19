@@ -7,10 +7,21 @@ import './styles.css';
 import { supabase } from './lib/supabase.ts';
 import { call } from './lib/rpc.ts';
 import { MENUS, TITLES, roleLabel, ToastHost, toast, Spinner } from './lib/ui.tsx';
+import { empiler, depiler, vueInitiale, ecranPrecedentDe, type EtatNav } from './lib/navigation.ts';
 import { SCREENS } from './screens.tsx';
 
 export interface User { username: string; nomComplet: string; role: string }
-export interface Nav { user: User; go: (screen: string, arg?: unknown) => void; screen: string; arg: unknown }
+export interface Nav {
+  user: User;
+  go: (screen: string, arg?: unknown) => void;
+  screen: string;
+  arg: unknown;
+  /** Revient à l'écran précédent (pile de navigation), pas à un écran fixe. */
+  retour: () => void;
+  /** Écran vers lequel « Retour » ramènerait, ou null si on est à la racine. */
+  ecranPrecedent: string | null;
+}
+
 
 type Phase = 'loading' | 'login' | 'enroll' | 'verify' | 'app';
 const emailDe = (u: string) => (u.includes('@') ? u : `${u.toLowerCase()}@agents.cargo-pia.local`);
@@ -26,15 +37,28 @@ const MFA_REQUISE = false;
 export function App() {
   const [phase, setPhase] = useState<Phase>('loading');
   const [user, setUser] = useState<User | null>(null);
-  const [screen, setScreen] = useState('dash');
-  const [arg, setArg] = useState<unknown>(null);
+  // Vue courante + PILE des vues précédentes (logique pure dans lib/navigation).
+  // Un seul état pour les deux : empiler depuis l'updater d'un autre état
+  // provoquerait un double-push en StrictMode (les updaters y sont appelés deux fois).
+  const [nav, setNav] = useState<EtatNav>(vueInitiale);
   const [sideOpen, setSideOpen] = useState(false);
+  const { screen, arg } = nav.vue;
 
-  const go = useCallback((s: string, a?: unknown) => { setScreen(s); setArg(a ?? null); setSideOpen(false); }, []);
+  const go = useCallback((s: string, a?: unknown) => {
+    setNav((etat) => empiler(etat, s, a));
+    setSideOpen(false);
+  }, []);
+
+  const retour = useCallback(() => {
+    setNav(depiler);
+    setSideOpen(false);
+  }, []);
 
   const entrerApp = useCallback(async () => {
     const u = await call<User>('account.me');
-    setUser(u); setScreen('dash'); setPhase('app');
+    // Nouvelle session = historique repartant de zéro (on ne remonte pas dans
+    // la navigation de l'utilisateur précédent).
+    setUser(u); setNav(vueInitiale()); setPhase('app');
   }, []);
 
   const evaluerSession = useCallback(async () => {
@@ -59,7 +83,7 @@ export function App() {
   if (phase !== 'app' || !user) return <AuthGate phase={phase} setPhase={setPhase} onReady={evaluerSession} onApp={entrerApp} />;
 
   const menu = MENUS[user.role] ?? [];
-  const nav: Nav = { user, go, screen, arg };
+  const navProps: Nav = { user, go, screen, arg, retour, ecranPrecedent: ecranPrecedentDe(nav) };
   const Screen = (SCREENS[screen] ?? SCREENS.dash)!;
 
   return (
@@ -81,7 +105,7 @@ export function App() {
           <h1>{TITLES[screen] ?? ''}</h1>
           <div className="who"><b>{user.nomComplet}</b><span className="role">{roleLabel(user.role)}</span></div>
         </div>
-        <div className="content"><Screen {...nav} /></div>
+        <div className="content"><Screen {...navProps} /></div>
       </div>
       <ToastHost />
     </div>

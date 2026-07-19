@@ -5,7 +5,7 @@
 import { useState } from 'react';
 import { call } from './lib/rpc.ts';
 import { useAsync } from './lib/hooks.ts';
-import { Spinner, Tag, masks, toast, fmtDate } from './lib/ui.tsx';
+import { Spinner, Tag, masks, toast, fmtDate, BoutonRetour } from './lib/ui.tsx';
 import type { Nav } from './App.tsx';
 import {
   STATUTS, OPERATIONS, ROLES, TYPES_DECLARATION, ETATS_SORTIE,
@@ -18,7 +18,7 @@ const A = ROLES.ADMIN;
 // Sous-panneau d'édition (rendu à l'intérieur du bloc « Éditer », sans chrome de carte).
 const EDIT_ITEM = { border: '1px solid var(--line)', borderRadius: 6, padding: '8px 12px' } as const;
 
-export function Detail({ user, arg, go }: Nav) {
+export function Detail({ user, arg, go, retour, ecranPrecedent }: Nav) {
   // `arg` = id (chaîne) OU { id, prefillDecl } quand on enchaîne un 2e camion.
   const a = arg && typeof arg === 'object' ? (arg as { id?: unknown; prefillDecl?: O }) : { id: arg };
   const id = String(a.id ?? '');
@@ -41,10 +41,12 @@ export function Detail({ user, arg, go }: Nav) {
   async function action(fn: () => Promise<unknown>, ok: string) {
     try { await fn(); toast(ok, 'ok'); reload(); } catch (e) { toast((e as Error).message, 'err'); }
   }
+  /** Quitter la fiche (retour d'un cran, ou la liste si on y est arrivé direct). */
+  const quitter = () => (ecranPrecedent ? retour() : go('list'));
 
   return (
     <div>
-      <button className="ghost" onClick={() => go('list')}>← Retour</button>
+      <BoutonRetour retour={retour} ecranPrecedent={ecranPrecedent} secours={() => go('list')} />
       <FicheCargaison c={c} groupes={groupes} />
       <CarteConteneurs c={c} dets={dets} groupes={groupes} />
 
@@ -70,7 +72,7 @@ export function Detail({ user, arg, go }: Nav) {
         <AjouterCamion c={c} go={go} />}
       {/* v4 — Éditer : le CFS a la main JUSQU'À la fin de chargement ; l'ADMIN toujours. */}
       {(role === A || (role === ROLES.CFS && [STATUTS.CAMION, STATUTS.CHARGEMENT, STATUTS.CREEE].includes(c['statut'] as never))) &&
-        <PanneauEditer c={c} dets={dets} action={action} go={go} admin={role === A} />}
+        <PanneauEditer c={c} dets={dets} action={action} apresSuppression={quitter} admin={role === A} />}
     </div>
   );
 }
@@ -162,7 +164,7 @@ function CarteConteneurs({ c, dets, groupes }: { c: O; dets: ReturnType<typeof p
  * déclaration, type, N° camion) + suppression (ADMIN). Le CFS y a accès
  * jusqu'à la fin de chargement ; l'ADMIN à tout moment (erreurs fatales).
  */
-function PanneauEditer({ c, dets, action, go, admin }: { c: O; dets: ReturnType<typeof parseConteneursDetails>; action: ActionFn; go: Nav['go']; admin: boolean }) {
+function PanneauEditer({ c, dets, action, apresSuppression, admin }: { c: O; dets: ReturnType<typeof parseConteneursDetails>; action: ActionFn; apresSuppression: () => void; admin: boolean }) {
   const estCamionOp = [OPERATIONS.DEPOTAGE, OPERATIONS.ENLEVEMENT].includes(c['typeOperation'] as never);
   return <details className="card">
     <summary style={{ cursor: 'pointer', fontWeight: 700 }}>✎ Éditer la cargaison</summary>
@@ -172,13 +174,13 @@ function PanneauEditer({ c, dets, action, go, admin }: { c: O; dets: ReturnType<
       {!!c['numeroDeclaration'] && <PanneauEditDecl c={c} action={action} />}
       {estCamionOp && <PanneauEditType c={c} action={action} />}
       <PanneauEditCamion c={c} action={action} />
-      {admin && <PanneauSupprimer c={c} go={go} />}
+      {admin && <PanneauSupprimer c={c} apresSuppression={apresSuppression} />}
     </div>
   </details>;
 }
 
 /** v4 — Suppression d'un doublon de cargaison (ADMIN uniquement). */
-function PanneauSupprimer({ c, go }: { c: O; go: Nav['go'] }) {
+function PanneauSupprimer({ c, apresSuppression }: { c: O; apresSuppression: () => void }) {
   const id = c['id'] as string;
   const [busy, setBusy] = useState(false);
   async function supprimer() {
@@ -187,7 +189,7 @@ function PanneauSupprimer({ c, go }: { c: O; go: Nav['go'] }) {
     try {
       await call('cargo.delete', { id });
       toast('Cargaison supprimée.', 'ok');
-      go('list');
+      apresSuppression(); // la fiche n'existe plus : on repart d'où l'on venait
     } catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(false); }
   }
   return <details style={EDIT_ITEM}><summary style={{ cursor: 'pointer', fontWeight: 600, color: 'var(--warn)' }}>Supprimer cette cargaison (doublon) — ADMIN</summary>

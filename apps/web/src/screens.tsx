@@ -1,7 +1,7 @@
 /**
  * Registre de tous les écrans (reproduction de SCREENS v3.6).
  */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import * as XLSX from 'xlsx';
 import { call } from './lib/rpc.ts';
 import { useAsync } from './lib/hooks.ts';
@@ -29,11 +29,27 @@ function Table({ cols, rows, onRow }: { cols: [string, string][]; rows: O[]; onR
 }
 
 /* --------------------------- Liste de cargaisons ----------------------- */
-function CargoList({ go, filtre, titre, barre }: Nav & { filtre: O; titre?: string; barre?: boolean }) {
-  const [page, setPage] = useState(1);
-  const [statut, setStatut] = useState(String(filtre['statut'] ?? 'tous'));
-  const [search, setSearch] = useState('');
+/**
+ * Mémoire d'écran (durée de la session) : recherche, filtre statut et page
+ * courante d'une liste. Sans elle, ouvrir une cargaison puis revenir remettait
+ * la liste à zéro — l'agent devait retaper sa recherche et refeuilleter ses
+ * pages à chaque fiche consultée.
+ */
+const etatListe: Record<string, { statut: string; search: string; page: number }> = {};
+
+function CargoList({ go, screen, filtre, titre, barre }: Nav & { filtre: O; titre?: string; barre?: boolean }) {
+  // Un statut porté par l'ARGUMENT d'écran (tuile du tableau de bord) exprime une
+  // intention FRAÎCHE : il prime sur la mémoire, qui repart alors de zéro.
+  const impose = filtre['statut'] === undefined ? null : String(filtre['statut']);
+  const memoire = barre ? etatListe[screen] : undefined;
+  const reprise = memoire && (impose === null || impose === memoire.statut) ? memoire : undefined;
+
+  const [page, setPage] = useState(reprise?.page ?? 1);
+  const [statut, setStatut] = useState(impose ?? reprise?.statut ?? 'tous');
+  const [search, setSearch] = useState(reprise?.search ?? '');
   const reset = () => setPage(1);
+  // Écrit APRÈS le rendu (jamais pendant : le rendu doit rester sans effet de bord).
+  useEffect(() => { if (barre) etatListe[screen] = { statut, search, page }; }, [barre, screen, statut, search, page]);
   const eff = barre ? { ...filtre, statut, search } : filtre;
   const { data, loading, error } = useAsync<{ rows: O[]; total: number; pages: number }>(
     () => call('cargo.list', { ...eff, page }), [JSON.stringify(filtre), statut, search, page]);
@@ -759,16 +775,20 @@ function LigneChargement({ r }: { r: O }) {
 type QDecl = { numeroDeclaration: string; anneeDeclaration: string; bureauDeclaration: string; typeDeclaration: string };
 const qVide = (): QDecl => ({ numeroDeclaration: '', anneeDeclaration: '', bureauDeclaration: '', typeDeclaration: '' });
 
-function ValidationDeclaration({ go }: Nav) {
+function ValidationDeclaration({ go, arg, retour, ecranPrecedent }: Nav) {
   const [q, setQ] = useState<QDecl>(qVide());
-  const [ouverte, setOuverte] = useState<QDecl | null>(null);
+  // La déclaration ouverte vit dans l'ARGUMENT D'ÉCRAN, pas dans un état local :
+  // ainsi, ouvrir une fiche de cargaison puis revenir rouvre le dossier là où on
+  // l'avait laissé, au lieu de retomber sur la file d'attente.
+  const ouverte = (arg && typeof arg === 'object' ? arg as QDecl : null);
+  const ouvrir = (d: QDecl) => go('wait_valid', d);
 
   // Sans déclaration ouverte : la file d'attente. Avec : le dossier complet.
   const { data, loading, error, reload } = useAsync<O>(
     () => call('report.validationdecl', ouverte ?? {}), [JSON.stringify(ouverte)]);
 
   if (ouverte) return <DossierValidation decl={ouverte} data={data} loading={loading} error={error}
-    reload={reload} fermer={() => setOuverte(null)} go={go} />;
+    reload={reload} fermer={() => (ecranPrecedent === 'wait_valid' ? retour() : go('wait_valid'))} go={go} />;
 
   const decls = (data?.['declarations'] as O[]) ?? [];
   return <div className="card">
@@ -780,10 +800,10 @@ function ValidationDeclaration({ go }: Nav) {
     <div className="row" style={{ alignItems: 'flex-end', gap: 8, marginBottom: 12 }}>
       <div style={{ flex: 1, minWidth: 200 }}><label className="help">Ouvrir directement un N° de déclaration</label>
         <input className="mono" value={q.numeroDeclaration} onChange={(e) => setQ({ ...q, numeroDeclaration: masks.upper(e.target.value) })}
-          onKeyDown={(e) => e.key === 'Enter' && q.numeroDeclaration.trim() && setOuverte(q)} /></div>
+          onKeyDown={(e) => e.key === 'Enter' && q.numeroDeclaration.trim() && ouvrir(q)} /></div>
       <div><label className="help">Année</label><input value={q.anneeDeclaration} style={{ maxWidth: 90 }}
         onChange={(e) => setQ({ ...q, anneeDeclaration: e.target.value })} /></div>
-      <button disabled={!q.numeroDeclaration.trim()} onClick={() => setOuverte(q)}>Ouvrir</button>
+      <button disabled={!q.numeroDeclaration.trim()} onClick={() => ouvrir(q)}>Ouvrir</button>
     </div>
 
     {loading ? <Spinner /> : error ? <div className="err-msg">{error}</div> : decls.length === 0
@@ -793,7 +813,7 @@ function ValidationDeclaration({ go }: Nav) {
         <div className="tbl"><table>
           <thead><tr><th>Déclaration</th><th>Déclarant</th><th>Camions</th><th>Véhicules</th><th>Conteneurs</th><th>Plus ancienne</th></tr></thead>
           <tbody>{decls.map((r) => (
-            <tr key={String(r['cle'])} className="clk" onClick={() => setOuverte({
+            <tr key={String(r['cle'])} className="clk" onClick={() => ouvrir({
               numeroDeclaration: String(r['numeroDeclaration']), anneeDeclaration: String(r['anneeDeclaration'] ?? ''),
               bureauDeclaration: String(r['bureauDeclaration'] ?? ''), typeDeclaration: String(r['typeDeclaration'] ?? ''),
             })}>
