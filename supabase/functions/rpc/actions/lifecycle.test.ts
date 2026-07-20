@@ -621,3 +621,75 @@ test('validation en lot : refuse un appel sans identifiants', async () => {
     /Aucune cargaison à valider/,
   );
 });
+
+/* ------- Corrections en cellule : plaque (tous) & balise (Balise) ------ */
+
+/** Contexte qui CAPTURE les écritures d'audit, pour vérifier la traçabilité. */
+function ctxTrace(db: FakeDB, role: string, nom: string) {
+  const traces: { action: string; cible: string; detail: string }[] = [];
+  const ctx = { ...ctxRole(db, role, nom), log: async (action: string, cible: string, detail: string) => { traces.push({ action, cible, detail }); } };
+  return { ctx: ctx as never as Ctx, traces };
+}
+
+/** Camion balisé, prêt pour les corrections d'aval. */
+async function camionBalise(db: FakeDB, plaque = 'COR001') {
+  const cfs = ctxAvec(db);
+  const { id } = (await ecr.createcamion(cfs, { numeroCamion: plaque, routage: 'Enlèvement' })) as { id: string };
+  await ecr.cfs(cfs, { id, conteneur: { num: 'MSKU1111111', taille: "40'", type: 'DRY', plomb: 'S1' }, declaration: DECL_OK });
+  await ecr.gps(ctxRole(db, 'BALISE', 'Agent Balise'), { id, baliseRequise: 'Oui', t1Correct: 'Oui', numeroGPS: 'GPS-AAA' });
+  return id;
+}
+
+test('cellule Balise : corrige son propre N° de balise, correction tracée', async () => {
+  const db = new FakeDB();
+  db.store['stock'].push({ numero_tc: 'MSKU1111111', taille: "40'", statut: 'En stock' });
+  const id = await camionBalise(db);
+  const { ctx, traces } = ctxTrace(db, 'BALISE', 'Agent Balise');
+
+  await ecr.gpsedit(ctx, { id, numeroGPS: 'GPS-BBB', observations: 'Erreur de frappe' });
+
+  const c = versCamel(db.store['cargaisons'][0]!);
+  assert.equal(c['numeroGps'], 'GPS-BBB');
+  // L'agent qui corrige est enregistré comme poseur : la fiche reste cohérente.
+  assert.equal(c['agentBalise'], 'Agent Balise');
+  assert.equal(c['observationsBalise'], 'Erreur de frappe');
+  // Traçabilité : l'ancien numéro ne disparaît pas silencieusement.
+  assert.equal(traces.length, 1);
+  assert.match(traces[0]!.detail, /GPS-AAA/);
+  assert.match(traces[0]!.detail, /GPS-BBB/);
+});
+
+test('correction de balise impossible une fois le camion sorti', async () => {
+  const db = new FakeDB();
+  db.store['stock'].push({ numero_tc: 'MSKU1111111', taille: "40'", statut: 'En stock' });
+  const id = await camionBalise(db);
+  await ecr.bonsortie(ctxRole(db, 'BON_SORTIE', 'Agent BS'), { id, bonSortieNumero: 'BS-1' });
+  await ecr.sortie(ctxRole(db, 'PP', 'Agent PP'), { id, ckCfs: true, ckT1: true, ckBalise: true, ckBs: true });
+
+  // Garde-fou conservé : passé la sortie, plus personne ne réécrit la balise.
+  await assert.rejects(
+    () => ecr.gpsedit(ctxRole(db, 'BALISE', 'Agent Balise'), { id, numeroGPS: 'GPS-ZZZ' }),
+    /Remplacement impossible/,
+  );
+});
+
+test('plaque : Balise et PP corrigent le N° de camion en aval', async () => {
+  const db = new FakeDB();
+  db.store['stock'].push({ numero_tc: 'MSKU1111111', taille: "40'", statut: 'En stock' });
+  const id = await camionBalise(db, 'MAUVAISE1');
+
+  // La Balise rectifie la plaque relevée au passage…
+  const b = ctxTrace(db, 'BALISE', 'Agent Balise');
+  await ecr.editcamion(b.ctx, { id, numeroCamion: 'BONNE2' });
+  assert.equal(versCamel(db.store['cargaisons'][0]!)['numeroCamion'], 'BONNE2');
+  assert.match(b.traces[0]!.detail, /MAUVAISE1 → BONNE2/);
+
+  // …et la Porte Principale peut encore le faire au moment de la sortie.
+  const p = ctxTrace(db, 'PP', 'Agent PP');
+  await ecr.editcamion(p.ctx, { id, numeroCamion: 'BONNE3' });
+  assert.equal(versCamel(db.store['cargaisons'][0]!)['numeroCamion'], 'BONNE3');
+
+  // La correction suit le camion sur ses conteneurs, pas seulement sur la fiche.
+  const ct = db.store['conteneurs'].find((x) => x['cargaison_id'] === id);
+  if (ct) assert.equal(ct['numero_camion'], 'BONNE3');
+});

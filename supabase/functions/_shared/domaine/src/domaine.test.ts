@@ -215,6 +215,23 @@ test('matrice PERMISSIONS complète (72 actions + resetmfa)', () => {
   assert.ok(!PERMISSIONS['cargo.validerlot']!.includes(ROLES.CFS));
 });
 
+test('correction de plaque : ouverte à TOUTES les cellules', () => {
+  // La Balise et la Porte Principale lisent la plaque au passage du camion :
+  // ce sont elles qui repèrent une saisie erronée en amont. L'Apps Script leur
+  // laissait déjà la main (TOUS_ROLES) ; la v4 avait perdu le bouton, pas le droit.
+  for (const r of [ROLES.BALISE, ROLES.PP, ROLES.T1, ROLES.BON_SORTIE, ROLES.CFS, ROLES.ADMIN])
+    assert.doesNotThrow(() => verifierPermission(r, 'cargo.editcamion'));
+});
+
+test('correction de balise : cellule Balise + ADMIN, personne d\'autre', () => {
+  assert.doesNotThrow(() => verifierPermission(ROLES.BALISE, 'cargo.gpsedit'));
+  assert.doesNotThrow(() => verifierPermission(ROLES.ADMIN, 'cargo.gpsedit'));
+  // Le numéro de balise reste la responsabilité de la cellule qui la pose :
+  // aucune autre cellule ne peut le réécrire après coup.
+  for (const r of [ROLES.CFS, ROLES.PP, ROLES.T1, ROLES.BON_SORTIE, ROLES.CHEF_BRIGADE])
+    assert.throws(() => verifierPermission(r, 'cargo.gpsedit'), /Accès refusé/);
+});
+
 test('TYPES_DECLARATION = T,C,S,A,E', () => {
   assert.deepEqual([...TYPES_DECLARATION], ['T', 'C', 'S', 'A', 'E']);
 });

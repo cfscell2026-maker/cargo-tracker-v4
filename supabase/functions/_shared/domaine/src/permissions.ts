@@ -40,7 +40,14 @@ export const PERMISSIONS: Record<string, Role[]> = {
   'cargo.horsgabarit': [ROLES.CHEF_BRIGADE, ROLES.CHEF_BRIGADE_ADJOINT, ROLES.CHEF_VISITE, ROLES.CHEF_DIVISION, ROLES.ADMIN],
   'cargo.t1': [ROLES.T1, ROLES.ADMIN],
   'cargo.gps': [ROLES.BALISE, ROLES.ADMIN],
-  'cargo.gpsedit': [ROLES.ADMIN], // remplacement balise : ADMIN uniquement (anti-fraude)
+  // Remplacement d'une balise déjà posée. L'Apps Script le réservait à l'ADMIN
+  // (anti-fraude, cahier 3.4) ; ouvert à la cellule BALISE sur demande
+  // utilisateur (2026-07-20) : c'est elle qui pose le numéro, elle seule est sur
+  // le terrain pour corriger sa propre coquille, et attendre l'ADMIN bloquait le
+  // camion. Le garde-fou demeure ailleurs : action possible AU SEUL statut
+  // « Balisé » (plus rien une fois le bon de sortie émis ou le camion sorti), et
+  // chaque remplacement est tracé dans l'audit avec ancien → nouveau numéro.
+  'cargo.gpsedit': [ROLES.BALISE, ROLES.ADMIN],
   'cargo.bonsortie': [ROLES.BON_SORTIE, ROLES.ADMIN],
   'cargo.sortie': [ROLES.PP, ROLES.ADMIN],
   'cargo.etatcfs': [ROLES.CFS, ROLES.ADMIN],

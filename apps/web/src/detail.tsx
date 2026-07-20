@@ -43,6 +43,11 @@ export function Detail({ user, arg, go, retour, ecranPrecedent }: Nav) {
   }
   /** Quitter la fiche (retour d'un cran, ou la liste si on y est arrivé direct). */
   const quitter = () => (ecranPrecedent ? retour() : go('list'));
+  // Bloc « Éditer » complet (conteneurs, déclaration, type, plaque, suppression) :
+  // CFS jusqu'à la fin de chargement, ADMIN à tout moment. Les autres rôles n'ont
+  // que la correction de plaque, rendue plus bas.
+  const peutTtEditer = role === A
+    || (role === ROLES.CFS && [STATUTS.CAMION, STATUTS.CHARGEMENT, STATUTS.CREEE].includes(c['statut'] as never));
 
   return (
     <div>
@@ -61,7 +66,7 @@ export function Detail({ user, arg, go, retour, ecranPrecedent }: Nav) {
       {pend.includes('BALISE') && can(ROLES.BALISE, A) && !estVeh && <PanneauBalise c={c} action={action} />}
       {pend.includes('BS') && can(ROLES.BON_SORTIE, A) && <PanneauBS c={c} dets={dets} action={action} />}
       {pend.includes('PP') && can(ROLES.PP, A) && <PanneauPP c={c} estVeh={estVeh} action={action} />}
-      {c['statut'] === STATUTS.GPS && role === A && <PanneauGpsEdit c={c} action={action} />}
+      {c['statut'] === STATUTS.GPS && can(ROLES.BALISE, A) && <PanneauGpsEdit c={c} action={action} />}
       {c['statut'] === STATUTS.SORTIE && (String(c['baliseRequise']) === 'Non' || estOui(c['sauteBalise'])) && !estOui(c['arriveeBureau']) && can(ROLES.BALISE, A) &&
         <div className="card"><h2>Dispense — arrivée au bureau</h2>
           <button onClick={() => action(() => call('cargo.arriveebureau', { id }), 'Arrivée confirmée.')}>Confirmer l'arrivée (solder la dispense)</button></div>}
@@ -71,8 +76,11 @@ export function Detail({ user, arg, go, retour, ecranPrecedent }: Nav) {
       {[OPERATIONS.DEPOTAGE, OPERATIONS.ENLEVEMENT].includes(c['typeOperation'] as never) && can(ROLES.CFS, A) && !!c['numeroDeclaration'] &&
         <AjouterCamion c={c} go={go} />}
       {/* v4 — Éditer : le CFS a la main JUSQU'À la fin de chargement ; l'ADMIN toujours. */}
-      {(role === A || (role === ROLES.CFS && [STATUTS.CAMION, STATUTS.CHARGEMENT, STATUTS.CREEE].includes(c['statut'] as never))) &&
-        <PanneauEditer c={c} dets={dets} action={action} apresSuppression={quitter} admin={role === A} />}
+      {peutTtEditer
+        ? <PanneauEditer c={c} dets={dets} action={action} apresSuppression={quitter} admin={role === A} />
+        // Les autres cellules (Balise, PP, T1, Bon de sortie, chefs) gardent au
+        // minimum la correction de la plaque, comme dans l'Apps Script.
+        : <CorrigerCamion c={c} action={action} estVeh={estVeh} />}
     </div>
   );
 }
@@ -475,13 +483,63 @@ function PanneauPP({ c, estVeh, action }: { c: O; estVeh: boolean; action: Actio
   </div>;
 }
 
+/**
+ * Correction d'une balise déjà posée. Ouverte à la cellule BALISE (et à
+ * l'ADMIN) : c'est elle qui saisit le numéro, elle seule est sur le terrain pour
+ * rattraper sa coquille, et attendre l'administrateur immobilisait le camion.
+ * Reste borné au statut « Balisé » — passé le bon de sortie, plus de reprise —
+ * et chaque remplacement est tracé (ancien → nouveau) dans l'historique.
+ */
 function PanneauGpsEdit({ c, action }: { c: O; action: ActionFn }) {
   const id = c['id'] as string;
   const [gps, setGps] = useState('');
-  return <div className="card"><h2>Remplacer la balise (ADMIN)</h2>
-    <Champ label="Nouveau N° GPS" value={gps} onChange={(e) => setGps(e.target.value)} />
-    <div style={{ marginTop: 12 }}><button onClick={() => action(() => call('cargo.gpsedit', { id, numeroGPS: gps }), 'Balise remplacée.')}>Remplacer</button></div>
+  const [obs, setObs] = useState('');
+  const actuel = (c['numeroGps'] as string) || '—';
+  const inchange = !gps.trim() || gps.trim() === String(c['numeroGps'] ?? '').trim();
+  return <div className="card"><h2>Corriger le N° de balise</h2>
+    <div className="kv"><b>Balise actuelle</b><span className="mono">{actuel}</span></div>
+    <div className="grid2" style={{ marginTop: 8 }}>
+      <Champ label="Nouveau N° de balise" className="mono" value={gps} onChange={(e) => setGps(e.target.value)} />
+      <Champ label="Motif / observations (facultatif)" value={obs} onChange={(e) => setObs(e.target.value)} />
+    </div>
+    <p className="help" style={{ marginBottom: 0 }}>Le remplacement est enregistré dans l'historique avec l'ancien et le nouveau numéro.</p>
+    <div style={{ marginTop: 12 }}>
+      <button disabled={inchange}
+        onClick={() => action(() => call('cargo.gpsedit', { id, numeroGPS: gps, observations: obs }), 'N° de balise corrigé.')}>
+        Corriger la balise
+      </button>
+    </div>
   </div>;
+}
+
+/**
+ * Correction du N° de camion (ou de châssis pour un véhicule), accessible à
+ * TOUS LES RÔLES et à tout statut — c'est ce que faisait l'Apps Script, où le
+ * bouton « ✎ Corriger N° camion » figurait en tête de fiche sans condition. La
+ * v4 l'avait enfermé dans le bloc « Éditer » réservé au CFS et à l'ADMIN : la
+ * Balise et la Porte Principale, qui lisent la plaque au passage du camion,
+ * n'avaient plus aucun moyen de rectifier une plaque mal saisie en amont.
+ * La permission serveur, elle, était restée ouverte à tous.
+ */
+function CorrigerCamion({ c, action, estVeh }: { c: O; action: ActionFn; estVeh: boolean }) {
+  const id = c['id'] as string;
+  const libelle = estVeh ? 'N° de châssis' : 'N° de camion';
+  const [num, setNum] = useState((c['numeroCamion'] as string) || '');
+  const inchange = !num.trim() || num.trim() === String(c['numeroCamion'] ?? '').trim();
+  return <details className="card">
+    <summary style={{ cursor: 'pointer', fontWeight: 700 }}>✎ Corriger le {libelle}</summary>
+    <p className="help" style={{ marginTop: 8 }}>
+      Rectifie une plaque mal saisie en amont. La correction suit le camion sur toute la fiche
+      et sur ses conteneurs ; elle est tracée dans l'historique.
+    </p>
+    <div className="row">
+      <input className="mono" value={num} onChange={(e) => setNum(masks.alnum(e.target.value))} style={{ maxWidth: 220 }} />
+      <button className="ghost" disabled={inchange}
+        onClick={() => action(() => call('cargo.editcamion', { id, numeroCamion: num }), `${libelle} corrigé.`)}>
+        Corriger
+      </button>
+    </div>
+  </details>;
 }
 
 function PanneauEtatCFS({ c, action }: { c: O; action: ActionFn }) {
