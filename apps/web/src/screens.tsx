@@ -5,7 +5,8 @@ import { useEffect, useState } from 'react';
 import * as XLSX from 'xlsx';
 import { call } from './lib/rpc.ts';
 import { useAsync } from './lib/hooks.ts';
-import { Spinner, StatCard, Tag, Modal, masks, toast, fmtDate, fmtJour, isoDate } from './lib/ui.tsx';
+import { Spinner, StatCard, Tag, Modal, masks, toast, fmtDate, fmtJour } from './lib/ui.tsx';
+import { bornesDe, isoDate, normaliserPlage, type ModePeriode } from './lib/periode.ts';
 import { Detail } from './detail.tsx';
 import type { Nav } from './App.tsx';
 import { OPERATIONS, VEHICULE_DESTINATIONS, TYPES_DECLARATION, STATUTS, tcValide, etapesEnAttente } from '../../../supabase/functions/_shared/domaine/src/index.ts';
@@ -80,27 +81,19 @@ function CargoList({ go, screen, filtre, titre, barre }: Nav & { filtre: O; titr
 const SCREENS: Record<string, Screen> = {};
 
 SCREENS.dash = (nav) => {
-  const [m, setM] = useState<'jour' | 'semaine' | 'mois' | 'annee'>('semaine');
-  function range(): [string, string] {
-    const now = new Date();
-    if (m === 'jour') return [isoDate(now), isoDate(now)];
-    if (m === 'mois') return [isoDate(new Date(now.getFullYear(), now.getMonth(), 1)), isoDate(new Date(now.getFullYear(), now.getMonth() + 1, 0))];
-    if (m === 'annee') return [isoDate(new Date(now.getFullYear(), 0, 1)), isoDate(new Date(now.getFullYear(), 11, 31))];
-    const day = (now.getDay() + 6) % 7; const lundi = new Date(now); lundi.setDate(now.getDate() - day);
-    const dim = new Date(lundi); dim.setDate(lundi.getDate() + 6); return [isoDate(lundi), isoDate(dim)];
-  }
-  const [du, au] = range();
+  // Même sélecteur de période que les rapports, plage personnalisée comprise.
+  const p = useReportRange();
+  const { du, au } = p;
   const { data, loading } = useAsync<O>(() => call('dashboard.stats', { du, au }), [du, au]);
   const s = data ?? {};
   const go = (statut: string) => nav.go('list', { statut });
   return <>
-    <div className="card"><div className="row" style={{ alignItems: 'center' }}>
+    <div className="card"><div className="row" style={{ alignItems: 'center', flexWrap: 'wrap' }}>
       <h2 style={{ flex: 1, margin: 0 }}>Tableau de bord</h2>
       <label className="help" style={{ margin: 0 }}>Période</label>
-      <select value={m} onChange={(e) => setM(e.target.value as never)} style={{ maxWidth: 160 }}>
-        <option value="jour">Journalier</option><option value="semaine">Hebdomadaire</option><option value="mois">Mensuel</option><option value="annee">Annuel</option>
-      </select>
-    </div><div className="help">Cargaisons créées du {du} au {au}</div></div>
+      <PeriodPicker p={p} />
+    </div><div className="help">Cargaisons créées du {fmtJour(du)} au {fmtJour(au)}
+      {p.inversee && <span style={{ color: 'var(--warn)' }}> — dates inversées, remises à l'endroit</span>}</div></div>
     {loading ? <Spinner /> : <div className="stats">
       <StatCard n={Number(s['camion'] ?? 0)} l="Camions créés" onClick={() => go('Camion créé')} />
       <StatCard n={Number(s['chargement'] ?? 0)} l="En chargement" onClick={() => go('En cours de chargement')} />
@@ -521,28 +514,99 @@ function StockList({ statut, titre }: { statut: string; titre?: string }) {
 // v4 — chaque pointage propose les TC de la BONNE source à la frappe (datalist) :
 // pointage matinal → stock « En stock » ; pointage PP → stock annoncé « Annoncé ».
 SCREENS.pointage = () => <PointageTC action="stock.pointage" titre="Pointage matinal" desc="Positionne un conteneur pour le dépotage du jour." suggest={{ action: 'stock.list', statut: 'En stock' }} />;
-SCREENS.magasin = () => <PointageTC action="stock.entreemagasin" titre="Entrée Magasin / MAD" desc="Marque un conteneur comme dépoté / sorti du yard." />;
+// Magasin/MAD : on propose les conteneurs POSITIONNÉS (ceux qu'on vide au CFS),
+// mais la saisie libre reste ouverte — le serveur accepte un conteneur inconnu
+// du stock et le crée.
+SCREENS.magasin = () => <PointageTC action="stock.entreemagasin" titre="Entrée Magasin / MAD" desc="Marque un conteneur comme dépoté / sorti du yard." suggest={{ action: 'stock.list', statut: 'Positionné' }} libre />;
 SCREENS.pointentree = () => <PointageTC action="stockannonce.pointage" titre="Pointage entrée (stock annoncé)" desc="Pointe l'arrivée d'un conteneur annoncé (Porte Principale)." suggest={{ action: 'stockannonce.list', statut: 'Annoncé' }} />;
 SCREENS.confentree = () => <ConfirmerEntree />;
-function PointageTC({ action, titre, desc, suggest }: { action: string; titre: string; desc: string; suggest?: { action: string; statut: string } }) {
+/**
+ * Pointage d'un conteneur — v4 : PLUS DE SAISIE À L'AVEUGLE (décision
+ * utilisateur). L'agent ne tape plus les 11 caractères d'un N° ISO 6346 avant
+ * de savoir s'il existe : la liste des conteneurs RÉELLEMENT pointables lui est
+ * présentée, il tape éventuellement quelques caractères pour la réduire, puis
+ * choisit. Une faute de frappe ne peut plus produire un refus après coup.
+ *
+ * `libre` autorise en plus un N° hors liste (Magasin/MAD accepte un conteneur
+ * inconnu du stock, que le serveur crée) ; les pointages stricts, eux, n'ont de
+ * sens que sur la liste proposée.
+ */
+function PointageTC({ action, titre, desc, suggest, libre }: {
+  action: string; titre: string; desc: string;
+  suggest?: { action: string; statut: string }; libre?: boolean;
+}) {
   const [tc, setTc] = useState('');
-  const [msg, setMsg] = useState('');
-  // Suggestions : liste des TC de la source (rechargée après chaque pointage).
-  const { data: sug, reload: reloadSug } = useAsync<{ rows: O[] }>(
+  const [filtre, setFiltre] = useState('');
+  const [busy, setBusy] = useState(false);
+  // Liste des TC de la source, rechargée après chaque pointage (le TC pointé
+  // quitte la liste : l'agent voit son avancement).
+  const { data: sug, loading, reload: reloadSug } = useAsync<{ rows: O[] }>(
     () => suggest ? call(suggest.action, { statut: suggest.statut }) : Promise.resolve({ rows: [] }),
     [suggest?.action, suggest?.statut]);
-  const options = ((sug?.rows ?? []) as O[]).map((r) => String(r['numeroTC'] ?? '')).filter(Boolean);
-  const listId = 'dl-' + action.replace(/[^a-z0-9]/gi, '');
-  async function go() {
-    try { const r = await call<O>(action, { numeroTC: tc }); toast('Enregistré.', 'ok'); setMsg(JSON.stringify(r)); setTc(''); if (suggest) reloadSug(); }
-    catch (e) { toast((e as Error).message, 'err'); }
+
+  const rows = (sug?.rows ?? []) as O[];
+  const q = masks.tc(filtre);
+  const visibles = (q ? rows.filter((r) => String(r['numeroTC'] ?? '').includes(q)) : rows).slice(0, 200);
+  const trop = (q ? rows.filter((r) => String(r['numeroTC'] ?? '').includes(q)) : rows).length - visibles.length;
+
+  async function pointer(num: string) {
+    if (!num) return;
+    setBusy(true);
+    try {
+      await call<O>(action, { numeroTC: num });
+      toast(`${num} pointé.`, 'ok');
+      setTc(''); setFiltre('');
+      if (suggest) reloadSug();
+    } catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(false); }
   }
-  return <div className="card" style={{ maxWidth: 480 }}><h2>{titre}</h2><p className="help">{desc}</p>
-    <div className="row"><input className="mono" value={tc} onChange={(e) => setTc(masks.tc(e.target.value))} placeholder="N° conteneur" style={{ flex: 1 }} list={suggest ? listId : undefined} autoComplete="off" />
-      <button onClick={go} disabled={!tc}>Valider</button></div>
-    {suggest && <datalist id={listId}>{options.map((t) => <option key={t} value={t} />)}</datalist>}
-    {suggest && <div className="help" style={{ marginTop: 6 }}>{options.length} conteneur(s) disponible(s) — commencez à taper pour choisir.</div>}
-    {msg && <div className="help" style={{ marginTop: 8 }}>{msg}</div>}
+
+  return <div className="card" style={{ maxWidth: 620 }}>
+    <h2>{titre}</h2>
+    <p className="help" style={{ marginTop: 0 }}>{desc}</p>
+
+    {suggest ? <>
+      <label className="help">Filtrer la liste (tapez quelques caractères du N°)</label>
+      <input className="mono" value={filtre} onChange={(e) => setFiltre(masks.tc(e.target.value))}
+        placeholder="ex. MSKU ou 1234" autoComplete="off" autoFocus />
+      <div className="help" style={{ margin: '8px 0 6px' }}>
+        {loading ? 'Chargement du stock…'
+          : `${rows.length} conteneur(s) pointable(s)${q ? ` · ${visibles.length + Math.max(0, trop)} correspondant(s)` : ''} — cliquez pour choisir.`}
+      </div>
+      {loading ? <Spinner /> : rows.length === 0
+        ? <div className="empty">Aucun conteneur à pointer.</div>
+        : visibles.length === 0
+          ? <div className="empty">Aucun conteneur ne correspond à « {q} ».</div>
+          : <>
+            <div className="tbl" style={{ maxHeight: 340, overflowY: 'auto' }}><table>
+              <thead><tr><th>Conteneur</th><th>Taille</th><th>N° décl.</th><th style={{ width: 110 }}></th></tr></thead>
+              <tbody>{visibles.map((r) => {
+                const num = String(r['numeroTC'] ?? '');
+                const choisi = num === tc;
+                return <tr key={num} className="clk" onClick={() => setTc(num)}
+                  style={choisi ? { background: 'var(--accent-soft)' } : undefined}>
+                  <td className="mono"><b>{num}</b></td>
+                  <td>{String(r['taille'] ?? '—')}</td>
+                  <td>{[r['numeroDeclaration'], r['anneeDeclaration'], r['typeDeclaration']].filter(Boolean).join(' · ') || '—'}</td>
+                  <td>{choisi
+                    ? <button disabled={busy} onClick={(e) => { e.stopPropagation(); pointer(num); }}>
+                      {busy ? '…' : 'Pointer'}</button>
+                    : <span className="help">Choisir</span>}</td>
+                </tr>;
+              })}</tbody>
+            </table></div>
+            {trop > 0 && <div className="help" style={{ marginTop: 6 }}>+ {trop} autre(s) — affinez le filtre.</div>}
+          </>}
+    </> : null}
+
+    {/* Magasin/MAD : un conteneur inconnu du stock est légitime, la saisie reste ouverte. */}
+    {(!suggest || libre) && <div style={{ marginTop: suggest ? 14 : 0 }}>
+      {suggest && <div className="section-title">Conteneur hors liste</div>}
+      <div className="row">
+        <input className="mono" value={tc} onChange={(e) => setTc(masks.tc(e.target.value))}
+          placeholder="N° conteneur (4 lettres + 7 chiffres)" style={{ flex: 1 }} autoComplete="off" />
+        <button disabled={busy || !tc} onClick={() => pointer(tc)}>{busy ? '…' : 'Valider'}</button>
+      </div>
+    </div>}
   </div>;
 }
 
@@ -935,27 +999,61 @@ function LigneValidation({ r, go }: { r: O; go: Nav['go'] }) {
 }
 
 /* ------------------------------ Rapports ------------------------------- */
-function useReportRange() {
-  const [m, setM] = useState<'jour' | 'semaine' | 'mois'>('semaine');
-  const now = new Date();
-  let du = isoDate(now), au = isoDate(now);
-  if (m === 'mois') { du = isoDate(new Date(now.getFullYear(), now.getMonth(), 1)); au = isoDate(new Date(now.getFullYear(), now.getMonth() + 1, 0)); }
-  else if (m === 'semaine') { const d = (now.getDay() + 6) % 7; const l = new Date(now); l.setDate(now.getDate() - d); const s = new Date(l); s.setDate(l.getDate() + 6); du = isoDate(l); au = isoDate(s); }
-  return { m, setM, du, au };
+/**
+ * Période d'un rapport — les 4 périodes glissantes usuelles PLUS une PLAGE
+ * PERSONNALISÉE (décision utilisateur) : les périodes calendaires ne couvrent
+ * pas les questions réelles (« du 3 au 17 », une campagne, un mois écoulé à
+ * cheval sur deux mois). Un seul hook pour tous les rapports et le tableau de
+ * bord, afin que la période se choisisse partout de la même façon.
+ */
+function useReportRange(initial: ModePeriode = 'semaine') {
+  const [m, setM] = useState<ModePeriode>(initial);
+  // Plage personnalisée amorcée sur le mois en cours : basculer en
+  // « Personnalisée » part de ce que l'agent a sous les yeux au lieu de vider
+  // l'écran ou de le réduire à une seule journée.
+  const [duP, setDuP] = useState(() => bornesDe('mois')[0]);
+  const [auP, setAuP] = useState(() => isoDate(new Date()));
+  const brut = m === 'perso' ? { du: duP, au: auP } : (() => { const [du, au] = bornesDe(m); return { du, au }; })();
+  const { du, au, inversee } = normaliserPlage(brut.du, brut.au);
+  return { m, setM, du, au, duP, setDuP, auP, setAuP, inversee };
 }
-function PeriodPicker({ m, setM }: { m: string; setM: (v: never) => void }) {
-  return <select value={m} onChange={(e) => setM(e.target.value as never)} style={{ maxWidth: 180 }}>
-    <option value="jour">Journalier</option><option value="semaine">Hebdomadaire</option><option value="mois">Mensuel</option></select>;
+
+type Periode = ReturnType<typeof useReportRange>;
+
+function PeriodPicker({ p }: { p: Periode }) {
+  return <>
+    <select value={p.m} onChange={(e) => p.setM(e.target.value as ModePeriode)} style={{ maxWidth: 170 }}>
+      <option value="jour">Journalier</option>
+      <option value="semaine">Hebdomadaire</option>
+      <option value="mois">Mensuel</option>
+      <option value="annee">Annuel</option>
+      <option value="perso">Plage personnalisée…</option>
+    </select>
+    {p.m === 'perso' && <span className="row" style={{ gap: 6, alignItems: 'center' }}>
+      <label className="help" style={{ margin: 0 }}>du</label>
+      <input type="date" value={p.duP} onChange={(e) => p.setDuP(e.target.value)} style={{ maxWidth: 155 }} />
+      <label className="help" style={{ margin: 0 }}>au</label>
+      <input type="date" value={p.auP} onChange={(e) => p.setAuP(e.target.value)} style={{ maxWidth: 155 }} />
+    </span>}
+  </>;
+}
+
+/** Rappel de la période effectivement interrogée, sous le titre du rapport. */
+function PeriodeLue({ p }: { p: Periode }) {
+  return <div className="help">Du {fmtJour(p.du)} au {fmtJour(p.au)}
+    {p.inversee && <span style={{ color: 'var(--warn)' }}> — dates inversées, remises à l'endroit</span>}
+  </div>;
 }
 
 function ReportCFS({ action, titre }: { action: string; titre: string }) {
-  const { m, setM, du, au } = useReportRange();
+  const p = useReportRange();
+  const { m, du, au } = p;
   const { data, loading } = useAsync<O>(() => call(action, { du, au, periode: m }), [du, au]);
   const parOp = (data?.['parOp'] ?? {}) as Record<string, O>;
   const total = (data?.['total'] ?? {}) as O;
   async function exporter() { const f = await call<O>(action, { du, au, periode: m, format: 'xlsx' }); telecharger(f); }
-  return <div className="card"><div className="row"><h2 style={{ flex: 1 }}>{titre}</h2><PeriodPicker m={m} setM={setM} /><button className="ghost xs" onClick={exporter}>Export Excel</button></div>
-    <div className="help">Du {du} au {au}</div>
+  return <div className="card"><div className="row" style={{ flexWrap: 'wrap' }}><h2 style={{ flex: 1 }}>{titre}</h2><PeriodPicker p={p} /><button className="ghost xs" onClick={exporter}>Export Excel</button></div>
+    <PeriodeLue p={p} />
     {loading ? <Spinner /> : <div className="tbl" style={{ marginTop: 10 }}><table>
       <thead><tr><th>Opération</th><th>Camions</th><th>20'</th><th>40'</th><th>45'</th><th>Conteneurs</th><th>EVP</th></tr></thead>
       <tbody>{[OPERATIONS.ENLEVEMENT, OPERATIONS.DEPOTAGE].map((op) => { const a = parOp[op] ?? {}; return (
@@ -969,10 +1067,11 @@ SCREENS.cfsreport = () => <ReportCFS action="report.cfs" titre="Rapport CFS" />;
 SCREENS.baliserep = () => <ReportActivite action="report.balise" titre="Rapport Balise" />;
 SCREENS.pprep = () => <ReportActivite action="report.pp" titre="Rapport Porte Principale" />;
 function ReportActivite({ action, titre }: { action: string; titre: string }) {
-  const { m, setM, du, au } = useReportRange();
+  const p = useReportRange();
+  const { m, du, au } = p;
   const { data, loading } = useAsync<O>(() => call(action, { du, au, periode: m }), [du, au]);
   const parOp = (data?.['parOp'] ?? {}) as Record<string, O>;
-  return <div className="card"><div className="row"><h2 style={{ flex: 1 }}>{titre}</h2><PeriodPicker m={m} setM={setM} /></div><div className="help">Du {du} au {au}</div>
+  return <div className="card"><div className="row" style={{ flexWrap: 'wrap' }}><h2 style={{ flex: 1 }}>{titre}</h2><PeriodPicker p={p} /></div><PeriodeLue p={p} />
     {loading ? <Spinner /> : <div className="tbl" style={{ marginTop: 10 }}><table>
       <thead><tr><th>Opération</th><th>Camions</th><th>Twins</th><th>Sans balise</th><th>Conteneurs</th><th>EVP</th></tr></thead>
       <tbody>{[OPERATIONS.ENLEVEMENT, OPERATIONS.DEPOTAGE].map((op) => { const a = parOp[op] ?? {}; return (
@@ -982,10 +1081,11 @@ function ReportActivite({ action, titre }: { action: string; titre: string }) {
 }
 
 SCREENS.vehreport = () => {
-  const { m, setM, du, au } = useReportRange();
+  const p = useReportRange();
+  const { m, du, au } = p;
   const { data, loading } = useAsync<O>(() => call('report.vehicule', { du, au, periode: m }), [du, au]);
   const cp = (data?.['compte'] ?? {}) as O; const pd = (data?.['parDest'] ?? {}) as O;
-  return <div className="card"><div className="row"><h2 style={{ flex: 1 }}>Rapport véhicules</h2><PeriodPicker m={m} setM={setM} /></div>
+  return <div className="card"><div className="row" style={{ flexWrap: 'wrap' }}><h2 style={{ flex: 1 }}>Rapport véhicules</h2><PeriodPicker p={p} /></div><PeriodeLue p={p} />
     {loading ? <Spinner /> : <div className="stats">
       <StatCard n={Number(cp['total'] ?? 0)} l="Total" /><StatCard n={Number(cp['attente'] ?? 0)} l="En attente" /><StatCard n={Number(cp['sortis'] ?? 0)} l="Sortis" tone="ok" />
       {VEHICULE_DESTINATIONS.map((x) => <StatCard key={x} n={Number(pd[x] ?? 0)} l={x} />)}
@@ -1019,11 +1119,27 @@ SCREENS.dispenses = () => {
 };
 
 SCREENS.flux = () => {
+  // Deux réglages DISTINCTS, à ne pas confondre : la PÉRIODE borne l'analyse
+  // (plage personnalisée comprise), le REGROUPEMENT décide de la maille des
+  // lignes (un point par jour, par semaine ou par mois) à l'intérieur.
+  const p = useReportRange('mois');
+  const { du, au } = p;
   const [gran, setGran] = useState('jour');
-  const { data, loading } = useAsync<{ rows: O[] }>(() => call('report.flux', { granularite: gran }), [gran]);
-  return <div className="card"><div className="row"><h2 style={{ flex: 1 }}>Analyse des flux</h2>
-    <select value={gran} onChange={(e) => setGran(e.target.value)} style={{ maxWidth: 160 }}><option value="jour">Journalier</option><option value="semaine">Hebdomadaire</option><option value="mois">Mensuel</option></select></div>
-    {loading ? <Spinner /> : <Table cols={[['periode', 'Période'], ['cfsC', 'CFS'], ['baliseC', 'Balise'], ['ppC', 'PP'], ['sansBalise', 'Sans balise']]} rows={data?.rows ?? []} />}
+  const { data, loading } = useAsync<{ rows: O[] }>(
+    () => call('report.flux', { granularite: gran, du, au }), [gran, du, au]);
+  return <div className="card">
+    <div className="row" style={{ flexWrap: 'wrap' }}><h2 style={{ flex: 1 }}>Analyse des flux</h2><PeriodPicker p={p} /></div>
+    <div className="row" style={{ alignItems: 'center', marginTop: 6 }}>
+      <label className="help" style={{ margin: 0 }}>Regrouper par</label>
+      <select value={gran} onChange={(e) => setGran(e.target.value)} style={{ maxWidth: 160 }}>
+        <option value="jour">Jour</option><option value="semaine">Semaine</option><option value="mois">Mois</option>
+      </select>
+      <span style={{ flex: 1 }} />
+      <PeriodeLue p={p} />
+    </div>
+    {loading ? <Spinner /> : <div style={{ marginTop: 10 }}>
+      <Table cols={[['periode', 'Période'], ['cfsC', 'CFS'], ['baliseC', 'Balise'], ['ppC', 'PP'], ['sansBalise', 'Sans balise']]} rows={data?.rows ?? []} />
+    </div>}
   </div>;
 };
 
@@ -1099,15 +1215,12 @@ SCREENS.history = () => {
   const [page, setPage] = useState(1);
   const reset = () => setPage(1); // tout changement de filtre revient à la page 1
 
-  // Bornes de dates selon la période choisie.
-  const now = new Date();
-  let du = '', au = '';
-  if (m === 'perso') { du = duP; au = auP; }
-  else if (m === 'jour') { du = au = isoDate(now); }
-  else if (m === 'semaine') { const d = (now.getDay() + 6) % 7; const l = new Date(now); l.setDate(now.getDate() - d); const s = new Date(l); s.setDate(l.getDate() + 6); du = isoDate(l); au = isoDate(s); }
-  else if (m === 'mois') { du = isoDate(new Date(now.getFullYear(), now.getMonth(), 1)); au = isoDate(new Date(now.getFullYear(), now.getMonth() + 1, 0)); }
-  else if (m === 'annee') { du = isoDate(new Date(now.getFullYear(), 0, 1)); au = isoDate(new Date(now.getFullYear(), 11, 31)); }
-  // m === 'tout' → du/au vides → aucune contrainte de date.
+  // Bornes de dates : même calcul que les rapports (module partagé).
+  // « tout » = du/au vides → aucune contrainte de date.
+  const brut = m === 'tout' ? { du: '', au: '' }
+    : m === 'perso' ? { du: duP, au: auP }
+      : (() => { const [d, a] = bornesDe(m as ModePeriode); return { du: d, au: a }; })();
+  const { du, au } = normaliserPlage(brut.du, brut.au);
 
   const users = useAsync<O[]>(() => call('user.list'), []);
   const { data, loading } = useAsync<{ rows: O[]; pages: number; total: number }>(

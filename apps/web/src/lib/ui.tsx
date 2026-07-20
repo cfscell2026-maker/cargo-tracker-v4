@@ -144,4 +144,6 @@ export function fmtJour(v: unknown): string {
   const d = new Date(String(v));
   return isNaN(d.getTime()) ? String(v) : d.toLocaleDateString('fr-FR');
 }
-export const isoDate = (d: Date) => d.toISOString().slice(0, 10);
+// Ré-exporté depuis periode.ts : une SEULE définition de la date ISO courte
+// dans l'appli (l'ancienne copie ici passait par UTC, celle-ci reste locale).
+export { isoDate } from './periode.ts';

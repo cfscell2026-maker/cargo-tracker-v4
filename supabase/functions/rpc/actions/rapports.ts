@@ -291,15 +291,22 @@ function periodeKey(v: unknown, gran: string): string | null {
 
 export async function rapportFlux(ctx: Ctx, p: Record<string, unknown>) {
   const gran = String(p['granularite'] || 'jour');
+  // v4 — bornes de période FACULTATIVES (absentes = toute la base, comportement
+  // d'origine). Chaque passage est daté SÉPARÉMENT : un camion entré en juin et
+  // sorti en juillet compte au CFS de juin et à la PP de juillet, donc le filtre
+  // s'applique par ÉVÉNEMENT et non sur la cargaison entière.
+  const du = String(p['du'] ?? '') || undefined;
+  const au = String(p['au'] ?? '') || undefined;
+  const dansPeriode = (v: unknown) => (!du && !au) || inRange(v, du, au);
   const cargos = await loadCargos(ctx);
   const map: Record<string, { periode: string; cfsC: number; cfsT: number; baliseC: number; baliseT: number; ppC: number; ppT: number; sansBalise: number }> = {};
   const bump = (k: string | null) => { if (!k) return null; if (!map[k]) map[k] = { periode: k, cfsC: 0, cfsT: 0, baliseC: 0, baliseT: 0, ppC: 0, ppT: 0, sansBalise: 0 }; return map[k]; };
   for (const c of cargos) {
     if (estOui(c['estVehicule'])) continue;
     const nbT = detsDeRow(c).length;
-    const kC = bump(periodeKey(c['dateCreation'], gran)); if (kC) { kC.cfsC++; kC.cfsT += nbT; }
-    if (c['datePoseGps']) { const kB = bump(periodeKey(c['datePoseGps'], gran)); if (kB) { kB.baliseC++; kB.baliseT += nbT; if (String(c['baliseRequise']) === 'Non' || c['baliseRequise'] === false) kB.sansBalise++; } }
-    if (c['dateSortie']) { const kP = bump(periodeKey(c['dateSortie'], gran)); if (kP) { kP.ppC++; kP.ppT += nbT; } }
+    if (dansPeriode(c['dateCreation'])) { const kC = bump(periodeKey(c['dateCreation'], gran)); if (kC) { kC.cfsC++; kC.cfsT += nbT; } }
+    if (c['datePoseGps'] && dansPeriode(c['datePoseGps'])) { const kB = bump(periodeKey(c['datePoseGps'], gran)); if (kB) { kB.baliseC++; kB.baliseT += nbT; if (String(c['baliseRequise']) === 'Non' || c['baliseRequise'] === false) kB.sansBalise++; } }
+    if (c['dateSortie'] && dansPeriode(c['dateSortie'])) { const kP = bump(periodeKey(c['dateSortie'], gran)); if (kP) { kP.ppC++; kP.ppT += nbT; } }
   }
   const rows = Object.values(map).sort((a, b) => a.periode.localeCompare(b.periode));
   if (p['format'] === 'xlsx' || p['format'] === 'pdf') {
@@ -307,7 +314,7 @@ export async function rapportFlux(ctx: Ctx, p: Record<string, unknown>) {
     rows.forEach((r) => aoa.push([r.periode, r.cfsC, r.cfsT, r.baliseC, r.baliseT, r.ppC, r.ppT, r.sansBalise]));
     return fichier('Analyse_flux', String(p['format']), [{ nom: 'Flux', aoa }]);
   }
-  return { granularite: gran, rows };
+  return { granularite: gran, du, au, rows };
 }
 
 export async function rapportFluxDetail(ctx: Ctx, p: Record<string, unknown>) {
@@ -796,8 +803,10 @@ export async function ordreExecution(ctx: Ctx, p: Record<string, unknown>) {
          letter-spacing: .04em; font-size: 10pt; }
   .sig { display: flex; justify-content: space-between; gap: 10mm; margin: 3.5mm 0 1.5mm; }
 
-  /* Cadre d'observations : une zone à remplir doit se VOIR comme telle. */
-  .zone { border: .6pt solid #000; min-height: 11mm; padding: 1.6mm 2.5mm; margin-bottom: 3mm; }
+  /* Observations & signature du chef brigade : espace LIBRE, sans cadre
+     (décision utilisateur) — la mention manuscrite et le cachet se posent à
+     main levée, un cadre imprimé les contraignait. */
+  .zone { min-height: 16mm; padding: 1.6mm 0; margin-bottom: 3mm; }
 
   /* Tableau des conteneurs : centré, entêtes répétées à chaque page. */
   table { border-collapse: collapse; width: 100%; margin: 3mm 0 2.5mm; page-break-inside: auto; }
