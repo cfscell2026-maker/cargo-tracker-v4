@@ -179,7 +179,10 @@ function PanneauEditer({ c, dets, action, apresSuppression, admin }: { c: O; det
     <p className="help" style={{ marginTop: 8 }}>Corrections de saisie. {admin ? 'Accès administrateur (à tout moment).' : 'Possible jusqu\'à la fin de chargement.'}</p>
     <div style={{ display: 'grid', gap: 8 }}>
       {dets.conteneurs.length > 0 && <PanneauEditConteneurs c={c} dets={dets} action={action} />}
-      {!!c['numeroDeclaration'] && <PanneauEditDecl c={c} action={action} />}
+      {/* v4.1 — plus conditionné à la présence d'un n° de déclaration : sans
+          celui-ci le panneau disparaissait, et un camion dont la déclaration
+          manquait ne pouvait plus jamais en recevoir une par la correction. */}
+      <PanneauEditDecl c={c} action={action} />
       {estCamionOp && <PanneauEditType c={c} action={action} />}
       <PanneauEditCamion c={c} action={action} />
       {admin && <PanneauSupprimer c={c} apresSuppression={apresSuppression} />}
@@ -610,16 +613,28 @@ function PanneauEditConteneurs({ c, dets, action }: { c: O; dets: ReturnType<typ
   const estEnl = c['typeOperation'] === OPERATIONS.ENLEVEMENT;
   const [i, setI] = useState<number | null>(null);
   const [f, setF] = useState<O>({ num: '', taille: '', type: '', plomb: '', manuel: false });
+  // v4.1 — déclaration PROPRE à la ligne (chargement mixte) : éditable ici, car
+  // « Corriger les informations de déclaration » réécrit TOUS les conteneurs à
+  // l'identique et écraserait le mixte.
+  const [d, setD] = useState<O>({ numeroDeclaration: '', anneeDeclaration: '', bureauDeclaration: '', typeDeclaration: '' });
   const set = (k: string, v: unknown) => setF((o) => ({ ...o, [k]: v }));
+  const setDd = (k: string, v: unknown) => setD((o) => ({ ...o, [k]: v }));
+  const declDe = (ct: O) => [ct['numeroDeclaration'], ct['anneeDeclaration'], ct['bureauDeclaration'], ct['typeDeclaration']].filter(Boolean).join(' · ');
 
   function ouvrir(k: number) {
-    const ct = dets.conteneurs[k]!;
+    const ct = dets.conteneurs[k]! as unknown as O;
     setI(k);
-    setF({ num: ct.num ?? '', taille: ct.taille ?? '', type: ct.type ?? '', plomb: ct.plomb ?? '', manuel: false });
+    setF({ num: ct['num'] ?? '', taille: ct['taille'] ?? '', type: ct['type'] ?? '', plomb: ct['plomb'] ?? '', manuel: false });
+    setD({
+      numeroDeclaration: String(ct['numeroDeclaration'] ?? c['numeroDeclaration'] ?? ''),
+      anneeDeclaration: String(ct['anneeDeclaration'] ?? c['anneeDeclaration'] ?? ''),
+      bureauDeclaration: String(ct['bureauDeclaration'] ?? c['bureauDeclaration'] ?? ''),
+      typeDeclaration: String(ct['typeDeclaration'] ?? c['typeDeclaration'] ?? ''),
+    });
   }
   async function corriger() {
     if (i === null) return;
-    await action(() => call('cargo.editconteneur', { id, index: i, ...f }), 'Conteneur corrigé.');
+    await action(() => call('cargo.editconteneur', { id, index: i, ...f, declaration: d }), 'Conteneur corrigé.');
     setI(null);
   }
   async function retirer(k: number) {
@@ -629,10 +644,14 @@ function PanneauEditConteneurs({ c, dets, action }: { c: O; dets: ReturnType<typ
     setI(null);
   }
 
-  return <details style={EDIT_ITEM}><summary style={{ cursor: 'pointer', fontWeight: 600 }}>Corriger un conteneur (N° erroné, taille, scellé)</summary>
-    <p className="help" style={{ marginTop: 10 }}>Le conteneur retiré ou remplacé <b>revient au stock</b> et redevient sélectionnable ; le nouveau lui est rattaché.</p>
+  return <details style={EDIT_ITEM}><summary style={{ cursor: 'pointer', fontWeight: 600 }}>Corriger un conteneur (N°, taille, scellé, déclaration)</summary>
+    <p className="help" style={{ marginTop: 10 }}>Le conteneur retiré ou remplacé <b>revient au stock</b> et redevient sélectionnable ; le nouveau lui est rattaché.
+      La déclaration se corrige <b>ligne par ligne</b> : un camion peut porter des conteneurs de plusieurs déclarations.</p>
     {dets.conteneurs.map((ct, k) => <div key={k} className="row" style={{ alignItems: 'center', marginBottom: 6 }}>
-      <span className="mono" style={{ flex: 1 }}>{k + 1}. {ct.num} · {ct.taille || '—'}{ct.plomb ? ` · scellé ${ct.plomb}` : ''}</span>
+      <span style={{ flex: 1 }}>
+        <span className="mono">{k + 1}. {ct.num} · {ct.taille || '—'}{ct.plomb ? ` · scellé ${ct.plomb}` : ''}</span>
+        <span className="help"> — décl. {declDe(ct as unknown as O) || '(celle du camion)'}</span>
+      </span>
       <button className="ghost xs" onClick={() => ouvrir(k)}>Corriger</button>
       <button className="ghost xs" onClick={() => retirer(k)}>Retirer</button>
     </div>)}
@@ -644,6 +663,17 @@ function PanneauEditConteneurs({ c, dets, action }: { c: O; dets: ReturnType<typ
         <Champ label="Type (facultatif)" value={String(f['type'])} onChange={(e) => set('type', masks.upper(e.target.value))} />
         {estEnl && <Champ label="Scellé / Plomb" value={String(f['plomb'])} onChange={(e) => set('plomb', masks.upper(e.target.value))} />}
         <label className="help" style={{ alignSelf: 'end' }}><input type="checkbox" style={{ width: 'auto' }} checked={!!f['manuel']} onChange={(e) => set('manuel', e.target.checked)} /> Saisie manuelle (conteneur hors stock / partagé)</label>
+      </div>
+      <div className="section-title" style={{ marginTop: 12 }}>Déclaration de CE conteneur</div>
+      <p className="help" style={{ marginTop: 0 }}>Laissez un champ vide pour ne pas y toucher. Le déclarant et la marchandise restent portés par le camion.</p>
+      <div className="grid2">
+        <Champ label="N° déclaration" value={String(d['numeroDeclaration'])} onChange={(e) => setDd('numeroDeclaration', masks.upper(e.target.value))} />
+        <Champ label="Année" value={String(d['anneeDeclaration'])} onChange={(e) => setDd('anneeDeclaration', e.target.value)} />
+        <Champ label="Bureau" value={String(d['bureauDeclaration'])} onChange={(e) => setDd('bureauDeclaration', masks.upper(e.target.value))} />
+        <div><label className="help">Type déclaration</label>
+          <select value={String(d['typeDeclaration'])} onChange={(e) => setDd('typeDeclaration', e.target.value)}>
+            <option value="">— inchangé —</option>{TYPES_DECLARATION.map((t) => <option key={t}>{t}</option>)}
+          </select></div>
       </div>
       <div className="row" style={{ marginTop: 12 }}>
         <button onClick={corriger}>Enregistrer la correction</button>
@@ -666,7 +696,10 @@ function PanneauEditDecl({ c, action }: { c: O; action: ActionFn }) {
   const setDd = (k: string, v: unknown) => setD((o) => ({ ...o, [k]: v }));
   const estConso = estTypeSansT1(d['typeDeclaration']);
   return <details style={EDIT_ITEM}><summary style={{ cursor: 'pointer', fontWeight: 600 }}>Corriger les informations de déclaration</summary>
-    <p className="help" style={{ marginTop: 10 }}>Corrige le déclarant, la déclaration et la marchandise de ce camion et de ses conteneurs.</p>
+    <p className="help" style={{ marginTop: 10 }}>Corrige le déclarant, la déclaration et la marchandise de ce camion
+      et <b>de tous ses conteneurs</b>. Un champ laissé vide garde sa valeur actuelle.
+      ⚠ Si le camion porte plusieurs déclarations (chargement mixte), passez plutôt par
+      « Corriger un conteneur » : ici, toutes les lignes seraient ramenées à la même déclaration.</p>
     <div className="grid2">
       <Champ label="Déclarant" value={String(d['declarant'])} onChange={(e) => setDd('declarant', masks.upper(e.target.value))} />
       <Champ label="Contact (téléphone)" value={String(d['contactDeclarant'])} onChange={(e) => setDd('contactDeclarant', masks.tel(e.target.value))} />

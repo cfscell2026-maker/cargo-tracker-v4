@@ -59,21 +59,49 @@ export async function stockList(ctx: Ctx, opts: { statut?: string }) {
   return { rows, compte };
 }
 
-export async function stockImport(ctx: Ctx, p: { items?: Record<string, unknown>[]; provenanceDefaut?: string }) {
+/**
+ * v4.1 — IMPORT DU STOCK EN DEUX TEMPS (décision utilisateur 2026-07-22).
+ *
+ * Le cas réel : des conteneurs manquants au premier import ont été SAISIS À LA
+ * MAIN et sont déjà engagés dans un process (positionnés, dépotés, rattachés à
+ * une cargaison). Ils figurent aussi dans le nouveau fichier. Réimporter en
+ * écrasant réécrirait leur date d'entrée et leur déclaration sous les pieds des
+ * cellules en aval.
+ *
+ * D'où deux appels : `analyser: true` ne touche à RIEN et rend la liste des
+ * conflits ; l'agent tranche (`surDoublon: 'ignorer' | 'remplacer'`), exactement
+ * comme une copie de fichiers dans un dossier qui en contient déjà.
+ * Le défaut est « ignorer » : on ne remplace jamais sans que ce soit demandé.
+ */
+type SurDoublon = 'ignorer' | 'remplacer';
+
+export async function stockImport(
+  ctx: Ctx,
+  p: { items?: Record<string, unknown>[]; provenanceDefaut?: string; analyser?: boolean; surDoublon?: string },
+) {
   const items = Array.isArray(p.items) ? p.items : [];
   if (!items.length) throw new Error('Aucune ligne à importer.');
+  const surDoublon: SurDoublon = p.surDoublon === 'remplacer' ? 'remplacer' : 'ignorer';
   const provDef = maj(p.provenanceDefaut || 'PORT SEC', 40);
   const now = new Date().toISOString();
-  // État existant (pour distinguer maj vs ajout et conserver le statut).
-  const { data: existants, error } = await ctx.db.from('stock').select('numero_tc, statut');
-  if (error) throw new Error(error.message);
-  const present = new Set((existants ?? []).map((r) => normTC(r.numero_tc)));
-  let ajoutes = 0, majN = 0, ignores = 0;
+
+  // ⚠ fetchAll et NON .select() : PostgREST plafonne une requête nue à 1000
+  // lignes. Avec ~6000 conteneurs en stock, les suivants passaient pour des
+  // nouveautés — insert en collision de clé primaire, import entièrement perdu.
+  const existants = await fetchAll(ctx, 'stock', 'numero_tc, statut, taille, date_entree, cargaison_id, annee_declaration, type_declaration, numero_declaration');
+  const parTC = new Map(existants.map((r) => [normTC(r['numero_tc']), r]));
+
   const aInserer: Record<string, unknown>[] = [];
   const aMaj: Record<string, unknown>[] = [];
+  const doublons: Record<string, unknown>[] = [];
+  let invalides = 0;
+  const vus = new Set<string>();
+
   for (const it of items) {
     const tc = normTC(it['numeroTC']);
-    if (!tc || !tcValide(tc)) { ignores++; continue; }
+    if (!tc || !tcValide(tc)) { invalides++; continue; }
+    if (vus.has(tc)) { invalides++; continue; } // doublon INTERNE au fichier
+    vus.add(tc);
     const taille = maj(it['taille'], 10);
     const nbSej = Number(it['nbSejours'] || it['nbSejoursImport'] || 0) || 0;
     const dEnt = iso(parseDateImport(it['dateEntree'])) || now;
@@ -82,10 +110,23 @@ export async function stockImport(ctx: Ctx, p: { items?: Record<string, unknown>
     const anneeDecl = maj(it['anneeDeclaration'], 6);
     const typeDecl = maj(it['typeDeclaration'], 6);
     const numDecl = chiffres(it['numeroDeclaration']).slice(0, 30);
-    if (present.has(tc)) {
-      aMaj.push({ numero_tc: tc, taille: taille || undefined, date_entree: dEnt, nb_sejours_import: nbSej,
+    const ex = parTC.get(tc);
+
+    if (ex) {
+      doublons.push({
+        numeroTC: tc,
+        statut: ex['statut'],
+        // « Engagé » = le conteneur n'est plus un simple dormant du parc : le
+        // remplacer touche une opération en cours. C'est CE qu'il faut voir.
+        engage: ex['statut'] !== STOCK_STATUTS.STOCK || !!ex['cargaison_id'],
+        cargaisonId: ex['cargaison_id'] ?? '',
+        tailleExistante: ex['taille'] ?? '', tailleFichier: taille,
+        dateEntreeExistante: ex['date_entree'] ?? '', dateEntreeFichier: dEnt,
+        declarationExistante: [ex['numero_declaration'], ex['annee_declaration'], ex['type_declaration']].filter(Boolean).join(' · '),
+        declarationFichier: [numDecl, anneeDecl, typeDecl].filter(Boolean).join(' · '),
+      });
+      aMaj.push({ numero_tc: tc, taille, date_entree: dEnt, nb_sejours_import: nbSej,
         annee_declaration: anneeDecl, type_declaration: typeDecl, numero_declaration: numDecl });
-      majN++;
     } else {
       aInserer.push({
         numero_tc: tc, taille, type_conteneur: maj(it['typeConteneur'], 30),
@@ -93,24 +134,41 @@ export async function stockImport(ctx: Ctx, p: { items?: Record<string, unknown>
         statut: STOCK_STATUTS.STOCK, nb_sejours_import: nbSej,
         annee_declaration: anneeDecl, type_declaration: typeDecl, numero_declaration: numDecl,
       });
-      present.add(tc); ajoutes++;
     }
   }
+
+  // 1er temps : on RÉPOND sans rien écrire. L'agent voit puis décide.
+  if (p.analyser === true) {
+    return {
+      analyse: true, lignes: items.length, invalides,
+      nouveaux: aInserer.length, doublons,
+      engages: doublons.filter((d) => d['engage']).length,
+    };
+  }
+
   if (aInserer.length) {
     const { error: e } = await ctx.db.from('stock').insert(aInserer);
     if (e) throw new Error(e.message);
   }
-  for (const m of aMaj) {
-    const patch: Record<string, unknown> = { date_entree: m['date_entree'], nb_sejours_import: m['nb_sejours_import'] };
-    if (m['taille']) patch['taille'] = m['taille'];
-    // Déclaration : on n'écrase que si une valeur est fournie dans le fichier.
-    if (m['annee_declaration']) patch['annee_declaration'] = m['annee_declaration'];
-    if (m['type_declaration']) patch['type_declaration'] = m['type_declaration'];
-    if (m['numero_declaration']) patch['numero_declaration'] = m['numero_declaration'];
-    await ctx.db.from('stock').update(patch).eq('numero_tc', m['numero_tc']);
+  let majN = 0;
+  if (surDoublon === 'remplacer') {
+    for (const m of aMaj) {
+      const patch: Record<string, unknown> = { date_entree: m['date_entree'], nb_sejours_import: m['nb_sejours_import'] };
+      if (m['taille']) patch['taille'] = m['taille'];
+      // Déclaration : on n'écrase que si une valeur est fournie dans le fichier.
+      if (m['annee_declaration']) patch['annee_declaration'] = m['annee_declaration'];
+      if (m['type_declaration']) patch['type_declaration'] = m['type_declaration'];
+      if (m['numero_declaration']) patch['numero_declaration'] = m['numero_declaration'];
+      // Le STATUT n'est jamais touché : un conteneur déjà dépoté ou positionné
+      // ne redevient pas « En stock » parce qu'il figure dans un fichier.
+      await ctx.db.from('stock').update(patch).eq('numero_tc', m['numero_tc']);
+      majN++;
+    }
   }
-  await ctx.log('Import stock', '', ajoutes + ' ajouté(s), ' + majN + ' mis à jour, ' + ignores + ' ignoré(s)');
-  return { ajoutes, maj: majN, ignores };
+  const ignores = invalides + (surDoublon === 'ignorer' ? aMaj.length : 0);
+  await ctx.log('Import stock', '',
+    aInserer.length + ' ajouté(s), ' + majN + ' mis à jour, ' + ignores + ' ignoré(s) · doublons : ' + surDoublon);
+  return { ajoutes: aInserer.length, maj: majN, ignores, invalides, doublons: aMaj.length, surDoublon };
 }
 
 export async function stockPointage(ctx: Ctx, p: Record<string, unknown>) {
@@ -162,9 +220,10 @@ export async function annonceImport(ctx: Ctx, p: { items?: Record<string, unknow
   const items = Array.isArray(p.items) ? p.items : [];
   if (!items.length) throw new Error('Aucune ligne à importer.');
   const now = new Date().toISOString();
-  const { data: existants, error } = await ctx.db.from('stock_annonce').select('numero_tc, statut');
-  if (error) throw new Error(error.message);
-  const statutParTC = new Map((existants ?? []).map((r) => [normTC(r.numero_tc), r.statut as string]));
+  // fetchAll : même plafond de 1000 lignes que pour le stock — au-delà, les
+  // lignes existantes passaient inaperçues et l'insert cassait sur la clé.
+  const existants = await fetchAll(ctx, 'stock_annonce', 'numero_tc, statut');
+  const statutParTC = new Map(existants.map((r) => [normTC(r['numero_tc']), r['statut'] as string]));
   let ajoutes = 0, majN = 0, ignores = 0;
   const aInserer: Record<string, unknown>[] = [];
   const aMaj: Record<string, unknown>[] = [];

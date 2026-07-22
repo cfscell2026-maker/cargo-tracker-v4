@@ -618,10 +618,14 @@ function StockList({ statut, titre }: { statut: string; titre?: string }) {
 // v4 — chaque pointage propose les TC de la BONNE source à la frappe (datalist) :
 // pointage matinal → stock « En stock » ; pointage PP → stock annoncé « Annoncé ».
 SCREENS.pointage = () => <PointageTC action="stock.pointage" titre="Pointage matinal" desc="Positionne un conteneur pour le dépotage du jour." suggest={{ action: 'stock.list', statut: 'En stock' }} />;
-// Magasin/MAD : on propose les conteneurs POSITIONNÉS (ceux qu'on vide au CFS),
-// mais la saisie libre reste ouverte — le serveur accepte un conteneur inconnu
-// du stock et le crée.
-SCREENS.magasin = () => <PointageTC action="stock.entreemagasin" titre="Entrée Magasin / MAD" desc="Marque un conteneur comme dépoté / sorti du yard." suggest={{ action: 'stock.list', statut: 'Positionné' }} libre />;
+// v4.1 — Magasin/MAD : les TC destinés au magasin ne passent PAS par le
+// positionnement du CFS (décision utilisateur 2026-07-22) — PIA les prend
+// directement dans le yard et les pose devant le magasin. On propose donc le
+// STOCK DU PARC (« En stock »), pas les positionnés du jour. La saisie libre
+// reste ouverte : le serveur accepte un conteneur inconnu du stock et le crée.
+SCREENS.magasin = () => <PointageTC action="stock.entreemagasin" titre="Entrée Magasin / MAD"
+  desc="Conteneur pris dans le stock du parc PIA et entré au magasin : il est marqué dépoté / sorti du yard."
+  suggest={{ action: 'stock.list', statut: 'En stock' }} libre />;
 SCREENS.pointentree = () => <PointageTC action="stockannonce.pointage" titre="Pointage entrée (stock annoncé)" desc="Pointe l'arrivée d'un conteneur annoncé (Porte Principale)." suggest={{ action: 'stockannonce.list', statut: 'Annoncé' }} />;
 SCREENS.confentree = () => <ConfirmerEntree />;
 /**
@@ -768,11 +772,13 @@ function ConfirmerEntree() {
   </div>;
 }
 
-SCREENS.import = () => <ImportExcel action="stock.import" titre="Stock initial — import" cols={['numeroTC', 'taille', 'dateEntree', 'anneeDeclaration', 'typeDeclaration', 'numeroDeclaration']} />;
+SCREENS.import = () => <ImportExcel action="stock.import" titre="Stock initial — import" cols={['numeroTC', 'taille', 'dateEntree', 'anneeDeclaration', 'typeDeclaration', 'numeroDeclaration']} conflits />;
 SCREENS.importannonce = () => <ImportExcel action="stockannonce.import" titre="Annonce de transfert — import" cols={['numeroTC', 'taille', 'dateEntree', 'anneeDeclaration', 'bureauDeclaration', 'typeDeclaration', 'numeroDeclaration']} />;
-function ImportExcel({ action, titre, cols }: { action: string; titre: string; cols: string[] }) {
+function ImportExcel({ action, titre, cols, conflits }: { action: string; titre: string; cols: string[]; conflits?: boolean }) {
   const [items, setItems] = useState<O[]>([]);
   const [res, setRes] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [analyse, setAnalyse] = useState<O | null>(null);
   function lire(file: File) {
     const reader = new FileReader();
     reader.onload = (e) => {
@@ -780,20 +786,81 @@ function ImportExcel({ action, titre, cols }: { action: string; titre: string; c
       const sheet = wb.Sheets[wb.SheetNames[0]!];
       const rows = (XLSX.utils.sheet_to_json(sheet!, { header: 1 }) as unknown[][]).slice(1);
       setItems(rows.filter((r) => r[0]).map((r) => Object.fromEntries(cols.map((c, i) => [c, r[i] ?? '']))));
+      setRes(''); setAnalyse(null);
     };
     reader.readAsBinaryString(file);
   }
-  async function importer() {
-    try { const r = await call<O>(action, { items }); setRes(`${r['ajoutes']} ajouté(s), ${r['maj']} mis à jour, ${r['ignores']} ignoré(s).`); toast('Import terminé.', 'ok'); }
-    catch (e) { toast((e as Error).message, 'err'); }
+  /** Écrit réellement. `surDoublon` n'a de sens que pour l'import du stock. */
+  async function ecrire(surDoublon?: string) {
+    setBusy(true);
+    try {
+      const r = await call<O>(action, surDoublon ? { items, surDoublon } : { items });
+      setRes(`${r['ajoutes']} ajouté(s), ${r['maj']} mis à jour, ${r['ignores']} ignoré(s).`);
+      setAnalyse(null); toast('Import terminé.', 'ok');
+    } catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(false); }
   }
+  /** Import du stock : on REGARDE d'abord, on écrit ensuite. */
+  async function lancer() {
+    if (!conflits) { await ecrire(); return; }
+    setBusy(true);
+    try {
+      const a = await call<O>(action, { items, analyser: true });
+      const d = (a['doublons'] ?? []) as O[];
+      if (!d.length) { setBusy(false); await ecrire('ignorer'); return; }
+      setAnalyse(a); setBusy(false);
+    } catch (e) { toast((e as Error).message, 'err'); setBusy(false); }
+  }
+
   return <div className="card"><h2>{titre}</h2>
     <p className="help">Colonnes attendues (dans l'ordre) : {cols.join(', ')}. Première ligne = entêtes.</p>
     <input type="file" accept=".xlsx,.xls,.csv" onChange={(e) => e.target.files?.[0] && lire(e.target.files[0])} />
     {items.length > 0 && <><div className="help" style={{ marginTop: 8 }}>{items.length} ligne(s) prêtes.</div>
-      <div style={{ marginTop: 10 }}><button onClick={importer}>Importer {items.length} ligne(s)</button></div></>}
+      <div style={{ marginTop: 10 }}><button disabled={busy} onClick={lancer}>{busy ? 'Vérification…' : `Importer ${items.length} ligne(s)`}</button></div></>}
     {res && <div className="help" style={{ marginTop: 8 }}>{res}</div>}
+    {analyse && <ConflitsImport a={analyse} busy={busy} onChoix={ecrire} onAnnuler={() => setAnalyse(null)} />}
   </div>;
+}
+
+/**
+ * v4.1 — Conflits d'import (décision utilisateur 2026-07-22). Même geste que
+ * copier des fichiers dans un dossier qui en contient déjà : on annonce ce qui
+ * existe, on laisse choisir. Le défaut proposé est « ignorer », parce que les
+ * conteneurs déjà là ont souvent été saisis à la main et sont ENGAGÉS dans une
+ * opération — les écraser réécrirait leur date d'entrée et leur déclaration
+ * sous les pieds des cellules en aval.
+ */
+function ConflitsImport({ a, busy, onChoix, onAnnuler }: { a: O; busy: boolean; onChoix: (s: string) => void; onAnnuler: () => void }) {
+  const doublons = (a['doublons'] ?? []) as O[];
+  const engages = Number(a['engages'] ?? 0);
+  const nouveaux = Number(a['nouveaux'] ?? 0);
+  return <Modal onClose={onAnnuler}>
+    <h2>{doublons.length} conteneur(s) déjà dans le stock</h2>
+    <p className="help" style={{ marginTop: 0 }}>
+      Le fichier apporte <b>{nouveaux} nouveau(x)</b> conteneur(s) — ceux-là seront ajoutés dans tous les cas.
+      Les {doublons.length} ci-dessous existent déjà{engages > 0 && <> et <b style={{ color: 'var(--warn)' }}>{engages} sont déjà engagés</b> (positionnés, dépotés ou rattachés à un camion)</>}.
+    </p>
+    <div className="tbl" style={{ maxHeight: 320, overflowY: 'auto' }}><table>
+      <thead><tr><th>Conteneur</th><th>Statut actuel</th><th>Déclaration en base</th><th>Déclaration du fichier</th></tr></thead>
+      <tbody>{doublons.map((d) => <tr key={String(d['numeroTC'])}>
+        <td className="mono"><b>{String(d['numeroTC'])}</b></td>
+        <td>{String(d['statut'] ?? '—')}{d['engage'] ? <span className="tag st-charge" style={{ marginLeft: 6 }}>engagé</span> : null}</td>
+        <td>{String(d['declarationExistante'] || '—')}</td>
+        <td>{String(d['declarationFichier'] || '—')}</td>
+      </tr>)}</tbody>
+    </table></div>
+    {Number(a['invalides'] ?? 0) > 0 && <div className="help" style={{ marginTop: 8 }}>
+      {String(a['invalides'])} ligne(s) du fichier sont inexploitables (N° non conforme ou répété) et seront écartées.
+    </div>}
+    <div className="row" style={{ marginTop: 14, flexWrap: 'wrap' }}>
+      <button disabled={busy} onClick={() => onChoix('ignorer')}>Ignorer les doublons — garder ce qui est en base</button>
+      <button className="ghost" disabled={busy} onClick={() => onChoix('remplacer')}>Remplacer par le fichier</button>
+      <button className="ghost" disabled={busy} onClick={onAnnuler}>Annuler</button>
+    </div>
+    <p className="help" style={{ marginTop: 10 }}>
+      « Remplacer » met à jour la taille, la date d'entrée et la déclaration. Le <b>statut n'est jamais touché</b> :
+      un conteneur dépoté ou positionné ne redevient pas « En stock » parce qu'il figure dans un fichier.
+    </p>
+  </Modal>;
 }
 
 SCREENS.annonce = () => {

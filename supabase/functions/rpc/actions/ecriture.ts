@@ -702,6 +702,9 @@ export async function editconteneur(ctx: Ctx, p: Record<string, unknown>) {
   const conts = pd.conteneurs;
   if (!(index >= 0 && index < conts.length)) throw new Error('Conteneur introuvable sur ce camion (ligne ' + (index + 1) + ').');
   const ancien = normaliserConteneur(conts[index] as never);
+  // normaliserConteneur ne retient PAS la déclaration : on la capture à part
+  // pour pouvoir tracer un changement de déclaration sur cette ligne.
+  const declAvant = declKey(conts[index] as never);
 
   if (supprimer) {
     conts.splice(index, 1);
@@ -728,6 +731,20 @@ export async function editconteneur(ctx: Ctx, p: Record<string, unknown>) {
     for (const k of ['numeroDeclaration', 'anneeDeclaration', 'bureauDeclaration', 'typeDeclaration', 'declarant', 'contactDeclarant', 'destinationMarchandise', 'descriptionMarchandise', 'nombreConteneurs']) {
       if (src[k] !== undefined) cible[k] = src[k];
     }
+    // v4.1 — DÉCLARATION DE CETTE LIGNE (décision utilisateur 2026-07-22).
+    // En chargement MIXTE, chaque conteneur porte SA déclaration : la corriger
+    // par `editdecl` les réécrirait toutes à l'identique et détruirait le mixte.
+    // Ici on ne touche qu'à la ligne visée. Seule l'identité de la déclaration
+    // est modifiable ; le déclarant et la marchandise restent portés par le camion.
+    const dSaisie = (p['declaration'] ?? {}) as Record<string, unknown>;
+    const champsDecl: [string, number][] = [
+      ['numeroDeclaration', 30], ['anneeDeclaration', 6], ['bureauDeclaration', 20], ['typeDeclaration', 10],
+    ];
+    for (const [k, n] of champsDecl) {
+      if (dSaisie[k] === undefined) continue;
+      const v = maj(dSaisie[k], n);
+      if (v) cible[k] = v; // vide = « ne touche pas », pas « efface »
+    }
     conts[index] = ct;
   }
 
@@ -752,10 +769,12 @@ export async function editconteneur(ctx: Ctx, p: Record<string, unknown>) {
   await supprimerConteneursDe(ctx, id);
   await ajouterConteneurs(ctx, rapportId, id, String(c['numeroCamion']), type, conts.map((x) => normaliserConteneur(x)));
 
+  const declApres = supprimer ? declAvant : declKey(conts[index] as never);
   await ctx.log(
     supprimer ? 'Correction — suppression conteneur' : 'Correction conteneur',
     id,
-    supprimer ? ancien.num + ' retiré' : ancien.num + ' → ' + nouveauNum,
+    supprimer ? ancien.num + ' retiré'
+      : ancien.num + ' → ' + nouveauNum + (declApres !== declAvant ? ' · déclaration ' + declAvant + ' → ' + declApres : ''),
   );
   return { id, conteneurs: conts.length, ancien: ancien.num, nouveau: nouveauNum };
 }
@@ -776,22 +795,36 @@ export async function editdecl(ctx: Ctx, p: Record<string, unknown>) {
   if (!estAdmin && [STATUTS.CAMION, STATUTS.CHARGEMENT, STATUTS.CREEE].indexOf(c['statut'] as never) === -1)
     throw new Error('Correction impossible : la cargaison a déjà avancé (statut « ' + c['statut'] + ' »).');
   const type = String(c['typeOperation'] || '');
-  const decl = normaliserDeclaration(p['declaration'] as never, type);
+  // CORRECTION, pas création : contact / destination / désignation absents des
+  // données migrées ne doivent pas bloquer la correction d'un numéro.
+  const decl = normaliserDeclaration(p['declaration'] as never, type, { correction: true });
+
+  // Un champ laissé vide en correction NE DOIT PAS effacer ce qui existe :
+  // l'agent corrige un numéro, il ne vient pas vider le contact du déclarant.
+  const garder = (nouveau: string, ancien: unknown) => (nouveau ? nouveau : String(ancien ?? ''));
+  const eff = {
+    declarant: decl.declarant,
+    contactDeclarant: garder(decl.contactDeclarant, c['contactDeclarant']),
+    destinationMarchandise: garder(decl.destinationMarchandise, c['destinationMarchandise']),
+    descriptionMarchandise: garder(decl.descriptionMarchandise, c['descriptionMarchandise']),
+    bureauDeclaration: decl.bureauDeclaration, typeDeclaration: decl.typeDeclaration,
+    numeroDeclaration: decl.numeroDeclaration, anneeDeclaration: decl.anneeDeclaration,
+  };
 
   const pd = parseConteneursDetails(c['conteneursDetails']);
   pd.conteneurs.forEach((ct) => {
     const x = ct as unknown as Record<string, unknown>;
-    x['numeroDeclaration'] = decl.numeroDeclaration; x['anneeDeclaration'] = decl.anneeDeclaration;
-    x['bureauDeclaration'] = decl.bureauDeclaration; x['typeDeclaration'] = decl.typeDeclaration;
-    x['declarant'] = decl.declarant; x['contactDeclarant'] = decl.contactDeclarant;
-    x['destinationMarchandise'] = decl.destinationMarchandise; x['descriptionMarchandise'] = decl.descriptionMarchandise;
+    x['numeroDeclaration'] = eff.numeroDeclaration; x['anneeDeclaration'] = eff.anneeDeclaration;
+    x['bureauDeclaration'] = eff.bureauDeclaration; x['typeDeclaration'] = eff.typeDeclaration;
+    x['declarant'] = eff.declarant; x['contactDeclarant'] = eff.contactDeclarant;
+    x['destinationMarchandise'] = eff.destinationMarchandise; x['descriptionMarchandise'] = eff.descriptionMarchandise;
   });
 
   const patch: Record<string, unknown> = {
-    declarant: decl.declarant, contact_declarant: decl.contactDeclarant,
-    destination_marchandise: decl.destinationMarchandise, bureau_declaration: decl.bureauDeclaration,
-    type_declaration: decl.typeDeclaration, numero_declaration: decl.numeroDeclaration,
-    annee_declaration: decl.anneeDeclaration, description_marchandise: decl.descriptionMarchandise,
+    declarant: eff.declarant, contact_declarant: eff.contactDeclarant,
+    destination_marchandise: eff.destinationMarchandise, bureau_declaration: eff.bureauDeclaration,
+    type_declaration: eff.typeDeclaration, numero_declaration: eff.numeroDeclaration,
+    annee_declaration: eff.anneeDeclaration, description_marchandise: eff.descriptionMarchandise,
     conteneurs_details: { conteneurs: pd.conteneurs, scellesCamion: pd.scellesCamion },
     chargement_mixte: null,
   };

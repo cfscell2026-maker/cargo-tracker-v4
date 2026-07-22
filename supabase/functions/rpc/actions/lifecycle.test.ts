@@ -7,7 +7,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { STATUTS, etapesEnAttente } from '../../_shared/domaine/src/index.ts';
+import { STATUTS, etapesEnAttente, groupesDeclaration } from '../../_shared/domaine/src/index.ts';
 import { versCamel, type Ctx } from '../ctx.ts';
 import { FakeDB } from './fake-db.ts';
 import * as ecr from './ecriture.ts';
@@ -776,4 +776,146 @@ test('le dépotage garde sa propre clôture (scellés camion), pas fincharge', a
   await assert.rejects(() => ecr.finChargement(cfs, { id }), /finalisation/);
   await ecr.declaration(cfs, { id, hauteurChargement: '3', nbColis: '10', scellesCamion: ['S1', 'S2'] });
   assert.equal(statutDe(db, id), STATUTS.CREEE);
+});
+
+/* ---- v4.1 : ré-import du stock, conflits annoncés avant d'écrire -------- */
+
+/** Stock contenant un TC saisi À LA MAIN et déjà engagé dans une opération. */
+function stockAvecSaisieManuelle(db: FakeDB) {
+  db.store['stock'].push({
+    numero_tc: 'MSKU1234567', taille: "40'", statut: 'Positionné', cargaison_id: 'CT-2026-000001',
+    date_entree: '2026-06-01T00:00:00.000Z', numero_declaration: '111', annee_declaration: '2026', type_declaration: 'T',
+  });
+}
+const FICHIER_REIMPORT = [
+  { numeroTC: 'MSKU1234567', taille: "20'", dateEntree: '2026-07-10', anneeDeclaration: '2026', typeDeclaration: 'C', numeroDeclaration: '999' },
+  { numeroTC: 'TCLU7654321', taille: "40'", dateEntree: '2026-07-10', anneeDeclaration: '2026', typeDeclaration: 'T', numeroDeclaration: '222' },
+];
+
+test('ré-import stock : l’analyse annonce les doublons SANS rien écrire', async () => {
+  const db = new FakeDB();
+  stockAvecSaisieManuelle(db);
+  const r = (await stk.stockImport(ctxRole(db, 'CFS', 'Agent CFS'), { items: FICHIER_REIMPORT, analyser: true })) as
+    { analyse: boolean; nouveaux: number; engages: number; doublons: Record<string, unknown>[] };
+  assert.equal(r.analyse, true);
+  assert.equal(r.nouveaux, 1); // TCLU7654321
+  assert.equal(r.doublons.length, 1);
+  assert.equal(r.doublons[0]!['numeroTC'], 'MSKU1234567');
+  // « Engagé » : positionné + rattaché à un camion → l’écraser touche une opération.
+  assert.equal(r.doublons[0]!['engage'], true);
+  assert.equal(r.doublons[0]!['declarationExistante'], '111 · 2026 · T');
+  assert.equal(r.doublons[0]!['declarationFichier'], '999 · 2026 · C');
+  // RIEN n’a bougé : ni le nouveau ajouté, ni l’existant modifié.
+  assert.equal(db.store['stock'].length, 1);
+  assert.equal(db.store['stock'][0]!['numero_declaration'], '111');
+});
+
+test('ré-import stock : « ignorer » ajoute les nouveaux et laisse les doublons intacts', async () => {
+  const db = new FakeDB();
+  stockAvecSaisieManuelle(db);
+  const r = (await stk.stockImport(ctxRole(db, 'CFS', 'Agent CFS'), { items: FICHIER_REIMPORT, surDoublon: 'ignorer' })) as
+    { ajoutes: number; maj: number; ignores: number };
+  assert.equal(r.ajoutes, 1);
+  assert.equal(r.maj, 0);
+  assert.equal(r.ignores, 1);
+  const ancien = db.store['stock'].find((x) => x['numero_tc'] === 'MSKU1234567')!;
+  assert.equal(ancien['numero_declaration'], '111'); // pas écrasé
+  assert.equal(ancien['taille'], "40'");
+  assert.equal(ancien['statut'], 'Positionné');
+  assert.ok(db.store['stock'].find((x) => x['numero_tc'] === 'TCLU7654321'));
+});
+
+test('ré-import stock : « remplacer » met à jour SANS jamais toucher au statut', async () => {
+  const db = new FakeDB();
+  stockAvecSaisieManuelle(db);
+  const r = (await stk.stockImport(ctxRole(db, 'CFS', 'Agent CFS'), { items: FICHIER_REIMPORT, surDoublon: 'remplacer' })) as
+    { ajoutes: number; maj: number };
+  assert.equal(r.ajoutes, 1);
+  assert.equal(r.maj, 1);
+  const ancien = db.store['stock'].find((x) => x['numero_tc'] === 'MSKU1234567')!;
+  assert.equal(ancien['numero_declaration'], '999');
+  assert.equal(ancien['taille'], "20'");
+  // Un conteneur positionné ne redevient pas « En stock » parce qu’il est dans un fichier.
+  assert.equal(ancien['statut'], 'Positionné');
+});
+
+test('ré-import stock : par défaut, aucun doublon n’est écrasé', async () => {
+  const db = new FakeDB();
+  stockAvecSaisieManuelle(db);
+  await stk.stockImport(ctxRole(db, 'CFS', 'Agent CFS'), { items: FICHIER_REIMPORT });
+  assert.equal(db.store['stock'].find((x) => x['numero_tc'] === 'MSKU1234567')!['numero_declaration'], '111');
+});
+
+/* ---- v4.1 : « Éditer » débloqué sur les données incomplètes ------------- */
+
+test('correction déclaration : possible même sans contact ni destination (migrées)', async () => {
+  const db = new FakeDB();
+  db.store['stock'].push({ numero_tc: 'MSKU1111111', taille: "40'", statut: 'En stock' });
+  const cfs = ctxAvec(db);
+  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'MIG001', routage: 'Enlèvement' })) as { id: string };
+  await ecr.cfs(cfs, { id, conteneur: { num: 'MSKU1111111', taille: "40'", type: 'DRY', plomb: 'S1' }, declaration: DECL_OK });
+  // On simule une cargaison MIGRÉE : contact / destination / désignation absents.
+  const ligne = db.store['cargaisons'].find((x) => x['id'] === id)!;
+  ligne['contact_declarant'] = ''; ligne['destination_marchandise'] = ''; ligne['description_marchandise'] = '';
+
+  // L’agent ne corrige QUE le numéro : refusé avant, accepté maintenant.
+  await ecr.editdecl(cfs, {
+    id,
+    declaration: { declarant: 'STE X', bureauDeclaration: 'TG120', typeDeclaration: 'T', numeroDeclaration: '4321', anneeDeclaration: '2026' },
+  });
+  assert.equal(versCamel(db.store['cargaisons'][0]!)['numeroDeclaration'], '4321');
+  // Un téléphone FAUX reste refusé : on assouplit l’absence, pas la validité.
+  await assert.rejects(() => ecr.editdecl(cfs, {
+    id,
+    declaration: { declarant: 'STE X', contactDeclarant: '12', bureauDeclaration: 'TG120', typeDeclaration: 'T', numeroDeclaration: '4321', anneeDeclaration: '2026' },
+  }), /téléphone invalide/);
+});
+
+test('correction déclaration : un champ vide ne vide pas ce qui existe', async () => {
+  const db = new FakeDB();
+  db.store['stock'].push({ numero_tc: 'MSKU1111111', taille: "40'", statut: 'En stock' });
+  const cfs = ctxAvec(db);
+  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'MIG002', routage: 'Enlèvement' })) as { id: string };
+  await ecr.cfs(cfs, { id, conteneur: { num: 'MSKU1111111', taille: "40'", type: 'DRY', plomb: 'S1' }, declaration: DECL_OK });
+  await ecr.editdecl(cfs, {
+    id,
+    declaration: { declarant: 'STE X', bureauDeclaration: 'TG120', typeDeclaration: 'T', numeroDeclaration: '5555', anneeDeclaration: '2026' },
+  });
+  const c = versCamel(db.store['cargaisons'][0]!);
+  assert.equal(c['numeroDeclaration'], '5555');
+  assert.equal(c['contactDeclarant'], DECL_OK.contactDeclarant); // conservé
+  assert.equal(c['destinationMarchandise'], DECL_OK.destinationMarchandise);
+});
+
+test('correction conteneur : la déclaration se change LIGNE PAR LIGNE (mixte préservé)', async () => {
+  const db = new FakeDB();
+  db.store['stock'].push(
+    { numero_tc: 'MSKU1111111', taille: "20'", statut: 'En stock' },
+    { numero_tc: 'TCLU2222222', taille: "20'", statut: 'En stock' },
+  );
+  const cfs = ctxAvec(db);
+  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'MIX001', routage: 'Enlèvement' })) as { id: string };
+  await ecr.cfs(cfs, { id, conteneur: { num: 'MSKU1111111', taille: "20'", type: 'DRY', plomb: 'S1' }, declaration: DECL_OK });
+  await ecr.cfs(cfs, { id, conteneur: { num: 'TCLU2222222', taille: "20'", type: 'DRY', plomb: 'S2' } });
+
+  // On rattache la 2e ligne à une AUTRE déclaration.
+  await ecr.editconteneur(cfs, {
+    id, index: 1, num: 'TCLU2222222', taille: "20'", type: 'DRY', plomb: 'S2',
+    declaration: { numeroDeclaration: '8888', anneeDeclaration: '2026', bureauDeclaration: 'TG120', typeDeclaration: 'C' },
+  });
+  const cargo = versCamel(db.store['cargaisons'][0]!);
+  const dets = cargo['conteneursDetails'] as { conteneurs: Record<string, unknown>[] };
+  assert.equal(dets.conteneurs[0]!['numeroDeclaration'], DECL_OK.numeroDeclaration); // ligne 1 intacte
+  assert.equal(dets.conteneurs[1]!['numeroDeclaration'], '8888');
+  assert.equal(dets.conteneurs[1]!['typeDeclaration'], 'C');
+  // Le camion devient donc un chargement MIXTE, reconnu par le domaine.
+  assert.equal(groupesDeclaration(dets.conteneurs as never, cargo as never).length, 2);
+
+  // Un champ de déclaration vide = « ne touche pas », pas « efface ».
+  await ecr.editconteneur(cfs, {
+    id, index: 1, num: 'TCLU2222222', taille: "20'", type: 'DRY', plomb: 'S2',
+    declaration: { numeroDeclaration: '', anneeDeclaration: '', bureauDeclaration: '', typeDeclaration: '' },
+  });
+  const dets2 = versCamel(db.store['cargaisons'][0]!)['conteneursDetails'] as { conteneurs: Record<string, unknown>[] };
+  assert.equal(dets2.conteneurs[1]!['numeroDeclaration'], '8888');
 });

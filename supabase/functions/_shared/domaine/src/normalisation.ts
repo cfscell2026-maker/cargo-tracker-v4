@@ -100,7 +100,25 @@ export interface Declaration {
  * _normaliserDeclaration_ : MAJUSCULES, défauts, longueurs — TOUS les champs
  * obligatoires (sauf description pour un VÉHICULE, portée par les effets divers).
  */
-export function normaliserDeclaration(d: Partial<Declaration> | null | undefined, type?: string): Declaration {
+/**
+ * v4.1 — Options de normalisation.
+ *
+ * `correction` : on CORRIGE une déclaration déjà enregistrée, on n'en crée pas
+ * une. Seule l'IDENTITÉ de la déclaration (déclarant + année/bureau/type/numéro)
+ * reste exigée ; le contact, la destination et la désignation peuvent rester
+ * vides. Sans cela, corriger un simple numéro sur l'une des 5022 cargaisons
+ * MIGRÉES est impossible : leur export d'origine n'avait ni contact, ni
+ * destination, ni désignation, et la saisie était refusée sur des champs que
+ * l'agent n'a jamais eus à l'écran (« Champ obligatoire : Contact déclarant »).
+ * Le téléphone reste validé s'il est renseigné — on n'accepte pas un faux.
+ */
+export interface OptionsDeclaration { correction?: boolean }
+
+export function normaliserDeclaration(
+  d: Partial<Declaration> | null | undefined,
+  type?: string,
+  opts?: OptionsDeclaration,
+): Declaration {
   const src = d ?? {};
   if (src.descriptionMarchandise && String(src.descriptionMarchandise).length > 600)
     throw new Error('Description trop longue (max 600 caractères).');
@@ -126,21 +144,27 @@ export function normaliserDeclaration(d: Partial<Declaration> | null | undefined
     descriptionMarchandise: maj(src.descriptionMarchandise, 600),
     dateDeclaration: dDecl ? dDecl.toISOString().slice(0, 10) : '',
   };
+  // Identité de la déclaration : exigée dans TOUS les cas, création comme
+  // correction — sans elle la ligne ne désigne plus rien.
   const requis: Array<[keyof Declaration, string]> = [
     ['declarant', 'Déclarant'],
-    ['contactDeclarant', 'Contact déclarant'],
-    ['destinationMarchandise', 'Destination marchandise'],
     ['bureauDeclaration', 'Bureau de déclaration'],
     ['typeDeclaration', 'Type de déclaration'],
     ['numeroDeclaration', 'N° de déclaration'],
     ['anneeDeclaration', 'Année de déclaration'],
   ];
-  // v3.6 — VÉHICULE : description non requise (portée par les effets divers).
-  if (type !== OPERATIONS.VEHICULE) requis.push(['descriptionMarchandise', 'Description marchandise']);
+  if (!opts?.correction) {
+    requis.push(['contactDeclarant', 'Contact déclarant']);
+    requis.push(['destinationMarchandise', 'Destination marchandise']);
+    // v3.6 — VÉHICULE : description non requise (portée par les effets divers).
+    if (type !== OPERATIONS.VEHICULE) requis.push(['descriptionMarchandise', 'Description marchandise']);
+  }
   for (const [k, label] of requis) {
     if (!out[k]) throw new Error('Champ de déclaration obligatoire : ' + label + '.');
   }
-  if (contact.replace(/\D/g, '').length < 6)
+  // Téléphone : toujours vérifié DÈS QU'IL EST RENSEIGNÉ (en correction, le
+  // laisser vide est permis ; le remplir n'importe comment, non).
+  if ((contact || !opts?.correction) && contact.replace(/\D/g, '').length < 6)
     throw new Error('Contact déclarant : numéro de téléphone invalide (au moins 6 chiffres).');
   return out;
 }
