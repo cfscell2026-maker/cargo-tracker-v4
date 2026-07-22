@@ -32,6 +32,7 @@ export const PERMISSIONS: Record<string, Role[]> = {
   'cargo.editconteneur': [ROLES.CFS, ROLES.ADMIN], // v4 : correction / retrait d'un conteneur mal saisi (phase CFS ; ADMIN partout)
   'cargo.editdecl': [ROLES.CFS, ROLES.ADMIN], // v4 : correction des infos de déclaration d'un camion enregistré
   'cargo.lotcamions': [ROLES.CFS, ROLES.ADMIN], // v4 : saisie en lot de plusieurs camions sur une même déclaration
+  'cargo.fincharge': [ROLES.CFS, ROLES.ADMIN], // v4.1 : seul le CFS clôt son chargement
   'cargo.sceller': [ROLES.CFS, ROLES.ADMIN],
   'cargo.visite': [ROLES.CFS, ROLES.ADMIN],
   'cargo.mixte': [ROLES.CFS, ROLES.ADMIN],

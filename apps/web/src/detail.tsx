@@ -324,8 +324,40 @@ function PanneauCFS({ c, dets, action, prefillDecl }: { c: O; dets: ReturnType<t
 
       {/* v4 — un camion d'effets divers (0 conteneur) se finalise aussi (scellés camion). */}
       {!estEnl && c['statut'] === STATUTS.CHARGEMENT && <FinaliserDepotage id={id} action={action} />}
+      {estEnl && c['statut'] === STATUTS.CHARGEMENT && <FinirEnlevement c={c} action={action} />}
     </div>
   );
+}
+
+/**
+ * v4.1 — Fin de chargement d'un ENLÈVEMENT (décision utilisateur 2026-07-22).
+ * Tant que le CFS n'a pas appuyé ici, l'étape « CFS — chargement » reste au gris
+ * et AUCUNE cellule en aval ne peut travailler : c'est ce que l'agent doit
+ * comprendre au premier coup d'œil, d'où le récapitulatif de ce qui est chargé.
+ */
+function FinirEnlevement({ c, action }: { c: O; action: ActionFn }) {
+  const id = c['id'] as string;
+  const conts = parseConteneursDetails(c['conteneursDetails']).conteneurs;
+  const sansPlomb = conts.filter((ct) => !ct.plomb).length;
+  const sansDecl = !String(c['numeroDeclaration'] ?? '').trim();
+  const bloque = !conts.length || !!sansPlomb || sansDecl;
+  return <div style={{ borderTop: '1px solid var(--line)', marginTop: 14, paddingTop: 12 }}>
+    <div className="section-title">Fin de chargement</div>
+    <p className="help" style={{ marginTop: 0 }}>
+      Ce camion est <b>« En cours de chargement »</b> : l'étape CFS reste ouverte et
+      ni le chef brigade, ni le T1, ni la Balise, ni le bon de sortie ne peuvent le
+      traiter. Ajoutez tous les conteneurs, <b>puis</b> terminez ici.
+    </p>
+    <div className="help">Chargé pour l'instant : <b>{conts.length}</b> conteneur(s){conts.length ? ` — ${conts.map((ct) => ct.num).join(' · ')}` : ''}.</div>
+    {!conts.length && <div className="err-msg">Aucun conteneur : ajoutez-en au moins un.</div>}
+    {!!sansPlomb && <div className="err-msg">{sansPlomb} conteneur(s) sans scellé — corrigez-les d'abord.</div>}
+    {sansDecl && <div className="err-msg">Déclaration non renseignée.</div>}
+    <div style={{ marginTop: 12 }}>
+      <button disabled={bloque} onClick={() => action(() => call('cargo.fincharge', { id }), 'Chargement terminé — étape CFS validée.')}>
+        Terminer le chargement → « Créée »
+      </button>
+    </div>
+  </div>;
 }
 
 /**
@@ -546,7 +578,8 @@ function PanneauEtatCFS({ c, action }: { c: O; action: ActionFn }) {
   const id = c['id'] as string;
   const [etat, setEtat] = useState((c['etatSortie'] as string) || '');
   return <div className="card"><h2>État du camion à la sortie de la zone CFS</h2>
-    <p className="help" style={{ marginTop: 0 }}>Sans rapport avec l'ajout de conteneurs ci-dessus. Renseigne l'état du camion quand il quitte la zone.</p>
+    <p className="help" style={{ marginTop: 0 }}>Traçabilité du parking : dans quel état le camion quitte la zone CFS.
+      ⚠ À ne pas confondre avec la <b>fin de chargement</b> ci-dessus, qui, elle, clôt l'étape CFS et ouvre les cellules en aval.</p>
     <div className="row">
       <select value={etat} onChange={(e) => setEtat(e.target.value)} style={{ maxWidth: 240 }}>
         <option value="">— Choisir —</option>{ETATS_SORTIE.map((s) => <option key={s}>{s}</option>)}

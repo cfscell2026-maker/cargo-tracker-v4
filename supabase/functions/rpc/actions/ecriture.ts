@@ -173,7 +173,13 @@ export async function cfs(ctx: Ctx, p: Record<string, unknown>) {
     patch['saute_t1'] = sauts.sauteT1;
     patch['saute_balise'] = sauts.sauteBalise;
   }
-  const resultStatut = estEnl ? STATUTS.CREEE : STATUTS.CHARGEMENT;
+  // v4.1 — AJOUTER UN CONTENEUR NE TERMINE JAMAIS LE CHARGEMENT (décision
+  // utilisateur 2026-07-22). L'enlèvement passait à « Créée » dès le 1er
+  // conteneur : l'étape CFS virait au vert et les cellules en aval s'ouvraient
+  // alors que le camion pouvait encore charger. Le camion reste « En cours de
+  // chargement » jusqu'à ce que le CFS déclare explicitement la fin
+  // (`cargo.fincharge` en enlèvement, `cargo.declaration` en dépotage).
+  const resultStatut = STATUTS.CHARGEMENT;
   patch['statut'] = resultStatut;
 
   await patchCargo(ctx, cargo, patch);
@@ -219,6 +225,57 @@ export async function declaration(ctx: Ctx, p: Record<string, unknown>) {
   await patchCargo(ctx, cargo, patch);
   await ctx.log('CFS — finalisation dépotage' + (horsGab ? ' (HORS GABARIT)' : ''), id, '');
   return { id, statut: STATUTS.CREEE, horsGabarit: horsGab };
+}
+
+/* ----------------------------- fincharge ------------------------------- */
+
+/**
+ * v4.1 — FIN DE CHARGEMENT EXPLICITE (décision utilisateur 2026-07-22 :
+ * « si la personne ne met pas fin de chargement, l'étape CFS ne passe pas au
+ * vert et on ne peut pas avancer »).
+ *
+ * C'est le pendant, pour l'ENLÈVEMENT, de `cargo.declaration` qui clôt déjà le
+ * DÉPOTAGE (hauteur + colis + scellés camion). Tant qu'elle n'est pas appelée,
+ * le camion reste « En cours de chargement » : `etapesEnAttente` renvoie
+ * ['CFS'], donc la validation du chef, le T1, la Balise, le bon de sortie et la
+ * sortie PP sont tous refusés — le camion n'apparaît pas non plus sur le bon de
+ * chargement par déclaration, qui ne retient que les camions « Créée ».
+ *
+ * Le dépotage garde SA porte (les scellés camion y sont la preuve matérielle de
+ * la fin de chargement) : deux portes vers le même état avec des exigences
+ * différentes ouvriraient un contournement.
+ */
+export async function finChargement(ctx: Ctx, p: Record<string, unknown>) {
+  const id = String(p['id'] ?? '').trim();
+  const cargo = await getCargo(ctx, id);
+  const c = cargo.o;
+  const estAdmin = ctx.session.role === ROLES.ADMIN;
+
+  if (c['typeOperation'] === OPERATIONS.DEPOTAGE)
+    throw new Error('Dépotage : terminez par la finalisation (hauteur, colis et scellés camion).');
+  if (c['statut'] === STATUTS.CREEE) throw new Error('Le chargement de ce camion est déjà terminé.');
+  if (!estAdmin && [STATUTS.CAMION, STATUTS.CHARGEMENT].indexOf(c['statut'] as never) === -1)
+    throw new Error('Fin de chargement impossible : la cargaison a déjà avancé (statut « ' + c['statut'] + ' »).');
+
+  // Un camion sans rien dessus n'a rien à clôturer : le laisser passer ferait
+  // entrer une coquille vide dans le circuit des cellules en aval.
+  const conts = parseConteneursDetails(c['conteneursDetails']).conteneurs;
+  if (!conts.length && !String(c['descriptionMarchandise'] ?? '').trim())
+    throw new Error('Rien à clôturer : ajoutez au moins un conteneur (ou la désignation des effets divers).');
+  // Sans déclaration, les cellules en aval n'auraient rien à traiter.
+  if (!String(c['numeroDeclaration'] ?? '').trim())
+    throw new Error('Renseignez la déclaration avant de terminer le chargement.');
+  // Le scellé porte la responsabilité du chargement en enlèvement.
+  const sansPlomb = conts.filter((ct) => !normaliserConteneur(ct as never).plomb).length;
+  if (sansPlomb) throw new Error('Enlèvement : ' + sansPlomb + ' conteneur(s) sans scellé. Corrigez-les avant de terminer.');
+
+  await patchCargo(ctx, cargo, {
+    statut: STATUTS.CREEE,
+    agent_cfs: c['agentCfs'] || ctx.session.nomComplet,
+    agent_cfs_id: c['agentCfsId'] || ctx.session.userId,
+  });
+  await ctx.log('CFS — fin de chargement', id, conts.length + ' conteneur(s)');
+  return { id, statut: STATUTS.CREEE, conteneurs: conts.length };
 }
 
 /* ------------------------------- sceller ------------------------------- */
@@ -603,9 +660,10 @@ export async function edittype(ctx: Ctx, p: Record<string, unknown>) {
     if (migr.length) scellesCamion = migr;
     conts.forEach((ct) => { ct.plomb = ''; });
   }
-  // Statut cohérent : vide → « Camion créé » ; sinon enlèvement → « Créée »,
-  // dépotage → « En cours de chargement » (finalisation scellés/hauteur à refaire).
-  const statut = !conts.length ? STATUTS.CAMION : estEnl ? STATUTS.CREEE : STATUTS.CHARGEMENT;
+  // Statut cohérent : vide → « Camion créé » ; sinon « En cours de chargement »,
+  // car changer de type invalide la clôture précédente — la fin de chargement
+  // est à redéclarer (scellés/hauteur en dépotage, cargo.fincharge en enlèvement).
+  const statut = !conts.length ? STATUTS.CAMION : STATUTS.CHARGEMENT;
   await patchCargo(ctx, cargo, {
     type_operation: nouveau, routage_entree: nouveau,
     twins: estEnl && conts.length >= 2,
@@ -792,6 +850,10 @@ export async function lotcamions(ctx: Ctx, p: Record<string, unknown>) {
         await cfs(ctx, charge);
         premier = false;
       }
+      // La saisie en lot décrit le camion COMPLET en une fois : l'envoyer vaut
+      // déclaration de fin de chargement. (Le dépotage garde sa finalisation —
+      // scellés camion et hauteur ne sont pas saisis dans ce formulaire.)
+      if (routage === OPERATIONS.ENLEVEMENT) await finChargement(ctx, { id });
       crees.push({ id, numeroCamion, conteneurs: conteneurs.length });
     } catch (e) {
       erreurs.push({ numeroCamion, id, message: (e as Error).message });

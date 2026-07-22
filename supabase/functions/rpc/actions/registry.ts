@@ -30,6 +30,7 @@ export const ACTIONS: Record<string, H> = {
   'cargo.createcamion': d(ecr.createcamion),
   'cargo.cfs': d(ecr.cfs),
   'cargo.declaration': d(ecr.declaration),
+  'cargo.fincharge': d(ecr.finChargement), // v4.1 : fin de chargement explicite (enlèvement)
   'cargo.sceller': d(ecr.sceller),
   'cargo.visite': d(ecr.visite),
   'cargo.valider': d(ecr.valider),

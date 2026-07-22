@@ -41,14 +41,16 @@ test('cycle de vie complet — ENLÈVEMENT (2 conteneurs 20\', binôme)', async 
   const id = cree.id;
   assert.equal(statutDe(db, id), STATUTS.CAMION);
 
-  // 2) CFS associe le 1er conteneur + déclaration complète → « Créée ».
+  // 2) CFS associe le 1er conteneur + déclaration complète. Le camion RESTE
+  //    « En cours de chargement » : ajouter un conteneur ne termine pas le
+  //    chargement, c'est le CFS qui le déclare (v4.1).
   const decl = {
     declarant: 'STE X', contactDeclarant: '90123456', destinationMarchandise: 'LOME',
     bureauDeclaration: 'TG120', typeDeclaration: 'T', numeroDeclaration: '777', anneeDeclaration: '2026',
     dateDeclaration: '2026-06-24', descriptionMarchandise: 'RIZ', nombreConteneurs: 2,
   };
   await ecr.cfs(cfs, { id, conteneur: { num: 'MSKU1234567', taille: "20'", type: 'DRY', plomb: 'SEAL1' }, declaration: decl });
-  assert.equal(statutDe(db, id), STATUTS.CREEE);
+  assert.equal(statutDe(db, id), STATUTS.CHARGEMENT);
   // Stock du 1er conteneur marqué « Dépoté ».
   assert.equal(db.store['stock'].find((s) => s['numero_tc'] === 'MSKU1234567')?.['statut'], 'Dépoté');
   // Déclaration créée avec apurement 1/2.
@@ -56,6 +58,7 @@ test('cycle de vie complet — ENLÈVEMENT (2 conteneurs 20\', binôme)', async 
 
   // 2b) Binôme : 2e conteneur 20'.
   await ecr.cfs(cfs, { id, conteneur: { num: 'TCLU7654321', taille: "20'", type: 'DRY', plomb: 'SEAL2' } });
+  await ecr.finChargement(cfs, { id: id }); // fin de chargement explicite (v4.1)
   const apres2 = versCamel(db.store['cargaisons'][0]!);
   assert.equal(apres2['nbConteneurs'], 2);
   assert.equal(apres2['twins'], true);
@@ -102,6 +105,7 @@ test('déclaration type C balisée : saute le T1, garde la Balise', async () => 
     declaration: { declarant: 'A', contactDeclarant: '901234', destinationMarchandise: 'D', bureauDeclaration: 'TG120', typeDeclaration: 'C', numeroDeclaration: '1', anneeDeclaration: '2026', dateDeclaration: '2026-06-24', descriptionMarchandise: 'X', nombreConteneurs: 1 },
     consoMode: 'balise',
   });
+  await ecr.finChargement(cfs, { id: id }); // fin de chargement explicite (v4.1)
   const c = versCamel(db.store['cargaisons'][0]!);
   assert.equal(c['sauteT1'], true);
   assert.equal(c['sauteBalise'], false);
@@ -120,6 +124,7 @@ test('déclaration type C non balisée : saute le T1 ET la Balise', async () => 
     declaration: { declarant: 'A', contactDeclarant: '901234', destinationMarchandise: 'D', bureauDeclaration: 'TG120', typeDeclaration: 'C', numeroDeclaration: '2', anneeDeclaration: '2026', dateDeclaration: '2026-06-24', descriptionMarchandise: 'X', nombreConteneurs: 1 },
     consoMode: 'sansbalise',
   });
+  await ecr.finChargement(cfs, { id: id }); // fin de chargement explicite (v4.1)
   const c = versCamel(db.store['cargaisons'][0]!);
   assert.equal(c['sauteT1'], true);
   assert.equal(c['sauteBalise'], true);
@@ -289,6 +294,7 @@ test('validation non bloquante : T1 / Balise / sortie possibles sans validation'
     id, conteneur: { num: 'MSKU1234567', taille: "40'", type: 'DRY', plomb: 'S1' },
     declaration: { declarant: 'A', contactDeclarant: '901234', destinationMarchandise: 'D', bureauDeclaration: 'TG120', typeDeclaration: 'T', numeroDeclaration: '60', anneeDeclaration: '2026', descriptionMarchandise: 'X', nombreConteneurs: 1 },
   });
+  await ecr.finChargement(cfs, { id: id }); // fin de chargement explicite (v4.1)
   // AUCUNE validation chef brigade — le process continue quand même.
   await ecr.t1(ctxRole(db, 'T1', 'T1'), { id, bureauDestination: 'TG120', t1Numeros: [{ conteneur: 'MSKU1234567', numero: 'T1' }] });
   await ecr.gps(ctxRole(db, 'BALISE', 'B'), { id, baliseRequise: 'Oui', t1Correct: 'Oui', numeroGPS: 'G' });
@@ -310,7 +316,9 @@ test('correction du type : dépotage → enlèvement (scellés camion → plombs
   await ecr.edittype(cfs, { id, typeOperation: 'Enlèvement' });
   const c = versCamel(db.store['cargaisons'][0]!);
   assert.equal(c['typeOperation'], 'Enlèvement');
-  assert.equal(c['statut'], STATUTS.CREEE);
+  // v4.1 — changer de type rouvre le chargement : la clôture faite sous
+  // l'ancien type ne vaut plus, le CFS doit la redéclarer.
+  assert.equal(c['statut'], STATUTS.CHARGEMENT);
   const pd = c['conteneursDetails'] as { conteneurs: { plomb: string }[]; scellesCamion: string[] };
   assert.deepEqual(pd.scellesCamion, []); // plus de scellés camion
   assert.equal(pd.conteneurs[0]!.plomb, 'S1'); // 1er scellé camion repris comme plomb conteneur
@@ -325,6 +333,7 @@ test('correction du type refusée après validation (hors ADMIN)', async () => {
     id, conteneur: { num: 'MSKU1234567', taille: "40'", type: 'DRY', plomb: 'S1' },
     declaration: { declarant: 'A', contactDeclarant: '901234', destinationMarchandise: 'D', bureauDeclaration: 'TG120', typeDeclaration: 'T', numeroDeclaration: '51', anneeDeclaration: '2026', dateDeclaration: '2026-06-24', descriptionMarchandise: 'X', nombreConteneurs: 1 },
   });
+  await ecr.finChargement(cfs, { id: id }); // fin de chargement explicite (v4.1)
   await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'), { id });
   await assert.rejects(() => ecr.edittype(cfs, { id, typeOperation: 'Dépotage' }), /déjà validée/);
 });
@@ -365,6 +374,7 @@ test('garde-fou : sortie refusée tant que la Balise n\'est pas posée', async (
     id, conteneur: { num: 'MSKU1234567', taille: "40'", type: 'DRY', plomb: 'S1' },
     declaration: { declarant: 'A', contactDeclarant: '901234', destinationMarchandise: 'D', bureauDeclaration: 'TG120', typeDeclaration: 'T', numeroDeclaration: '1', anneeDeclaration: '2026', dateDeclaration: '2026-06-24', descriptionMarchandise: 'X', nombreConteneurs: 1 },
   });
+  await ecr.finChargement(cfs, { id: id }); // fin de chargement explicite (v4.1)
   await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'), { id });
   // Balise pas encore posée → la PP ne peut pas clôturer.
   await assert.rejects(
@@ -455,6 +465,7 @@ test('correction conteneur : le mauvais N° est remplacé et rendu au stock', as
   const cfs = ctxAvec(db);
   const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'FIX001', routage: 'Enlèvement' })) as { id: string };
   await ecr.cfs(cfs, { id, conteneur: { num: 'MSKU1111111', taille: "40'", type: 'DRY', plomb: 'S1' }, declaration: DECL_OK });
+  await ecr.finChargement(cfs, { id: id }); // fin de chargement explicite (v4.1)
   assert.equal(db.store['stock'].find((s) => s['numero_tc'] === 'MSKU1111111')?.['statut'], 'Dépoté');
 
   await ecr.editconteneur(cfs, { id, index: 0, num: 'TCLU2222222', taille: "40'", type: 'DRY', plomb: 'S1' });
@@ -478,6 +489,7 @@ test('correction conteneur : retrait de la ligne → camion revenu à « Camion 
   const cfs = ctxAvec(db);
   const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'FIX002', routage: 'Enlèvement' })) as { id: string };
   await ecr.cfs(cfs, { id, conteneur: { num: 'MSKU1111111', taille: "40'", type: 'DRY', plomb: 'S1' }, declaration: DECL_OK });
+  await ecr.finChargement(cfs, { id: id }); // fin de chargement explicite (v4.1)
 
   await ecr.editconteneur(cfs, { id, index: 0, supprimer: true });
 
@@ -492,6 +504,7 @@ test('correction conteneur refusée après validation (hors ADMIN)', async () =>
   const cfs = ctxAvec(db);
   const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'FIX003', routage: 'Enlèvement' })) as { id: string };
   await ecr.cfs(cfs, { id, conteneur: { num: 'MSKU1111111', taille: "40'", type: 'DRY', plomb: 'S1' }, declaration: DECL_OK });
+  await ecr.finChargement(cfs, { id: id }); // fin de chargement explicite (v4.1)
   await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'), { id });
   await ecr.gps(ctxRole(db, 'BALISE', 'B'), { id, baliseRequise: 'Oui', t1Correct: 'Oui', numeroGPS: 'G' });
 
@@ -508,6 +521,7 @@ test('correction déclaration : camion ET conteneurs réalignés', async () => {
   const cfs = ctxAvec(db);
   const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'FIX004', routage: 'Enlèvement' })) as { id: string };
   await ecr.cfs(cfs, { id, conteneur: { num: 'MSKU1111111', taille: "40'", type: 'DRY', plomb: 'S1' }, declaration: DECL_OK });
+  await ecr.finChargement(cfs, { id: id }); // fin de chargement explicite (v4.1)
 
   await ecr.editdecl(cfs, { id, declaration: { ...DECL_OK, numeroDeclaration: '9999', declarant: 'STE Z' } });
 
@@ -535,11 +549,14 @@ test('validation par déclaration : le chef voit tout puis signe en une fois', a
   // Deux camions sur la déclaration 4242, un troisième sur une AUTRE déclaration.
   const a = (await ecr.createcamion(cfs, { numeroCamion: 'VAL001', routage: 'Enlèvement' })) as { id: string };
   await ecr.cfs(cfs, { id: a.id, conteneur: { num: 'MSKU1111111', taille: "40'", type: 'DRY', plomb: 'S1' }, declaration: DECL_OK });
+  await ecr.finChargement(cfs, { id: a.id }); // fin de chargement explicite (v4.1)
   const b = (await ecr.createcamion(cfs, { numeroCamion: 'VAL002', routage: 'Enlèvement' })) as { id: string };
   await ecr.cfs(cfs, { id: b.id, conteneur: { num: 'TCLU2222222', taille: "20'", type: 'DRY', plomb: 'S2' }, declaration: DECL_OK });
+  await ecr.finChargement(cfs, { id: b.id }); // fin de chargement explicite (v4.1)
   const autre = (await ecr.createcamion(cfs, { numeroCamion: 'VAL003', routage: 'Enlèvement' })) as { id: string };
   await ecr.cfs(cfs, { id: autre.id, conteneur: { num: 'GLDU3333333', taille: "20'", type: 'DRY', plomb: 'S3' },
     declaration: { ...DECL_OK, numeroDeclaration: '5555' } });
+  await ecr.finChargement(cfs, { id: autre.id }); // fin de chargement explicite (v4.1)
 
   // Sans numéro : la FILE des déclarations en attente, la plus ancienne en tête.
   const file = (await rap.validationParDeclaration(chef, {})) as { declarations: Record<string, unknown>[]; total: number };
@@ -600,6 +617,7 @@ test('validation en lot : une cargaison en erreur n\'annule pas les autres', asy
 
   const ok = (await ecr.createcamion(cfs, { numeroCamion: 'VAL010', routage: 'Enlèvement' })) as { id: string };
   await ecr.cfs(cfs, { id: ok.id, conteneur: { num: 'MSKU1111111', taille: "40'", type: 'DRY', plomb: 'S1' }, declaration: DECL_OK });
+  await ecr.finChargement(cfs, { id: ok.id }); // fin de chargement explicite (v4.1)
   // Camion encore EN CHARGEMENT : le CFS n'a pas fini, il ne peut pas être validé.
   const pasPret = (await ecr.createcamion(cfs, { numeroCamion: 'VAL011', routage: 'Enlèvement' })) as { id: string };
 
@@ -636,6 +654,7 @@ async function camionBalise(db: FakeDB, plaque = 'COR001') {
   const cfs = ctxAvec(db);
   const { id } = (await ecr.createcamion(cfs, { numeroCamion: plaque, routage: 'Enlèvement' })) as { id: string };
   await ecr.cfs(cfs, { id, conteneur: { num: 'MSKU1111111', taille: "40'", type: 'DRY', plomb: 'S1' }, declaration: DECL_OK });
+  await ecr.finChargement(cfs, { id: id }); // fin de chargement explicite (v4.1)
   await ecr.gps(ctxRole(db, 'BALISE', 'Agent Balise'), { id, baliseRequise: 'Oui', t1Correct: 'Oui', numeroGPS: 'GPS-AAA' });
   return id;
 }
@@ -692,4 +711,69 @@ test('plaque : Balise et PP corrigent le N° de camion en aval', async () => {
   // La correction suit le camion sur ses conteneurs, pas seulement sur la fiche.
   const ct = db.store['conteneurs'].find((x) => x['cargaison_id'] === id);
   if (ct) assert.equal(ct['numero_camion'], 'BONNE3');
+});
+
+/* ------- v4.1 : la fin de chargement commande tout ce qui suit ---------- */
+
+/** Enlèvement chargé mais NON clôturé (statut « En cours de chargement »). */
+async function enlevementNonClos(db: FakeDB, plaque = 'FIN001') {
+  db.store['stock'].push({ numero_tc: 'MSKU1111111', taille: "40'", statut: 'En stock' });
+  const cfs = ctxAvec(db);
+  const { id } = (await ecr.createcamion(cfs, { numeroCamion: plaque, routage: 'Enlèvement' })) as { id: string };
+  await ecr.cfs(cfs, { id, conteneur: { num: 'MSKU1111111', taille: "40'", type: 'DRY', plomb: 'S1' }, declaration: DECL_OK });
+  return id;
+}
+
+test('sans fin de chargement, le camion reste au CFS et rien ne peut avancer', async () => {
+  const db = new FakeDB();
+  const id = await enlevementNonClos(db);
+  // L'étape CFS n'est pas franchie : c'est la SEULE en attente (« pas au vert »).
+  assert.equal(statutDe(db, id), STATUTS.CHARGEMENT);
+  assert.deepEqual(etapesEnAttente(versCamel(db.store['cargaisons'][0]!) as never), ['CFS']);
+
+  // Toutes les cellules en aval refusent, chacune pour son propre motif.
+  await assert.rejects(() => ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'), { id }), /CFS doit d'abord terminer/);
+  await assert.rejects(() => ecr.t1(ctxRole(db, 'T1', 'Agent T1'), { id, bureauDestination: 'TG120', t1Numeros: ['T1-X'] }), /étape non attendue/);
+  await assert.rejects(() => ecr.gps(ctxRole(db, 'BALISE', 'Agent Balise'), { id, baliseRequise: 'Oui', t1Correct: 'Oui', numeroGPS: 'G1' }), /chargement non terminé/);
+  await assert.rejects(() => ecr.sortie(ctxRole(db, 'PP', 'Agent PP'), { id, ckCfs: true, ckT1: true, ckBalise: true, ckBs: true }), /./);
+});
+
+test('fin de chargement : le CFS passe au vert et le camion repart', async () => {
+  const db = new FakeDB();
+  const id = await enlevementNonClos(db, 'FIN002');
+  await ecr.finChargement(ctxAvec(db), { id });
+  assert.equal(statutDe(db, id), STATUTS.CREEE);
+  // Étape CFS franchie → les cellules en aval s'ouvrent.
+  assert.deepEqual(etapesEnAttente(versCamel(db.store['cargaisons'][0]!) as never), ['VALIDATION', 'T1', 'BALISE', 'BS']);
+  await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'), { id });
+  assert.ok(db.store['cargaisons'][0]!['date_validation']);
+  // Deux fois = non : la clôture n'est pas rejouable.
+  await assert.rejects(() => ecr.finChargement(ctxAvec(db), { id }), /déjà terminé/);
+});
+
+test('fin de chargement refusée sur un camion vide ou sans scellé', async () => {
+  const db = new FakeDB();
+  const cfs = ctxAvec(db);
+  // Camion vide : rien à clôturer.
+  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'FIN003', routage: 'Enlèvement' })) as { id: string };
+  await assert.rejects(() => ecr.finChargement(cfs, { id }), /Rien à clôturer/);
+
+  // Conteneur sans scellé (saisie corrigée après coup) : refus explicite.
+  const id2 = await enlevementNonClos(db, 'FIN004');
+  const ligne = db.store['cargaisons'].find((c) => c['id'] === id2)!;
+  const det = ligne['conteneurs_details'] as { conteneurs: Record<string, unknown>[] };
+  det.conteneurs[0]!['plomb'] = '';
+  await assert.rejects(() => ecr.finChargement(cfs, { id: id2 }), /sans scellé/);
+});
+
+test('le dépotage garde sa propre clôture (scellés camion), pas fincharge', async () => {
+  const db = new FakeDB();
+  db.store['stock'].push({ numero_tc: 'TCLU7654321', taille: "40'", statut: 'Positionné' });
+  const cfs = ctxAvec(db);
+  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'FIN005', routage: 'Dépotage' })) as { id: string };
+  await ecr.cfs(cfs, { id, conteneur: { num: 'TCLU7654321', taille: "40'", type: 'DRY' }, declaration: DECL_OK });
+  // Deux portes vers le même état ouvriraient un contournement des scellés.
+  await assert.rejects(() => ecr.finChargement(cfs, { id }), /finalisation/);
+  await ecr.declaration(cfs, { id, hauteurChargement: '3', nbColis: '10', scellesCamion: ['S1', 'S2'] });
+  assert.equal(statutDe(db, id), STATUTS.CREEE);
 });
