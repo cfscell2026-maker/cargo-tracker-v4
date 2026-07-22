@@ -12,3 +12,10 @@ coverage/
 *.xlsx
 *.xls
 comptes-provisoires.csv
+
+# Sorties de la migration : dump complet de la base de production et listes de
+# conteneurs/camions réels. Même raison que ci-dessus — ces fichiers ne quittent
+# pas la machine de l'exploitant.
+scripts/migration/backup_data.sql
+scripts/migration/conteneurs-rejetes.csv
+scripts/migration/supabase/.temp/

@@ -46,26 +46,27 @@ async function main() {
   const lignes = XLSX.utils.sheet_to_json<Record<string, unknown>>(sh, { defval: '', raw: true });
   console.log(`   ${lignes.length} lignes à importer.`);
 
-  // Garde-fou anti-doublon : si des entrées ANTÉRIEURES au 2026-07-10 existent
-  // déjà, l'historique a déjà été importé (l'usage courant date du déploiement).
-  const { count: dejaVieux } = await db
+  // Import INCRÉMENTAL (ré-exécutable) : les lignes importées ont user_id NULL
+  // (l'appli, elle, renseigne toujours l'UUID). On repère la dernière déjà
+  // importée et on n'ajoute QUE les entrées postérieures → aucun doublon, même
+  // si l'ancien système continue de tourner et qu'on réimporte un export plus récent.
+  const { data: borne } = await db
     .from('audit_log')
-    .select('*', { count: 'exact', head: true })
-    .lt('ts', '2026-07-10T00:00:00Z');
-  if ((dejaVieux ?? 0) > 0) {
-    console.error(
-      `⛔  ABANDON : ${dejaVieux} entrée(s) historique(s) déjà présentes dans audit_log.` +
-        `\n   L'import a déjà été fait. audit_log est append-only : on ne réimporte pas (doublons impossibles à supprimer).`,
-    );
-    process.exit(1);
-  }
+    .select('ts')
+    .is('user_id', null)
+    .order('ts', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const dernier = borne?.ts ? new Date(borne.ts).toISOString() : null;
+  if (dernier) console.log(`   Historique déjà présent jusqu'à ${dernier} → ajout des entrées postérieures uniquement.`);
 
   // Connexions / déconnexions = bruit : jamais importées (elles resteraient
   // définitivement dans la table append-only et polluent le journal métier).
   const utiles = lignes.filter((l) => !/connexion/i.test(String(l['action'] ?? '')));
   console.log(`   ${lignes.length - utiles.length} connexion(s)/déconnexion(s) ignorée(s) → ${utiles.length} à importer.`);
 
-  // Ordre chronologique (la feuille l'est déjà, on s'en assure).
+  // Ordre chronologique (la feuille l'est déjà, on s'en assure), puis on ne
+  // garde que les entrées postérieures à la dernière déjà importée.
   const rows = utiles
     .map((l) => ({
       ts: toISO(l['timestamp']),
@@ -76,7 +77,14 @@ async function main() {
       cargaison_id: String(l['cargaisonId'] ?? ''),
       details: String(l['details'] ?? ''),
     }))
+    .filter((r) => !dernier || r.ts > dernier)
     .sort((a, b) => a.ts.localeCompare(b.ts));
+
+  if (!rows.length) {
+    console.log('✅  Rien de nouveau à importer — l\'historique est déjà à jour.');
+    return;
+  }
+  console.log(`   ${rows.length} nouvelle(s) entrée(s) à ajouter.`);
 
   // Envoi par paquets à la fonction SQL (boucle serveur = chaîne de hachage OK).
   const paquet = 1000;

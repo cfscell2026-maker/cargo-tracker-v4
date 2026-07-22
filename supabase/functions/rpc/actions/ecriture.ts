@@ -165,9 +165,9 @@ export async function cfs(ctx: Ctx, p: Record<string, unknown>) {
   patch['conteneurs_details'] = { conteneurs: conts, scellesCamion };
   patch['twins'] = b(estEnl && conts.length >= 2);
   if (mixte) patch['chargement_mixte'] = true;
-  // v4 — déclaration de type C = mise à la consommation : saute le T1 (et la
-  // Balise si « non balisée », consoMode='sansbalise'). Dès qu'une déclaration
-  // est saisie, on (re)positionne les sauts selon son type.
+  // v4 — déclaration hors transit (type C = conso, type A = admission) : saute
+  // le T1 (et la Balise si « non balisée », consoMode='sansbalise'). Dès qu'une
+  // déclaration est saisie, on (re)positionne les sauts selon son type.
   if (declRef) {
     const sauts = sautsTypeC(declRef.typeDeclaration, p['consoMode']);
     patch['saute_t1'] = sauts.sauteT1;

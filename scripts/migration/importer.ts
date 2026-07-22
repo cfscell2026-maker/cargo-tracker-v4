@@ -195,6 +195,11 @@ async function main() {
   const rejets: string[] = [];
   // Ordre = respect des clés étrangères (cargaisons avant conteneurs/stock).
   console.log('→ cargaisons   :', await upsert('cargaisons', src.cargaisons, 'id', rejets));
+  // Conteneurs = pas de clé métier stable (table à identité) → pour rester
+  // RÉ-EXÉCUTABLE sans doublon, on VIDE puis on réinsère depuis l'export
+  // (l'export est la source de vérité : refresh complet à chaque migration).
+  const { error: eDel } = await db.from('conteneurs').delete().gt('id', 0);
+  if (eDel) console.warn('⚠  Purge conteneurs avant réinsertion :', eDel.message);
   console.log('→ conteneurs   :', await upsert('conteneurs', src.conteneurs, 'id', rejets).catch(() => 0));
   console.log('→ declarations :', await upsert('declarations', src.declarations, 'cle', rejets));
   console.log('→ stock        :', await upsert('stock', src.stock, 'numero_tc', rejets));

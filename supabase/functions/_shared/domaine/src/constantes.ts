@@ -90,16 +90,39 @@ export const OPERATIONS = {
 export type Operation = (typeof OPERATIONS)[keyof typeof OPERATIONS];
 
 /**
- * v4 — Règle « déclaration de type C = mise à la consommation ».
- * Une déclaration de type C n'est PAS un transit : elle SAUTE toujours le T1.
+ * v4 — Types de déclaration qui NE SONT PAS un transit : ils SAUTENT le T1 et
+ * laissent à l'agent le choix de baliser ou non.
+ *   C = mise à la consommation ;
+ *   A = admission (décision utilisateur 2026-07-22 : « le type A se comporte
+ *       comme la conso — on donne le choix de baliser ou pas »).
+ * Le type T (transit) et les autres restent sur le parcours T1 → Balise.
+ */
+export const TYPES_SANS_T1 = ['C', 'A'] as const;
+export function estTypeSansT1(typeDeclaration: unknown): boolean {
+  const t = String(typeDeclaration ?? '').trim().toUpperCase();
+  return (TYPES_SANS_T1 as readonly string[]).indexOf(t) >= 0;
+}
+
+/**
+ * Règle de parcours d'une déclaration hors transit : elle SAUTE toujours le T1.
  * L'agent choisit ensuite si elle est balisée (`consoMode` par défaut) ou non
  * balisée (`consoMode === 'sansbalise'`, dispense) — dans ce dernier cas elle
  * saute aussi la Balise. Source unique utilisée par le CFS itératif et les
  * flux spéciaux (Conso/Magasin), pour éviter la double maintenance.
+ * NB : le nom `sautsTypeC` est conservé (appelé partout) bien que la règle
+ * couvre désormais C ET A.
  */
 export function sautsTypeC(typeDeclaration: unknown, consoMode?: unknown): { sauteT1: boolean; sauteBalise: boolean } {
-  const estConso = String(typeDeclaration ?? '').trim().toUpperCase() === 'C';
-  return { sauteT1: estConso, sauteBalise: estConso && String(consoMode ?? '') === 'sansbalise' };
+  const sansT1 = estTypeSansT1(typeDeclaration);
+  return { sauteT1: sansT1, sauteBalise: sansT1 && String(consoMode ?? '') === 'sansbalise' };
+}
+
+/** Phrase d'explication du parcours, à l'écran, pour un type hors transit. */
+export function libelleTypeSansT1(typeDeclaration: unknown): string {
+  const t = String(typeDeclaration ?? '').trim().toUpperCase();
+  if (t === 'C') return 'Type C = mise à la consommation';
+  if (t === 'A') return 'Type A = admission (même parcours que la conso)';
+  return 'Type ' + t;
 }
 
 /** Destinations / régimes possibles pour un véhicule dépoté. */

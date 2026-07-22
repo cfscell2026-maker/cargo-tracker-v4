@@ -59,6 +59,7 @@ async function main() {
   const lignes = XLSX.utils.sheet_to_json<Record<string, unknown>>(sh, { defval: '', raw: true });
   const csv: string[] = ['identifiant;nom_complet;role;mot_de_passe_provisoire'];
   let crees = 0;
+  let existants = 0;
   const rejets: string[] = [];
 
   for (const l of lignes) {
@@ -70,6 +71,10 @@ async function main() {
       rejets.push(`${username} : rôle invalide « ${role} »`);
       continue;
     }
+    // Ré-exécutable : un compte déjà présent est laissé INTACT (ni recréé, ni
+    // réinitialisé). Seuls les nouveaux agents de l'export sont créés.
+    const { data: deja } = await db.from('profils').select('username').eq('username', username).maybeSingle();
+    if (deja) { existants++; continue; }
     const actif = l['actif'] === true || String(l['actif']).toUpperCase() === 'TRUE';
     const nom = String(l['nomComplet'] ?? l['nom_complet'] ?? username).trim() || username;
     const email = `${username}@${DOMAINE_TECH}`;
@@ -100,7 +105,7 @@ async function main() {
   }
 
   writeFileSync('comptes-provisoires.csv', csv.join('\n'), 'utf8');
-  console.log(`✅  ${crees} compte(s) créé(s). Mots de passe provisoires → comptes-provisoires.csv`);
+  console.log(`✅  ${crees} compte(s) créé(s)${existants ? `, ${existants} déjà existant(s) laissé(s) intact(s)` : ''}. Mots de passe provisoires (nouveaux) → comptes-provisoires.csv`);
   console.log('   ⚠  À remettre en main propre à chaque agent, puis DÉTRUIRE ce fichier.');
   console.log('   Chaque agent devra changer son mot de passe et enrôler son 2FA à la 1ʳᵉ connexion.');
   if (rejets.length) {

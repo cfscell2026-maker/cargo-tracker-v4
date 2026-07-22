@@ -23,6 +23,7 @@ export const ACTIONS: Record<string, H> = {
   'cargo.list': d(lecture.cargoList),
   'cargo.checkdup': d(lecture.cargoCheckdup),
   'dashboard.stats': d(lecture.dashboardStats),
+  'dashboard.fiche': d(rap.ficheBord), // v4.1 : fiche papier du chef, repliée sous le tableau de bord
   'etatcfs.list': d((ctx) => lecture.etatCfsList(ctx)),
 
   /* ----- Écriture par étape (flux principal) ----- */

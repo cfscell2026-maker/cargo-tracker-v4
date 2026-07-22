@@ -11,6 +11,7 @@ import {
   parseConteneursDetails, parseDateImport, tailleBucket, evpDeTaille, trancheAge,
   verifierPermission, PERMISSIONS, TYPES_DECLARATION,
   groupesDeclaration, estChargementMixte, libelleDeclaration,
+  sautsTypeC, estTypeSansT1,
 } from './index.ts';
 
 /* ------------------------------ Moteur workflow ------------------------ */
@@ -234,4 +235,19 @@ test('correction de balise : cellule Balise + ADMIN, personne d\'autre', () => {
 
 test('TYPES_DECLARATION = T,C,S,A,E', () => {
   assert.deepEqual([...TYPES_DECLARATION], ['T', 'C', 'S', 'A', 'E']);
+});
+
+test('types hors transit (C conso, A admission) : sautent le T1, balise au choix', () => {
+  // Décision utilisateur 2026-07-22 : « le type A se comporte comme la conso —
+  // on donne le choix de baliser ou pas ».
+  for (const t of ['C', 'A', 'a']) {
+    assert.deepEqual(sautsTypeC(t, 'balise'), { sauteT1: true, sauteBalise: false });
+    assert.deepEqual(sautsTypeC(t, 'sansbalise'), { sauteT1: true, sauteBalise: true });
+    assert.equal(estTypeSansT1(t), true);
+  }
+  // Le transit et les autres types gardent le parcours T1 → Balise.
+  for (const t of ['T', 'S', 'E', '']) {
+    assert.deepEqual(sautsTypeC(t, 'sansbalise'), { sauteT1: false, sauteBalise: false });
+    assert.equal(estTypeSansT1(t), false);
+  }
 });

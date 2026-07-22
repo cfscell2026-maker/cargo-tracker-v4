@@ -98,7 +98,21 @@ tr.clk{cursor:pointer} tr.clk:hover{background:var(--accent-soft)}
 .bandeau .t{font-weight:700;font-size:13.5px;color:var(--warn);margin-bottom:5px}
 .bandeau .l{font-size:13px;margin:3px 0}
 
+/* Fiche de synthèse repliable — reprise de la MISE EN PAGE de la fiche papier
+   du chef : bandeau noir par bloc, puis des cases « étiquette sombre / grand
+   nombre ». La grille est fixée à 4 colonnes pour qu'une ligne de 3 cases laisse
+   le même vide que sur le papier. */
+.fiche-bord{display:flex;flex-direction:column;gap:14px;margin-top:12px}
+.fbloc{display:flex;flex-direction:column;gap:6px}
+.fbloc-t{background:#12222f;color:#fff;font-weight:700;font-size:12.5px;letter-spacing:.06em;text-transform:uppercase;padding:6px 12px;border-radius:3px}
+.fligne{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.fcase{border:1px solid var(--line);border-radius:3px;overflow:hidden;background:var(--panel)}
+.flab{background:#12222f;color:#fff;font-size:11px;line-height:1.25;padding:5px 8px;text-align:center;min-height:34px;display:flex;align-items:center;justify-content:center}
+.fval{font-size:22px;font-weight:700;text-align:center;padding:10px 6px;font-variant-numeric:tabular-nums}
+
 @media(max-width:820px){
+  .fligne{grid-template-columns:repeat(2,1fr)}
+  .fval{font-size:19px}
   .shell{grid-template-columns:1fr}
   .side{position:fixed;left:-240px;width:230px;transition:left .2s;z-index:30}
   .side.open{left:0}

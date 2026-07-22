@@ -9,7 +9,7 @@ import { Spinner, StatCard, Tag, Modal, masks, toast, fmtDate, fmtJour } from '.
 import { bornesDe, isoDate, normaliserPlage, type ModePeriode } from './lib/periode.ts';
 import { Detail } from './detail.tsx';
 import type { Nav } from './App.tsx';
-import { OPERATIONS, VEHICULE_DESTINATIONS, TYPES_DECLARATION, STATUTS, tcValide, etapesEnAttente } from '../../../supabase/functions/_shared/domaine/src/index.ts';
+import { OPERATIONS, VEHICULE_DESTINATIONS, TYPES_DECLARATION, STATUTS, tcValide, etapesEnAttente, estTypeSansT1, libelleTypeSansT1 } from '../../../supabase/functions/_shared/domaine/src/index.ts';
 
 const STATUT_OPTIONS = Object.values(STATUTS);
 
@@ -105,8 +105,110 @@ SCREENS.dash = (nav) => {
       <StatCard n={Number(s['sortie'] ?? 0)} l="Sortis" tone="ok" onClick={() => go('Sortie Enregistrée')} />
       <StatCard n={Number(s['vehiculesAttente'] ?? 0)} l="Véhicules en attente" onClick={() => nav.go('vehicules')} />
     </div>}
+    <FicheBord p={p} />
   </>;
 };
+
+/* ------------- Fiche de synthèse repliable (fiche papier) -------------- */
+/**
+ * v4.1 — La fiche papier du chef (« TABLEAU DE BORD — SEMAINE EN COURS »)
+ * reproduite à l'identique, bloc par bloc, SOUS le tableau de bord et REPLIÉE
+ * par défaut (décision utilisateur 2026-07-22) : les tuiles du haut répondent à
+ * « qu'est-ce qui bloque maintenant ? », la fiche répond à « qu'a produit la
+ * période ? ». Repliée, elle n'encombre pas l'écran ; on appuie pour la voir.
+ *
+ * Elle n'est CHARGÉE qu'à l'ouverture : tant que personne ne la déplie, elle ne
+ * coûte pas une requête à chaque affichage du tableau de bord.
+ */
+const fnum = (v: unknown) => (v === null || v === undefined ? '—' : Number(v).toLocaleString('fr-FR'));
+const fpct = (v: unknown) => `${Number(v ?? 0).toLocaleString('fr-FR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} %`;
+
+type FCase = [string, string];
+function FicheBloc({ titre, lignes }: { titre: string; lignes: FCase[][] }) {
+  return <div className="fbloc">
+    <div className="fbloc-t">{titre}</div>
+    {lignes.map((l, i) => <div className="fligne" key={i}>
+      {l.map(([lab, val], j) => <div className="fcase" key={j}>
+        <div className="flab">{lab}</div><div className="fval">{val}</div>
+      </div>)}
+    </div>)}
+  </div>;
+}
+
+/** Détail 20' / 40' / 45' demandé en marge de la fiche papier. */
+function FicheTailles({ lignes }: { lignes: [string, O][] }) {
+  return <div className="tbl" style={{ marginTop: 4 }}><table>
+    <thead><tr><th>Détail par taille</th><th>20'</th><th>40'</th><th>45'</th><th>Autres</th><th>Conteneurs</th><th>EVP</th></tr></thead>
+    <tbody>{lignes.map(([nom, t]) => <tr key={nom}>
+      <td><b>{nom}</b></td><td>{fnum(t['t20'])}</td><td>{fnum(t['t40'])}</td><td>{fnum(t['t45'])}</td>
+      <td>{fnum(t['autres'])}</td><td>{fnum(t['conteneurs'])}</td><td>{fnum(t['evp'])}</td>
+    </tr>)}</tbody>
+  </table></div>;
+}
+
+function FicheBord({ p }: { p: Periode }) {
+  const [ouvert, setOuvert] = useState(false);
+  const { du, au } = p;
+  const { data, loading, error } = useAsync<O | null>(
+    () => (ouvert ? call<O>('dashboard.fiche', { du, au }) : Promise.resolve(null)), [ouvert, du, au]);
+
+  const cfs = (data?.['cfs'] ?? {}) as O;
+  const t1 = (data?.['t1'] ?? {}) as O;
+  const bal = (data?.['balise'] ?? {}) as O;
+  const bs = (data?.['bs'] ?? {}) as O;
+  const pp = (data?.['pp'] ?? {}) as O;
+
+  return <div className="card" style={{ marginTop: 12 }}>
+    <button className="ghost" onClick={() => setOuvert((v) => !v)} style={{ width: '100%', textAlign: 'left', fontWeight: 700 }}>
+      {ouvert ? '▾' : '▸'} Fiche de synthèse — CFS · T1 · Balise · Bon de sortie · PP
+    </button>
+    {!ouvert && <div className="help" style={{ marginTop: 6 }}>Appuyez pour déplier la fiche détaillée de la période.</div>}
+    {ouvert && (loading ? <Spinner /> : error ? <div className="err-msg">{error}</div> : <div className="fiche-bord">
+      <div className="help">Période lue : du {fmtJour(du)} au {fmtJour(au)}. Chaque bloc est compté à la date de SA cellule (CFS = entrée du camion, T1 = saisie, Balise = pose, Bon de sortie = émission, PP = sortie).</div>
+
+      <FicheBloc titre="CFS — Container Freight Station" lignes={[
+        [['Conteneurs enlèvement', fnum((cfs['enlevement'] as O)?.['conteneurs'])],
+          ['Conteneurs dépotage', fnum((cfs['depotage'] as O)?.['conteneurs'])],
+          ['Conteneurs MAD', fnum((cfs['mad'] as O)?.['conteneurs'])],
+          ['Total conteneurs', fnum((cfs['total'] as O)?.['conteneurs'])]],
+        [['Total camions CFS (enl+dép)', fnum(cfs['camionsCfs'])],
+          ['Total camions conso', fnum(cfs['camionsConso'])],
+          ['Sorties EVP', fnum((cfs['total'] as O)?.['evp'])]],
+      ]} />
+      <FicheTailles lignes={[
+        ['Enlèvement', (cfs['enlevement'] ?? {}) as O], ['Dépotage', (cfs['depotage'] ?? {}) as O],
+        ['Magasin / MAD', (cfs['mad'] ?? {}) as O], ['TOTAL CFS', (cfs['total'] ?? {}) as O],
+        ['Sorties PP', (pp['tailles'] ?? {}) as O],
+      ]} />
+
+      <FicheBloc titre="T1" lignes={[
+        [['T1 émis', fnum(t1['emis'])], ['T1 émis — apurés', fnum(t1['emisApures'])],
+          ['T1 émis — non apurés', fnum(t1['emisNonApures'])], ['Taux apurement (émis)', fpct(t1['tauxEmis'])]],
+        [['T1 arrivés', fnum(t1['arrives'])], ['T1 arrivés — apurés', fnum(t1['arrivesApures'])],
+          ['T1 arrivés — non apurés', fnum(t1['arrivesNonApures'])], ['Taux apurement (arrivée)', fpct(t1['tauxArrives'])]],
+      ]} />
+      <div className="help">« Arrivés » = T1 dont le bureau de destination est notre bureau (transit reçu) ; « émis » = tous les autres. Apuré = arrivée au bureau confirmée par la cellule Balise.</div>
+
+      <FicheBloc titre="Balise" lignes={[
+        [['Total balisé', fnum(bal['total'])], ['Camions balisés (enl+dép)', fnum(bal['camions'])],
+          ['Camions au parking', fnum(bal['parking'])], ['Dispenses', fnum(bal['dispenses'])]],
+        [['Sortie MAD balisé', fnum(bal['mad'])], ['Camions CFS (enl+dép)', fnum(bal['camionsCfs'])],
+          ['Écart CFS ↔ Balise', fnum(bal['ecart'])]],
+      ]} />
+      <div className="help">« Camions au parking » est un instantané (ce qui est là maintenant), pas un flux de la période.</div>
+
+      <FicheBloc titre="Bon de sortie" lignes={[[['Total bons de sortie', fnum(bs['total'])]]]} />
+
+      <FicheBloc titre="PP — Porte principale" lignes={[
+        [['Total sorties PP', fnum(pp['total'])], ['Enlèvement', fnum(pp['enlevement'])],
+          ['Dépotage', fnum(pp['depotage'])], ['Sortie MAD', fnum(pp['mad'])]],
+        [['Sortie conso', fnum(pp['conso'])], ['Empotages (PIA+ZF)', fnum(pp['empotages'])],
+          ['Véhi à nus (S)', fnum(pp['vehicules'])], ['Transferts', fnum(pp['transferts'])]],
+      ]} />
+      <div className="help">« Empotages (PIA+ZF) » n'est pas encore saisi dans l'application — la case reste à « — » tant qu'aucune cellule ne l'alimente. « Transferts » = conteneurs annoncés par le Port Autonome et confirmés entrés au port sec sur la période.</div>
+    </div>)}
+  </div>;
+}
 
 SCREENS.detail = (nav) => <Detail {...nav} />;
 SCREENS.list = (nav) => <CargoList {...nav} filtre={{ categorie: 'camion', ...((nav.arg as O) ?? {}) }} titre="Cargaisons" barre />;
@@ -208,7 +310,7 @@ SCREENS.lotcamions = ({ go }) => {
     <div className="grid2">
       <div><label className="help">Type d'opération</label>
         <select value={op} onChange={(e) => setOp(e.target.value)}><option>{OPERATIONS.ENLEVEMENT}</option><option>{OPERATIONS.DEPOTAGE}</option></select></div>
-      {String(d['typeDeclaration'] ?? 'T') === 'C' && <div><label className="help">Conso (type C) — balise</label>
+      {estTypeSansT1(d['typeDeclaration'] ?? 'T') && <div><label className="help">Type {String(d['typeDeclaration'])} — balise</label>
         <select value={consoMode} onChange={(e) => setConsoMode(e.target.value)}><option value="balise">À baliser</option><option value="sansbalise">Non balisée (dispense)</option></select></div>}
     </div>
 
@@ -420,19 +522,21 @@ function FormVehicule({ go }: { go: Nav['go'] }) {
 
 /**
  * v4 — Conso/MAD « comme en dépotage » : le TYPE de la déclaration commande le
- * parcours. T = transit → T1 + Balise ; C = mise à la consommation → saute le
- * T1 et l'agent choisit balisée / non balisée (le choix ne s'affiche que pour C).
+ * parcours. T = transit → T1 + Balise ; C (conso) et A (admission, décision
+ * utilisateur 2026-07-22) → sautent le T1 et l'agent choisit balisée / non
+ * balisée (le choix ne s'affiche que pour ces types-là).
  */
 function InfoTypeDecl({ d, mode, setMode }: { d: O; mode: string; setMode: (v: string) => void }) {
-  const estConso = String(d['typeDeclaration'] ?? 'T') === 'C';
+  const type = String(d['typeDeclaration'] ?? 'T');
+  const estConso = estTypeSansT1(type);
   return <>
     <p className="help" style={{ marginTop: 0 }}>
       {estConso
-        ? <>Type C = mise à la consommation : la cargaison <b>saute le T1</b>{mode === 'sansbalise' ? ' et la Balise (dispense)' : ' ; balise à poser'}.</>
+        ? <>{libelleTypeSansT1(type)} : la cargaison <b>saute le T1</b>{mode === 'sansbalise' ? ' et la Balise (dispense)' : ' ; balise à poser'}.</>
         : <>Type T = transit : la cargaison passe par le <b>T1</b> puis la <b>Balise</b>, comme un dépotage.</>}
     </p>
     {estConso && <div className="grid2">
-      <div><label className="help">Conso (type C) — balise</label>
+      <div><label className="help">Type {type} — balise</label>
         <select value={mode} onChange={(e) => setMode(e.target.value)}><option value="balise">À baliser</option><option value="sansbalise">Non balisée (dispense)</option></select></div>
     </div>}
   </>;

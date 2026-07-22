@@ -98,6 +98,7 @@ export const PERMISSIONS: Record<string, Role[]> = {
   'report.history': [ROLES.ADMIN],
   // Tableau de bord / stats
   'dashboard.stats': TOUS_ROLES,
+  'dashboard.fiche': TOUS_ROLES, // v4.1 : synthèse repliable du tableau de bord
   // Historique
   'log.list': [ROLES.ADMIN],
   // Administration des utilisateurs

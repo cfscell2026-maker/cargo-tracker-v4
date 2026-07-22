@@ -12,8 +12,8 @@ import { versCamel } from '../ctx.ts';
 // au niveau module fait planter le démarrage de l'Edge Function (Deno) →
 // BOOT_ERROR / 503 sur toutes les requêtes. Chargé seulement lors d'un export.
 import {
-  ROLES, STATUTS, OPERATIONS, TRANCHES_SEJOUR, SEUIL_ALERTE_SEJOUR,
-  tailleBucket, evpDeTaille, trancheAge, parseConteneursDetails, estOui, aFait,
+  ROLES, STATUTS, OPERATIONS, DEFAUTS, TRANCHES_SEJOUR, SEUIL_ALERTE_SEJOUR,
+  tailleBucket, evpDeTaille, trancheAge, parseConteneursDetails, estOui, aFait, normAlphaNum,
   groupesDeclaration, estChargementMixte, libelleDeclaration,
   etapesEnAttente, etatCellules,
 } from '../../_shared/domaine/src/index.ts';
@@ -225,6 +225,125 @@ export async function rapportActiviteDetail(ctx: Ctx, p: Record<string, unknown>
   if (metric === 'camions') return { titre: 'Camions', rows: r.camions.filter(filtreOp) };
   const conts = r.conteneurs.filter(filtreOp).filter((x) => ['t20', 't40', 't45', 'autres'].indexOf(metric) < 0 || x['bucket'] === metric);
   return { titre: metric in libTaille ? libTaille[metric] : 'Conteneurs', rows: conts };
+}
+
+/* ==================== Fiche « tableau de bord » ======================== */
+/**
+ * v4.1 — FICHE DE SYNTHÈSE reprenant, bloc par bloc, la fiche papier du chef
+ * (« TABLEAU DE BORD — SEMAINE EN COURS ») : CFS, T1, BALISE, BON DE SORTIE,
+ * PP. Elle se replie sous le tableau de bord de l'appli (décision utilisateur
+ * 2026-07-22), de sorte que le chef retrouve EXACTEMENT sa mise en page.
+ *
+ * Chaque bloc est compté à LA DATE DE SA PROPRE CELLULE — le CFS à la création
+ * du camion, le T1 à la saisie du T1, la Balise à la pose, le bon de sortie à
+ * son émission, la PP à la sortie. Compter tout à la date de création ferait
+ * mentir la fiche dès qu'un camion chevauche deux semaines.
+ *
+ * Deux compteurs ne dépendent PAS de la période, parce qu'ils décrivent une
+ * situation instantanée et non un flux :
+ *   - « Camions au parking » : ce qui est encore là, maintenant ;
+ *   - rien d'autre.
+ */
+interface Tailles { t20: number; t40: number; t45: number; autres: number; conteneurs: number; evp: number }
+const taillesVides = (): Tailles => ({ t20: 0, t40: 0, t45: 0, autres: 0, conteneurs: 0, evp: 0 });
+function ajouterTaille(t: Tailles, taille: unknown) {
+  const bk = tailleBucket(taille);
+  (t as unknown as Record<string, number>)[bk]++;
+  t.conteneurs++; t.evp += evpDeTaille(bk);
+}
+const taux = (fait: number, total: number) => (total ? Math.round((fait / total) * 1000) / 10 : 0);
+
+export async function ficheBord(ctx: Ctx, p: Record<string, unknown>) {
+  const du = p['du'] as string | undefined;
+  const au = p['au'] as string | undefined;
+  const cargos = await loadCargos(ctx);
+
+  const cfs = {
+    enlevement: taillesVides(), depotage: taillesVides(), mad: taillesVides(), total: taillesVides(),
+    camionsEnlevement: 0, camionsDepotage: 0, camionsCfs: 0, camionsConso: 0, camionsMad: 0,
+  };
+  const t1 = { emis: 0, emisApures: 0, emisNonApures: 0, tauxEmis: 0, arrives: 0, arrivesApures: 0, arrivesNonApures: 0, tauxArrives: 0 };
+  const balise = { total: 0, camions: 0, mad: 0, parking: 0, dispenses: 0, camionsCfs: 0, ecart: 0 };
+  const bs = { total: 0 };
+  const pp = {
+    total: 0, enlevement: 0, depotage: 0, mad: 0, conso: 0, vehicules: 0, transferts: 0,
+    empotages: null as number | null, // non suivi par l'application (voir plus bas)
+    tailles: taillesVides(),
+  };
+
+  // Bureau « local » : un T1 dont la destination est notre propre bureau est un
+  // T1 REÇU (arrivée), pas un T1 émis vers l'extérieur.
+  const bureauLocal = normAlphaNum(DEFAUTS.BUREAU_DECLARATION);
+
+  for (const c of cargos) {
+    const op = String(c['typeOperation'] ?? '');
+    const veh = estOui(c['estVehicule']);
+    const conts = detsDeRow(c);
+
+    /* --- CFS : à la date de création du camion --- */
+    if (!veh && inRange(c['dateCreation'], du, au)) {
+      const cible = op === OPERATIONS.ENLEVEMENT ? cfs.enlevement
+        : op === OPERATIONS.DEPOTAGE ? cfs.depotage
+          : op === OPERATIONS.MAGASIN ? cfs.mad : null;
+      if (op === OPERATIONS.ENLEVEMENT) { cfs.camionsEnlevement++; cfs.camionsCfs++; }
+      else if (op === OPERATIONS.DEPOTAGE) { cfs.camionsDepotage++; cfs.camionsCfs++; }
+      else if (op === OPERATIONS.CONSO) cfs.camionsConso++;
+      else if (op === OPERATIONS.MAGASIN) cfs.camionsMad++;
+      for (const ct of conts) {
+        if (cible) ajouterTaille(cible, ct.taille);
+        ajouterTaille(cfs.total, ct.taille);
+      }
+    }
+
+    /* --- T1 : à la date de saisie du T1 --- */
+    if (inRange(c['dateT1'], du, au)) {
+      const recu = normAlphaNum(c['bureauDestination']) === bureauLocal;
+      const apure = estOui(c['arriveeBureau']);
+      if (recu) { t1.arrives++; if (apure) t1.arrivesApures++; }
+      else { t1.emis++; if (apure) t1.emisApures++; }
+    }
+
+    /* --- BALISE : à la date de pose de la balise --- */
+    if (inRange(c['datePoseGps'], du, au)) {
+      balise.total++;
+      if (op === OPERATIONS.ENLEVEMENT || op === OPERATIONS.DEPOTAGE) balise.camions++;
+      if (op === OPERATIONS.MAGASIN) balise.mad++;
+    }
+    // Dispense : aucune balise n'est posée, donc aucune date de pose — on la
+    // rattache à l'entrée du camion, seule date dont elle dispose.
+    if (inRange(c['dateCreation'], du, au) && !veh
+      && (String(c['numeroDispense'] ?? '').trim() !== '' || estOui(c['sauteBalise']))) balise.dispenses++;
+    // Parking = situation instantanée : ni sorti, ni déjà passé prendre sa balise.
+    if (c['statut'] !== STATUTS.SORTIE && !aFait(c['datePoseGps'])) balise.parking++;
+
+    /* --- BON DE SORTIE : à la date d'émission --- */
+    if (inRange(c['dateBonSortie'], du, au) && aFait(c['bonSortieNumero'])) bs.total++;
+
+    /* --- PP : à la date de sortie --- */
+    if (inRange(c['dateSortie'], du, au)) {
+      pp.total++;
+      if (veh) pp.vehicules++;
+      else if (op === OPERATIONS.ENLEVEMENT) pp.enlevement++;
+      else if (op === OPERATIONS.DEPOTAGE) pp.depotage++;
+      else if (op === OPERATIONS.MAGASIN) pp.mad++;
+      else if (op === OPERATIONS.CONSO) pp.conso++;
+      for (const ct of conts) ajouterTaille(pp.tailles, ct.taille);
+    }
+  }
+
+  t1.emisNonApures = t1.emis - t1.emisApures;
+  t1.tauxEmis = taux(t1.emisApures, t1.emis);
+  t1.arrivesNonApures = t1.arrives - t1.arrivesApures;
+  t1.tauxArrives = taux(t1.arrivesApures, t1.arrives);
+  balise.camionsCfs = cfs.camionsCfs;
+  balise.ecart = cfs.camionsCfs - balise.camions;
+
+  // TRANSFERTS = conteneurs annoncés par le Port Autonome et CONFIRMÉS entrés
+  // au port sec sur la période (c'est le transfert qui s'achève).
+  const annonces = await fetchAll(ctx, 'stock_annonce', 'date_confirmation, statut');
+  for (const a of annonces) if (inRange(a['date_confirmation'], du, au)) pp.transferts++;
+
+  return { du, au, cfs, t1, balise, bs, pp };
 }
 
 /* ================================ KPI ================================= */
