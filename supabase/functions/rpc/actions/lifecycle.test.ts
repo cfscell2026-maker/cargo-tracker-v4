@@ -919,3 +919,71 @@ test('correction conteneur : la déclaration se change LIGNE PAR LIGNE (mixte pr
   const dets2 = versCamel(db.store['cargaisons'][0]!)['conteneursDetails'] as { conteneurs: Record<string, unknown>[] };
   assert.equal(dets2.conteneurs[1]!['numeroDeclaration'], '8888');
 });
+
+/* ---- v4.1 : ré-import — les SAISIES MANUELLES sont reconnues ------------ */
+
+/**
+ * Crée un enlèvement dont le conteneur a été SAISI À LA MAIN (case « hors
+ * stock ») : il est donc sur un camion (table conteneurs) mais ABSENT de la
+ * table stock — exactement le cas que l'import doit rattraper.
+ */
+async function enlevementSaisieManuelle(db: FakeDB, tc = 'MSKU1234567', plaque = 'MAN001') {
+  const cfs = ctxAvec(db);
+  const { id } = (await ecr.createcamion(cfs, { numeroCamion: plaque, routage: 'Enlèvement' })) as { id: string };
+  await ecr.cfs(cfs, {
+    id, conteneur: { num: tc, taille: "40'", type: 'DRY', plomb: 'S1', manuel: true },
+    declaration: DECL_OK,
+  });
+  return id;
+}
+
+test('saisie manuelle : bien absente du stock, mais présente sur le camion', async () => {
+  const db = new FakeDB();
+  await enlevementSaisieManuelle(db);
+  // C'est TOUT le problème : rien dans la table stock…
+  assert.equal(db.store['stock'].length, 0);
+  // …mais le conteneur existe sur le camion.
+  assert.equal(db.store['conteneurs'].some((c) => c['conteneur'] === 'MSKU1234567'), true);
+});
+
+test('ré-import : une saisie manuelle est repérée comme doublon, pas comme nouveau', async () => {
+  const db = new FakeDB();
+  await enlevementSaisieManuelle(db);
+  const fichier = [
+    { numeroTC: 'MSKU1234567', taille: "40'", dateEntree: '2026-07-10', anneeDeclaration: '2026', typeDeclaration: 'T', numeroDeclaration: '333' },
+    { numeroTC: 'TCLU7654321', taille: "20'", dateEntree: '2026-07-10', anneeDeclaration: '2026', typeDeclaration: 'T', numeroDeclaration: '444' },
+  ];
+  const r = (await stk.stockImport(ctxRole(db, 'CFS', 'Agent CFS'), { items: fichier, analyser: true })) as
+    { nouveaux: number; manuels: number; doublons: Record<string, unknown>[] };
+  // Le TC saisi à la main n'est PAS compté comme nouveau.
+  assert.equal(r.nouveaux, 1); // seul TCLU7654321
+  assert.equal(r.manuels, 1);
+  const d = r.doublons.find((x) => x['numeroTC'] === 'MSKU1234567')!;
+  assert.equal(d['source'], 'manuel');
+  assert.equal(d['engage'], true);
+  assert.match(String(d['statut']), /manuelle/i);
+});
+
+test('ré-import « ignorer » : la saisie manuelle N\'EST PAS recréée en stock', async () => {
+  const db = new FakeDB();
+  await enlevementSaisieManuelle(db);
+  const fichier = [{ numeroTC: 'MSKU1234567', taille: "40'", dateEntree: '2026-07-10', anneeDeclaration: '2026', typeDeclaration: 'T', numeroDeclaration: '333' }];
+  const r = (await stk.stockImport(ctxRole(db, 'CFS', 'Agent CFS'), { items: fichier, surDoublon: 'ignorer' })) as { ajoutes: number; regularises: number };
+  assert.equal(r.ajoutes, 0);
+  assert.equal(r.regularises, 0);
+  // Surtout : aucune fiche « En stock » créée qui le rendrait re-sélectionnable.
+  assert.equal(db.store['stock'].length, 0);
+});
+
+test('ré-import « remplacer » : la saisie manuelle est RÉGULARISÉE (dépotée, liée, jamais En stock)', async () => {
+  const db = new FakeDB();
+  const cargoId = await enlevementSaisieManuelle(db);
+  const fichier = [{ numeroTC: 'MSKU1234567', taille: "40'", dateEntree: '2026-07-10', anneeDeclaration: '2026', typeDeclaration: 'C', numeroDeclaration: '333' }];
+  const r = (await stk.stockImport(ctxRole(db, 'CFS', 'Agent CFS'), { items: fichier, surDoublon: 'remplacer' })) as { regularises: number };
+  assert.equal(r.regularises, 1);
+  const s = db.store['stock'].find((x) => x['numero_tc'] === 'MSKU1234567')!;
+  assert.ok(s, 'une fiche stock a été créée');
+  assert.equal(s['statut'], 'Dépoté');       // jamais « En stock »
+  assert.equal(s['cargaison_id'], cargoId);   // liée à son camion
+  assert.equal(s['numero_declaration'], '333');
+});

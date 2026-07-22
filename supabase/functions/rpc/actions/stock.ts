@@ -8,9 +8,12 @@
 import type { Ctx } from '../ctx.ts';
 import { versCamel } from '../ctx.ts';
 import {
-  STOCK_STATUTS, ANNONCE_STATUTS, TRANCHES_SEJOUR, SEUIL_ALERTE_SEJOUR,
+  STOCK_STATUTS, ANNONCE_STATUTS, STATUTS, TRANCHES_SEJOUR, SEUIL_ALERTE_SEJOUR,
   tailleBucket, evpDeTaille, trancheAge, tcValide, maj, parseDateImport,
 } from '../../_shared/domaine/src/index.ts';
+
+/** Cargaison sortie de l'enceinte : ne rend plus un conteneur indisponible. */
+const STATUTS_SORTIE = STATUTS.SORTIE;
 import { lookupDeclaration, fetchAll } from './helpers.ts';
 
 const normTC = (v: unknown) => String(v ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
@@ -91,8 +94,32 @@ export async function stockImport(
   const existants = await fetchAll(ctx, 'stock', 'numero_tc, statut, taille, date_entree, cargaison_id, annee_declaration, type_declaration, numero_declaration');
   const parTC = new Map(existants.map((r) => [normTC(r['numero_tc']), r]));
 
+  // ⚠ DEUXIÈME SOURCE, INDISPENSABLE : la SAISIE MANUELLE (case « conteneur hors
+  // stock ») n'écrit JAMAIS dans la table `stock` — `cfs()` saute `lierStock`.
+  // Le conteneur n'existe alors que sur son camion (table `conteneurs`).
+  // Comparer le fichier au seul stock laisserait donc passer exactement les
+  // conteneurs que l'agent a saisis à la main, et l'import les recréerait
+  // « En stock » alors qu'ils sont déjà chargés : ils redeviendraient
+  // sélectionnables pour un AUTRE camion.
+  const surCamion = await fetchAll(ctx, 'conteneurs', 'conteneur, cargaison_id');
+  const cargos = await fetchAll(ctx, 'cargaisons', 'id, statut, numero_camion');
+  const cargoParId = new Map(cargos.map((c) => [String(c['id']), c]));
+  const camionParTC = new Map<string, Record<string, unknown>>();
+  for (const l of surCamion) {
+    const tc = normTC(l['conteneur']);
+    if (!tc) continue;
+    const cargo = cargoParId.get(String(l['cargaison_id']));
+    if (!cargo) continue;
+    // Une cargaison ENCORE EN COURS prime sur une déjà sortie : c'est celle qui
+    // rend le conteneur indisponible aujourd'hui.
+    const dejaVu = camionParTC.get(tc);
+    if (dejaVu && String(dejaVu['statut']) !== STATUTS_SORTIE) continue;
+    camionParTC.set(tc, cargo);
+  }
+
   const aInserer: Record<string, unknown>[] = [];
   const aMaj: Record<string, unknown>[] = [];
+  const aRegulariser: Record<string, unknown>[] = [];
   const doublons: Record<string, unknown>[] = [];
   let invalides = 0;
   const vus = new Set<string>();
@@ -111,10 +138,11 @@ export async function stockImport(
     const typeDecl = maj(it['typeDeclaration'], 6);
     const numDecl = chiffres(it['numeroDeclaration']).slice(0, 30);
     const ex = parTC.get(tc);
+    const surCam = camionParTC.get(tc);
 
     if (ex) {
       doublons.push({
-        numeroTC: tc,
+        numeroTC: tc, source: 'stock',
         statut: ex['statut'],
         // « Engagé » = le conteneur n'est plus un simple dormant du parc : le
         // remplacer touche une opération en cours. C'est CE qu'il faut voir.
@@ -127,6 +155,29 @@ export async function stockImport(
       });
       aMaj.push({ numero_tc: tc, taille, date_entree: dEnt, nb_sejours_import: nbSej,
         annee_declaration: anneeDecl, type_declaration: typeDecl, numero_declaration: numDecl });
+    } else if (surCam) {
+      // SAISIE MANUELLE : absent du stock mais DÉJÀ sur un camion. Ne surtout
+      // pas l'insérer « En stock » (il deviendrait re-sélectionnable pour un
+      // autre camion). On le signale, et « remplacer » le RÉGULARISE : on lui
+      // crée enfin une fiche stock reflétant qu'il est déjà pris (dépoté + lié
+      // au camion), avec la déclaration et la date du fichier.
+      const sorti = String(surCam['statut']) === STATUTS_SORTIE;
+      doublons.push({
+        numeroTC: tc, source: 'manuel', engage: true,
+        statut: 'Saisie manuelle — sur camion ' + String(surCam['numero_camion'] ?? '?') + (sorti ? ' (déjà sorti)' : ' (en cours)'),
+        cargaisonId: surCam['id'] ?? '',
+        tailleExistante: '', tailleFichier: taille,
+        dateEntreeExistante: '', dateEntreeFichier: dEnt,
+        declarationExistante: '(saisie à la main, pas de fiche stock)',
+        declarationFichier: [numDecl, anneeDecl, typeDecl].filter(Boolean).join(' · '),
+      });
+      aRegulariser.push({
+        numero_tc: tc, taille, type_conteneur: maj(it['typeConteneur'], 30),
+        provenance: maj(it['provenance'], 40) || provDef, date_entree: dEnt,
+        statut: STOCK_STATUTS.DEPOTE, date_depote: now, cargaison_id: surCam['id'],
+        nb_sejours_import: nbSej, observations: 'Régularisé à l\'import (saisi à la main)',
+        annee_declaration: anneeDecl, type_declaration: typeDecl, numero_declaration: numDecl,
+      });
     } else {
       aInserer.push({
         numero_tc: tc, taille, type_conteneur: maj(it['typeConteneur'], 30),
@@ -143,6 +194,8 @@ export async function stockImport(
       analyse: true, lignes: items.length, invalides,
       nouveaux: aInserer.length, doublons,
       engages: doublons.filter((d) => d['engage']).length,
+      // Combien de conteneurs saisis à la main le fichier vient enfin régulariser.
+      manuels: aRegulariser.length,
     };
   }
 
@@ -150,7 +203,7 @@ export async function stockImport(
     const { error: e } = await ctx.db.from('stock').insert(aInserer);
     if (e) throw new Error(e.message);
   }
-  let majN = 0;
+  let majN = 0, regularises = 0;
   if (surDoublon === 'remplacer') {
     for (const m of aMaj) {
       const patch: Record<string, unknown> = { date_entree: m['date_entree'], nb_sejours_import: m['nb_sejours_import'] };
@@ -164,11 +217,19 @@ export async function stockImport(
       await ctx.db.from('stock').update(patch).eq('numero_tc', m['numero_tc']);
       majN++;
     }
+    // Régularisation des saisies manuelles : on crée leur fiche stock manquante,
+    // marquée « Dépoté » et liée au camion — jamais « En stock ».
+    if (aRegulariser.length) {
+      const { error: e } = await ctx.db.from('stock').insert(aRegulariser);
+      if (e) throw new Error(e.message);
+      regularises = aRegulariser.length;
+    }
   }
-  const ignores = invalides + (surDoublon === 'ignorer' ? aMaj.length : 0);
+  // « Ignorer » = on ne touche ni aux doublons du stock ni aux saisies manuelles.
+  const ignores = invalides + (surDoublon === 'ignorer' ? aMaj.length + aRegulariser.length : 0);
   await ctx.log('Import stock', '',
-    aInserer.length + ' ajouté(s), ' + majN + ' mis à jour, ' + ignores + ' ignoré(s) · doublons : ' + surDoublon);
-  return { ajoutes: aInserer.length, maj: majN, ignores, invalides, doublons: aMaj.length, surDoublon };
+    aInserer.length + ' ajouté(s), ' + majN + ' mis à jour, ' + regularises + ' régularisé(s), ' + ignores + ' ignoré(s) · doublons : ' + surDoublon);
+  return { ajoutes: aInserer.length, maj: majN, regularises, ignores, invalides, doublons: aMaj.length + aRegulariser.length, surDoublon };
 }
 
 export async function stockPointage(ctx: Ctx, p: Record<string, unknown>) {

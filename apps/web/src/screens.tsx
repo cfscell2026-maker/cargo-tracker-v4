@@ -795,7 +795,8 @@ function ImportExcel({ action, titre, cols, conflits }: { action: string; titre:
     setBusy(true);
     try {
       const r = await call<O>(action, surDoublon ? { items, surDoublon } : { items });
-      setRes(`${r['ajoutes']} ajouté(s), ${r['maj']} mis à jour, ${r['ignores']} ignoré(s).`);
+      const reg = Number(r['regularises'] ?? 0);
+      setRes(`${r['ajoutes']} ajouté(s), ${r['maj']} mis à jour${reg ? `, ${reg} régularisé(s)` : ''}, ${r['ignores']} ignoré(s).`);
       setAnalyse(null); toast('Import terminé.', 'ok');
     } catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(false); }
   }
@@ -833,17 +834,23 @@ function ConflitsImport({ a, busy, onChoix, onAnnuler }: { a: O; busy: boolean; 
   const doublons = (a['doublons'] ?? []) as O[];
   const engages = Number(a['engages'] ?? 0);
   const nouveaux = Number(a['nouveaux'] ?? 0);
+  const manuels = Number(a['manuels'] ?? 0);
   return <Modal onClose={onAnnuler}>
-    <h2>{doublons.length} conteneur(s) déjà dans le stock</h2>
+    <h2>{doublons.length} conteneur(s) déjà connu(s) du système</h2>
     <p className="help" style={{ marginTop: 0 }}>
       Le fichier apporte <b>{nouveaux} nouveau(x)</b> conteneur(s) — ceux-là seront ajoutés dans tous les cas.
       Les {doublons.length} ci-dessous existent déjà{engages > 0 && <> et <b style={{ color: 'var(--warn)' }}>{engages} sont déjà engagés</b> (positionnés, dépotés ou rattachés à un camion)</>}.
     </p>
+    {manuels > 0 && <div className="bandeau"><div className="t">⚠ {manuels} saisie(s) manuelle(s) retrouvée(s)</div>
+      <div className="l">Ces conteneurs avaient été <b>saisis à la main</b> (ils n'étaient pas encore dans le stock) et sont déjà sur un camion.
+        Ils ne seront <b>pas</b> recréés comme disponibles. « Remplacer » leur crée enfin une fiche stock (marquée dépotée, liée à leur camion).</div></div>}
     <div className="tbl" style={{ maxHeight: 320, overflowY: 'auto' }}><table>
-      <thead><tr><th>Conteneur</th><th>Statut actuel</th><th>Déclaration en base</th><th>Déclaration du fichier</th></tr></thead>
+      <thead><tr><th>Conteneur</th><th>Situation actuelle</th><th>En base</th><th>Dans le fichier</th></tr></thead>
       <tbody>{doublons.map((d) => <tr key={String(d['numeroTC'])}>
         <td className="mono"><b>{String(d['numeroTC'])}</b></td>
-        <td>{String(d['statut'] ?? '—')}{d['engage'] ? <span className="tag st-charge" style={{ marginLeft: 6 }}>engagé</span> : null}</td>
+        <td>{String(d['statut'] ?? '—')}
+          {d['source'] === 'manuel' ? <span className="tag st-camion" style={{ marginLeft: 6 }}>saisie manuelle</span>
+            : d['engage'] ? <span className="tag st-charge" style={{ marginLeft: 6 }}>engagé</span> : null}</td>
         <td>{String(d['declarationExistante'] || '—')}</td>
         <td>{String(d['declarationFichier'] || '—')}</td>
       </tr>)}</tbody>
@@ -852,13 +859,13 @@ function ConflitsImport({ a, busy, onChoix, onAnnuler }: { a: O; busy: boolean; 
       {String(a['invalides'])} ligne(s) du fichier sont inexploitables (N° non conforme ou répété) et seront écartées.
     </div>}
     <div className="row" style={{ marginTop: 14, flexWrap: 'wrap' }}>
-      <button disabled={busy} onClick={() => onChoix('ignorer')}>Ignorer les doublons — garder ce qui est en base</button>
-      <button className="ghost" disabled={busy} onClick={() => onChoix('remplacer')}>Remplacer par le fichier</button>
+      <button disabled={busy} onClick={() => onChoix('ignorer')}>Ignorer les doublons — ne toucher à rien</button>
+      <button className="ghost" disabled={busy} onClick={() => onChoix('remplacer')}>Remplacer / régulariser</button>
       <button className="ghost" disabled={busy} onClick={onAnnuler}>Annuler</button>
     </div>
     <p className="help" style={{ marginTop: 10 }}>
       « Remplacer » met à jour la taille, la date d'entrée et la déclaration. Le <b>statut n'est jamais touché</b> :
-      un conteneur dépoté ou positionné ne redevient pas « En stock » parce qu'il figure dans un fichier.
+      un conteneur dépoté ou positionné ne redevient jamais « En stock » parce qu'il figure dans un fichier.
     </p>
   </Modal>;
 }
