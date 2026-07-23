@@ -80,13 +80,14 @@ function collecteCFS(cargos: Record<string, unknown>[], du?: string, au?: string
     const op = String(c['typeOperation']);
     if (op !== OPERATIONS.ENLEVEMENT && op !== OPERATIONS.DEPOTAGE) continue;
     const a = parOp[op]!;
+    const dets = detsDeRow(c);
     a.camions++; total.camions++;
-    camions.push({ id: c['id'], numeroCamion: c['numeroCamion'], typeOperation: op, statut: c['statut'], dateCreation: c['dateCreation'] });
-    for (const ct of detsDeRow(c)) {
+    camions.push({ id: c['id'], numeroCamion: c['numeroCamion'], typeOperation: op, statut: c['statut'], dateCreation: c['dateCreation'], nbConteneurs: dets.length, agentCfs: c['agentCfs'] });
+    for (const ct of dets) {
       const bk = tailleBucket(ct.taille); const ev = evpDeTaille(bk);
       (a as Record<string, number>)[bk]++; a.conteneurs++; a.evp += ev;
       (total as Record<string, number>)[bk]++; total.conteneurs++; total.evp += ev;
-      conteneurs.push({ id: c['id'], numeroCamion: c['numeroCamion'], typeOperation: op, conteneur: ct.num, taille: ct.taille, bucket: bk });
+      conteneurs.push({ id: c['id'], cargaisonId: c['id'], numeroCamion: c['numeroCamion'], typeOperation: op, conteneur: ct.num, taille: ct.taille, type: ct.type, scelle: ct.plomb, bucket: bk, dateCreation: c['dateCreation'] });
     }
   }
   return { parOp, total, camions, conteneurs };
@@ -187,15 +188,16 @@ function collecteActivite(cargos: Record<string, unknown>[], dateCol: string, ag
     const op = String(c['typeOperation']);
     if (op !== OPERATIONS.ENLEVEMENT && op !== OPERATIONS.DEPOTAGE) continue;
     const a = parOp[op]!;
+    const dets = detsDeRow(c);
     a.camions++; total.camions++;
     if (estOui(c['twins']) || c['twins'] === 'Yes') { a.twins++; total.twins++; }
     if (String(c['baliseRequise']) === 'Non' || c['baliseRequise'] === false) { a.sansBalise++; total.sansBalise++; }
-    camions.push({ id: c['id'], numeroCamion: c['numeroCamion'], typeOperation: op, statut: c['statut'], date: c[dateCol] });
-    for (const ct of detsDeRow(c)) {
+    camions.push({ id: c['id'], numeroCamion: c['numeroCamion'], typeOperation: op, statut: c['statut'], date: c[dateCol], numeroGps: c['numeroGps'], nbConteneurs: dets.length, twins: c['twins'] });
+    for (const ct of dets) {
       const bk = tailleBucket(ct.taille); const ev = evpDeTaille(bk);
       (a as Record<string, number>)[bk]++; a.conteneurs++; a.evp += ev;
       (total as Record<string, number>)[bk]++; total.conteneurs++; total.evp += ev;
-      conteneurs.push({ id: c['id'], numeroCamion: c['numeroCamion'], typeOperation: op, conteneur: ct.num, taille: ct.taille, bucket: bk });
+      conteneurs.push({ id: c['id'], cargaisonId: c['id'], numeroCamion: c['numeroCamion'], typeOperation: op, conteneur: ct.num, taille: ct.taille, type: ct.type, scelle: ct.plomb, bucket: bk, numeroGps: c['numeroGps'], date: c[dateCol] });
     }
   }
   return { parOp, total, camions, conteneurs };
@@ -225,9 +227,14 @@ export async function rapportActiviteDetail(ctx: Ctx, p: Record<string, unknown>
   const op = String(p['operation'] ?? '');
   const metric = String(p['metric'] ?? 'camions');
   const filtreOp = (x: Record<string, unknown>) => !op || x['typeOperation'] === op;
-  if (metric === 'camions') return { titre: 'Camions', rows: r.camions.filter(filtreOp) };
+  // Camions / TWINS → liste de CAMIONS (twins : seulement les jumelés).
+  if (metric === 'camions' || metric === 'twins') {
+    let rows = r.camions.filter(filtreOp);
+    if (metric === 'twins') rows = rows.filter((x) => estOui(x['twins']) || x['twins'] === 'Yes');
+    return { kind: 'camions', titre: metric === 'twins' ? 'TWINS' : 'Camions', rows };
+  }
   const conts = r.conteneurs.filter(filtreOp).filter((x) => ['t20', 't40', 't45', 'autres'].indexOf(metric) < 0 || x['bucket'] === metric);
-  return { titre: metric in libTaille ? libTaille[metric] : 'Conteneurs', rows: conts };
+  return { kind: 'conteneurs', titre: metric in libTaille ? libTaille[metric] : 'Conteneurs', rows: conts };
 }
 
 /* ==================== Fiche « tableau de bord » ======================== */
@@ -332,6 +339,20 @@ export async function ficheBord(ctx: Ctx, p: Record<string, unknown>) {
       else if (op === OPERATIONS.CONSO) pp.conso++;
       for (const ct of conts) ajouterTaille(pp.tailles, ct.taille);
     }
+  }
+
+  // --- CONTENEURS MAD : la VRAIE source (correctif 2026-07-22) ---
+  // « Conteneurs MAD » ne vient PAS des cargaisons de type « Sortie Magasin /
+  // MAD » (celles-ci sont du VRAC, 0 conteneur → la case restait à 0). Elle
+  // vient de l'écran « Entrée Magasin / MAD » (stock.entreemagasin), qui marque
+  // un conteneur du parc comme dépoté vers le magasin. On les compte au stock,
+  // à leur date de dépotage, reconnus à l'observation posée par cet écran.
+  const stock = await fetchAll(ctx, 'stock', 'taille, statut, date_depote, observations');
+  for (const s of stock) {
+    if (!String(s['observations'] ?? '').toLowerCase().includes('magasin')) continue;
+    if (!inRange(s['date_depote'], du, au)) continue;
+    ajouterTaille(cfs.mad, s['taille']);
+    ajouterTaille(cfs.total, s['taille']); // le total CFS inclut le MAD (comme la fiche papier)
   }
 
   t1.emisNonApures = t1.emis - t1.emisApures;

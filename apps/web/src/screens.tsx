@@ -1223,50 +1223,94 @@ function PeriodeLue({ p }: { p: Periode }) {
   </div>;
 }
 
-function ReportCFS({ action, titre }: { action: string; titre: string }) {
+/**
+ * v4.1 — Rapports de cellule (CFS, Balise, PP) reproduits À L'IDENTIQUE de
+ * l'Apps Script (décision utilisateur 2026-07-22) : un bloc PAR OPÉRATION
+ * (Enlèvement / Dépotage), des cartes cliquables — Camions, [TWINS], 20', 40',
+ * 45', Autres, Total conteneurs, EVP — et un clic ouvre la LISTE détaillée
+ * (camions ou conteneurs), chaque ligne ouvrant la fiche. Plus un bloc TOTAL.
+ * `twins`/`camLabel` distinguent les trois cellules ; la donnée par taille était
+ * déjà calculée côté serveur.
+ */
+type MetriqueCellule = 'camions' | 'twins' | 't20' | 't40' | 't45' | 'autres' | 'conteneurs';
+
+function RapportCellule({ action, detail, titre, twins, camLabel, go }: {
+  action: string; detail: string; titre: string; twins?: boolean; camLabel: string; go: Nav['go'];
+}) {
   const p = useReportRange();
   const { m, du, au } = p;
-  const { data, loading } = useAsync<O>(() => call(action, { du, au, periode: m }), [du, au]);
+  const [op, setOp] = useState('');
+  const { data, loading } = useAsync<O>(() => call(action, { du, au, periode: m, operation: op }), [du, au, op]);
+  const [modal, setModal] = useState<{ op: string; metric: MetriqueCellule } | null>(null);
+  async function exporter(fmt: string) { const f = await call<O>(action, { du, au, periode: m, operation: op, format: fmt }); telecharger(f); }
+
   const parOp = (data?.['parOp'] ?? {}) as Record<string, O>;
   const total = (data?.['total'] ?? {}) as O;
-  async function exporter() { const f = await call<O>(action, { du, au, periode: m, format: 'xlsx' }); telecharger(f); }
-  return <div className="card"><div className="row" style={{ flexWrap: 'wrap' }}><h2 style={{ flex: 1 }}>{titre}</h2><PeriodPicker p={p} /><button className="ghost xs" onClick={exporter}>Export Excel</button></div>
-    <PeriodeLue p={p} />
-    {loading ? <Spinner /> : <div className="tbl" style={{ marginTop: 10 }}><table>
-      <thead><tr><th>Opération</th><th>Camions</th><th>20'</th><th>40'</th><th>45'</th><th>Conteneurs</th><th>EVP</th></tr></thead>
-      <tbody>{[OPERATIONS.ENLEVEMENT, OPERATIONS.DEPOTAGE].map((op) => { const a = parOp[op] ?? {}; return (
-        <tr key={op}><td>{op}</td><td>{Number(a['camions'] ?? 0)}</td><td>{Number(a['t20'] ?? 0)}</td><td>{Number(a['t40'] ?? 0)}</td><td>{Number(a['t45'] ?? 0)}</td><td>{Number(a['conteneurs'] ?? 0)}</td><td>{Number(a['evp'] ?? 0)}</td></tr>
-      ); })}
-        <tr style={{ fontWeight: 700 }}><td>TOTAL</td><td>{Number(total['camions'] ?? 0)}</td><td>{Number(total['t20'] ?? 0)}</td><td>{Number(total['t40'] ?? 0)}</td><td>{Number(total['t45'] ?? 0)}</td><td>{Number(total['conteneurs'] ?? 0)}</td><td>{Number(total['evp'] ?? 0)}</td></tr>
-      </tbody></table></div>}
-  </div>;
+  const evpDe = (o: O) => Number(o['t20'] ?? 0) + 2 * (Number(o['t40'] ?? 0) + Number(o['t45'] ?? 0));
+
+  function Carte({ n, l, op: o, metric, tone }: { n: unknown; l: string; op?: string; metric?: MetriqueCellule; tone?: 'ok' }) {
+    if (!metric) return <div className={`stat ${tone ?? ''}`}><div className="n">{Number(n ?? 0)}</div><div className="l">{l}</div></div>;
+    return <div className={`stat ${tone ?? ''}`} role="button" title="Voir le détail" onClick={() => setModal({ op: o ?? '', metric })}>
+      <div className="n">{Number(n ?? 0)}</div><div className="l">{l}</div></div>;
+  }
+  function Bloc({ nom, o, a }: { nom: string; o: string; a: O }) {
+    return <div className="card"><h2>{nom}</h2><div className="stats">
+      <Carte n={a['camions']} l={camLabel} op={o} metric="camions" />
+      {twins && <Carte n={a['twins']} l="TWINS" op={o} metric="twins" />}
+      <Carte n={a['t20']} l="20'" op={o} metric="t20" />
+      <Carte n={a['t40']} l="40'" op={o} metric="t40" />
+      <Carte n={a['t45']} l="45'" op={o} metric="t45" />
+      <Carte n={a['autres']} l="Autres / n.p." op={o} metric="autres" />
+      <Carte n={a['conteneurs']} l="Total conteneurs" op={o} metric="conteneurs" />
+      <Carte n={evpDe(a)} l="EVP" tone="ok" />
+    </div><p className="help">Cliquez une carte pour voir le détail.</p></div>;
+  }
+
+  return <>
+    <div className="card"><div className="row" style={{ flexWrap: 'wrap', alignItems: 'center' }}>
+      <h2 style={{ flex: 1 }}>{titre}</h2>
+      <select value={op} onChange={(e) => setOp(e.target.value)} style={{ maxWidth: 200 }}>
+        <option value="">Toutes opérations</option><option>{OPERATIONS.ENLEVEMENT}</option><option>{OPERATIONS.DEPOTAGE}</option>
+      </select>
+      <PeriodPicker p={p} />
+      <button className="ghost xs" onClick={() => exporter('xlsx')}>⤓ Excel</button>
+      <button className="ghost xs" onClick={() => exporter('pdf')}>⤓ PDF</button>
+    </div><PeriodeLue p={p} /></div>
+    {loading ? <Spinner /> : <>
+      {(op === '' || op === OPERATIONS.ENLEVEMENT) && <Bloc nom={OPERATIONS.ENLEVEMENT} o={OPERATIONS.ENLEVEMENT} a={parOp[OPERATIONS.ENLEVEMENT] ?? {}} />}
+      {(op === '' || op === OPERATIONS.DEPOTAGE) && <Bloc nom={OPERATIONS.DEPOTAGE} o={OPERATIONS.DEPOTAGE} a={parOp[OPERATIONS.DEPOTAGE] ?? {}} />}
+      {op === '' && <div className="card"><h2>Total</h2><div className="stats">
+        <Carte n={total['camions']} l={`TOTAL ${camLabel.toLowerCase()}`} op="" metric="camions" />
+        {twins && <Carte n={total['twins']} l="TOTAL TWINS" op="" metric="twins" />}
+        <Carte n={total['conteneurs']} l="TOTAL conteneurs" op="" metric="conteneurs" />
+        <Carte n={evpDe(total)} l="EVP" tone="ok" />
+      </div></div>}
+    </>}
+    {modal && <DetailCellule detail={detail} du={du} au={au} op={modal.op} metric={modal.metric} go={go} onClose={() => setModal(null)} />}
+  </>;
 }
-SCREENS.cfsreport = () => <ReportCFS action="report.cfs" titre="Rapport CFS" />;
-SCREENS.baliserep = () => <ReportActivite action="report.balise" titre="Rapport Balise" />;
-SCREENS.pprep = () => <ReportActivite action="report.pp" titre="Rapport Porte Principale" />;
-function ReportActivite({ action, titre }: { action: string; titre: string }) {
-  const p = useReportRange();
-  const { m, du, au } = p;
-  const { data, loading } = useAsync<O>(() => call(action, { du, au, periode: m }), [du, au]);
-  const parOp = (data?.['parOp'] ?? {}) as Record<string, O>;
-  const total = (data?.['total'] ?? {}) as O;
-  async function exporter() { const f = await call<O>(action, { du, au, periode: m, format: 'xlsx' }); telecharger(f); }
-  // v4.1 — détail 20' / 40' / 45' ajouté à CHAQUE rapport de cellule (décision
-  // utilisateur 2026-07-22). La donnée était déjà calculée côté serveur, seul
-  // l'affichage la masquait.
-  const ligne = (lib: string, a: O, gras?: boolean) => <tr key={lib} style={gras ? { fontWeight: 700 } : undefined}>
-    <td>{lib}</td><td>{Number(a['camions'] ?? 0)}</td><td>{Number(a['twins'] ?? 0)}</td><td>{Number(a['sansBalise'] ?? 0)}</td>
-    <td>{Number(a['t20'] ?? 0)}</td><td>{Number(a['t40'] ?? 0)}</td><td>{Number(a['t45'] ?? 0)}</td><td>{Number(a['autres'] ?? 0)}</td>
-    <td>{Number(a['conteneurs'] ?? 0)}</td><td>{Number(a['evp'] ?? 0)}</td></tr>;
-  return <div className="card"><div className="row" style={{ flexWrap: 'wrap' }}><h2 style={{ flex: 1 }}>{titre}</h2><PeriodPicker p={p} /><button className="ghost xs" onClick={exporter}>Export Excel</button></div><PeriodeLue p={p} />
-    {loading ? <Spinner /> : <div className="tbl" style={{ marginTop: 10 }}><table>
-      <thead><tr><th>Opération</th><th>Camions</th><th>Twins</th><th>Sans balise</th><th>20'</th><th>40'</th><th>45'</th><th>Autres</th><th>Conteneurs</th><th>EVP</th></tr></thead>
-      <tbody>
-        {[OPERATIONS.ENLEVEMENT, OPERATIONS.DEPOTAGE].map((op) => ligne(op, parOp[op] ?? {}))}
-        {ligne('TOTAL', total, true)}
-      </tbody></table></div>}
-  </div>;
+
+/** Modal de détail d'une carte de rapport : liste de camions OU de conteneurs. */
+function DetailCellule({ detail, du, au, op, metric, go, onClose }: {
+  detail: string; du: string; au: string; op: string; metric: MetriqueCellule; go: Nav['go']; onClose: () => void;
+}) {
+  const { data, loading } = useAsync<{ kind?: string; titre?: string; rows: O[] }>(
+    () => call(detail, { du, au, operation: op, metric }), []);
+  const rows = data?.rows ?? [];
+  const estCamions = data?.['kind'] === 'camions' || metric === 'camions' || metric === 'twins';
+  const ouvrir = (id: unknown) => { onClose(); if (id) go('detail', id); };
+  return <Modal onClose={onClose}>
+    <h2>{(op || 'Toutes opérations')} — {data?.titre ?? '…'} ({rows.length})</h2>
+    {loading ? <Spinner /> : rows.length === 0 ? <div className="empty">Aucun élément sur la période.</div>
+      : estCamions
+        ? <Table cols={[['numeroCamion', 'Camion'], ['typeOperation', 'Opération'], ['statut', 'Statut'], ['numeroGps', 'N° GPS'], ['nbConteneurs', 'Nb cont.']]} rows={rows} onRow={(r) => ouvrir(r['id'])} />
+        : <Table cols={[['conteneur', 'Conteneur'], ['taille', 'Taille'], ['type', 'Type'], ['scelle', 'Scellé'], ['numeroCamion', 'Camion'], ['cargaisonId', 'Cargaison']]} rows={rows} onRow={(r) => ouvrir(r['cargaisonId'] ?? r['id'])} />}
+  </Modal>;
 }
+
+SCREENS.cfsreport = ({ go }) => <RapportCellule action="report.cfs" detail="report.cfsdetail" titre="Rapport CFS" camLabel="Camions" go={go} />;
+SCREENS.baliserep = ({ go }) => <RapportCellule action="report.balise" detail="report.balisedetail" titre="Rapport Balise (pose balise)" twins camLabel="Camions balisés" go={go} />;
+SCREENS.pprep = ({ go }) => <RapportCellule action="report.pp" detail="report.ppdetail" titre="Rapport Porte Principale (sorties)" camLabel="Camions sortis" go={go} />;
 
 SCREENS.vehreport = () => {
   const p = useReportRange();

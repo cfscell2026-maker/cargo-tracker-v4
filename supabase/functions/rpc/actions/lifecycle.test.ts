@@ -987,3 +987,21 @@ test('ré-import « remplacer » : la saisie manuelle est RÉGULARISÉE (dépot�
   assert.equal(s['cargaison_id'], cargoId);   // liée à son camion
   assert.equal(s['numero_declaration'], '333');
 });
+
+/* ---- v4.1 : fiche de synthèse — le champ « Conteneurs MAD » --------------- */
+
+test('fiche : « Conteneurs MAD » compte les entrées Magasin/MAD (stock), pas le vrac', async () => {
+  const db = new FakeDB();
+  const cfs = ctxRole(db, 'CFS', 'Agent CFS');
+  // 4 conteneurs du parc entrés au magasin via l'écran « Entrée Magasin/MAD ».
+  for (const tc of ['MSKU1000001', 'MSKU1000002', 'MSKU1000003', 'MSKU1000004']) {
+    db.store['stock'].push({ numero_tc: tc, taille: "40'", statut: 'En stock' });
+    await stk.stockEntreeMagasin(cfs, { numeroTC: tc, taille: "40'" });
+  }
+  const f = (await rap.ficheBord(cfs, {})) as { cfs: { mad: { conteneurs: number }; total: { conteneurs: number } } };
+  // AVANT le correctif : restait à 0 (on comptait les cargaisons de type MAGASIN,
+  // qui sont du vrac à 0 conteneur). Désormais : les 4 conteneurs sont comptés.
+  assert.equal(f.cfs.mad.conteneurs, 4);
+  // Et le total CFS les inclut.
+  assert.equal(f.cfs.total.conteneurs, 4);
+});
