@@ -328,16 +328,19 @@ function PanneauCFS({ c, dets, action, prefillDecl }: { c: O; dets: ReturnType<t
 
       {/* v4 — un camion d'effets divers (0 conteneur) se finalise aussi (scellés camion). */}
       {!estEnl && c['statut'] === STATUTS.CHARGEMENT && <FinaliserDepotage id={id} action={action} />}
+      {/* v4.1 (affiné 2026-07-22) — l'ENLÈVEMENT passe désormais SEUL en « Créée »
+          à la saisie (scellés par conteneur = fin de chargement). Ce bouton n'est
+          qu'un RATTRAPAGE pour les enlèvements restés « En cours de chargement »
+          d'avant ce changement ; le flux normal ne l'affiche jamais. */}
       {estEnl && c['statut'] === STATUTS.CHARGEMENT && <FinirEnlevement c={c} action={action} />}
     </div>
   );
 }
 
 /**
- * v4.1 — Fin de chargement d'un ENLÈVEMENT (décision utilisateur 2026-07-22).
- * Tant que le CFS n'a pas appuyé ici, l'étape « CFS — chargement » reste au gris
- * et AUCUNE cellule en aval ne peut travailler : c'est ce que l'agent doit
- * comprendre au premier coup d'œil, d'où le récapitulatif de ce qui est chargé.
+ * v4.1 — RATTRAPAGE de fin de chargement (enlèvements bloqués « En cours de
+ * chargement » avant le 2026-07-22, où l'enlèvement passe seul en « Créée »).
+ * Ne s'affiche plus dans le flux normal.
  */
 function FinirEnlevement({ c, action }: { c: O; action: ActionFn }) {
   const id = c['id'] as string;
@@ -346,18 +349,16 @@ function FinirEnlevement({ c, action }: { c: O; action: ActionFn }) {
   const sansDecl = !String(c['numeroDeclaration'] ?? '').trim();
   const bloque = !conts.length || !!sansPlomb || sansDecl;
   return <div style={{ borderTop: '1px solid var(--line)', marginTop: 14, paddingTop: 12 }}>
-    <div className="section-title">Fin de chargement</div>
+    <div className="section-title">Terminer le chargement</div>
     <p className="help" style={{ marginTop: 0 }}>
-      Ce camion est <b>« En cours de chargement »</b> : l'étape CFS reste ouverte et
-      ni le chef brigade, ni le T1, ni la Balise, ni le bon de sortie ne peuvent le
-      traiter. Ajoutez tous les conteneurs, <b>puis</b> terminez ici.
+      Ce camion d'enlèvement est resté « En cours de chargement ». Un clic le passe
+      en « Créée » pour qu'il reparte dans le circuit.
     </p>
-    <div className="help">Chargé pour l'instant : <b>{conts.length}</b> conteneur(s){conts.length ? ` — ${conts.map((ct) => ct.num).join(' · ')}` : ''}.</div>
     {!conts.length && <div className="err-msg">Aucun conteneur : ajoutez-en au moins un.</div>}
     {!!sansPlomb && <div className="err-msg">{sansPlomb} conteneur(s) sans scellé — corrigez-les d'abord.</div>}
     {sansDecl && <div className="err-msg">Déclaration non renseignée.</div>}
     <div style={{ marginTop: 12 }}>
-      <button disabled={bloque} onClick={() => action(() => call('cargo.fincharge', { id }), 'Chargement terminé — étape CFS validée.')}>
+      <button disabled={bloque} onClick={() => action(() => call('cargo.fincharge', { id }), 'Chargement terminé.')}>
         Terminer le chargement → « Créée »
       </button>
     </div>
@@ -598,8 +599,7 @@ function PanneauEtatCFS({ c, action }: { c: O; action: ActionFn }) {
   const id = c['id'] as string;
   const [etat, setEtat] = useState((c['etatSortie'] as string) || '');
   return <div className="card"><h2>État du camion à la sortie de la zone CFS</h2>
-    <p className="help" style={{ marginTop: 0 }}>Traçabilité du parking : dans quel état le camion quitte la zone CFS.
-      ⚠ À ne pas confondre avec la <b>fin de chargement</b> ci-dessus, qui, elle, clôt l'étape CFS et ouvre les cellules en aval.</p>
+    <p className="help" style={{ marginTop: 0 }}>Traçabilité du parking : dans quel état le camion quitte la zone CFS. Sans rapport avec l'ajout de conteneurs ci-dessus.</p>
     <div className="row">
       <select value={etat} onChange={(e) => setEtat(e.target.value)} style={{ maxWidth: 240 }}>
         <option value="">— Choisir —</option>{ETATS_SORTIE.map((s) => <option key={s}>{s}</option>)}

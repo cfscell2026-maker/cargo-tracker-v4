@@ -173,13 +173,13 @@ export async function cfs(ctx: Ctx, p: Record<string, unknown>) {
     patch['saute_t1'] = sauts.sauteT1;
     patch['saute_balise'] = sauts.sauteBalise;
   }
-  // v4.1 — AJOUTER UN CONTENEUR NE TERMINE JAMAIS LE CHARGEMENT (décision
-  // utilisateur 2026-07-22). L'enlèvement passait à « Créée » dès le 1er
-  // conteneur : l'étape CFS virait au vert et les cellules en aval s'ouvraient
-  // alors que le camion pouvait encore charger. Le camion reste « En cours de
-  // chargement » jusqu'à ce que le CFS déclare explicitement la fin
-  // (`cargo.fincharge` en enlèvement, `cargo.declaration` en dépotage).
-  const resultStatut = STATUTS.CHARGEMENT;
+  // v4.1 (affiné 2026-07-22) — ENLÈVEMENT : le scellé est posé PAR conteneur, à
+  // la saisie ; ajouter le(s) conteneur(s) avec leurs scellés VAUT fin de
+  // chargement → « Créée » directement, sans bouton à confirmer. DÉPOTAGE : les
+  // scellés sont au niveau du CAMION et se posent à la finalisation
+  // (hauteur + colis + scellés), donc il reste « En cours de chargement » tant
+  // que `cargo.declaration` n'a pas été appelé.
+  const resultStatut = estEnl ? STATUTS.CREEE : STATUTS.CHARGEMENT;
   patch['statut'] = resultStatut;
 
   await patchCargo(ctx, cargo, patch);
@@ -660,10 +660,10 @@ export async function edittype(ctx: Ctx, p: Record<string, unknown>) {
     if (migr.length) scellesCamion = migr;
     conts.forEach((ct) => { ct.plomb = ''; });
   }
-  // Statut cohérent : vide → « Camion créé » ; sinon « En cours de chargement »,
-  // car changer de type invalide la clôture précédente — la fin de chargement
-  // est à redéclarer (scellés/hauteur en dépotage, cargo.fincharge en enlèvement).
-  const statut = !conts.length ? STATUTS.CAMION : STATUTS.CHARGEMENT;
+  // Statut cohérent : vide → « Camion créé » ; enlèvement → « Créée » (scellés
+  // déjà par conteneur = fin de chargement implicite) ; dépotage → « En cours de
+  // chargement » (finalisation scellés camion / hauteur à refaire).
+  const statut = !conts.length ? STATUTS.CAMION : estEnl ? STATUTS.CREEE : STATUTS.CHARGEMENT;
   await patchCargo(ctx, cargo, {
     type_operation: nouveau, routage_entree: nouveau,
     twins: estEnl && conts.length >= 2,
@@ -883,10 +883,8 @@ export async function lotcamions(ctx: Ctx, p: Record<string, unknown>) {
         await cfs(ctx, charge);
         premier = false;
       }
-      // La saisie en lot décrit le camion COMPLET en une fois : l'envoyer vaut
-      // déclaration de fin de chargement. (Le dépotage garde sa finalisation —
-      // scellés camion et hauteur ne sont pas saisis dans ce formulaire.)
-      if (routage === OPERATIONS.ENLEVEMENT) await finChargement(ctx, { id });
+      // Enlèvement : `cfs` place déjà le camion en « Créée » (scellés par
+      // conteneur = fin de chargement). Rien à confirmer ici.
       crees.push({ id, numeroCamion, conteneurs: conteneurs.length });
     } catch (e) {
       erreurs.push({ numeroCamion, id, message: (e as Error).message });
