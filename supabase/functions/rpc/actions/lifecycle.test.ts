@@ -1005,3 +1005,47 @@ test('fiche : « Conteneurs MAD » compte les entrées Magasin/MAD (stock), pas 
   // Et le total CFS les inclut.
   assert.equal(f.cfs.total.conteneurs, 4);
 });
+
+/* ---- v4.1 : fiche — la CONSO se compte au TYPE DE DÉCLARATION C ---------- */
+
+test('fiche : « conso » = camions dont la déclaration est de type C (pas l’opération)', async () => {
+  const db = new FakeDB();
+  db.store['stock'].push(
+    { numero_tc: 'MSKU1000001', taille: "40'", statut: 'En stock' },
+    { numero_tc: 'MSKU1000002', taille: "40'", statut: 'En stock' },
+  );
+  const cfs = ctxAvec(db);
+  const base = { declarant: 'A', contactDeclarant: '901234', destinationMarchandise: 'D', bureauDeclaration: 'TG120', descriptionMarchandise: 'X', anneeDeclaration: '2026' };
+
+  // (a) un ENLÈVEMENT dont la DÉCLARATION est de type C → doit compter en conso.
+  const e1 = (await ecr.createcamion(cfs, { numeroCamion: 'CONSO-ENL', routage: 'Enlèvement' })) as { id: string };
+  await ecr.cfs(cfs, { id: e1.id, conteneur: { num: 'MSKU1000001', taille: "40'", type: 'DRY', plomb: 'S1' },
+    declaration: { ...base, typeDeclaration: 'C', numeroDeclaration: '100' }, consoMode: 'balise' });
+  await ecr.finChargement(cfs, { id: e1.id });
+
+  // (b) un enlèvement de type T (transit) → NE compte PAS en conso.
+  const e2 = (await ecr.createcamion(cfs, { numeroCamion: 'TRANSIT', routage: 'Enlèvement' })) as { id: string };
+  await ecr.cfs(cfs, { id: e2.id, conteneur: { num: 'MSKU1000002', taille: "40'", type: 'DRY', plomb: 'S2' },
+    declaration: { ...base, typeDeclaration: 'T', numeroDeclaration: '101' } });
+  await ecr.finChargement(cfs, { id: e2.id });
+
+  const f = (await rap.ficheBord(cfs, {})) as { cfs: { camionsConso: number } };
+  assert.equal(f.cfs.camionsConso, 1); // seul l'enlèvement type C
+});
+
+test('fiche : la « Sortie conso » compte les sorties de type C', async () => {
+  const db = new FakeDB();
+  db.store['stock'].push({ numero_tc: 'MSKU1000003', taille: "40'", statut: 'En stock' });
+  const cfs = ctxAvec(db);
+  const base = { declarant: 'A', contactDeclarant: '901234', destinationMarchandise: 'D', bureauDeclaration: 'TG120', descriptionMarchandise: 'X', anneeDeclaration: '2026' };
+  const e = (await ecr.createcamion(cfs, { numeroCamion: 'CONSO-OUT', routage: 'Enlèvement' })) as { id: string };
+  await ecr.cfs(cfs, { id: e.id, conteneur: { num: 'MSKU1000003', taille: "40'", type: 'DRY', plomb: 'S1' },
+    declaration: { ...base, typeDeclaration: 'C', numeroDeclaration: '102' }, consoMode: 'sansbalise' });
+  await ecr.finChargement(cfs, { id: e.id });
+  // type C non balisé → saute T1 et Balise ; on émet le bon de sortie puis on sort.
+  await ecr.bonsortie(ctxRole(db, 'BON_SORTIE', 'BS'), { id: e.id, bonSortieNumero: [{ conteneur: 'MSKU1000003', t1: '', numero: 'BS-1' }] });
+  await ecr.sortie(ctxRole(db, 'PP', 'PP'), { id: e.id, ckCfs: true, ckT1: true, ckBalise: true, ckBs: true });
+  const f = (await rap.ficheBord(cfs, {})) as { pp: { conso: number; total: number } };
+  assert.equal(f.pp.conso, 1);
+  assert.equal(f.pp.total, 1);
+});

@@ -289,6 +289,11 @@ export async function ficheBord(ctx: Ctx, p: Record<string, unknown>) {
     const op = String(c['typeOperation'] ?? '');
     const veh = estOui(c['estVehicule']);
     const conts = detsDeRow(c);
+    // CONSO = déclaration de TYPE C (mise à la consommation), quel que soit le
+    // type d'opération (correctif 2026-07-22). Un enlèvement ou un dépotage sous
+    // déclaration C EST une conso — c'est le type C qui décide, pas l'opération.
+    // On garde l'opération dédiée « Conso (type C) » comme second déclencheur.
+    const estConso = String(c['typeDeclaration'] ?? '').toUpperCase() === 'C' || op === OPERATIONS.CONSO;
 
     /* --- CFS : à la date de création du camion --- */
     if (!veh && inRange(c['dateCreation'], du, au)) {
@@ -297,8 +302,8 @@ export async function ficheBord(ctx: Ctx, p: Record<string, unknown>) {
           : op === OPERATIONS.MAGASIN ? cfs.mad : null;
       if (op === OPERATIONS.ENLEVEMENT) { cfs.camionsEnlevement++; cfs.camionsCfs++; }
       else if (op === OPERATIONS.DEPOTAGE) { cfs.camionsDepotage++; cfs.camionsCfs++; }
-      else if (op === OPERATIONS.CONSO) cfs.camionsConso++;
       else if (op === OPERATIONS.MAGASIN) cfs.camionsMad++;
+      if (estConso) cfs.camionsConso++; // cross-cut : compté au type C, en plus du bucket d'opération
       for (const ct of conts) {
         if (cible) ajouterTaille(cible, ct.taille);
         ajouterTaille(cfs.total, ct.taille);
@@ -336,7 +341,7 @@ export async function ficheBord(ctx: Ctx, p: Record<string, unknown>) {
       else if (op === OPERATIONS.ENLEVEMENT) pp.enlevement++;
       else if (op === OPERATIONS.DEPOTAGE) pp.depotage++;
       else if (op === OPERATIONS.MAGASIN) pp.mad++;
-      else if (op === OPERATIONS.CONSO) pp.conso++;
+      if (!veh && estConso) pp.conso++; // cross-cut type C, comme sur la fiche papier
       for (const ct of conts) ajouterTaille(pp.tailles, ct.taille);
     }
   }

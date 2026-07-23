@@ -72,8 +72,9 @@ export function Detail({ user, arg, go, retour, ecranPrecedent }: Nav) {
           <button onClick={() => action(() => call('cargo.arriveebureau', { id }), 'Arrivée confirmée.')}>Confirmer l'arrivée (solder la dispense)</button></div>}
       {!estVeh && c['statut'] !== STATUTS.SORTIE && can(ROLES.CFS, A) && <PanneauEtatCFS c={c} action={action} />}
 
-      {/* v4 — enchaîner un autre camion sur la même déclaration : enlèvement ET dépotage. */}
-      {[OPERATIONS.DEPOTAGE, OPERATIONS.ENLEVEMENT].includes(c['typeOperation'] as never) && can(ROLES.CFS, A) && !!c['numeroDeclaration'] &&
+      {/* v4 — enchaîner un autre camion sur la même déclaration : enlèvement,
+          dépotage ET sortie Magasin/MAD (v4.1). */}
+      {[OPERATIONS.DEPOTAGE, OPERATIONS.ENLEVEMENT, OPERATIONS.MAGASIN].includes(c['typeOperation'] as never) && can(ROLES.CFS, A) && !!c['numeroDeclaration'] &&
         <AjouterCamion c={c} go={go} />}
       {/* v4 — Éditer : le CFS a la main JUSQU'À la fin de chargement ; l'ADMIN toujours. */}
       {peutTtEditer
@@ -380,21 +381,37 @@ export function prefillDe(c: O): O {
 function AjouterCamion({ c, go }: { c: O; go: Nav['go'] }) {
   const [num, setNum] = useState('');
   const [busy, setBusy] = useState(false);
-  const routage = String(c['typeOperation'] ?? OPERATIONS.ENLEVEMENT);
+  const op = String(c['typeOperation'] ?? OPERATIONS.ENLEVEMENT);
+  // v4.1 — la Sortie Magasin/MAD n'a PAS de conteneurs : le camion se crée en
+  // une fois (comme le formulaire Magasin), pas en « camion vide + conteneurs ».
+  const estMagasin = op === OPERATIONS.MAGASIN;
   async function creer() {
     if (!num) { toast('N° camion requis.', 'err'); return; }
     setBusy(true);
     try {
-      const r = await call<{ id: string }>('cargo.createcamion', { numeroCamion: num, routage });
-      toast('Nouveau camion créé.', 'ok');
-      go('detail', { id: r.id, prefillDecl: prefillDe(c) });
+      if (estMagasin) {
+        // Reprend la déclaration ; le choix « balise » suit le type de déclaration
+        // du camion courant (type C non balisé = dispense déjà résolue).
+        const consoMode = estOui(c['sauteBalise']) ? 'sansbalise' : 'balise';
+        const r = await call<{ camions: { id: string }[] }>('cargo.create', {
+          typeOperation: OPERATIONS.MAGASIN, numeroCamion: num, declaration: prefillDe(c), consoMode,
+        });
+        toast('Nouvelle sortie magasin créée.', 'ok');
+        go('detail', r.camions[0]?.id);
+      } else {
+        const r = await call<{ id: string }>('cargo.createcamion', { numeroCamion: num, routage: op });
+        toast('Nouveau camion créé.', 'ok');
+        go('detail', { id: r.id, prefillDecl: prefillDe(c) });
+      }
     } catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(false); }
   }
   return <div className="card"><h2>Ajouter un autre camion (même déclaration)</h2>
-    <p className="help" style={{ marginTop: 0 }}>Crée un nouveau camion de <b>{routage.toLowerCase()}</b> en reprenant la déclaration de ce camion (déclarant, n° de déclaration, marchandise) — vous n'aurez qu'à saisir les conteneurs.</p>
+    <p className="help" style={{ marginTop: 0 }}>{estMagasin
+      ? <>Crée une nouvelle <b>sortie Magasin / MAD</b> en reprenant la déclaration de ce camion (déclarant, n° de déclaration, marchandise) — vous n'aurez qu'à saisir le N° du camion.</>
+      : <>Crée un nouveau camion de <b>{op.toLowerCase()}</b> en reprenant la déclaration de ce camion (déclarant, n° de déclaration, marchandise) — vous n'aurez qu'à saisir les conteneurs.</>}</p>
     <div className="row"><input className="mono" value={num} onChange={(e) => setNum(masks.alnum(e.target.value))} placeholder="N° du nouveau camion" style={{ flex: 1 }} />
-      <button disabled={busy} onClick={creer}>Créer et associer</button></div>
-    <p className="help" style={{ marginBottom: 0 }}>Plusieurs camions d'un coup ? Utilisez l'écran « Plusieurs camions (1 déclaration) » du menu.</p>
+      <button disabled={busy} onClick={creer}>{estMagasin ? 'Créer' : 'Créer et associer'}</button></div>
+    {!estMagasin && <p className="help" style={{ marginBottom: 0 }}>Plusieurs camions d'un coup ? Utilisez l'écran « Plusieurs camions (1 déclaration) » du menu.</p>}
   </div>;
 }
 
