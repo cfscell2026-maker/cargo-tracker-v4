@@ -1249,12 +1249,22 @@ function ReportActivite({ action, titre }: { action: string; titre: string }) {
   const { m, du, au } = p;
   const { data, loading } = useAsync<O>(() => call(action, { du, au, periode: m }), [du, au]);
   const parOp = (data?.['parOp'] ?? {}) as Record<string, O>;
-  return <div className="card"><div className="row" style={{ flexWrap: 'wrap' }}><h2 style={{ flex: 1 }}>{titre}</h2><PeriodPicker p={p} /></div><PeriodeLue p={p} />
+  const total = (data?.['total'] ?? {}) as O;
+  async function exporter() { const f = await call<O>(action, { du, au, periode: m, format: 'xlsx' }); telecharger(f); }
+  // v4.1 — détail 20' / 40' / 45' ajouté à CHAQUE rapport de cellule (décision
+  // utilisateur 2026-07-22). La donnée était déjà calculée côté serveur, seul
+  // l'affichage la masquait.
+  const ligne = (lib: string, a: O, gras?: boolean) => <tr key={lib} style={gras ? { fontWeight: 700 } : undefined}>
+    <td>{lib}</td><td>{Number(a['camions'] ?? 0)}</td><td>{Number(a['twins'] ?? 0)}</td><td>{Number(a['sansBalise'] ?? 0)}</td>
+    <td>{Number(a['t20'] ?? 0)}</td><td>{Number(a['t40'] ?? 0)}</td><td>{Number(a['t45'] ?? 0)}</td><td>{Number(a['autres'] ?? 0)}</td>
+    <td>{Number(a['conteneurs'] ?? 0)}</td><td>{Number(a['evp'] ?? 0)}</td></tr>;
+  return <div className="card"><div className="row" style={{ flexWrap: 'wrap' }}><h2 style={{ flex: 1 }}>{titre}</h2><PeriodPicker p={p} /><button className="ghost xs" onClick={exporter}>Export Excel</button></div><PeriodeLue p={p} />
     {loading ? <Spinner /> : <div className="tbl" style={{ marginTop: 10 }}><table>
-      <thead><tr><th>Opération</th><th>Camions</th><th>Twins</th><th>Sans balise</th><th>Conteneurs</th><th>EVP</th></tr></thead>
-      <tbody>{[OPERATIONS.ENLEVEMENT, OPERATIONS.DEPOTAGE].map((op) => { const a = parOp[op] ?? {}; return (
-        <tr key={op}><td>{op}</td><td>{Number(a['camions'] ?? 0)}</td><td>{Number(a['twins'] ?? 0)}</td><td>{Number(a['sansBalise'] ?? 0)}</td><td>{Number(a['conteneurs'] ?? 0)}</td><td>{Number(a['evp'] ?? 0)}</td></tr>
-      ); })}</tbody></table></div>}
+      <thead><tr><th>Opération</th><th>Camions</th><th>Twins</th><th>Sans balise</th><th>20'</th><th>40'</th><th>45'</th><th>Autres</th><th>Conteneurs</th><th>EVP</th></tr></thead>
+      <tbody>
+        {[OPERATIONS.ENLEVEMENT, OPERATIONS.DEPOTAGE].map((op) => ligne(op, parOp[op] ?? {}))}
+        {ligne('TOTAL', total, true)}
+      </tbody></table></div>}
   </div>;
 }
 

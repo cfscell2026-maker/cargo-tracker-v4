@@ -206,10 +206,13 @@ export async function rapportActivite(ctx: Ctx, p: Record<string, unknown>) {
   const agentLc = agentForce(ctx, cfg.role, p['agent']);
   const r = collecteActivite(await loadCargos(ctx), cfg.dateCol, cfg.agentCol, p['du'] as string, p['au'] as string, agentLc || undefined);
   if (p['format'] === 'xlsx' || p['format'] === 'pdf') {
-    const recap: unknown[][] = [['Opération', 'Camions', 'Twins', 'Sans balise', 'Conteneurs', 'EVP']];
+    // v4.1 — détail par taille ajouté à l'export (comme le rapport CFS).
+    const recap: unknown[][] = [['Opération', 'Camions', 'Twins', 'Sans balise', "20'", "40'", "45'", 'Autres', 'Conteneurs', 'EVP']];
     for (const op of [OPERATIONS.ENLEVEMENT, OPERATIONS.DEPOTAGE]) {
-      const a = r.parOp[op]!; recap.push([op, a.camions, a.twins, a.sansBalise, a.conteneurs, a.evp]);
+      const a = r.parOp[op]!; recap.push([op, a.camions, a.twins, a.sansBalise, a.t20, a.t40, a.t45, a.autres, a.conteneurs, a.evp]);
     }
+    const t = r.total;
+    recap.push(['TOTAL', t.camions, t.twins, t.sansBalise, t.t20, t.t40, t.t45, t.autres, t.conteneurs, t.evp]);
     return fichier('Rapport_' + p['kind'], String(p['format']), [{ nom: 'Récapitulatif', aoa: recap }]);
   }
   return { kind: p['kind'], periode: p['periode'], du: p['du'], au: p['au'], parOp: r.parOp, total: r.total };
