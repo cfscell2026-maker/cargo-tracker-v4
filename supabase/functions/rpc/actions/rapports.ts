@@ -328,8 +328,14 @@ export async function ficheBord(ctx: Ctx, p: Record<string, unknown>) {
     // rattache à l'entrée du camion, seule date dont elle dispose.
     if (inRange(c['dateCreation'], du, au) && !veh
       && (String(c['numeroDispense'] ?? '').trim() !== '' || estOui(c['sauteBalise']))) balise.dispenses++;
-    // Parking = situation instantanée : ni sorti, ni déjà passé prendre sa balise.
-    if (c['statut'] !== STATUTS.SORTIE && !aFait(c['datePoseGps'])) balise.parking++;
+    // Parking = camions RÉELLEMENT EN ATTENTE DE BALISE (correctif 2026-07-22).
+    // L'ancienne règle « ni sorti, ni balisé » gonflait le chiffre : elle
+    // comptait AUSSI les véhicules (qui ne prennent pas de balise), les dispenses
+    // et conso non balisées (jamais de balise à prendre), les camions encore en
+    // chargement au CFS, et toute la base migrée restée à un statut intermédiaire.
+    // « En attente de balise » = l'étape BALISE figure dans les étapes restantes,
+    // ce qui exclut d'office véhicules / dispensés / balisés / sortis / pré-CFS.
+    if (etapesEnAttente(c as never).indexOf('BALISE') >= 0) balise.parking++;
 
     /* --- BON DE SORTIE : à la date d'émission --- */
     if (inRange(c['dateBonSortie'], du, au) && aFait(c['bonSortieNumero'])) bs.total++;

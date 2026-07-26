@@ -1011,3 +1011,39 @@ test('fiche : la « Sortie conso » compte les sorties de type C', async () => {
   assert.equal(f.pp.conso, 1);
   assert.equal(f.pp.total, 1);
 });
+
+/* ---- v4.1 : « Camions au parking » = en attente de balise SEULEMENT ------- */
+
+test('fiche : le parking ne compte QUE les camions en attente de balise', async () => {
+  const db = new FakeDB();
+  const cfs = ctxAvec(db);
+  db.store['stock'].push(
+    { numero_tc: 'MSKU2000001', taille: "40'", statut: 'En stock' },
+    { numero_tc: 'MSKU2000002', taille: "40'", statut: 'En stock' },
+  );
+  const base = { declarant: 'A', contactDeclarant: '901234', destinationMarchandise: 'D', bureauDeclaration: 'TG120', descriptionMarchandise: 'X', anneeDeclaration: '2026' };
+
+  // (a) enlèvement transit balise requise, PAS encore balisé → compte.
+  const a = (await ecr.createcamion(cfs, { numeroCamion: 'PK-WAIT', routage: 'Enlèvement' })) as { id: string };
+  await ecr.cfs(cfs, { id: a.id, conteneur: { num: 'MSKU2000001', taille: "40'", type: 'DRY', plomb: 'S1' },
+    declaration: { ...base, typeDeclaration: 'T', numeroDeclaration: '200' } });
+
+  // (b) camion encore EN CHARGEMENT au CFS (dépotage non finalisé) → ne compte PAS.
+  db.store['stock'].push({ numero_tc: 'TCLU2000003', taille: "40'", statut: 'Positionné' });
+  const b = (await ecr.createcamion(cfs, { numeroCamion: 'PK-LOAD', routage: 'Dépotage' })) as { id: string };
+  await ecr.cfs(cfs, { id: b.id, conteneur: { num: 'TCLU2000003', taille: "40'", type: 'DRY' },
+    declaration: { ...base, typeDeclaration: 'T', numeroDeclaration: '201' } });
+
+  // (c) conso NON balisée (dispense) → jamais de balise → ne compte PAS.
+  const cc = (await ecr.createcamion(cfs, { numeroCamion: 'PK-DISP', routage: 'Enlèvement' })) as { id: string };
+  await ecr.cfs(cfs, { id: cc.id, conteneur: { num: 'MSKU2000002', taille: "40'", type: 'DRY', plomb: 'S2' },
+    declaration: { ...base, typeDeclaration: 'C', numeroDeclaration: '202' }, consoMode: 'sansbalise' });
+
+  // (d) véhicule → saute la balise → ne compte PAS.
+  await spe.create(cfs, { typeOperation: 'Dépotage / Véhicule', conteneurOrigine: 'MSKU2000009',
+    declaration: { ...base, typeDeclaration: 'T', numeroDeclaration: '203' },
+    vehicules: [{ chassis: 'VIN123', marque: 'X', modele: 'Y', couleur: 'Z', destination: 'Transit' }] });
+
+  const f = (await rap.ficheBord(cfs, {})) as { balise: { parking: number } };
+  assert.equal(f.balise.parking, 1); // seul (a)
+});
