@@ -11,7 +11,7 @@ import {
   parseConteneursDetails, parseDateImport, tailleBucket, evpDeTaille, trancheAge,
   verifierPermission, PERMISSIONS, TYPES_DECLARATION,
   groupesDeclaration, estChargementMixte, libelleDeclaration,
-  sautsTypeC, estTypeSansT1,
+  sautsTypeC, estTypeSansT1, codeDestination,
 } from './index.ts';
 
 /* ------------------------------ Moteur workflow ------------------------ */
@@ -250,4 +250,12 @@ test('types hors transit (C conso, A admission) : sautent le T1, balise au choix
     assert.deepEqual(sautsTypeC(t, 'sansbalise'), { sauteT1: false, sauteBalise: false });
     assert.equal(estTypeSansT1(t), false);
   }
+});
+
+test('codeDestination : codes reconnus, texte libre → Autres', () => {
+  assert.equal(codeDestination('TG'), 'TG');
+  assert.equal(codeDestination('bf'), 'BF');
+  assert.equal(codeDestination('TG (Transit National)'), 'TG');
+  assert.equal(codeDestination('NIGER'), 'Autres'); // ancien texte libre migré
+  assert.equal(codeDestination(''), 'Autres');
 });

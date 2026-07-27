@@ -12,7 +12,7 @@ import { versCamel } from '../ctx.ts';
 // au niveau module fait planter le démarrage de l'Edge Function (Deno) →
 // BOOT_ERROR / 503 sur toutes les requêtes. Chargé seulement lors d'un export.
 import {
-  ROLES, STATUTS, OPERATIONS, DEFAUTS, TRANCHES_SEJOUR, SEUIL_ALERTE_SEJOUR,
+  ROLES, STATUTS, OPERATIONS, DEFAUTS, DESTINATION_CODES, codeDestination, TRANCHES_SEJOUR, SEUIL_ALERTE_SEJOUR,
   tailleBucket, evpDeTaille, trancheAge, parseConteneursDetails, estOui, aFait, normAlphaNum,
   groupesDeclaration, estChargementMixte, libelleDeclaration,
   etapesEnAttente, etatCellules,
@@ -438,37 +438,91 @@ function periodeKey(v: unknown, gran: string): string | null {
   if (!v) return null;
   const d = new Date(String(v));
   if (isNaN(d.getTime())) return null;
+  if (gran === 'annee') return String(d.getFullYear());
   if (gran === 'mois') return d.toISOString().slice(0, 7);
   if (gran === 'semaine') return lundiDe(d).toISOString().slice(0, 10);
   return d.toISOString().slice(0, 10);
 }
 
+interface FluxLigne {
+  periode: string; enlevesC: number; depotesC: number; tc: number; evp: number; baliseC: number; ppC: number;
+}
+function fluxVide(k: string): FluxLigne { return { periode: k, enlevesC: 0, depotesC: 0, tc: 0, evp: 0, baliseC: 0, ppC: 0 }; }
+
 export async function rapportFlux(ctx: Ctx, p: Record<string, unknown>) {
-  const gran = String(p['granularite'] || 'jour');
-  // v4 — bornes de période FACULTATIVES (absentes = toute la base, comportement
-  // d'origine). Chaque passage est daté SÉPARÉMENT : un camion entré en juin et
-  // sorti en juillet compte au CFS de juin et à la PP de juillet, donc le filtre
-  // s'applique par ÉVÉNEMENT et non sur la cargaison entière.
+  const gran = String(p['granularite'] || 'mois');
+  // v4 — bornes de période FACULTATIVES (absentes = toute la base). Chaque
+  // passage est daté SÉPARÉMENT : un camion entré en juin et sorti en juillet
+  // compte à l'enlèvement/dépotage de juin et à la sortie de juillet.
   const du = String(p['du'] ?? '') || undefined;
   const au = String(p['au'] ?? '') || undefined;
   const dansPeriode = (v: unknown) => (!du && !au) || inRange(v, du, au);
   const cargos = await loadCargos(ctx);
-  const map: Record<string, { periode: string; cfsC: number; cfsT: number; baliseC: number; baliseT: number; ppC: number; ppT: number; sansBalise: number }> = {};
-  const bump = (k: string | null) => { if (!k) return null; if (!map[k]) map[k] = { periode: k, cfsC: 0, cfsT: 0, baliseC: 0, baliseT: 0, ppC: 0, ppT: 0, sansBalise: 0 }; return map[k]; };
+  const map: Record<string, FluxLigne> = {};
+  const bump = (k: string | null) => { if (!k) return null; if (!map[k]) map[k] = fluxVide(k); return map[k]; };
+  const tot = fluxVide('');
   for (const c of cargos) {
     if (estOui(c['estVehicule'])) continue;
-    const nbT = detsDeRow(c).length;
-    if (dansPeriode(c['dateCreation'])) { const kC = bump(periodeKey(c['dateCreation'], gran)); if (kC) { kC.cfsC++; kC.cfsT += nbT; } }
-    if (c['datePoseGps'] && dansPeriode(c['datePoseGps'])) { const kB = bump(periodeKey(c['datePoseGps'], gran)); if (kB) { kB.baliseC++; kB.baliseT += nbT; if (String(c['baliseRequise']) === 'Non' || c['baliseRequise'] === false) kB.sansBalise++; } }
-    if (c['dateSortie'] && dansPeriode(c['dateSortie'])) { const kP = bump(periodeKey(c['dateSortie'], gran)); if (kP) { kP.ppC++; kP.ppT += nbT; } }
+    const op = String(c['typeOperation']);
+    const dets = detsDeRow(c);
+    let evp = 0; for (const ct of dets) evp += evpDeTaille(tailleBucket(ct.taille));
+    // Enlèvement / dépotage : comptés à l'entrée CFS.
+    const kC = dansPeriode(c['dateCreation']) ? bump(periodeKey(c['dateCreation'], gran)) : null;
+    if (kC) {
+      if (op === OPERATIONS.ENLEVEMENT) { kC.enlevesC += dets.length; tot.enlevesC += dets.length; }
+      else if (op === OPERATIONS.DEPOTAGE) { kC.depotesC += dets.length; tot.depotesC += dets.length; }
+      kC.tc += dets.length; tot.tc += dets.length;
+      kC.evp += evp; tot.evp += evp;
+    }
+    // Camions balisés : à la pose de balise.
+    if (c['datePoseGps'] && dansPeriode(c['datePoseGps'])) { const k = bump(periodeKey(c['datePoseGps'], gran)); if (k) { k.baliseC++; tot.baliseC++; } }
+    // Camions sortis : à la sortie PP.
+    if (c['dateSortie'] && dansPeriode(c['dateSortie'])) { const k = bump(periodeKey(c['dateSortie'], gran)); if (k) { k.ppC++; tot.ppC++; } }
   }
   const rows = Object.values(map).sort((a, b) => a.periode.localeCompare(b.periode));
   if (p['format'] === 'xlsx' || p['format'] === 'pdf') {
-    const aoa: unknown[][] = [['Période', 'CFS camions', 'CFS conteneurs', 'Balise camions', 'Balise conteneurs', 'PP camions', 'PP conteneurs', 'Sans balise']];
-    rows.forEach((r) => aoa.push([r.periode, r.cfsC, r.cfsT, r.baliseC, r.baliseT, r.ppC, r.ppT, r.sansBalise]));
+    const aoa: unknown[][] = [['Période', 'Conteneurs enlevés', 'Conteneurs dépotés', 'Total conteneurs (TC)', 'EVP', 'Camions balisés', 'Camions sortis']];
+    rows.forEach((r) => aoa.push([r.periode, r.enlevesC, r.depotesC, r.tc, r.evp, r.baliseC, r.ppC]));
+    aoa.push(['TOTAL', tot.enlevesC, tot.depotesC, tot.tc, tot.evp, tot.baliseC, tot.ppC]);
     return fichier('Analyse_flux', String(p['format']), [{ nom: 'Flux', aoa }]);
   }
-  return { granularite: gran, du, au, rows };
+  return { granularite: gran, du, au, rows, totaux: tot };
+}
+
+/* ===================== Répartition par destination =================== */
+/**
+ * v4.1 — Camions SORTIS par DESTINATION (décision utilisateur 2026-07-27), avec
+ * évolution périodique pour le graphique. `parDest` = totaux sur la période ;
+ * `series` = un point par bucket de période, une valeur par destination.
+ */
+export async function rapportDestinations(ctx: Ctx, p: Record<string, unknown>) {
+  const gran = String(p['granularite'] || 'mois');
+  const du = String(p['du'] ?? '') || undefined;
+  const au = String(p['au'] ?? '') || undefined;
+  const dansPeriode = (v: unknown) => (!du && !au) || inRange(v, du, au);
+  const codes = [...DESTINATION_CODES, 'Autres'];
+  const cargos = await loadCargos(ctx);
+  const parDest: Record<string, number> = {}; codes.forEach((c) => (parDest[c] = 0));
+  const map: Record<string, Record<string, unknown>> = {};
+  let total = 0;
+  for (const c of cargos) {
+    if (estOui(c['estVehicule'])) continue; // camions uniquement
+    if (!c['dateSortie'] || !dansPeriode(c['dateSortie'])) continue;
+    const code = codeDestination(c['destinationMarchandise']);
+    parDest[code]++; total++;
+    const k = periodeKey(c['dateSortie'], gran);
+    if (!k) continue;
+    if (!map[k]) { map[k] = { periode: k }; codes.forEach((cc) => (map[k]![cc] = 0)); }
+    map[k]![code] = Number(map[k]![code] ?? 0) + 1;
+  }
+  const series = Object.values(map).sort((a, b) => String(a['periode']).localeCompare(String(b['periode'])));
+  if (p['format'] === 'xlsx' || p['format'] === 'pdf') {
+    const aoa: unknown[][] = [['Période', ...codes]];
+    series.forEach((r) => aoa.push([r['periode'], ...codes.map((c) => r[c])]));
+    aoa.push(['TOTAL', ...codes.map((c) => parDest[c])]);
+    return fichier('Repartition_destinations', String(p['format']), [{ nom: 'Destinations', aoa }]);
+  }
+  return { granularite: gran, du, au, codes, parDest, total, series };
 }
 
 export async function rapportFluxDetail(ctx: Ctx, p: Record<string, unknown>) {

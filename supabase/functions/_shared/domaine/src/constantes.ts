@@ -128,6 +128,33 @@ export function libelleTypeSansT1(typeDeclaration: unknown): string {
 /** Destinations / régimes possibles pour un véhicule dépoté. */
 export const VEHICULE_DESTINATIONS = ['Transit', 'Conso', 'MAD', 'Véhicule abandonné'] as const;
 
+/**
+ * v4.1 — DESTINATIONS de la marchandise (décision utilisateur 2026-07-27).
+ * Liste déroulante partout où la destination se saisit, au lieu du texte libre.
+ * TG = transit national ; les autres = pays de destination du transit.
+ */
+export const DESTINATIONS = [
+  { code: 'TG', label: 'TG (Transit National)' },
+  { code: 'BF', label: 'BF' },
+  { code: 'NE', label: 'NE' },
+  { code: 'ML', label: 'ML' },
+  { code: 'CI', label: 'CI' },
+  { code: 'BJ', label: 'BJ' },
+  { code: 'GH', label: 'GH' },
+] as const;
+export const DESTINATION_CODES = DESTINATIONS.map((d) => d.code);
+
+/**
+ * Ramène une valeur de destination (code v4.1 OU ancien texte libre migré) à un
+ * code connu, sinon « Autres ». Sert aux rapports par destination.
+ */
+export function codeDestination(v: unknown): string {
+  const s = String(v ?? '').toUpperCase().replace(/[^A-Z]/g, '');
+  if (!s) return 'Autres';
+  const hit = (DESTINATION_CODES as readonly string[]).find((c) => s === c || s.startsWith(c));
+  return hit ?? 'Autres';
+}
+
 /** v3.3 — Le CFS crée le camion et choisit le type ; le routage = le type. */
 export const ROUTAGES = {
   ENLEVEMENT: OPERATIONS.ENLEVEMENT,

@@ -93,6 +93,7 @@ export const PERMISSIONS: Record<string, Role[]> = {
   'report.dispenses': [ROLES.BALISE, ROLES.CHEF_BRIGADE, ROLES.ADMIN],
   'report.flux': [ROLES.CHEF_BRIGADE, ROLES.ADMIN],
   'report.fluxdetail': [ROLES.CHEF_BRIGADE, ROLES.ADMIN],
+  'report.destinations': [ROLES.CFS, ROLES.PP, ROLES.CHEF_BRIGADE, ROLES.ADMIN], // v4.1 : répartition par destination
   'report.dwell': [ROLES.CFS, ROLES.CHEF_BRIGADE, ROLES.ADMIN],
   'report.dwelldetail': [ROLES.CFS, ROLES.CHEF_BRIGADE, ROLES.ADMIN],
   'report.list': [ROLES.ADMIN],

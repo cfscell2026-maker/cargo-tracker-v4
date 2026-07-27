@@ -3,24 +3,24 @@
  * MENUS, TITLES, roleLabel, statutLabel/tag, masques de saisie).
  */
 import { useEffect, useState, type ReactNode } from 'react';
-import { ROLE_LABELS, STATUTS } from '../../../../supabase/functions/_shared/domaine/src/index.ts';
+import { ROLE_LABELS, STATUTS, DESTINATIONS, DESTINATION_CODES } from '../../../../supabase/functions/_shared/domaine/src/index.ts';
 
 export type MenuItem = [string, string, string];
 
 export const MENUS: Record<string, MenuItem[]> = {
   CFS: [
     ['dash', 'Tableau de bord', '▦'], ['creercamion', 'Créer un camion', '＋'], ['completer', 'Saisir / compléter', '✎'],
-    ['new', 'Nouveau (Véhic./Conso/MAD)', '＋'], ['search', 'Recherche (en cours)', '⌕'], ['list', 'Cargaisons', '▤'], ['vehicules', 'Véhicules', '🚗'],
-    ['etatcfs', 'Pointage camions (sortie)', '◨'], ['chargement', 'Bon de chargement', '▤'], ['confentree', 'Confirmer entrée (annoncé)', '✔'], ['stockjour', 'Stock CFS journalier', '◧'],
-    ['stock', 'Stock conteneurs', '▦'], ['pointage', 'Pointage matinal', '◉'], ['import', 'Stock initial (import)', '⮉'], ['annonce', 'Stock annoncé', '⮈'], ['magasin', 'Entrée Magasin/MAD', '▥'],
-    ['cfsreport', 'Rapport CFS', '∑'], ['vehreport', 'Rapport véhicules', '∑'], ['kpi', 'KPI / EVP', '◫'], ['dwell', 'Camions en instance', '⏱'], ['stockdwell', 'Séjour conteneurs', '⏱'], ['account', 'Mon compte', '◔'],
+    ['conso', 'Conso (type C)', '＋'], ['search', 'Recherche (en cours)', '⌕'], ['list', 'Cargaisons', '▤'], ['vehicules', 'Véhicules', '🚗'],
+    ['conteneurs', 'Opérations sur conteneurs', '▦'], ['mad', 'Magasin / MAD', '▥'],
+    ['etatcfs', 'Pointage camions (sortie)', '◨'], ['chargement', 'Bon de chargement', '▤'],
+    ['cfsreport', 'Rapport CFS', '∑'], ['vehreport', 'Rapport véhicules', '∑'], ['destinations', 'Par destination', '⇄'], ['kpi', 'KPI / EVP', '◫'], ['dwell', 'Camions en instance', '⏱'], ['stockdwell', 'Séjour conteneurs', '⏱'], ['account', 'Mon compte', '◔'],
   ],
   // v4 — le chef brigade lit TOUS les rapports de TOUTES les cellules (lecture seule).
   CHEF_BRIGADE: [
     ['dash', 'Tableau de bord', '▦'], ['wait_valid', 'À valider', '✔'], ['search', 'Recherche (en cours)', '⌕'], ['list', 'Cargaisons', '▤'], ['vehicules', 'Véhicules', '🚗'],
     ['etatcfs', 'Pointage camions (sortie)', '◨'], ['chargement', 'Bon de chargement', '▤'],
     ['kpi', 'KPI / EVP', '◫'], ['cfsreport', 'Rapport CFS', '∑'], ['vehreport', 'Rapport véhicules', '∑'], ['baliserep', 'Rapport Balise', '∑'], ['pprep', 'Rapport PP', '∑'], ['dispenses', 'Dispenses', '⚑'],
-    ['flux', 'Analyse des flux', '⇄'], ['dwell', 'Délai & instance', '⏱'], ['stockdwell', 'Séjour conteneurs', '⏱'], ['account', 'Mon compte', '◔'],
+    ['flux', 'Analyse des flux', '⇄'], ['destinations', 'Par destination', '⇄'], ['dwell', 'Délai & instance', '⏱'], ['stockdwell', 'Séjour conteneurs', '⏱'], ['account', 'Mon compte', '◔'],
   ],
   CHEF_BRIGADE_ADJOINT: [['dash', 'Tableau de bord', '▦'], ['search', 'Recherche (en cours)', '⌕'], ['list', 'Cargaisons', '▤'], ['vehicules', 'Véhicules', '🚗'], ['kpi', 'KPI / EVP', '◫'], ['account', 'Mon compte', '◔']],
   CHEF_VISITE: [['dash', 'Tableau de bord', '▦'], ['search', 'Recherche (en cours)', '⌕'], ['list', 'Cargaisons', '▤'], ['vehicules', 'Véhicules', '🚗'], ['kpi', 'KPI / EVP', '◫'], ['account', 'Mon compte', '◔']],
@@ -28,12 +28,12 @@ export const MENUS: Record<string, MenuItem[]> = {
   T1: [['dash', 'Tableau de bord', '▦'], ['t1', 'Cellule T1', '①'], ['wait_t1', 'En attente T1', '◷'], ['search', 'Recherche (en cours)', '⌕'], ['list', 'Cargaisons', '▤'], ['account', 'Mon compte', '◔']],
   BALISE: [['dash', 'Tableau de bord', '▦'], ['gps', 'Cellule Balise', '⊕'], ['wait_gps', 'En attente Balise', '◷'], ['dispenses', 'Dispenses', '⚑'], ['search', 'Recherche (en cours)', '⌕'], ['list', 'Cargaisons', '▤'], ['baliserep', 'Rapport Balise', '∑'], ['account', 'Mon compte', '◔']],
   BON_SORTIE: [['dash', 'Tableau de bord', '▦'], ['bonsortie', 'Cellule Bon de Sortie', '▣'], ['wait_bs', 'En attente Bon de Sortie', '◷'], ['search', 'Recherche (en cours)', '⌕'], ['list', 'Cargaisons', '▤'], ['account', 'Mon compte', '◔']],
-  PP: [['dash', 'Tableau de bord', '▦'], ['pointentree', 'Pointage entrée (annoncé)', '◉'], ['confentree', 'Confirmer entrée (port sec)', '✔'], ['annonce', 'Stock annoncé', '⮈'], ['sortie', 'Sortie (checklist)', '⇲'], ['wait_sortie', 'En attente sortie', '◷'], ['search', 'Recherche (en cours)', '⌕'], ['vehicules', 'Véhicules', '🚗'], ['list', 'Cargaisons', '▤'], ['pprep', 'Rapport PP', '∑'], ['account', 'Mon compte', '◔']],
+  PP: [['dash', 'Tableau de bord', '▦'], ['sortie', 'Sortie (checklist)', '⇲'], ['wait_sortie', 'En attente sortie', '◷'], ['conteneurs', 'Opérations sur conteneurs', '▦'], ['search', 'Recherche (en cours)', '⌕'], ['vehicules', 'Véhicules', '🚗'], ['list', 'Cargaisons', '▤'], ['pprep', 'Rapport PP', '∑'], ['destinations', 'Par destination', '⇄'], ['account', 'Mon compte', '◔']],
   ADMIN: [
-    ['dash', 'Tableau de bord', '▦'], ['creercamion', 'Créer un camion', '＋'], ['completer', 'Saisir / compléter', '✎'], ['wait_valid', 'À valider', '✔'], ['new', 'Nouveau (Véhic./Conso/MAD)', '＋'], ['search', 'Recherche (en cours)', '⌕'], ['list', 'Cargaisons', '▤'], ['vehicules', 'Véhicules', '🚗'],
-    ['stock', 'Stock conteneurs', '▦'], ['pointage', 'Pointage matinal', '◉'], ['import', 'Stock initial (import)', '⮉'], ['importannonce', 'Annonce de transfert', '⮈'], ['annonce', 'Stock annoncé', '▦'], ['pointentree', 'Pointage entrée', '◉'], ['confentree', 'Confirmer entrée', '✔'], ['etatcfs', 'Pointage camions (sortie)', '◨'], ['chargement', 'Bon de chargement', '▤'], ['magasin', 'Entrée Magasin/MAD', '▥'],
+    ['dash', 'Tableau de bord', '▦'], ['creercamion', 'Créer un camion', '＋'], ['completer', 'Saisir / compléter', '✎'], ['wait_valid', 'À valider', '✔'], ['conso', 'Conso (type C)', '＋'], ['search', 'Recherche (en cours)', '⌕'], ['list', 'Cargaisons', '▤'], ['vehicules', 'Véhicules', '🚗'],
+    ['conteneurs', 'Opérations sur conteneurs', '▦'], ['mad', 'Magasin / MAD', '▥'], ['etatcfs', 'Pointage camions (sortie)', '◨'], ['chargement', 'Bon de chargement', '▤'],
     ['kpi', 'KPI / EVP', '◫'], ['cfsreport', 'Rapport CFS', '∑'], ['vehreport', 'Rapport véhicules', '∑'], ['baliserep', 'Rapport Balise', '∑'], ['pprep', 'Rapport PP', '∑'], ['dispenses', 'Dispenses', '⚑'],
-    ['flux', 'Analyse des flux', '⇄'], ['dwell', 'Délai & instance', '⏱'], ['stockdwell', 'Séjour conteneurs', '⏱'], ['history', 'Historique', '◵'], ['users', 'Utilisateurs', '◑'], ['account', 'Mon compte', '◔'],
+    ['flux', 'Analyse des flux', '⇄'], ['destinations', 'Par destination', '⇄'], ['dwell', 'Délai & instance', '⏱'], ['stockdwell', 'Séjour conteneurs', '⏱'], ['history', 'Historique', '◵'], ['users', 'Utilisateurs', '◑'], ['account', 'Mon compte', '◔'],
   ],
 };
 
@@ -51,6 +51,8 @@ export const TITLES: Record<string, string> = {
   magasin: 'Entrée Magasin / MAD', importannonce: 'Annonce de transfert — import', annonce: 'Stock annoncé',
   pointentree: 'Pointage entrée (stock annoncé)', confentree: "Confirmer l'entrée au stock (annoncé)",
   kpi: 'KPI / EVP', dispenses: 'Suivi des dispenses', stockdwell: 'Séjour & instances conteneurs',
+  conteneurs: 'Opérations sur conteneurs', mad: 'Magasin / MAD', madsortie: 'Sortie Magasin / MAD',
+  vehnew: 'Dépotage de véhicules', conso: 'Conso (type C)', destinations: 'Répartition par destination',
 };
 
 export const roleLabel = (r: string) => ROLE_LABELS[r] ?? r;
@@ -132,6 +134,72 @@ export function ToastHost() {
   }, []);
   if (!t) return null;
   return <div className={`toast ${t.kind}`}>{t.msg}</div>;
+}
+
+/**
+ * v4.1 — Destination de la marchandise en LISTE DÉROULANTE (décision
+ * utilisateur 2026-07-27). Une valeur héritée (texte libre migré) hors liste
+ * n'est pas perdue : elle apparaît en tête, marquée « (actuel) ».
+ */
+export function ChampDestination({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const v = String(value ?? '');
+  const connue = (DESTINATION_CODES as readonly string[]).includes(v.toUpperCase());
+  return <div>
+    <label className="help">Destination</label>
+    <select value={connue ? v.toUpperCase() : v} onChange={(e) => onChange(e.target.value)}>
+      <option value="">— Choisir —</option>
+      {!connue && v && <option value={v}>{v} (actuel)</option>}
+      {DESTINATIONS.map((d) => <option key={d.code} value={d.code}>{d.label}</option>)}
+    </select>
+  </div>;
+}
+
+/**
+ * v4.1 — Graphique SVG autonome (aucune dépendance, CSP-safe) : barres groupées
+ * ou lignes. `cats` = étiquettes de l'axe X (périodes) ; `series` = séries à
+ * tracer, chacune alignée sur `cats`. Axe Y = valeurs, gradations automatiques.
+ */
+const PALETTE = ['#0e5a8a', '#1f7a5c', '#a5670f', '#8a2be2', '#b03060', '#0a6a8a', '#5a7a1f', '#5c6b7a'];
+export function Graphique({ cats, series, type = 'barres', hauteur = 260, ordonnee = 'Nombre' }: {
+  cats: string[]; series: { nom: string; valeurs: number[] }[]; type?: 'barres' | 'lignes'; hauteur?: number; ordonnee?: string;
+}) {
+  if (!cats.length || !series.length) return <div className="empty">Pas de données à tracer sur la période.</div>;
+  const W = 720, H = hauteur, mL = 44, mR = 12, mT = 12, mB = 46;
+  const iw = W - mL - mR, ih = H - mT - mB;
+  const maxV = Math.max(1, ...series.flatMap((s) => s.valeurs));
+  // Graduations Y « rondes ».
+  const pas = Math.max(1, Math.ceil(maxV / 4));
+  const hautMax = pas * 4;
+  const y = (v: number) => mT + ih - (v / hautMax) * ih;
+  const x = (i: number) => mL + (iw / cats.length) * (i + 0.5);
+  const ticks = [0, 1, 2, 3, 4].map((k) => k * pas);
+  return <div style={{ overflowX: 'auto' }}>
+    <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ minWidth: 320, maxWidth: 760, display: 'block' }} role="img">
+      {/* grille + axe Y */}
+      {ticks.map((t) => <g key={t}>
+        <line x1={mL} y1={y(t)} x2={W - mR} y2={y(t)} stroke="var(--line)" strokeWidth={1} />
+        <text x={mL - 6} y={y(t) + 4} textAnchor="end" fontSize={11} fill="var(--muted)">{t}</text>
+      </g>)}
+      <text x={12} y={mT + ih / 2} fontSize={11} fill="var(--muted)" transform={`rotate(-90 12 ${mT + ih / 2})`} textAnchor="middle">{ordonnee}</text>
+      {/* étiquettes X */}
+      {cats.map((c, i) => <text key={i} x={x(i)} y={H - mB + 16} textAnchor="middle" fontSize={10} fill="var(--muted)">{c}</text>)}
+      {/* données */}
+      {type === 'lignes'
+        ? series.map((s, si) => <polyline key={si} fill="none" stroke={PALETTE[si % PALETTE.length]} strokeWidth={2}
+            points={s.valeurs.map((v, i) => `${x(i)},${y(v)}`).join(' ')} />)
+        : series.map((s, si) => {
+            const bw = (iw / cats.length) * 0.8 / series.length;
+            return s.valeurs.map((v, i) => {
+              const bx = x(i) - (iw / cats.length) * 0.4 + si * bw;
+              return <rect key={`${si}-${i}`} x={bx} y={y(v)} width={Math.max(1, bw - 1)} height={mT + ih - y(v)} fill={PALETTE[si % PALETTE.length]} />;
+            });
+          })}
+    </svg>
+    <div className="row" style={{ flexWrap: 'wrap', gap: 12, marginTop: 6, justifyContent: 'center' }}>
+      {series.map((s, si) => <span key={si} className="help" style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+        <span style={{ width: 11, height: 11, borderRadius: 2, background: PALETTE[si % PALETTE.length], display: 'inline-block' }} />{s.nom}</span>)}
+    </div>
+  </div>;
 }
 
 export function fmtDate(v: unknown): string {

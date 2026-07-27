@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react';
 import * as XLSX from 'xlsx';
 import { call } from './lib/rpc.ts';
 import { useAsync } from './lib/hooks.ts';
-import { Spinner, StatCard, Tag, Modal, masks, toast, fmtDate, fmtJour } from './lib/ui.tsx';
+import { Spinner, StatCard, Tag, Modal, masks, toast, fmtDate, fmtJour, ChampDestination, Graphique } from './lib/ui.tsx';
 import { bornesDe, isoDate, normaliserPlage, type ModePeriode } from './lib/periode.ts';
 import { Detail } from './detail.tsx';
 import type { Nav } from './App.tsx';
@@ -212,7 +212,69 @@ function FicheBord({ p }: { p: Periode }) {
 
 SCREENS.detail = (nav) => <Detail {...nav} />;
 SCREENS.list = (nav) => <CargoList {...nav} filtre={{ categorie: 'camion', ...((nav.arg as O) ?? {}) }} titre="Cargaisons" barre />;
-SCREENS.vehicules = (nav) => <CargoList {...nav} filtre={{ categorie: 'vehicule' }} titre="Véhicules" />;
+
+/* ------- v4.1 : onglets regroupés (menu allégé) ----------------------- */
+/**
+ * Un onglet « hub » : une carte de gros boutons qui ouvrent les écrans
+ * regroupés (décision utilisateur 2026-07-27, le menu déroulant était trop
+ * long). Les items dépendent du rôle : on n'affiche que ce que le rôle utilise.
+ */
+function Hub({ nav, titre, desc, items }: { nav: Nav; titre: string; desc?: string; items: [string, string, string][] }) {
+  return <div className="card"><h2>{titre}</h2>
+    {desc && <p className="help" style={{ marginTop: 0 }}>{desc}</p>}
+    <div className="hubgrid">
+      {items.map(([s, l, ic]) => <button key={s} className="hubitem" onClick={() => nav.go(s)}>
+        <span className="hubic">{ic}</span><span>{l}</span></button>)}
+    </div>
+  </div>;
+}
+function itemsConteneurs(role: string): [string, string, string][] {
+  const stock: [string, string, string] = ['stock', 'Stock conteneurs', '▦'];
+  const pointage: [string, string, string] = ['pointage', 'Pointage matinal', '◉'];
+  const stockjour: [string, string, string] = ['stockjour', 'Stock CFS journalier', '◧'];
+  const imp: [string, string, string] = ['import', 'Stock initial (import)', '⮉'];
+  const impAnn: [string, string, string] = ['importannonce', 'Annonce de transfert', '⮈'];
+  const annonce: [string, string, string] = ['annonce', 'Stock annoncé', '▦'];
+  const pointEntree: [string, string, string] = ['pointentree', 'Pointage entrée', '◉'];
+  const confEntree: [string, string, string] = ['confentree', 'Confirmer entrée', '✔'];
+  if (role === 'ADMIN') return [stock, pointage, stockjour, imp, impAnn, annonce, pointEntree, confEntree];
+  if (role === 'PP') return [annonce, pointEntree, confEntree];
+  if (role === 'CFS') return [stock, pointage, stockjour, imp, annonce, confEntree];
+  return [stock, annonce]; // lecture seule (chefs)
+}
+SCREENS.conteneurs = (nav) => <Hub nav={nav} titre="Opérations sur conteneurs"
+  desc="Stock du parc, pointages, imports et entrées annoncées — tout au même endroit." items={itemsConteneurs(nav.user.role)} />;
+SCREENS.mad = (nav) => <Hub nav={nav} titre="Magasin / MAD"
+  desc="Entrée d'un conteneur au magasin et sortie de marchandise en vrac (MAD)."
+  items={[['magasin', 'Entrée Magasin / MAD', '▥'], ['madsortie', 'Sortie Magasin / MAD', '▤']]} />;
+
+/* ------- v4.1 : véhicules = mini tableau de bord + dépotage + liste ---- */
+SCREENS.vehicules = (nav) => <VehiculesEcran nav={nav} />;
+function VehiculesEcran({ nav }: { nav: Nav }) {
+  // Les véhicules dépotés ne sont PAS des camions : suivi à part. Instantané =
+  // sans période (présents sur site = non sortis ; sortis = déjà sortis).
+  const { data, loading } = useAsync<{ compte: O }>(() => call('report.vehicule', {}), []);
+  const cp = (data?.compte ?? {}) as O;
+  return <>
+    <div className="card"><div className="row" style={{ alignItems: 'center', flexWrap: 'wrap' }}>
+      <h2 style={{ flex: 1, margin: 0 }}>Véhicules dépotés</h2>
+      {(nav.user.role === 'CFS' || nav.user.role === 'ADMIN') && <button onClick={() => nav.go('vehnew')}>＋ Dépotage de véhicules</button>}
+    </div>
+    <p className="help" style={{ marginBottom: 6 }}>Les véhicules dépotés sont suivis à part des camions.</p>
+    {loading ? <Spinner /> : <div className="stats">
+      <StatCard n={Number(cp['total'] ?? 0)} l="Total véhicules" />
+      <StatCard n={Number(cp['attente'] ?? 0)} l="Présents sur site" tone="warn" />
+      <StatCard n={Number(cp['sortis'] ?? 0)} l="Sortis" tone="ok" />
+    </div>}
+    </div>
+    <CargoList {...nav} filtre={{ categorie: 'vehicule' }} titre="Liste des véhicules" />
+  </>;
+}
+SCREENS.vehnew = ({ go }) => <div className="card"><h2>Dépotage de véhicules</h2>
+  <p className="help" style={{ marginTop: 0 }}>Un conteneur d'origine, puis un ou plusieurs véhicules (châssis). Les véhicules ne sont pas des camions.</p>
+  <FormVehicule go={go} /></div>;
+SCREENS.madsortie = ({ go }) => <div className="card"><h2>Sortie Magasin / MAD</h2><FormMagasin go={go} /></div>;
+SCREENS.conso = ({ go }) => <div className="card"><h2>Conso (type C)</h2><FormConso go={go} /></div>;
 SCREENS.completer = (nav) => <CargoList {...nav} filtre={{ etape: 'CFS' }} titre="À compléter (CFS)" />;
 SCREENS.wait_valid = (nav) => <ValidationDeclaration {...nav} />;
 SCREENS.wait_t1 = (nav) => <CargoList {...nav} filtre={{ etape: 'T1' }} titre="En attente T1" />;
@@ -421,7 +483,7 @@ function DeclFields({ d, set }: { d: O; set: (k: string, v: unknown) => void }) 
   return <div className="grid2">
     <div><label className="help">Déclarant</label><input value={String(d['declarant'] ?? '')} onChange={(e) => set('declarant', masks.upper(e.target.value))} /></div>
     <div><label className="help">Contact</label><input value={String(d['contactDeclarant'] ?? '')} onChange={(e) => set('contactDeclarant', masks.tel(e.target.value))} /></div>
-    <div><label className="help">Destination</label><input value={String(d['destinationMarchandise'] ?? '')} onChange={(e) => set('destinationMarchandise', masks.upper(e.target.value))} /></div>
+    <ChampDestination value={String(d['destinationMarchandise'] ?? '')} onChange={(v) => set('destinationMarchandise', v)} />
     <div><label className="help">Bureau</label><input value={String(d['bureauDeclaration'] ?? 'TG120')} onChange={(e) => set('bureauDeclaration', masks.upper(e.target.value))} /></div>
     <div><label className="help">Type décl.</label><select value={String(d['typeDeclaration'] ?? 'T')} onChange={(e) => set('typeDeclaration', e.target.value)}>{TYPES_DECLARATION.map((t) => <option key={t}>{t}</option>)}</select></div>
     <div><label className="help">N° décl.</label><input value={String(d['numeroDeclaration'] ?? '')} onChange={(e) => set('numeroDeclaration', masks.upper(e.target.value))} /></div>
@@ -1350,29 +1412,87 @@ SCREENS.dispenses = () => {
   </div>;
 };
 
+/** Étiquettes courtes de l'axe X selon le regroupement (« S1, S2 » / « M1, M2 » / année). */
+function libellesPeriode(rows: O[], gran: string): string[] {
+  return rows.map((r, i) => gran === 'annee' ? String(r['periode']) : gran === 'semaine' ? `S${i + 1}` : `M${i + 1}`);
+}
+
 SCREENS.flux = () => {
-  // Deux réglages DISTINCTS, à ne pas confondre : la PÉRIODE borne l'analyse
-  // (plage personnalisée comprise), le REGROUPEMENT décide de la maille des
-  // lignes (un point par jour, par semaine ou par mois) à l'intérieur.
-  const p = useReportRange('mois');
+  // Deux filtres DISTINCTS : la PÉRIODE borne l'analyse (plage personnalisée
+  // comprise), le REGROUPEMENT (« répartition de la période ») décide de la
+  // maille — un point par semaine, par mois ou par an.
+  const p = useReportRange('annee');
   const { du, au } = p;
-  const [gran, setGran] = useState('jour');
-  const { data, loading } = useAsync<{ rows: O[] }>(
+  const [gran, setGran] = useState('mois');
+  const { data, loading } = useAsync<{ rows: O[]; totaux: O }>(
     () => call('report.flux', { granularite: gran, du, au }), [gran, du, au]);
-  return <div className="card">
-    <div className="row" style={{ flexWrap: 'wrap' }}><h2 style={{ flex: 1 }}>Analyse des flux</h2><PeriodPicker p={p} /></div>
-    <div className="row" style={{ alignItems: 'center', marginTop: 6 }}>
-      <label className="help" style={{ margin: 0 }}>Regrouper par</label>
-      <select value={gran} onChange={(e) => setGran(e.target.value)} style={{ maxWidth: 160 }}>
-        <option value="jour">Jour</option><option value="semaine">Semaine</option><option value="mois">Mois</option>
-      </select>
-      <span style={{ flex: 1 }} />
-      <PeriodeLue p={p} />
+  const rows = data?.rows ?? [];
+  const tot = (data?.totaux ?? {}) as O;
+  const cats = libellesPeriode(rows, gran);
+  const series = [
+    { nom: 'Conteneurs enlevés', valeurs: rows.map((r) => Number(r['enlevesC'] ?? 0)) },
+    { nom: 'Conteneurs dépotés', valeurs: rows.map((r) => Number(r['depotesC'] ?? 0)) },
+    { nom: 'Camions balisés', valeurs: rows.map((r) => Number(r['baliseC'] ?? 0)) },
+    { nom: 'Camions sortis', valeurs: rows.map((r) => Number(r['ppC'] ?? 0)) },
+  ];
+  return <>
+    <div className="card">
+      <div className="row" style={{ flexWrap: 'wrap' }}><h2 style={{ flex: 1 }}>Analyse des flux</h2><PeriodPicker p={p} /></div>
+      <div className="row" style={{ alignItems: 'center', marginTop: 6 }}>
+        <label className="help" style={{ margin: 0 }}>Répartition de la période</label>
+        <select value={gran} onChange={(e) => setGran(e.target.value)} style={{ maxWidth: 160 }}>
+          <option value="semaine">Hebdomadaire</option><option value="mois">Mensuelle</option><option value="annee">Annuelle</option>
+        </select>
+        <span style={{ flex: 1 }} /><PeriodeLue p={p} />
+      </div>
     </div>
-    {loading ? <Spinner /> : <div style={{ marginTop: 10 }}>
-      <Table cols={[['periode', 'Période'], ['cfsC', 'CFS'], ['baliseC', 'Balise'], ['ppC', 'PP'], ['sansBalise', 'Sans balise']]} rows={data?.rows ?? []} />
-    </div>}
-  </div>;
+    {loading ? <Spinner /> : <>
+      <div className="card"><div className="stats">
+        <StatCard n={Number(tot['enlevesC'] ?? 0)} l="Conteneurs enlevés" />
+        <StatCard n={Number(tot['depotesC'] ?? 0)} l="Conteneurs dépotés" />
+        <StatCard n={Number(tot['tc'] ?? 0)} l="Total conteneurs (TC)" />
+        <StatCard n={Number(tot['evp'] ?? 0)} l="Total EVP" />
+        <StatCard n={Number(tot['baliseC'] ?? 0)} l="Camions balisés" />
+        <StatCard n={Number(tot['ppC'] ?? 0)} l="Camions sortis" tone="ok" />
+      </div></div>
+      <div className="card"><Table cols={[['periode', 'Période'], ['enlevesC', 'Cont. enlevés'], ['depotesC', 'Cont. dépotés'], ['tc', 'Total TC'], ['evp', 'EVP'], ['baliseC', 'Camions balisés'], ['ppC', 'Camions sortis']]} rows={rows} /></div>
+      <div className="card"><h2>Graphique d'analyse</h2>
+        <Graphique cats={cats} series={series} type="barres" ordonnee="Nombre" /></div>
+    </>}
+  </>;
+};
+
+/* ------- v4.1 : Répartition des cargaisons par destination ------------- */
+SCREENS.destinations = () => {
+  const p = useReportRange('annee');
+  const { du, au } = p;
+  const [gran, setGran] = useState('mois');
+  const { data, loading } = useAsync<O>(() => call('report.destinations', { du, au, granularite: gran }), [du, au, gran]);
+  const parDest = (data?.['parDest'] ?? {}) as O;
+  const codes = (data?.['codes'] ?? []) as string[];
+  const seriesData = (data?.['series'] ?? []) as O[];
+  const cats = libellesPeriode(seriesData, gran);
+  // Une ligne par destination réellement présente sur la période (évite un fouillis de zéros).
+  const actifs = codes.filter((c) => Number(parDest[c] ?? 0) > 0);
+  const series = (actifs.length ? actifs : codes).map((c) => ({ nom: c, valeurs: seriesData.map((s) => Number(s[c] ?? 0)) }));
+  return <>
+    <div className="card">
+      <div className="row" style={{ flexWrap: 'wrap' }}><h2 style={{ flex: 1 }}>Répartition des cargaisons par destination</h2><PeriodPicker p={p} /></div>
+      <div className="row" style={{ alignItems: 'center', marginTop: 6 }}>
+        <label className="help" style={{ margin: 0 }}>Répartition de la période</label>
+        <select value={gran} onChange={(e) => setGran(e.target.value)} style={{ maxWidth: 160 }}>
+          <option value="semaine">Hebdomadaire</option><option value="mois">Mensuelle</option><option value="annee">Annuelle</option>
+        </select>
+        <span style={{ flex: 1 }} /><PeriodeLue p={p} />
+      </div>
+    </div>
+    {loading ? <Spinner /> : <>
+      <div className="card"><div className="help" style={{ marginBottom: 6 }}>Camions sortis vers chaque destination sur la période — {Number(data?.['total'] ?? 0)} au total.</div>
+        <div className="stats">{codes.map((c) => <StatCard key={c} n={Number(parDest[c] ?? 0)} l={c} />)}</div></div>
+      <div className="card"><h2>Évolution des camions sortis par destination</h2>
+        <Graphique cats={cats} series={series} type="lignes" ordonnee="Camions sortis" /></div>
+    </>}
+  </>;
 };
 
 SCREENS.dwell = ({ go }) => {

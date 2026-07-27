@@ -1047,3 +1047,46 @@ test('fiche : le parking ne compte QUE les camions en attente de balise', async 
   const f = (await rap.ficheBord(cfs, {})) as { balise: { parking: number } };
   assert.equal(f.balise.parking, 1); // seul (a)
 });
+
+/* ---- v4.1 : rapport « répartition par destination » + totaux flux ------- */
+
+/** Crée un enlèvement puis le fait sortir, avec une destination donnée. */
+async function enlevementSorti(db: FakeDB, plaque: string, tc: string, dest: string, num: string) {
+  db.store['stock'].push({ numero_tc: tc, taille: "40'", statut: 'En stock' });
+  const cfs = ctxAvec(db);
+  const { id } = (await ecr.createcamion(cfs, { numeroCamion: plaque, routage: 'Enlèvement' })) as { id: string };
+  await ecr.cfs(cfs, { id, conteneur: { num: tc, taille: "40'", type: 'DRY', plomb: 'S1' },
+    declaration: { declarant: 'A', contactDeclarant: '901234', destinationMarchandise: dest, bureauDeclaration: 'TG120', typeDeclaration: 'T', numeroDeclaration: num, anneeDeclaration: '2026', descriptionMarchandise: 'X' } });
+  await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'), { id });
+  await ecr.t1(ctxRole(db, 'T1', 'T1'), { id, bureauDestination: 'BF', t1Numeros: [{ conteneur: tc, numero: 'T1-' + num }] });
+  await ecr.gps(ctxRole(db, 'BALISE', 'B'), { id, baliseRequise: 'Oui', t1Correct: 'Oui', numeroGPS: 'G-' + num });
+  await ecr.bonsortie(ctxRole(db, 'BON_SORTIE', 'BS'), { id, bonSortieNumero: [{ conteneur: tc, t1: 'T1-' + num, numero: 'BS-' + num }] });
+  await ecr.sortie(ctxRole(db, 'PP', 'PP'), { id, ckCfs: true, ckT1: true, ckBalise: true, ckBs: true });
+  return id;
+}
+
+test('rapport destinations : compte les camions SORTIS par destination', async () => {
+  const db = new FakeDB();
+  await enlevementSorti(db, 'D-BF1', 'MSKU3000001', 'BF', '300');
+  await enlevementSorti(db, 'D-BF2', 'MSKU3000002', 'BF', '301');
+  await enlevementSorti(db, 'D-NE1', 'MSKU3000003', 'NE', '302');
+  const r = (await rap.rapportDestinations(ctxAvec(db), { granularite: 'mois' })) as
+    { total: number; parDest: Record<string, number>; series: Record<string, unknown>[] };
+  assert.equal(r.total, 3);
+  assert.equal(r.parDest['BF'], 2);
+  assert.equal(r.parDest['NE'], 1);
+  assert.equal(r.parDest['TG'], 0);
+  assert.ok(r.series.length >= 1); // au moins un bucket de période
+});
+
+test('analyse des flux : les totaux agrègent enlevés / balisés / sortis', async () => {
+  const db = new FakeDB();
+  await enlevementSorti(db, 'F1', 'MSKU4000001', 'BF', '400');
+  await enlevementSorti(db, 'F2', 'MSKU4000002', 'NE', '401');
+  const r = (await rap.rapportFlux(ctxAvec(db), { granularite: 'mois' })) as
+    { totaux: { enlevesC: number; tc: number; baliseC: number; ppC: number } };
+  assert.equal(r.totaux.enlevesC, 2);
+  assert.equal(r.totaux.tc, 2);
+  assert.equal(r.totaux.baliseC, 2);
+  assert.equal(r.totaux.ppC, 2);
+});
