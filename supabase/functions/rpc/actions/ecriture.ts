@@ -826,7 +826,10 @@ export async function editdecl(ctx: Ctx, p: Record<string, unknown>) {
     type_declaration: eff.typeDeclaration, numero_declaration: eff.numeroDeclaration,
     annee_declaration: eff.anneeDeclaration, description_marchandise: eff.descriptionMarchandise,
     conteneurs_details: { conteneurs: pd.conteneurs, scellesCamion: pd.scellesCamion },
-    chargement_mixte: null,
+    // La correction réaligne TOUS les conteneurs sur une même déclaration : plus
+    // de mixte. La colonne est NOT NULL → false, pas null (sinon violation de
+    // contrainte, l'enregistrement de la correction échouait).
+    chargement_mixte: false,
   };
   // Le type de déclaration commande les sauts d'étapes (C = conso → saute T1).
   const sauts = sautsTypeC(decl.typeDeclaration, p['consoMode']);

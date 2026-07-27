@@ -516,6 +516,9 @@ test('correction déclaration : camion ET conteneurs réalignés', async () => {
   const c = versCamel(db.store['cargaisons'][0]!);
   assert.equal(c['numeroDeclaration'], '9999');
   assert.equal(c['declarant'], 'STE Z');
+  // chargement_mixte est NOT NULL en base : la correction doit écrire false, pas
+  // null (sinon « violates not-null constraint » et la correction échoue).
+  assert.equal(c['chargementMixte'], false);
   // La ligne conteneur porte la même déclaration corrigée (LOT D).
   const ct = (c['conteneursDetails'] as { conteneurs: Record<string, unknown>[] }).conteneurs[0]!;
   assert.equal(ct['numeroDeclaration'], '9999');
