@@ -39,9 +39,15 @@ const inRange = (v: unknown, du?: string, au?: string): boolean => {
 function detsDeRow(c: Record<string, unknown>) {
   return parseConteneursDetails(c['conteneursDetails']).conteneurs;
 }
-/** Agent forcé à soi si la session tient le rôle de la cellule (cahier 3.4). */
-function agentForce(ctx: Ctx, cfgRole: Role, pAgent: unknown): string {
-  if (ctx.session.role === cfgRole) return lc(ctx.session.nomComplet);
+/**
+ * v4.1 — Filtre agent d'un rapport de cellule (décision utilisateur 2026-07-27).
+ * PLUS de restriction « chaque agent ne voit que la sienne » : les agents d'une
+ * cellule travaillent à plusieurs et doivent voir le rapport COMPLET de leur
+ * cellule, sans passer par le compte admin. On applique donc seulement le filtre
+ * EXPLICITEMENT demandé (`pAgent`, envoyé par l'écran admin) ; vide = toute la
+ * cellule. `cfgRole` n'est plus utilisé mais conservé pour la signature.
+ */
+function agentForce(_ctx: Ctx, _cfgRole: Role, pAgent: unknown): string {
   return lc(pAgent);
 }
 

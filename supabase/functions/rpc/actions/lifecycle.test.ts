@@ -1093,3 +1093,24 @@ test('analyse des flux : les totaux agrègent enlevés / balisés / sortis', asy
   assert.equal(r.totaux.baliseC, 2);
   assert.equal(r.totaux.ppC, 2);
 });
+
+/* ---- v4.1 : rapport de cellule = TOUTE la cellule, pas seulement soi ------ */
+
+test('rapport CFS : un agent voit l\'activité de TOUS les agents CFS', async () => {
+  const db = new FakeDB();
+  db.store['stock'].push(
+    { numero_tc: 'MSKU3000001', taille: "40'", statut: 'En stock' },
+    { numero_tc: 'MSKU3000002', taille: "40'", statut: 'En stock' },
+  );
+  // Deux enlèvements saisis par DEUX agents CFS différents.
+  const a = ctxRole(db, 'CFS', 'Agent A');
+  const ida = (await ecr.createcamion(a, { numeroCamion: 'RA', routage: 'Enlèvement' })) as { id: string };
+  await ecr.cfs(a, { id: ida.id, conteneur: { num: 'MSKU3000001', taille: "40'", type: 'DRY', plomb: 'S1' }, declaration: DECL_OK });
+  const b = ctxRole(db, 'CFS', 'Agent B');
+  const idb = (await ecr.createcamion(b, { numeroCamion: 'RB', routage: 'Enlèvement' })) as { id: string };
+  await ecr.cfs(b, { id: idb.id, conteneur: { num: 'MSKU3000002', taille: "40'", type: 'DRY', plomb: 'S2' }, declaration: DECL_OK });
+
+  // Agent A ouvre le rapport CFS SANS filtre : il voit les DEUX camions.
+  const r = (await rap.rapportCFS(a, {})) as { total: { camions: number } };
+  assert.equal(r.total.camions, 2);
+});

@@ -90,8 +90,11 @@ export function App() {
   const entrerApp = useCallback(async () => {
     const u = await call<User>('account.me');
     // Nouvelle session = historique repartant de zéro (on ne remonte pas dans
-    // la navigation de l'utilisateur précédent).
-    const depart = vueInitiale();
+    // la navigation de l'utilisateur précédent). L'écran d'accueil = 1er onglet
+    // du rôle : les agents qui n'ont plus le tableau de bord n'atterrissent pas
+    // sur un écran absent de leur menu (v4.1).
+    const accueil = MENUS[u.role]?.[0]?.[0] ?? 'dash';
+    const depart = vueInitiale(accueil);
     setUser(u); majNav(depart); setPhase('app');
     window.history.replaceState({ indexNav: 0 }, '');
   }, [majNav]);

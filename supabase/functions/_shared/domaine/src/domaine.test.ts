@@ -11,7 +11,7 @@ import {
   parseConteneursDetails, parseDateImport, tailleBucket, evpDeTaille, trancheAge,
   verifierPermission, PERMISSIONS, TYPES_DECLARATION,
   groupesDeclaration, estChargementMixte, libelleDeclaration,
-  sautsTypeC, estTypeSansT1, codeDestination,
+  sautsTypeC, estTypeSansT1, DESTINATION_CODES, codeDestination,
 } from './index.ts';
 
 /* ------------------------------ Moteur workflow ------------------------ */
@@ -258,4 +258,16 @@ test('codeDestination : codes reconnus, texte libre → Autres', () => {
   assert.equal(codeDestination('TG (Transit National)'), 'TG');
   assert.equal(codeDestination('NIGER'), 'Autres'); // ancien texte libre migré
   assert.equal(codeDestination(''), 'Autres');
+});
+
+test('tableau de bord réservé aux chefs (brigade/visite/division) + ADMIN', () => {
+  for (const r of [ROLES.CHEF_BRIGADE, ROLES.CHEF_VISITE, ROLES.CHEF_DIVISION, ROLES.ADMIN])
+    assert.doesNotThrow(() => verifierPermission(r, 'dashboard.stats'));
+  // Agents de cellule + adjoint : plus de tableau de bord (décision client 2026-07-27).
+  for (const r of [ROLES.CFS, ROLES.CHEF_BRIGADE_ADJOINT, ROLES.T1, ROLES.BALISE, ROLES.BON_SORTIE, ROLES.PP])
+    assert.throws(() => verifierPermission(r, 'dashboard.fiche'), /Accès refusé/);
+});
+
+test('DESTINATIONS incluent NG', () => {
+  assert.ok(DESTINATION_CODES.includes('NG'));
 });

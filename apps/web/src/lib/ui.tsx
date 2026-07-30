@@ -9,7 +9,7 @@ export type MenuItem = [string, string, string];
 
 export const MENUS: Record<string, MenuItem[]> = {
   CFS: [
-    ['dash', 'Tableau de bord', '▦'], ['creercamion', 'Créer un camion', '＋'], ['completer', 'Saisir / compléter', '✎'],
+    ['creercamion', 'Créer un camion', '＋'], ['completer', 'Saisir / compléter', '✎'],
     ['conso', 'Conso (type C)', '＋'], ['search', 'Recherche (en cours)', '⌕'], ['list', 'Cargaisons', '▤'], ['vehicules', 'Véhicules', '🚗'],
     ['conteneurs', 'Opérations sur conteneurs', '▦'], ['mad', 'Magasin / MAD', '▥'],
     ['etatcfs', 'Pointage camions (sortie)', '◨'], ['chargement', 'Bon de chargement', '▤'],
@@ -22,13 +22,13 @@ export const MENUS: Record<string, MenuItem[]> = {
     ['kpi', 'KPI / EVP', '◫'], ['cfsreport', 'Rapport CFS', '∑'], ['vehreport', 'Rapport véhicules', '∑'], ['baliserep', 'Rapport Balise', '∑'], ['pprep', 'Rapport PP', '∑'], ['dispenses', 'Dispenses', '⚑'],
     ['flux', 'Analyse des flux', '⇄'], ['destinations', 'Par destination', '⇄'], ['dwell', 'Délai & instance', '⏱'], ['stockdwell', 'Séjour conteneurs', '⏱'], ['account', 'Mon compte', '◔'],
   ],
-  CHEF_BRIGADE_ADJOINT: [['dash', 'Tableau de bord', '▦'], ['search', 'Recherche (en cours)', '⌕'], ['list', 'Cargaisons', '▤'], ['vehicules', 'Véhicules', '🚗'], ['kpi', 'KPI / EVP', '◫'], ['account', 'Mon compte', '◔']],
+  CHEF_BRIGADE_ADJOINT: [['search', 'Recherche (en cours)', '⌕'], ['list', 'Cargaisons', '▤'], ['vehicules', 'Véhicules', '🚗'], ['kpi', 'KPI / EVP', '◫'], ['account', 'Mon compte', '◔']],
   CHEF_VISITE: [['dash', 'Tableau de bord', '▦'], ['search', 'Recherche (en cours)', '⌕'], ['list', 'Cargaisons', '▤'], ['vehicules', 'Véhicules', '🚗'], ['kpi', 'KPI / EVP', '◫'], ['account', 'Mon compte', '◔']],
   CHEF_DIVISION: [['dash', 'Tableau de bord', '▦'], ['search', 'Recherche (en cours)', '⌕'], ['list', 'Cargaisons', '▤'], ['vehicules', 'Véhicules', '🚗'], ['kpi', 'KPI / EVP', '◫'], ['account', 'Mon compte', '◔']],
-  T1: [['dash', 'Tableau de bord', '▦'], ['t1', 'Cellule T1', '①'], ['wait_t1', 'En attente T1', '◷'], ['search', 'Recherche (en cours)', '⌕'], ['list', 'Cargaisons', '▤'], ['account', 'Mon compte', '◔']],
-  BALISE: [['dash', 'Tableau de bord', '▦'], ['gps', 'Cellule Balise', '⊕'], ['wait_gps', 'En attente Balise', '◷'], ['dispenses', 'Dispenses', '⚑'], ['search', 'Recherche (en cours)', '⌕'], ['list', 'Cargaisons', '▤'], ['baliserep', 'Rapport Balise', '∑'], ['account', 'Mon compte', '◔']],
-  BON_SORTIE: [['dash', 'Tableau de bord', '▦'], ['bonsortie', 'Cellule Bon de Sortie', '▣'], ['wait_bs', 'En attente Bon de Sortie', '◷'], ['search', 'Recherche (en cours)', '⌕'], ['list', 'Cargaisons', '▤'], ['account', 'Mon compte', '◔']],
-  PP: [['dash', 'Tableau de bord', '▦'], ['sortie', 'Sortie (checklist)', '⇲'], ['wait_sortie', 'En attente sortie', '◷'], ['conteneurs', 'Opérations sur conteneurs', '▦'], ['search', 'Recherche (en cours)', '⌕'], ['vehicules', 'Véhicules', '🚗'], ['list', 'Cargaisons', '▤'], ['pprep', 'Rapport PP', '∑'], ['destinations', 'Par destination', '⇄'], ['account', 'Mon compte', '◔']],
+  T1: [['t1', 'Cellule T1', '①'], ['wait_t1', 'En attente T1', '◷'], ['search', 'Recherche (en cours)', '⌕'], ['list', 'Cargaisons', '▤'], ['account', 'Mon compte', '◔']],
+  BALISE: [['gps', 'Cellule Balise', '⊕'], ['wait_gps', 'En attente Balise', '◷'], ['dispenses', 'Dispenses', '⚑'], ['search', 'Recherche (en cours)', '⌕'], ['list', 'Cargaisons', '▤'], ['baliserep', 'Rapport Balise', '∑'], ['account', 'Mon compte', '◔']],
+  BON_SORTIE: [['bonsortie', 'Cellule Bon de Sortie', '▣'], ['wait_bs', 'En attente Bon de Sortie', '◷'], ['search', 'Recherche (en cours)', '⌕'], ['list', 'Cargaisons', '▤'], ['account', 'Mon compte', '◔']],
+  PP: [['sortie', 'Sortie (checklist)', '⇲'], ['wait_sortie', 'En attente sortie', '◷'], ['conteneurs', 'Opérations sur conteneurs', '▦'], ['search', 'Recherche (en cours)', '⌕'], ['vehicules', 'Véhicules', '🚗'], ['list', 'Cargaisons', '▤'], ['pprep', 'Rapport PP', '∑'], ['destinations', 'Par destination', '⇄'], ['account', 'Mon compte', '◔']],
   ADMIN: [
     ['dash', 'Tableau de bord', '▦'], ['creercamion', 'Créer un camion', '＋'], ['completer', 'Saisir / compléter', '✎'], ['wait_valid', 'À valider', '✔'], ['conso', 'Conso (type C)', '＋'], ['search', 'Recherche (en cours)', '⌕'], ['list', 'Cargaisons', '▤'], ['vehicules', 'Véhicules', '🚗'],
     ['conteneurs', 'Opérations sur conteneurs', '▦'], ['mad', 'Magasin / MAD', '▥'], ['etatcfs', 'Pointage camions (sortie)', '◨'], ['chargement', 'Bon de chargement', '▤'],

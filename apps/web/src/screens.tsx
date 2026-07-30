@@ -501,6 +501,7 @@ function FormVehicule({ go }: { go: Nav['go'] }) {
   const [d, setD] = useState<O>({});
   const [vs, setVs] = useState<O[]>([vehVide()]);
   const [origine, setOrigine] = useState('');
+  const [manuelOrigine, setManuelOrigine] = useState(false); // v4.1 : TC hors stock
   const [cams, setCams] = useState<CamEffets[]>([]);
   const set = (k: string, val: unknown) => setD((o) => ({ ...o, [k]: val }));
   const majVeh = (i: number, k: string, val: unknown) => setVs((a) => a.map((v, j) => (j === i ? { ...v, [k]: val } : v)));
@@ -513,6 +514,7 @@ function FormVehicule({ go }: { go: Nav['go'] }) {
 
   async function creer() {
     if (!origine) { toast("Le N° de conteneur d'origine (TC) est obligatoire.", 'err'); return; }
+    if (manuelOrigine && !tcValide(origine)) { toast('N° conteneur d\'origine invalide (4 lettres + 7 chiffres).', 'err'); return; }
     try {
       const r = await call<{ vehicules: { id: string }[] }>('cargo.create', {
         typeOperation: OPERATIONS.VEHICULE, declaration: d, conteneurOrigine: origine, vehicules: vs,
@@ -534,11 +536,18 @@ function FormVehicule({ go }: { go: Nav['go'] }) {
     <div className="grid2" style={{ marginTop: 6 }}>
       <div>
         <label className="help">Conteneur d'origine (TC) *</label>
-        <select value={origine} onChange={(e) => setOrigine(e.target.value)} className="mono">
-          <option value="">{stkLoading ? 'Chargement…' : tcs.length ? '— Choisir un TC positionné —' : '— Aucun TC positionné —'}</option>
-          {tcs.map((t) => <option key={t}>{t}</option>)}
-        </select>
-        <div className="help">Conteneurs positionnés au CFS uniquement.</div>
+        {manuelOrigine
+          ? <input className="mono" value={origine} onChange={(e) => setOrigine(masks.tc(e.target.value))}
+              placeholder="N° conteneur (4 lettres + 7 chiffres)" autoComplete="off" />
+          : <select value={origine} onChange={(e) => setOrigine(e.target.value)} className="mono">
+              <option value="">{stkLoading ? 'Chargement…' : tcs.length ? '— Choisir un TC positionné —' : '— Aucun TC positionné —'}</option>
+              {tcs.map((t) => <option key={t}>{t}</option>)}
+            </select>}
+        <label className="help" style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 6 }}>
+          <input type="checkbox" style={{ width: 'auto' }} checked={manuelOrigine}
+            onChange={(e) => { setManuelOrigine(e.target.checked); setOrigine(''); }} />
+          <span>Saisie manuelle (conteneur hors stock / non positionné)</span>
+        </label>
       </div>
     </div>
     {vs.map((v, i) => <div key={i} style={{ border: '1px solid var(--line)', borderRadius: 6, padding: 10, marginTop: 8 }}>

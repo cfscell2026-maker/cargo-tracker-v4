@@ -141,6 +141,7 @@ export const DESTINATIONS = [
   { code: 'CI', label: 'CI' },
   { code: 'BJ', label: 'BJ' },
   { code: 'GH', label: 'GH' },
+  { code: 'NG', label: 'NG' },
 ] as const;
 export const DESTINATION_CODES = DESTINATIONS.map((d) => d.code);
 

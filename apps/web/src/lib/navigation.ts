@@ -30,7 +30,7 @@ export const PILE_MAX = 200;
 export const memeVue = (a: Vue, b: Vue): boolean =>
   a.screen === b.screen && JSON.stringify(a.arg ?? null) === JSON.stringify(b.arg ?? null);
 
-export const vueInitiale = (): EtatNav => ({ vues: [{ screen: 'dash', arg: null }], index: 0 });
+export const vueInitiale = (screen = 'dash'): EtatNav => ({ vues: [{ screen, arg: null }], index: 0 });
 
 /** Vue affichée actuellement. */
 export const vueCourante = (etat: EtatNav): Vue => etat.vues[etat.index]!;

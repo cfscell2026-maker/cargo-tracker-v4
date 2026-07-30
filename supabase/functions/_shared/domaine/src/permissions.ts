@@ -98,9 +98,11 @@ export const PERMISSIONS: Record<string, Role[]> = {
   'report.dwelldetail': [ROLES.CFS, ROLES.CHEF_BRIGADE, ROLES.ADMIN],
   'report.list': [ROLES.ADMIN],
   'report.history': [ROLES.ADMIN],
-  // Tableau de bord / stats
-  'dashboard.stats': TOUS_ROLES,
-  'dashboard.fiche': TOUS_ROLES, // v4.1 : synthèse repliable du tableau de bord
+  // Tableau de bord / stats — v4.1 : réservé aux chefs (brigade, visite,
+  // division) et à l'ADMIN (décision client 2026-07-27). Les agents de cellule
+  // n'ont plus le tableau de bord ; l'adjoint non plus.
+  'dashboard.stats': [ROLES.CHEF_BRIGADE, ROLES.CHEF_VISITE, ROLES.CHEF_DIVISION, ROLES.ADMIN],
+  'dashboard.fiche': [ROLES.CHEF_BRIGADE, ROLES.CHEF_VISITE, ROLES.CHEF_DIVISION, ROLES.ADMIN],
   // Historique
   'log.list': [ROLES.ADMIN],
   // Administration des utilisateurs
