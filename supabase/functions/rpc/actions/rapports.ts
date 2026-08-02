@@ -412,6 +412,30 @@ export async function rapportKPI(ctx: Ctx, p: Record<string, unknown>) {
   return kpi;
 }
 
+/* ===================== Contrôles (hors gabarit / surcharge / transit) === */
+/**
+ * v4.1 — Statistiques de contrôle (décision utilisateur 2026-07-27) : nombre de
+ * CAMIONS et de CONTENEURS hors gabarit, en surcharge, et en transit national
+ * (destination TG), sur la période (date de création). Chiffres croisés avec
+ * le détail par taille pour rester cohérents avec les autres rapports.
+ */
+export async function rapportControles(ctx: Ctx, p: Record<string, unknown>) {
+  const du = p['du'] as string | undefined;
+  const au = p['au'] as string | undefined;
+  const cargos = await loadCargos(ctx);
+  const vide = () => ({ camions: 0, conteneurs: 0 });
+  const r = { horsGabarit: vide(), surcharge: vide(), transitNational: vide() };
+  for (const c of cargos) {
+    if (estOui(c['estVehicule'])) continue;
+    if (!inRange(c['dateCreation'], du, au)) continue;
+    const nbC = detsDeRow(c).length;
+    if (estOui(c['horsGabarit']) || c['horsGabarit'] === true) { r.horsGabarit.camions++; r.horsGabarit.conteneurs += nbC; }
+    if (c['enSurcharge'] === true || String(c['enSurcharge']) === 'true' || String(c['enSurcharge']) === 'Oui') { r.surcharge.camions++; r.surcharge.conteneurs += nbC; }
+    if (codeDestination(c['destinationMarchandise']) === 'TG') { r.transitNational.camions++; r.transitNational.conteneurs += nbC; }
+  }
+  return { du, au, ...r };
+}
+
 /* ============================= Dispenses ============================== */
 
 export async function rapportDispenses(ctx: Ctx, p: Record<string, unknown>) {

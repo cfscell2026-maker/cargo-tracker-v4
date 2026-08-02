@@ -95,6 +95,7 @@ export const PERMISSIONS: Record<string, Role[]> = {
   'report.flux': [ROLES.CHEF_BRIGADE, ROLES.ADMIN],
   'report.fluxdetail': [ROLES.CHEF_BRIGADE, ROLES.ADMIN],
   'report.destinations': [ROLES.CFS, ROLES.PP, ROLES.CHEF_BRIGADE, ROLES.ADMIN], // v4.1 : répartition par destination
+  'report.controles': [ROLES.CHEF_BRIGADE, ROLES.CHEF_BRIGADE_ADJOINT, ROLES.CHEF_VISITE, ROLES.CHEF_DIVISION, ROLES.ADMIN], // v4.1 : hors gabarit / surcharge / transit
   'report.dwell': [ROLES.CFS, ROLES.CHEF_BRIGADE, ROLES.ADMIN],
   'report.dwelldetail': [ROLES.CFS, ROLES.CHEF_BRIGADE, ROLES.ADMIN],
   'report.list': [ROLES.ADMIN],

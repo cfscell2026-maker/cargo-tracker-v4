@@ -89,6 +89,7 @@ export const ACTIONS: Record<string, H> = {
   'report.flux': d(rap.rapportFlux),
   'report.fluxdetail': d(rap.rapportFluxDetail),
   'report.destinations': d(rap.rapportDestinations), // v4.1 : camions sortis par destination
+  'report.controles': d(rap.rapportControles), // v4.1 : hors gabarit / surcharge / transit national
   'report.dwell': d(rap.rapportSejour),
   'report.dwelldetail': d(rap.rapportSejourDetail),
   'report.list': d(rap.rapportListe),

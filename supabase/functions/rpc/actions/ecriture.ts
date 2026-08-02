@@ -330,6 +330,22 @@ export async function visite(ctx: Ctx, p: Record<string, unknown>) {
 
 /* ----------------------------- valider (CB) ---------------------------- */
 
+/**
+ * v4.1 — PESÉE obligatoire AVANT la validation (décision utilisateur 2026-07-27).
+ * `enSurcharge` OUI/NON ; si OUI, le poids en surcharge (kg) est requis ; si NON,
+ * le camion est « hors surcharge ». Renvoie le patch de pesée à appliquer.
+ */
+function peseePatch(p: Record<string, unknown>): Record<string, unknown> {
+  const brut = p['enSurcharge'];
+  if (brut === undefined || brut === null || brut === '')
+    throw new Error('Renseignez la pesée (en surcharge : OUI / NON) avant de valider.');
+  const enSurcharge = brut === true || String(brut).toLowerCase() === 'oui' || String(brut).toLowerCase() === 'true';
+  const poids = maj(p['poidsSurcharge'], 30).replace(',', '.');
+  if (enSurcharge && !poids)
+    throw new Error('En surcharge : renseignez le poids en surcharge (kg).');
+  return { en_surcharge: enSurcharge, poids_surcharge: enSurcharge ? poids : '' };
+}
+
 export async function valider(ctx: Ctx, p: Record<string, unknown>) {
   const id = String(p['id'] ?? '').trim();
   const cargo = await getCargo(ctx, id);
@@ -338,13 +354,14 @@ export async function valider(ctx: Ctx, p: Record<string, unknown>) {
     throw new Error("Validation impossible : le CFS doit d'abord terminer (statut « " + c['statut'] + " »).");
   if (aFait(c['dateValidation']) && ctx.session.role !== ROLES.ADMIN)
     throw new Error('Cargaison déjà validée le ' + fmtDate(c['dateValidation']) + '.');
+  const pesee = peseePatch(p);
   const now = new Date().toISOString();
   const sig = await signature(id + '|' + ctx.session.username + '|' + now);
   await patchCargo(ctx, cargo, {
     date_validation: now, agent_validation: ctx.session.nomComplet, agent_validation_id: ctx.session.userId,
-    signature_validation: sig,
+    signature_validation: sig, ...pesee,
   });
-  await ctx.log('Validation chef brigade', id, '');
+  await ctx.log('Validation chef brigade', id, pesee['en_surcharge'] ? 'SURCHARGE ' + pesee['poids_surcharge'] + ' kg' : 'hors surcharge');
   return { id };
 }
 
@@ -361,12 +378,15 @@ export async function validerLot(ctx: Ctx, p: Record<string, unknown>) {
   const ids = (Array.isArray(p['ids']) ? (p['ids'] as unknown[]) : [])
     .map((v) => String(v ?? '').trim()).filter(Boolean);
   if (!ids.length) throw new Error('Aucune cargaison à valider.');
+  // v4.1 — la pesée est PAR CAMION : le lot porte une entrée de pesée par id.
+  const pesees = (p['pesees'] ?? {}) as Record<string, { enSurcharge?: unknown; poidsSurcharge?: unknown }>;
 
   const validees: string[] = [];
   const erreurs: Record<string, unknown>[] = [];
   for (const id of ids) {
     try {
-      await valider(ctx, { id });
+      const ps = pesees[id] ?? {};
+      await valider(ctx, { id, enSurcharge: ps.enSurcharge, poidsSurcharge: ps.poidsSurcharge });
       validees.push(id);
     } catch (e) {
       erreurs.push({ id, message: (e as Error).message });

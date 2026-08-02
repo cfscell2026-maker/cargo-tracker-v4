@@ -62,7 +62,7 @@ test('cycle de vie complet — ENLÈVEMENT (2 conteneurs 20\', binôme)', async 
   assert.equal(apres2['twins'], true);
 
   // 3) Chef brigade valide (signature).
-  await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'Chef Brigade'), { id });
+  await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'Chef Brigade'), { id, enSurcharge: false });
   assert.ok(db.store['cargaisons'][0]!['date_validation']);
   assert.deepEqual(etapesEnAttente(versCamel(db.store['cargaisons'][0]!) as never), ['T1', 'BALISE', 'BS']);
 
@@ -107,7 +107,7 @@ test('déclaration type C balisée : saute le T1, garde la Balise', async () => 
   assert.equal(c['sauteT1'], true);
   assert.equal(c['sauteBalise'], false);
   // Après validation : le T1 est sauté → Balise ET Bon de sortie en attente.
-  await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'), { id });
+  await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'), { id, enSurcharge: false });
   assert.deepEqual(etapesEnAttente(versCamel(db.store['cargaisons'][0]!) as never), ['BALISE', 'BS']);
 });
 
@@ -125,7 +125,7 @@ test('déclaration type C non balisée : saute le T1 ET la Balise', async () => 
   assert.equal(c['sauteT1'], true);
   assert.equal(c['sauteBalise'], true);
   // Après validation : T1 et Balise sautés → Bon de sortie + PP disponibles.
-  await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'), { id });
+  await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'), { id, enSurcharge: false });
   assert.deepEqual(etapesEnAttente(versCamel(db.store['cargaisons'][0]!) as never), ['BS', 'PP']);
 });
 
@@ -327,7 +327,7 @@ test('correction du type refusée après validation (hors ADMIN)', async () => {
     id, conteneur: { num: 'MSKU1234567', taille: "40'", type: 'DRY', plomb: 'S1' },
     declaration: { declarant: 'A', contactDeclarant: '901234', destinationMarchandise: 'D', bureauDeclaration: 'TG120', typeDeclaration: 'T', numeroDeclaration: '51', anneeDeclaration: '2026', dateDeclaration: '2026-06-24', descriptionMarchandise: 'X', nombreConteneurs: 1 },
   });
-  await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'), { id });
+  await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'), { id, enSurcharge: false });
   await assert.rejects(() => ecr.edittype(cfs, { id, typeOperation: 'Dépotage' }), /déjà validée/);
 });
 
@@ -367,7 +367,7 @@ test('garde-fou : sortie refusée tant que la Balise n\'est pas posée', async (
     id, conteneur: { num: 'MSKU1234567', taille: "40'", type: 'DRY', plomb: 'S1' },
     declaration: { declarant: 'A', contactDeclarant: '901234', destinationMarchandise: 'D', bureauDeclaration: 'TG120', typeDeclaration: 'T', numeroDeclaration: '1', anneeDeclaration: '2026', dateDeclaration: '2026-06-24', descriptionMarchandise: 'X', nombreConteneurs: 1 },
   });
-  await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'), { id });
+  await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'), { id, enSurcharge: false });
   // v4.1 — VERROU RÉACTIVÉ : ni T1 ni Balise → la PP ne peut pas clôturer.
   await assert.rejects(
     () => ecr.sortie(ctxRole(db, 'PP', 'PP'), { id, ckCfs: true, ckT1: true, ckBalise: true, ckBs: true }),
@@ -500,7 +500,7 @@ test('correction conteneur refusée après validation (hors ADMIN)', async () =>
   const cfs = ctxAvec(db);
   const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'FIX003', routage: 'Enlèvement' })) as { id: string };
   await ecr.cfs(cfs, { id, conteneur: { num: 'MSKU1111111', taille: "40'", type: 'DRY', plomb: 'S1' }, declaration: DECL_OK });
-  await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'), { id });
+  await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'), { id, enSurcharge: false });
   await ecr.gps(ctxRole(db, 'BALISE', 'B'), { id, baliseRequise: 'Oui', t1Correct: 'Oui', numeroGPS: 'G' });
 
   await assert.rejects(() => ecr.editconteneur(cfs, { id, index: 0, supprimer: true }), /a déjà avancé/);
@@ -572,7 +572,7 @@ test('validation par déclaration : le chef voit tout puis signe en une fois', a
   assert.ok(!dossier.aValider.includes(autre.id));
 
   // Signature en lot : les deux cargaisons sont validées d'un geste.
-  const res = (await ecr.validerLot(chef, { ids: dossier.aValider })) as {
+  const res = (await ecr.validerLot(chef, { ids: dossier.aValider, pesees: Object.fromEntries((dossier.aValider as string[]).map((x) => [x, { enSurcharge: false }])) })) as {
     validees: string[]; erreurs: unknown[]; compte: Record<string, number>;
   };
   assert.equal(res.compte['validees'], 2);
@@ -614,7 +614,7 @@ test('validation en lot : une cargaison en erreur n\'annule pas les autres', asy
   // Camion encore EN CHARGEMENT : le CFS n'a pas fini, il ne peut pas être validé.
   const pasPret = (await ecr.createcamion(cfs, { numeroCamion: 'VAL011', routage: 'Enlèvement' })) as { id: string };
 
-  const res = (await ecr.validerLot(chef, { ids: [ok.id, pasPret.id, 'INEXISTANT'] })) as {
+  const res = (await ecr.validerLot(chef, { ids: [ok.id, pasPret.id, 'INEXISTANT'], pesees: { [ok.id]: { enSurcharge: false }, [pasPret.id]: { enSurcharge: false } } })) as {
     validees: string[]; erreurs: Record<string, unknown>[];
   };
   assert.deepEqual(res.validees, [ok.id]);
@@ -1068,7 +1068,7 @@ async function enlevementSorti(db: FakeDB, plaque: string, tc: string, dest: str
   const { id } = (await ecr.createcamion(cfs, { numeroCamion: plaque, routage: 'Enlèvement' })) as { id: string };
   await ecr.cfs(cfs, { id, conteneur: { num: tc, taille: "40'", type: 'DRY', plomb: 'S1' },
     declaration: { declarant: 'A', contactDeclarant: '901234', destinationMarchandise: dest, bureauDeclaration: 'TG120', typeDeclaration: 'T', numeroDeclaration: num, anneeDeclaration: '2026', descriptionMarchandise: 'X' } });
-  await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'), { id });
+  await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'), { id, enSurcharge: false });
   await ecr.t1(ctxRole(db, 'T1', 'T1'), { id, bureauDestination: 'BF', t1Numeros: [{ conteneur: tc, numero: 'T1-' + num }] });
   await ecr.gps(ctxRole(db, 'BALISE', 'B'), { id, baliseRequise: 'Oui', t1Correct: 'Oui', numeroGPS: 'G-' + num });
   await ecr.bonsortie(ctxRole(db, 'BON_SORTIE', 'BS'), { id, bonSortieNumero: [{ conteneur: tc, t1: 'T1-' + num, numero: 'BS-' + num }] });
@@ -1121,4 +1121,40 @@ test('rapport CFS : un agent voit l\'activité de TOUS les agents CFS', async ()
   // Agent A ouvre le rapport CFS SANS filtre : il voit les DEUX camions.
   const r = (await rap.rapportCFS(a, {})) as { total: { camions: number } };
   assert.equal(r.total.camions, 2);
+});
+
+/* ---- v4.1 : pesée obligatoire avant la validation chef ------------------ */
+
+async function camionAValider(db: FakeDB, plaque = 'PES001') {
+  db.store['stock'].push({ numero_tc: 'MSKU7777777', taille: "40'", statut: 'En stock' });
+  const cfs = ctxAvec(db);
+  const { id } = (await ecr.createcamion(cfs, { numeroCamion: plaque, routage: 'Enlèvement' })) as { id: string };
+  await ecr.cfs(cfs, { id, conteneur: { num: 'MSKU7777777', taille: "40'", type: 'DRY', plomb: 'S1' }, declaration: DECL_OK });
+  return id;
+}
+
+test('validation refusée sans pesée renseignée', async () => {
+  const db = new FakeDB();
+  const id = await camionAValider(db);
+  await assert.rejects(() => ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'), { id }), /Renseignez la pesée/);
+});
+
+test('pesée EN SURCHARGE : le poids est obligatoire puis enregistré', async () => {
+  const db = new FakeDB();
+  const id = await camionAValider(db, 'PES002');
+  await assert.rejects(() => ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'), { id, enSurcharge: true }), /poids en surcharge/);
+  await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'), { id, enSurcharge: true, poidsSurcharge: '1200' });
+  const c = versCamel(db.store['cargaisons'][0]!);
+  assert.equal(c['enSurcharge'], true);
+  assert.equal(c['poidsSurcharge'], '1200');
+  assert.ok(c['dateValidation']);
+});
+
+test('pesée HORS SURCHARGE : validé sans poids, poids resté vide', async () => {
+  const db = new FakeDB();
+  const id = await camionAValider(db, 'PES003');
+  await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'), { id, enSurcharge: false });
+  const c = versCamel(db.store['cargaisons'][0]!);
+  assert.equal(c['enSurcharge'], false);
+  assert.equal(c['poidsSurcharge'], '');
 });
