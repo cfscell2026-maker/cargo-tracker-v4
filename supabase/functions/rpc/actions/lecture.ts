@@ -119,6 +119,50 @@ export async function cargoList(
   return { rows: all.slice(start, start + pageSize), total, page, pages };
 }
 
+/* ---------------------------- vehicule.list ---------------------------- */
+/**
+ * v4.1 — Recherche VÉHICULE par CHÂSSIS et/ou MARQUE (décision utilisateur
+ * 2026-07-27). La liste des cargaisons ne cherchait que sur `numero_camion` (=
+ * châssis) via la vue résumé, qui n'expose PAS la marque : impossible de
+ * retrouver un véhicule par sa marque, et la liste véhicules n'avait pas de
+ * barre de recherche. On lit ici les véhicules directement (colonnes réduites,
+ * donc léger pour l'egress) et on cherche sur châssis + marque + modèle.
+ */
+export async function vehiculeList(ctx: Ctx, opts: { search?: string; actifs?: boolean }) {
+  const BLOC = 1000;
+  const brut: Record<string, unknown>[] = [];
+  for (let debut = 0; ; debut += BLOC) {
+    const { data, error } = await ctx.db.from('cargaisons')
+      .select('id, numero_camion, statut, date_creation, date_sortie, vehicule_details, conteneur_origine, destination_marchandise')
+      .eq('est_vehicule', true).order('date_creation', { ascending: false }).range(debut, debut + BLOC - 1);
+    if (error) throw new Error(error.message);
+    const lot = (data ?? []) as Record<string, unknown>[];
+    brut.push(...lot);
+    if (lot.length < BLOC) break;
+  }
+  let rows = brut.map((r0) => {
+    const r = versCamel(r0);
+    const v = (r['vehiculeDetails'] ?? {}) as Record<string, unknown>;
+    return {
+      id: r['id'], chassis: r['numeroCamion'], marque: v['marque'] ?? '', modele: v['modele'] ?? '',
+      couleur: v['couleur'] ?? '', destination: v['destination'] ?? r['destinationMarchandise'] ?? '',
+      statut: r['statut'], dateCreation: r['dateCreation'], dateSortie: r['dateSortie'],
+      conteneurOrigine: r['conteneurOrigine'],
+    };
+  });
+  if (opts.actifs === true) rows = rows.filter((r) => r['statut'] !== STATUTS.SORTIE);
+  const q = String(opts.search ?? '').trim().toLowerCase();
+  if (q) {
+    const qBrut = normAlphaNum(q);
+    rows = rows.filter((r) => [r['chassis'], r['marque'], r['modele']].some((x) => {
+      const s = String(x ?? '');
+      if (s.toLowerCase().indexOf(q) > -1) return true;
+      return !!qBrut && normAlphaNum(s).indexOf(qBrut) > -1;
+    }));
+  }
+  return { rows, total: rows.length };
+}
+
 /* ---------------------------- cargo.checkdup --------------------------- */
 
 /** Détection de doublons (AVERTISSEMENT, jamais bloquant) à la saisie. */

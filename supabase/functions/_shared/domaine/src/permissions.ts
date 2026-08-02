@@ -19,6 +19,7 @@ export const PERMISSIONS: Record<string, Role[]> = {
   'cargo.search': TOUS_ROLES,
   'cargo.get': TOUS_ROLES,
   'cargo.list': TOUS_ROLES,
+  'vehicule.list': TOUS_ROLES, // v4.1 : recherche véhicule (châssis + marque)
   'cargo.checkdup': TOUS_ROLES,
   // Écriture par étape (1 cellule = 1 rôle ; CFS = cellule unifiée entrée + chargement)
   'cargo.createcamion': [ROLES.CFS, ROLES.ADMIN],

@@ -21,6 +21,7 @@ export const ACTIONS: Record<string, H> = {
   'cargo.search': d(lecture.cargoSearch),
   'cargo.get': d(lecture.cargoGet),
   'cargo.list': d(lecture.cargoList),
+  'vehicule.list': d(lecture.vehiculeList), // v4.1 : recherche véhicule par châssis + marque
   'cargo.checkdup': d(lecture.cargoCheckdup),
   'dashboard.stats': d(lecture.dashboardStats),
   'dashboard.fiche': d(rap.ficheBord), // v4.1 : fiche papier du chef, repliée sous le tableau de bord

@@ -267,8 +267,28 @@ function VehiculesEcran({ nav }: { nav: Nav }) {
       <StatCard n={Number(cp['sortis'] ?? 0)} l="Sortis" tone="ok" />
     </div>}
     </div>
-    <CargoList {...nav} filtre={{ categorie: 'vehicule' }} titre="Liste des véhicules" />
+    <VehiculeRecherche nav={nav} />
   </>;
+}
+
+/**
+ * v4.1 — Recherche VÉHICULE par CHÂSSIS ou MARQUE (le champ unique cherche les
+ * deux). Résout la plainte : les 6 derniers chiffres du châssis ne trouvaient
+ * rien, et la marque n'était pas cherchable du tout.
+ */
+function VehiculeRecherche({ nav }: { nav: Nav }) {
+  const [q, setQ] = useState('');
+  const { data, loading } = useAsync<{ rows: O[]; total: number }>(() => call('vehicule.list', { search: q.trim() }), [q]);
+  const rows = data?.rows ?? [];
+  return <div className="card">
+    <h2>Rechercher un véhicule</h2>
+    <input className="mono" value={q} onChange={(e) => setQ(e.target.value)}
+      placeholder="N° de châssis (même les 6 derniers chiffres) ou marque…" autoFocus />
+    <div className="help" style={{ margin: '8px 0' }}>{loading ? 'Recherche…' : `${data?.total ?? 0} véhicule(s)`}</div>
+    {loading ? <Spinner /> : <Table
+      cols={[['chassis', 'Châssis'], ['marque', 'Marque'], ['modele', 'Modèle'], ['couleur', 'Couleur'], ['destination', 'Destination'], ['statut', 'Statut'], ['conteneurOrigine', 'TC origine']]}
+      rows={rows} onRow={(r) => nav.go('detail', r['id'])} />}
+  </div>;
 }
 SCREENS.vehnew = ({ go }) => <div className="card"><h2>Dépotage de véhicules</h2>
   <p className="help" style={{ marginTop: 0 }}>Un conteneur d'origine, puis un ou plusieurs véhicules (châssis). Les véhicules ne sont pas des camions.</p>
