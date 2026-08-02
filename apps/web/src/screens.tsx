@@ -525,17 +525,58 @@ SCREENS.bonsortie = (nav) => <CargoList {...nav} filtre={{ etape: 'BS' }} titre=
 SCREENS.sortie = (nav) => <CargoList {...nav} filtre={{ etape: 'PP' }} titre="Sortie — cargaisons prêtes" />;
 
 /* --------------------------- Créer un camion --------------------------- */
+/**
+ * v4.1 — CHARGEMENT MIXTE SUR UN EXISTANT (décision utilisateur 2026-07-27 ;
+ * existait dans l'Apps Script). À la création d'un camion / véhicule, si un
+ * autre du MÊME numéro est déjà présent à un statut ENCORE MODIFIABLE (Camion
+ * créé / En cours de chargement / Créée), on propose de l'OUVRIR pour y ajouter
+ * (mixte) au lieu de créer un doublon. S'appuie sur cargo.checkdup.
+ */
+const STATUTS_EDITABLES = [STATUTS.CAMION, STATUTS.CHARGEMENT, STATUTS.CREEE] as string[];
+async function chercherExistantActif(num: string): Promise<O | null> {
+  if (!num.trim()) return null;
+  try {
+    const r = await call<{ camion: O[] }>('cargo.checkdup', { numeroCamion: num });
+    return (r.camion ?? []).find((c) => c['actif'] && STATUTS_EDITABLES.includes(String(c['statut']))) ?? null;
+  } catch { return null; }
+}
+/** Modale « ce numéro existe déjà » : ouvrir (mixte) / créer quand même / annuler. */
+function ModaleMixte({ match, quoi, onOuvrir, onCreer, onAnnuler }: {
+  match: O; quoi: string; onOuvrir: () => void; onCreer: () => void; onAnnuler: () => void;
+}) {
+  return <Modal onClose={onAnnuler}>
+    <h2>Ce {quoi} existe déjà</h2>
+    <p className="help" style={{ marginTop: 0 }}>
+      <b className="mono">{String(match['numeroCamion'])}</b> est déjà enregistré (statut « {String(match['statut'])} »),
+      encore en cours de saisie. Voulez-vous l'<b>ouvrir pour y ajouter</b> (chargement mixte) plutôt que d'en créer un nouveau&nbsp;?
+    </p>
+    <div className="row" style={{ marginTop: 12, flexWrap: 'wrap' }}>
+      <button onClick={onOuvrir}>Ouvrir « {String(match['numeroCamion'])} » (chargement mixte)</button>
+      <button className="ghost" onClick={onCreer}>Créer un nouveau {quoi}</button>
+      <button className="ghost" onClick={onAnnuler}>Annuler</button>
+    </div>
+  </Modal>;
+}
+
 SCREENS.creercamion = ({ go }) => {
   const [num, setNum] = useState('');
   const [routage, setRoutage] = useState(OPERATIONS.ENLEVEMENT as string);
   const [busy, setBusy] = useState(false);
-  async function creer() {
-    if (!num) { toast('N° camion requis.', 'err'); return; }
+  const [match, setMatch] = useState<O | null>(null);
+  async function faireCreer() {
     setBusy(true);
     try {
       const r = await call<{ id: string }>('cargo.createcamion', { numeroCamion: num, routage });
       toast('Camion créé.', 'ok'); go('detail', r.id);
     } catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(false); }
+  }
+  async function creer() {
+    if (!num) { toast('N° camion requis.', 'err'); return; }
+    setBusy(true);
+    const ex = await chercherExistantActif(num);
+    setBusy(false);
+    if (ex) { setMatch(ex); return; } // propose le mixte
+    await faireCreer();
   }
   return <div className="card" style={{ maxWidth: 480 }}>
     <h2>Créer un camion à l'entrée</h2>
@@ -544,6 +585,10 @@ SCREENS.creercamion = ({ go }) => {
     <label className="help">Type d'opération</label>
     <select value={routage} onChange={(e) => setRoutage(e.target.value)}><option>{OPERATIONS.ENLEVEMENT}</option><option>{OPERATIONS.DEPOTAGE}</option></select>
     <div style={{ marginTop: 12 }}><button disabled={busy} onClick={creer}>Créer</button></div>
+    {match && <ModaleMixte match={match} quoi="camion"
+      onOuvrir={() => { setMatch(null); go('detail', match['id']); }}
+      onCreer={() => { setMatch(null); faireCreer(); }}
+      onAnnuler={() => setMatch(null)} />}
   </div>;
 };
 
@@ -749,10 +794,9 @@ function FormVehicule({ go }: { go: Nav['go'] }) {
   const tcs = ((stk?.rows ?? []) as O[]).map((r) => String(r['numeroTC'] ?? '')).filter(Boolean);
 
   const majCam = (i: number, patch: Partial<CamEffets>) => setCams((a) => a.map((c, j) => (j === i ? { ...c, ...patch } : c)));
+  const [match, setMatch] = useState<O | null>(null); // v4.1 : véhicule déjà présent → mixte ?
 
-  async function creer() {
-    if (!origine) { toast("Le N° de conteneur d'origine (TC) est obligatoire.", 'err'); return; }
-    if (manuelOrigine && !tcValide(origine)) { toast('N° conteneur d\'origine invalide (4 lettres + 7 chiffres).', 'err'); return; }
+  async function faireCreer() {
     try {
       const r = await call<{ vehicules: { id: string }[] }>('cargo.create', {
         typeOperation: OPERATIONS.VEHICULE, declaration: d, conteneurOrigine: origine, vehicules: vs,
@@ -760,6 +804,15 @@ function FormVehicule({ go }: { go: Nav['go'] }) {
       });
       toast('Véhicule créé.', 'ok'); go('detail', r.vehicules[0]?.id);
     } catch (e) { toast((e as Error).message, 'err'); }
+  }
+  async function creer() {
+    if (!origine) { toast("Le N° de conteneur d'origine (TC) est obligatoire.", 'err'); return; }
+    if (manuelOrigine && !tcValide(origine)) { toast('N° conteneur d\'origine invalide (4 lettres + 7 chiffres).', 'err'); return; }
+    // v4.1 — si le 1er châssis existe déjà à un statut modifiable : proposer le mixte.
+    const chassis = String(vs[0]?.['chassis'] ?? '').trim();
+    const ex = chassis ? await chercherExistantActif(chassis) : null;
+    if (ex) { setMatch(ex); return; }
+    await faireCreer();
   }
 
   return <div style={{ marginTop: 12 }}>
@@ -826,6 +879,10 @@ function FormVehicule({ go }: { go: Nav['go'] }) {
     </div>)}
 
     <div style={{ marginTop: 12 }}><button onClick={creer}>Créer le véhicule</button></div>
+    {match && <ModaleMixte match={match} quoi="véhicule"
+      onOuvrir={() => { setMatch(null); go('detail', match['id']); }}
+      onCreer={() => { setMatch(null); faireCreer(); }}
+      onAnnuler={() => setMatch(null)} />}
   </div>;
 }
 
