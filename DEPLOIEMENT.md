@@ -44,8 +44,30 @@ cd apps/web && npx tsc --noEmit && npx vite build
    ```
 4. **Déployer l'Edge Function** `rpc` :
    ```bash
-   supabase functions deploy rpc
+   supabase functions deploy rpc --no-verify-jwt
    ```
+
+> ### ⚠ MISE À JOUR v4.1 — ORDRE OBLIGATOIRE (migrations 00060 + 00070)
+> Le lot v4.1 (pesée/surcharge à la validation ; module **MAD & Entrepôt
+> industriel**) ajoute des colonnes et des tables. Les écritures de la nouvelle
+> Edge Function **échouent** si le schéma n'est pas à jour d'abord. Donc, à
+> chaque déploiement de ce lot, **toujours dans cet ordre** :
+> ```bash
+> supabase db push                              # applique 00060 (pesée) + 00070 (entrepôts)
+> supabase functions deploy rpc --no-verify-jwt # PUIS la fonction
+> ```
+> - `00060_pesee_surcharge.sql` : colonnes `en_surcharge` / `poids_surcharge` (nullables, additives).
+> - `00070_entrepots.sql` : tables `entrepots` / `entrepot_entrees` / `entrepot_sorties` (+ RLS).
+>
+> Le **front** (Netlify) se met à jour tout seul au `git push` sur `main` ; il
+> peut afficher les nouveaux écrans même avant `db push`, mais toute écriture
+> pesée/MAD/entrepôt renverra une erreur tant que les migrations ne sont pas
+> appliquées. **db push AVANT functions deploy, sans exception.**
+>
+> ⚠ **Prérequis** : le projet Supabase ne doit pas être **restreint** (quota
+> egress dépassé → réponses 402). Attendre le reset du cycle ou upgrader avant
+> de lancer `db push`. Cause du dépassement + piste d'optimisation : voir la note
+> egress en fin de guide.
 5. **Activer le 2FA (TOTP)** : Dashboard → **Authentication → Providers/MFA** → activer **TOTP**. (Obligatoire : le routeur refuse tout token non-`aal2`.)
 
 Récupérer, dans **Project Settings → API** :
