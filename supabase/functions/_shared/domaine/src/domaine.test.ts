@@ -11,7 +11,7 @@ import {
   parseConteneursDetails, parseDateImport, tailleBucket, evpDeTaille, trancheAge,
   verifierPermission, PERMISSIONS, TYPES_DECLARATION,
   groupesDeclaration, estChargementMixte, libelleDeclaration,
-  sautsTypeC, estTypeSansT1, DESTINATION_CODES, codeDestination,
+  sautsTypeC, estTypeSansT1, DESTINATION_CODES, estDispenseBalise, codeDestination,
 } from './index.ts';
 
 /* ------------------------------ Moteur workflow ------------------------ */
@@ -270,4 +270,28 @@ test('tableau de bord réservé aux chefs (brigade/visite/division) + ADMIN', ()
 
 test('DESTINATIONS incluent NG', () => {
   assert.ok(DESTINATION_CODES.includes('NG'));
+});
+
+test('estDispenseBalise : seules les vraies dispenses (numéro d’autorisation) comptent', () => {
+  // Vraie dispense : la Balise a exempté + numéro d'autorisation.
+  assert.equal(estDispenseBalise({ baliseRequise: false, numeroDispense: 'AUT-12' }), true);
+  assert.equal(estDispenseBalise({ baliseRequise: 'Non', numeroDispense: 'AUT-12' }), true);
+  // Type C/A/E qui saute la balise PAR NATURE : PAS une dispense (bug des 59).
+  assert.equal(estDispenseBalise({ sauteBalise: true }), false);
+  assert.equal(estDispenseBalise({ baliseRequise: false, numeroDispense: '' }), false);
+  // Balise requise, ou véhicule : jamais une dispense.
+  assert.equal(estDispenseBalise({ baliseRequise: true, numeroDispense: 'AUT-9' }), false);
+  assert.equal(estDispenseBalise({ estVehicule: true, baliseRequise: false, numeroDispense: 'AUT-9' }), false);
+});
+
+test('verrou PP : la sortie attend T1 ET Balise (transit)', () => {
+  // Transit après CFS : ni T1 ni balise faits → PP absente des étapes.
+  const base = { statut: STATUTS.CREEE };
+  assert.equal(etapesEnAttente(base).includes('PP'), false);
+  // Balise seule (T1 pas fait) → PP toujours absente.
+  assert.equal(etapesEnAttente({ ...base, datePoseGps: '2026-07-27' }).includes('PP'), false);
+  // T1 + Balise faits → PP ouverte.
+  assert.equal(etapesEnAttente({ ...base, dateT1: '2026-07-27', datePoseGps: '2026-07-27' }).includes('PP'), true);
+  // Type C qui saute le T1 + balise posée → PP ouverte (le saut vaut « fait »).
+  assert.equal(etapesEnAttente({ ...base, sauteT1: true, datePoseGps: '2026-07-27' }).includes('PP'), true);
 });

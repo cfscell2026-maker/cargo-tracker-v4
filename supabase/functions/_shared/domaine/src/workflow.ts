@@ -77,14 +77,17 @@ export function etapesEnAttente(c: SourceEtapes): Etape[] {
   const e = etatCellules(c);
   if (e.sorti) return [];
   if (!e.cfs) return ['CFS']; // camion vide / en cours -> à compléter par le CFS
-  // Après le CFS, les cellules sont ouvertes EN PARALLÈLE ; la PP peut clôturer
-  // dès que la Balise est posée.
+  // Après le CFS, les cellules Validation / T1 / Balise / Bon de sortie sont
+  // ouvertes EN PARALLÈLE. v4.1 (décision utilisateur 2026-07-27) : VERROU PP
+  // RÉACTIVÉ — la Porte Principale ne peut clôturer qu'une fois le T1 ET la
+  // Balise faits (ou sautés par nature : type C/A/E pour le T1, dispense/véhicule
+  // pour la Balise). Le Bon de sortie reste, lui, non bloquant.
   const p: Etape[] = [];
   if (!e.valide) p.push('VALIDATION');
   if (!e.t1) p.push('T1');
   if (!e.balise) p.push('BALISE');
   if (!e.bs) p.push('BS');
-  if (e.balise) p.push('PP');
+  if (e.t1 && e.balise) p.push('PP');
   return p;
 }
 
@@ -92,4 +95,23 @@ export function etapesEnAttente(c: SourceEtapes): Etape[] {
 export function prochaineEtape(c: SourceEtapes): Etape | null {
   const p = etapesEnAttente(c);
   return p.length ? (p[0] as Etape) : null;
+}
+
+/**
+ * v4.1 — VRAIE dispense de balise (correctif 2026-07-27). Une dispense est une
+ * décision PRISE À LA BALISE : la cellule exempte de balise une cargaison qui en
+ * aurait normalement eu besoin, et enregistre un NUMÉRO D'AUTORISATION obligatoire.
+ *
+ * ⚠ Ce n'est PAS la même chose qu'un « saute-balise » : les déclarations de type
+ * C/A/E (mise à la consommation non balisée…) n'ont pas de balise PAR NATURE et
+ * ne passent jamais par la cellule Balise. Les compter comme dispenses gonflait
+ * le tableau de bord (59 affichées pour quelques-unes réelles). De même, les
+ * véhicules sautent la balise par nature → jamais des dispenses.
+ */
+export function estDispenseBalise(c: {
+  baliseRequise?: unknown; numeroDispense?: unknown; estVehicule?: unknown;
+}): boolean {
+  if (estOui(c.estVehicule)) return false;
+  const pasRequise = c.baliseRequise === false || String(c.baliseRequise) === 'Non';
+  return pasRequise && String(c.numeroDispense ?? '').trim() !== '';
 }

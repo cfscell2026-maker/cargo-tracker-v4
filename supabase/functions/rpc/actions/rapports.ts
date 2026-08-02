@@ -15,7 +15,7 @@ import {
   ROLES, STATUTS, OPERATIONS, DEFAUTS, DESTINATION_CODES, codeDestination, TRANCHES_SEJOUR, SEUIL_ALERTE_SEJOUR,
   tailleBucket, evpDeTaille, trancheAge, parseConteneursDetails, estOui, aFait, normAlphaNum,
   groupesDeclaration, estChargementMixte, libelleDeclaration,
-  etapesEnAttente, etatCellules,
+  etapesEnAttente, etatCellules, estDispenseBalise,
 } from '../../_shared/domaine/src/index.ts';
 import { fetchAll, lookupDeclaration } from './helpers.ts';
 import { filtrerConfidentiel } from './lecture.ts';
@@ -330,10 +330,10 @@ export async function ficheBord(ctx: Ctx, p: Record<string, unknown>) {
       if (op === OPERATIONS.ENLEVEMENT || op === OPERATIONS.DEPOTAGE) balise.camions++;
       if (op === OPERATIONS.MAGASIN) balise.mad++;
     }
-    // Dispense : aucune balise n'est posée, donc aucune date de pose — on la
-    // rattache à l'entrée du camion, seule date dont elle dispose.
-    if (inRange(c['dateCreation'], du, au) && !veh
-      && (String(c['numeroDispense'] ?? '').trim() !== '' || estOui(c['sauteBalise']))) balise.dispenses++;
+    // Dispense = décision prise à la Balise avec numéro d'autorisation (v4.1).
+    // On NE compte PAS les type C/A/E qui sautent la balise par nature. Rattachée
+    // à la date d'entrée (une dispense n'a pas de date de pose de balise).
+    if (inRange(c['dateCreation'], du, au) && estDispenseBalise(c as never)) balise.dispenses++;
     // Parking = camions RÉELLEMENT EN ATTENTE DE BALISE (correctif 2026-07-22).
     // L'ancienne règle « ni sorti, ni balisé » gonflait le chiffre : elle
     // comptait AUSSI les véhicules (qui ne prennent pas de balise), les dispenses
@@ -419,12 +419,9 @@ export async function rapportDispenses(ctx: Ctx, p: Record<string, unknown>) {
   const rows: Record<string, unknown>[] = [];
   let total = 0, enCours = 0, terminees = 0;
   for (const c of cargos) {
-    const dispense = String(c['baliseRequise']) === 'Non' || c['baliseRequise'] === false || estOui(c['sauteBalise']);
-    if (!dispense) continue;
-    if (c['statut'] !== STATUTS.SORTIE && c['statut'] !== STATUTS.GPS && c['statut'] !== STATUTS.BS) {
-      // dispense pertinente dès qu'elle est engagée dans le flux
-    }
-    if (!c['numeroDispense'] && !estOui(c['sauteBalise'])) continue;
+    // v4.1 — une dispense = exemption prise à la Balise + numéro d'autorisation ;
+    // les type C/A/E « saute-balise » ne sont PAS des dispenses.
+    if (!estDispenseBalise(c as never)) continue;
     total++;
     if (estOui(c['arriveeBureau'])) terminees++; else enCours++;
     rows.push({ id: c['id'], numeroCamion: c['numeroCamion'], numeroDispense: c['numeroDispense'], statut: c['statut'], arriveeBureau: c['arriveeBureau'], dateArriveeBureau: c['dateArriveeBureau'] });

@@ -536,7 +536,7 @@ export async function sortie(ctx: Ctx, p: Record<string, unknown>) {
   const c = cargo.o;
   const estVeh = c['estVehicule'] === true || c['estVehicule'] === 'Oui';
   if (ctx.session.role !== ROLES.ADMIN && etapesEnAttente(c as never).indexOf('PP') < 0)
-    throw new Error('Sortie impossible : la Balise doit être posée (statut « ' + c['statut'] + ' »).');
+    throw new Error('Sortie impossible : le T1 et la Balise doivent être faits d\'abord (statut « ' + c['statut'] + ' »).');
   let checklist: Record<string, boolean> = {};
   if (estVeh) {
     if (p['infosValidees'] !== true) throw new Error('Veuillez cocher « Informations validées ».');

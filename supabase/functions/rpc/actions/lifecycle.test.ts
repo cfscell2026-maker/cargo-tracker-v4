@@ -368,13 +368,19 @@ test('garde-fou : sortie refusée tant que la Balise n\'est pas posée', async (
     declaration: { declarant: 'A', contactDeclarant: '901234', destinationMarchandise: 'D', bureauDeclaration: 'TG120', typeDeclaration: 'T', numeroDeclaration: '1', anneeDeclaration: '2026', dateDeclaration: '2026-06-24', descriptionMarchandise: 'X', nombreConteneurs: 1 },
   });
   await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'), { id });
-  // Balise pas encore posée → la PP ne peut pas clôturer.
+  // v4.1 — VERROU RÉACTIVÉ : ni T1 ni Balise → la PP ne peut pas clôturer.
   await assert.rejects(
     () => ecr.sortie(ctxRole(db, 'PP', 'PP'), { id, ckCfs: true, ckT1: true, ckBalise: true, ckBs: true }),
-    /la Balise doit être posée/,
+    /le T1 et la Balise/,
   );
-  // Une fois la Balise posée, la sortie passe (les autres cellules travaillent en parallèle).
+  // Balise posée mais T1 pas encore fait → toujours refusé (transit).
   await ecr.gps(ctxRole(db, 'BALISE', 'B'), { id, baliseRequise: 'Oui', t1Correct: 'Oui', numeroGPS: 'G' });
+  await assert.rejects(
+    () => ecr.sortie(ctxRole(db, 'PP', 'PP'), { id, ckCfs: true, ckT1: true, ckBalise: true, ckBs: true }),
+    /le T1 et la Balise/,
+  );
+  // T1 fait → la sortie passe enfin.
+  await ecr.t1(ctxRole(db, 'T1', 'T1'), { id, bureauDestination: 'TG120', t1Numeros: [{ conteneur: 'MSKU1234567', numero: 'T1-Z' }] });
   await ecr.sortie(ctxRole(db, 'PP', 'PP'), { id, ckCfs: true, ckT1: true, ckBalise: true, ckBs: true });
   assert.equal(statutDe(db, id), STATUTS.SORTIE);
 });
@@ -668,6 +674,8 @@ test('correction de balise impossible une fois le camion sorti', async () => {
   const db = new FakeDB();
   db.store['stock'].push({ numero_tc: 'MSKU1111111', taille: "40'", statut: 'En stock' });
   const id = await camionBalise(db);
+  // v4.1 — la PP exige le T1 avant la sortie (transit).
+  await ecr.t1(ctxRole(db, 'T1', 'Agent T1'), { id, bureauDestination: 'TG120', t1Numeros: [{ conteneur: 'MSKU1111111', numero: 'T1-Q' }] });
   await ecr.bonsortie(ctxRole(db, 'BON_SORTIE', 'Agent BS'), { id, bonSortieNumero: 'BS-1' });
   await ecr.sortie(ctxRole(db, 'PP', 'Agent PP'), { id, ckCfs: true, ckT1: true, ckBalise: true, ckBs: true });
 
