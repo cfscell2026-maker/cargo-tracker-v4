@@ -156,6 +156,25 @@ export function codeDestination(v: unknown): string {
   return hit ?? 'Autres';
 }
 
+/**
+ * v4.1 — ENTREPÔTS (décision utilisateur 2026-07-27). Deux types au
+ * fonctionnement identique ; seule l'UNITÉ D'APUREMENT change : MAD apure des
+ * QUANTITÉS (nombre de colis), INDUSTRIEL apure des POIDS (kg).
+ */
+export const ENTREPOT_TYPES = { MAD: 'MAD', INDUSTRIEL: 'INDUSTRIEL' } as const;
+export type EntrepotType = (typeof ENTREPOT_TYPES)[keyof typeof ENTREPOT_TYPES];
+/** Une déclaration porte jusqu'à 11 articles (marchandises distinctes). */
+export const ARTICLES_MAX = 11;
+/** Unité d'apurement selon le type d'entrepôt. */
+export function uniteApurement(type: unknown): 'poids' | 'colis' {
+  return String(type) === ENTREPOT_TYPES.INDUSTRIEL ? 'poids' : 'colis';
+}
+/** Clé d'une déclaration (année|bureau|type|numéro) — pour regrouper l'apurement. */
+export function cleDecl(d: { anneeDeclaration?: unknown; bureauDeclaration?: unknown; typeDeclaration?: unknown; numeroDeclaration?: unknown }): string {
+  return [d.anneeDeclaration, d.bureauDeclaration, d.typeDeclaration, d.numeroDeclaration]
+    .map((x) => String(x ?? '').toUpperCase().replace(/\s+/g, '')).join('|');
+}
+
 /** v3.3 — Le CFS crée le camion et choisit le type ; le routage = le type. */
 export const ROUTAGES = {
   ENLEVEMENT: OPERATIONS.ENLEVEMENT,

@@ -12,6 +12,7 @@ import * as stk from './stock.ts';
 import * as spe from './speciaux.ts';
 import * as usr from './utilisateurs.ts';
 import * as rap from './rapports.ts';
+import * as entrepot from './entrepots.ts';
 
 type H = (ctx: Ctx, data: never) => Promise<unknown>;
 const d = <T>(fn: (ctx: Ctx, data: T) => Promise<unknown>): H => fn as H;
@@ -52,6 +53,14 @@ export const ACTIONS: Record<string, H> = {
   'cargo.lotcamions': d(ecr.lotcamions), // v4 : plusieurs camions sur une même déclaration
   'cargo.update': d(ecr.update),
   'cargo.mixte': d(ecr.mixte),
+
+  /* ----- Entrepôts : MAD & Entrepôt industriel (v4.1) ----- */
+  'entrepot.list': d(entrepot.entrepotList),
+  'entrepot.create': d(entrepot.entrepotCreate),
+  'entrepot.entree': d(entrepot.entrepotEntree),
+  'entrepot.entrees': d(entrepot.entrepotEntrees),
+  'entrepot.sortie': d(entrepot.entrepotSortie),
+  'entrepot.stats': d(entrepot.entrepotStats),
 
   /* ----- Spéciaux ----- */
   'cargo.create': d(spe.create),

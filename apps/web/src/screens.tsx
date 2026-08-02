@@ -244,9 +244,10 @@ function itemsConteneurs(role: string): [string, string, string][] {
 }
 SCREENS.conteneurs = (nav) => <Hub nav={nav} titre="Opérations sur conteneurs"
   desc="Stock du parc, pointages, imports et entrées annoncées — tout au même endroit." items={itemsConteneurs(nav.user.role)} />;
-SCREENS.mad = (nav) => <Hub nav={nav} titre="Magasin / MAD"
-  desc="Entrée d'un conteneur au magasin et sortie de marchandise en vrac (MAD)."
-  items={[['magasin', 'Entrée Magasin / MAD', '▥'], ['madsortie', 'Sortie Magasin / MAD', '▤']]} />;
+// v4.1 — MAD & Entrepôt industriel : même module, unité d'apurement différente
+// (MAD = colis ; INDUSTRIEL = poids kg).
+SCREENS.mad = (nav) => <EcranEntrepot nav={nav} type="MAD" />;
+SCREENS.entrepindus = (nav) => <EcranEntrepot nav={nav} type="INDUSTRIEL" />;
 
 /* ------- v4.1 : véhicules = mini tableau de bord + dépotage + liste ---- */
 SCREENS.vehicules = (nav) => <VehiculesEcran nav={nav} />;
@@ -295,6 +296,223 @@ SCREENS.vehnew = ({ go }) => <div className="card"><h2>Dépotage de véhicules</
   <FormVehicule go={go} /></div>;
 SCREENS.madsortie = ({ go }) => <div className="card"><h2>Sortie Magasin / MAD</h2><FormMagasin go={go} /></div>;
 SCREENS.conso = ({ go }) => <div className="card"><h2>Conso (type C)</h2><FormConso go={go} /></div>;
+
+/* ============ v4.1 : MAD & Entrepôt industriel (module unifié) ========= */
+/**
+ * Un entrepôt reçoit des ENTRÉES (déclaration + 1..11 articles + conteneurs
+ * éventuels) et des SORTIES en vrac (apurement d'un article). MAD apure des
+ * quantités (colis), Entrepôt industriel des poids (kg). Le module est le même,
+ * seule l'unité change (prop `type`).
+ */
+type EntrepotType = 'MAD' | 'INDUSTRIEL';
+const estIndus = (t: EntrepotType) => t === 'INDUSTRIEL';
+const uniteLabel = (t: EntrepotType) => estIndus(t) ? 'Poids (kg)' : 'Nombre de colis';
+
+function EcranEntrepot({ nav, type }: { nav: Nav; type: EntrepotType }) {
+  const titre = estIndus(type) ? 'Entrepôt industriel' : 'Magasin / MAD';
+  const [onglet, setOnglet] = useState<'entree' | 'sortie' | 'stats' | 'gerer'>('entree');
+  const { data, loading, reload } = useAsync<{ rows: O[] }>(() => call('entrepot.list', { type }), [type]);
+  const entrepots = (data?.rows ?? []) as O[];
+  const peutGerer = ['ADMIN', 'CHEF_BRIGADE', 'CHEF_DIVISION'].includes(nav.user.role);
+  const T: [string, string][] = [['entree', 'Entrée'], ['sortie', 'Sortie (apurement)'], ['stats', 'Statistiques']];
+  if (peutGerer) T.push(['gerer', 'Entrepôts']);
+  return <>
+    <div className="card"><div className="row" style={{ alignItems: 'center', flexWrap: 'wrap' }}>
+      <h2 style={{ flex: 1, margin: 0 }}>{titre}</h2>
+      {T.map(([k, l]) => <button key={k} className={onglet === k ? '' : 'ghost'} onClick={() => setOnglet(k as never)}>{l}</button>)}
+    </div>
+    <p className="help" style={{ marginBottom: 0 }}>Apurement par {estIndus(type) ? <b>poids (kg)</b> : <b>quantités (colis)</b>}. {entrepots.length} entrepôt(s) {titre}.</p></div>
+    {loading ? <Spinner /> : entrepots.length === 0 && onglet !== 'gerer'
+      ? <div className="card"><div className="empty">Aucun entrepôt {titre}. {peutGerer ? 'Créez-en un dans l\'onglet « Entrepôts ».' : 'Demandez à un chef d\'en créer un.'}</div></div>
+      : onglet === 'entree' ? <EntrepotEntree type={type} entrepots={entrepots} />
+        : onglet === 'sortie' ? <EntrepotSortie type={type} entrepots={entrepots} nav={nav} />
+          : onglet === 'stats' ? <EntrepotStats type={type} />
+            : <EntrepotGerer type={type} entrepots={entrepots} reload={reload} />}
+  </>;
+}
+
+/** Gestion des entrepôts (création — admin / chef brigade / division). */
+function EntrepotGerer({ type, entrepots, reload }: { type: EntrepotType; entrepots: O[]; reload: () => void }) {
+  const [code, setCode] = useState('');
+  const [nom, setNom] = useState('');
+  const [busy, setBusy] = useState(false);
+  async function creer() {
+    if (!code.trim() || !nom.trim()) { toast('Code et nom requis.', 'err'); return; }
+    setBusy(true);
+    try { await call('entrepot.create', { code, nom, type }); toast('Entrepôt créé.', 'ok'); setCode(''); setNom(''); reload(); }
+    catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(false); }
+  }
+  return <div className="card"><h2>Entrepôts {estIndus(type) ? 'industriels' : 'MAD'}</h2>
+    <div className="grid2">
+      <div><label className="help">Code</label><input className="mono" value={code} onChange={(e) => setCode(masks.alnum(e.target.value))} placeholder="ex. MAD-01" /></div>
+      <div><label className="help">Nom</label><input value={nom} onChange={(e) => setNom(masks.upper(e.target.value))} /></div>
+    </div>
+    <div style={{ marginTop: 10 }}><button disabled={busy} onClick={creer}>Créer l'entrepôt</button></div>
+    <div className="section-title" style={{ marginTop: 14 }}>Existants ({entrepots.length})</div>
+    <Table cols={[['code', 'Code'], ['nom', 'Nom'], ['creePar', 'Créé par']]} rows={entrepots} />
+  </div>;
+}
+
+/** Champs de déclaration réutilisés (entrée / apurement). */
+function DeclEntrepot({ d, set, titre }: { d: O; set: (k: string, v: unknown) => void; titre: string }) {
+  return <><div className="section-title">{titre}</div><div className="grid2">
+    <div><label className="help">Déclarant</label><input value={String(d['declarant'] ?? '')} onChange={(e) => set('declarant', masks.upper(e.target.value))} /></div>
+    <div><label className="help">Bureau</label><input value={String(d['bureauDeclaration'] ?? 'TG120')} onChange={(e) => set('bureauDeclaration', masks.upper(e.target.value))} /></div>
+    <div><label className="help">Type décl.</label><select value={String(d['typeDeclaration'] ?? 'T')} onChange={(e) => set('typeDeclaration', e.target.value)}>{TYPES_DECLARATION.map((t) => <option key={t}>{t}</option>)}</select></div>
+    <div><label className="help">N° décl.</label><input value={String(d['numeroDeclaration'] ?? '')} onChange={(e) => set('numeroDeclaration', masks.upper(e.target.value))} /></div>
+    <div><label className="help">Année</label><input value={String(d['anneeDeclaration'] ?? new Date().getFullYear())} onChange={(e) => set('anneeDeclaration', e.target.value)} /></div>
+  </div></>;
+}
+
+/** Entrée : déclaration + jusqu'à 11 articles + conteneurs éventuels. */
+function EntrepotEntree({ type, entrepots }: { type: EntrepotType; entrepots: O[] }) {
+  const [code, setCode] = useState('');
+  const [d, setD] = useState<O>({ bureauDeclaration: 'TG120', typeDeclaration: 'T', anneeDeclaration: String(new Date().getFullYear()) });
+  const artVide = () => ({ designation: '', nbColis: '', poids: '' });
+  const [arts, setArts] = useState<O[]>([artVide()]);
+  const [conteneurise, setConteneurise] = useState(false);
+  const [conts, setConts] = useState<string[]>([]);
+  const [busy, setBusy] = useState(false);
+  const set = (k: string, v: unknown) => setD((o) => ({ ...o, [k]: v }));
+  const majArt = (i: number, k: string, v: unknown) => setArts((a) => a.map((x, j) => j === i ? { ...x, [k]: v } : x));
+  const { data: stk } = useAsync<{ rows: O[] }>(() => (conteneurise ? call('stock.list', { statut: 'Positionné' }) : Promise.resolve({ rows: [] })), [conteneurise]);
+  const tcs = ((stk?.rows ?? []) as O[]).map((r) => String(r['numeroTC'] ?? '')).filter(Boolean);
+
+  async function envoyer() {
+    if (!code) { toast('Choisissez un entrepôt.', 'err'); return; }
+    const articles = arts.filter((a) => String(a['designation']).trim() || a['nbColis'] || a['poids']);
+    if (!articles.length) { toast('Renseignez au moins un article.', 'err'); return; }
+    setBusy(true);
+    try {
+      await call('entrepot.entree', { entrepotCode: code, declaration: d, conteneurise, conteneurs: conts, articles });
+      toast('Entrée enregistrée.', 'ok');
+      setD({ bureauDeclaration: 'TG120', typeDeclaration: 'T', anneeDeclaration: String(new Date().getFullYear()) });
+      setArts([artVide()]); setConteneurise(false); setConts([]);
+    } catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(false); }
+  }
+
+  return <div className="card"><h2>Nouvelle entrée</h2>
+    <label className="help">Entrepôt</label>
+    <select value={code} onChange={(e) => setCode(e.target.value)}><option value="">— Choisir —</option>
+      {entrepots.map((x) => <option key={String(x['code'])} value={String(x['code'])}>{String(x['nom'])} ({String(x['code'])})</option>)}</select>
+    <DeclEntrepot d={d} set={set} titre="Déclaration d'origine (sommier)" />
+
+    <div className="row" style={{ alignItems: 'center', marginTop: 12 }}>
+      <div className="section-title" style={{ flex: 1, margin: 0 }}>Articles ({arts.length}/11)</div>
+      <button className="ghost xs" disabled={arts.length >= 11} onClick={() => setArts((a) => [...a, artVide()])}>＋ Ajouter un article</button>
+    </div>
+    {arts.map((a, i) => <div key={i} className="grid2" style={{ border: '1px solid var(--line)', borderRadius: 6, padding: 8, marginTop: 6 }}>
+      <div><label className="help">Désignation article {i + 1}</label><input value={String(a['designation'])} onChange={(e) => majArt(i, 'designation', masks.upper(e.target.value))} /></div>
+      <div><label className="help">Nombre de colis</label><input value={String(a['nbColis'])} onChange={(e) => majArt(i, 'nbColis', e.target.value.replace(/[^0-9]/g, ''))} /></div>
+      {estIndus(type) && <div><label className="help">Poids (kg)</label><input value={String(a['poids'])} onChange={(e) => majArt(i, 'poids', e.target.value.replace(/[^0-9.,]/g, ''))} /></div>}
+      {arts.length > 1 && <div style={{ alignSelf: 'end' }}><button className="ghost xs" onClick={() => setArts((x) => x.filter((_, j) => j !== i))}>Retirer</button></div>}
+    </div>)}
+
+    <label className="help" style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 14 }}>
+      <input type="checkbox" style={{ width: 'auto' }} checked={conteneurise} onChange={(e) => setConteneurise(e.target.checked)} />
+      <span>Marchandise <b>conteneurisée</b> à l'arrivée</span>
+    </label>
+    {conteneurise && <div style={{ marginTop: 6 }}>
+      <label className="help">Conteneurs (appelés du stock ; saisie manuelle possible)</label>
+      <datalist id="dl-ent-tc">{tcs.map((t) => <option key={t} value={t} />)}</datalist>
+      {conts.map((c, i) => <div key={i} className="row" style={{ marginTop: 4 }}>
+        <input className="mono" value={c} list="dl-ent-tc" onChange={(e) => setConts((a) => a.map((x, j) => j === i ? masks.tc(e.target.value) : x))} style={{ flex: 1 }} />
+        <button className="ghost xs" onClick={() => setConts((a) => a.filter((_, j) => j !== i))}>Retirer</button>
+      </div>)}
+      <button className="ghost xs" style={{ marginTop: 6 }} onClick={() => setConts((a) => [...a, ''])}>＋ Conteneur</button>
+    </div>}
+
+    <div style={{ marginTop: 14 }}><button disabled={busy} onClick={envoyer}>{busy ? 'Enregistrement…' : 'Enregistrer l\'entrée'}</button></div>
+  </div>;
+}
+
+/** Sortie / apurement : choisir entrepôt → entrée → article → quantité + déclaration d'apurement + véhicules. */
+function EntrepotSortie({ type, entrepots, nav }: { type: EntrepotType; entrepots: O[]; nav: Nav }) {
+  void nav;
+  const [code, setCode] = useState('');
+  const { data, loading, reload } = useAsync<{ unite: string; rows: O[] }>(
+    () => (code ? call('entrepot.entrees', { entrepotCode: code }) : Promise.resolve({ unite: 'colis', rows: [] })), [code]);
+  const entrees = (data?.rows ?? []) as O[];
+  const [entreeId, setEntreeId] = useState('');
+  const [numeroArticle, setNumeroArticle] = useState('1');
+  const [dApu, setDApu] = useState<O>({ bureauDeclaration: 'TG120', typeDeclaration: 'T', anneeDeclaration: String(new Date().getFullYear()) });
+  const [qte, setQte] = useState('');
+  const [vehs, setVehs] = useState<O[]>([{ chassis: '', marque: '' }]);
+  const [busy, setBusy] = useState(false);
+  const set = (k: string, v: unknown) => setDApu((o) => ({ ...o, [k]: v }));
+  const entree = entrees.find((e) => e['id'] === entreeId);
+  const articles = (entree?.['articles'] as O[]) ?? [];
+  const art = articles[Number(numeroArticle) - 1];
+
+  async function envoyer() {
+    if (!entreeId || !art) { toast('Choisissez l\'entrée et l\'article à apurer.', 'err'); return; }
+    if (!qte) { toast('Quantité à apurer requise.', 'err'); return; }
+    setBusy(true);
+    try {
+      const payload: O = {
+        entreeId, numeroArticle: Number(numeroArticle), declarationApurement: dApu,
+        vehicules: vehs.filter((v) => String(v['chassis']).trim()),
+        designation: art['designation'],
+      };
+      if (estIndus(type)) payload['poids'] = qte; else payload['nbColis'] = qte;
+      const r = await call<{ restantApres: number }>('entrepot.sortie', payload);
+      toast(`Sortie enregistrée. Restant : ${r.restantApres}.`, 'ok');
+      setQte(''); setVehs([{ chassis: '', marque: '' }]); reload();
+    } catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(false); }
+  }
+
+  return <div className="card"><h2>Sortie (apurement) — vrac</h2>
+    <label className="help">Entrepôt</label>
+    <select value={code} onChange={(e) => { setCode(e.target.value); setEntreeId(''); }}><option value="">— Choisir —</option>
+      {entrepots.map((x) => <option key={String(x['code'])} value={String(x['code'])}>{String(x['nom'])} ({String(x['code'])})</option>)}</select>
+    {code && (loading ? <Spinner /> : <>
+      <label className="help" style={{ marginTop: 10 }}>Déclaration à apurer (entrée)</label>
+      <select value={entreeId} onChange={(e) => { setEntreeId(e.target.value); setNumeroArticle('1'); }}><option value="">— Choisir une entrée —</option>
+        {entrees.map((e) => <option key={String(e['id'])} value={String(e['id'])}>
+          {String(e['numeroDeclaration'])} · {String(e['anneeDeclaration'])} · {String(e['typeDeclaration'])} — {(e['articles'] as O[]).length} article(s)
+        </option>)}</select>
+      {entree && <>
+        <label className="help" style={{ marginTop: 10 }}>Article à apurer</label>
+        <select value={numeroArticle} onChange={(e) => setNumeroArticle(e.target.value)}>
+          {articles.map((a, i) => <option key={i} value={String(i + 1)}>N°{i + 1} — {String(a['designation'] || '(sans désignation)')} · restant {String(a['restant'])} {data?.unite === 'poids' ? 'kg' : 'colis'}</option>)}
+        </select>
+        <div className="help" style={{ marginTop: 4 }}>Restant sur cet article : <b>{String(art?.['restant'] ?? 0)}</b> {data?.unite === 'poids' ? 'kg' : 'colis'}.</div>
+        <div className="grid2" style={{ marginTop: 8 }}>
+          <div><label className="help">{estIndus(type) ? 'Poids à apurer (kg)' : 'Colis à apurer'}</label>
+            <input value={qte} onChange={(e) => setQte(e.target.value.replace(estIndus(type) ? /[^0-9.,]/g : /[^0-9]/g, ''))} /></div>
+        </div>
+        <DeclEntrepot d={dApu} set={set} titre="Déclaration d'apurement (même que l'origine ou différente)" />
+        <div className="row" style={{ alignItems: 'center', marginTop: 12 }}>
+          <div className="section-title" style={{ flex: 1, margin: 0 }}>Véhicules</div>
+          <button className="ghost xs" onClick={() => setVehs((a) => [...a, { chassis: '', marque: '' }])}>＋ Véhicule</button>
+        </div>
+        {vehs.map((v, i) => <div key={i} className="grid2" style={{ marginTop: 4 }}>
+          <div><label className="help">Châssis</label><input className="mono" value={String(v['chassis'])} onChange={(e) => setVehs((a) => a.map((x, j) => j === i ? { ...x, chassis: masks.alnum(e.target.value) } : x))} /></div>
+          <div><label className="help">Marque</label><input value={String(v['marque'])} onChange={(e) => setVehs((a) => a.map((x, j) => j === i ? { ...x, marque: masks.upper(e.target.value) } : x))} /></div>
+        </div>)}
+        <div style={{ marginTop: 14 }}><button disabled={busy} onClick={envoyer}>{busy ? 'Enregistrement…' : 'Enregistrer la sortie'}</button></div>
+      </>}
+    </>)}
+  </div>;
+}
+
+/** Statistiques : entrées / sorties / restant, par entrepôt et par déclaration. */
+function EntrepotStats({ type }: { type: EntrepotType }) {
+  const { data, loading } = useAsync<O>(() => call('entrepot.stats', { type }), [type]);
+  const u = String(data?.['unite'] ?? 'colis') === 'poids' ? 'kg' : 'colis';
+  const ents = (data?.['entrepots'] ?? []) as O[];
+  const decls = (data?.['parDeclaration'] ?? []) as O[];
+  if (loading) return <Spinner />;
+  return <>
+    <div className="card"><h2>Par entrepôt ({u})</h2>
+      <Table cols={[['nom', 'Entrepôt'], ['entrees', `Entrées (${u})`], ['sorties', `Sorties (${u})`], ['restant', `Restant (${u})`]]} rows={ents} /></div>
+    <div className="card"><h2>Par déclaration ({u})</h2>
+      {decls.length === 0 ? <div className="empty">Aucune entrée enregistrée.</div>
+        : <Table cols={[['libelle', 'Déclaration'], ['entrepotCode', 'Entrepôt'], ['entrees', `Entrées (${u})`], ['sorties', `Sorties (${u})`], ['restant', `Restant (${u})`]]} rows={decls} />}
+    </div>
+  </>;
+}
+
 SCREENS.completer = (nav) => <CargoList {...nav} filtre={{ etape: 'CFS' }} titre="À compléter (CFS)" />;
 SCREENS.wait_valid = (nav) => <ValidationDeclaration {...nav} />;
 SCREENS.wait_t1 = (nav) => <CargoList {...nav} filtre={{ etape: 'T1' }} titre="En attente T1" />;

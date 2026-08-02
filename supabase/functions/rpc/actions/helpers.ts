@@ -20,7 +20,7 @@ export interface CargoRow {
 }
 
 /** Génère un ID/rapport séquentiel atomique (CT-YYYY-000123 / RPT-YYYY-000045). */
-export async function nextRef(ctx: Ctx, cle: 'SEQ' | 'SEQ_RPT', prefix: string): Promise<string> {
+export async function nextRef(ctx: Ctx, cle: string, prefix: string): Promise<string> {
   const { data, error } = await ctx.db.rpc('fn_next_ref', { p_cle: cle, p_prefix: prefix });
   if (error) throw new Error(error.message);
   return String(data);

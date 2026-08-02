@@ -11,7 +11,7 @@ export const MENUS: Record<string, MenuItem[]> = {
   CFS: [
     ['creercamion', 'Créer un camion', '＋'], ['completer', 'Saisir / compléter', '✎'],
     ['conso', 'Conso (type C)', '＋'], ['search', 'Recherche (en cours)', '⌕'], ['list', 'Cargaisons', '▤'], ['vehicules', 'Véhicules', '🚗'],
-    ['conteneurs', 'Opérations sur conteneurs', '▦'], ['mad', 'Magasin / MAD', '▥'],
+    ['conteneurs', 'Opérations sur conteneurs', '▦'], ['mad', 'Magasin / MAD', '▥'], ['entrepindus', 'Entrepôt industriel', '🏭'],
     ['etatcfs', 'Pointage camions (sortie)', '◨'], ['chargement', 'Bon de chargement', '▤'],
     ['cfsreport', 'Rapport CFS', '∑'], ['vehreport', 'Rapport véhicules', '∑'], ['destinations', 'Par destination', '⇄'], ['kpi', 'KPI / EVP', '◫'], ['dwell', 'Camions en instance', '⏱'], ['stockdwell', 'Séjour conteneurs', '⏱'], ['account', 'Mon compte', '◔'],
   ],
@@ -31,7 +31,7 @@ export const MENUS: Record<string, MenuItem[]> = {
   PP: [['sortie', 'Sortie (checklist)', '⇲'], ['wait_sortie', 'En attente sortie', '◷'], ['conteneurs', 'Opérations sur conteneurs', '▦'], ['search', 'Recherche (en cours)', '⌕'], ['vehicules', 'Véhicules', '🚗'], ['list', 'Cargaisons', '▤'], ['pprep', 'Rapport PP', '∑'], ['destinations', 'Par destination', '⇄'], ['account', 'Mon compte', '◔']],
   ADMIN: [
     ['dash', 'Tableau de bord', '▦'], ['creercamion', 'Créer un camion', '＋'], ['completer', 'Saisir / compléter', '✎'], ['wait_valid', 'À valider', '✔'], ['conso', 'Conso (type C)', '＋'], ['search', 'Recherche (en cours)', '⌕'], ['list', 'Cargaisons', '▤'], ['vehicules', 'Véhicules', '🚗'],
-    ['conteneurs', 'Opérations sur conteneurs', '▦'], ['mad', 'Magasin / MAD', '▥'], ['etatcfs', 'Pointage camions (sortie)', '◨'], ['chargement', 'Bon de chargement', '▤'],
+    ['conteneurs', 'Opérations sur conteneurs', '▦'], ['mad', 'Magasin / MAD', '▥'], ['entrepindus', 'Entrepôt industriel', '🏭'], ['etatcfs', 'Pointage camions (sortie)', '◨'], ['chargement', 'Bon de chargement', '▤'],
     ['kpi', 'KPI / EVP', '◫'], ['cfsreport', 'Rapport CFS', '∑'], ['vehreport', 'Rapport véhicules', '∑'], ['baliserep', 'Rapport Balise', '∑'], ['pprep', 'Rapport PP', '∑'], ['dispenses', 'Dispenses', '⚑'],
     ['flux', 'Analyse des flux', '⇄'], ['destinations', 'Par destination', '⇄'], ['controles', 'Contrôles (gabarit/surcharge)', '⚖'], ['dwell', 'Délai & instance', '⏱'], ['stockdwell', 'Séjour conteneurs', '⏱'], ['history', 'Historique', '◵'], ['users', 'Utilisateurs', '◑'], ['account', 'Mon compte', '◔'],
   ],
@@ -53,7 +53,7 @@ export const TITLES: Record<string, string> = {
   kpi: 'KPI / EVP', dispenses: 'Suivi des dispenses', stockdwell: 'Séjour & instances conteneurs',
   conteneurs: 'Opérations sur conteneurs', mad: 'Magasin / MAD', madsortie: 'Sortie Magasin / MAD',
   vehnew: 'Dépotage de véhicules', conso: 'Conso (type C)', destinations: 'Répartition par destination',
-  controles: 'Statistiques de contrôle',
+  controles: 'Statistiques de contrôle', entrepindus: 'Entrepôt industriel',
 };
 
 export const roleLabel = (r: string) => ROLE_LABELS[r] ?? r;

@@ -1158,3 +1158,75 @@ test('pesée HORS SURCHARGE : validé sans poids, poids resté vide', async () =
   assert.equal(c['enSurcharge'], false);
   assert.equal(c['poidsSurcharge'], '');
 });
+
+/* ---- v4.1 : entrepôts MAD & industriel (entrées / sorties / stats) ------- */
+import * as entrepot from './entrepots.ts';
+
+function chef(db: FakeDB) { return ctxRole(db, 'CHEF_BRIGADE', 'Chef'); }
+
+test('MAD : entrée à articles, sortie apure les colis, restant cohérent', async () => {
+  const db = new FakeDB();
+  const cfs = ctxAvec(db);
+  await entrepot.entrepotCreate(chef(db), { code: 'MAD-01', nom: 'MAGASIN CENTRAL', type: 'MAD' });
+  // Entrée : une déclaration, 2 articles (100 + 50 colis).
+  const e = (await entrepot.entrepotEntree(cfs, {
+    entrepotCode: 'MAD-01',
+    declaration: { numeroDeclaration: '500', anneeDeclaration: '2026', bureauDeclaration: 'TG120', typeDeclaration: 'C', declarant: 'ACME' },
+    articles: [{ designation: 'RIZ', nbColis: '100' }, { designation: 'SUCRE', nbColis: '50' }],
+  })) as { id: string };
+
+  // Restant initial de l'article 1 = 100.
+  const av = (await entrepot.entrepotEntrees(cfs, { entrepotCode: 'MAD-01' })) as { unite: string; rows: Record<string, unknown>[] };
+  assert.equal(av.unite, 'colis');
+  assert.equal((av.rows[0]!['articles'] as Record<string, unknown>[])[0]!['restant'], 100);
+
+  // Sortie : apure 30 colis de l'article 1, déclaration d'apurement différente.
+  const s = (await entrepot.entrepotSortie(cfs, {
+    entreeId: e.id, numeroArticle: 1, nbColis: '30',
+    declarationApurement: { numeroDeclaration: '999', anneeDeclaration: '2026', bureauDeclaration: 'TG120', typeDeclaration: 'C' },
+    vehicules: [{ chassis: 'VIN1', marque: 'X' }],
+  })) as { restantApres: number };
+  assert.equal(s.restantApres, 70);
+
+  // On n'apure jamais plus que le restant.
+  await assert.rejects(() => entrepot.entrepotSortie(cfs, { entreeId: e.id, numeroArticle: 1, nbColis: '80' }), /supérieur au restant/);
+
+  // Stats : entrées 150, sorties 30, restant 120 sur cette déclaration.
+  const st = (await entrepot.entrepotStats(cfs, { type: 'MAD' })) as { parDeclaration: Record<string, unknown>[]; entrepots: Record<string, unknown>[] };
+  const g = st.parDeclaration.find((x) => String(x['libelle']).includes('500'))!;
+  assert.equal(g['entrees'], 150);
+  assert.equal(g['sorties'], 30);
+  assert.equal(g['restant'], 120);
+  assert.equal(st.entrepots[0]!['restant'], 120);
+});
+
+test('Entrepôt industriel : apurement au POIDS (kg)', async () => {
+  const db = new FakeDB();
+  const cfs = ctxAvec(db);
+  await entrepot.entrepotCreate(ctxRole(db, 'ADMIN', 'Adm'), { code: 'IND-01', nom: 'ENTREPOT NORD', type: 'INDUSTRIEL' });
+  const e = (await entrepot.entrepotEntree(cfs, {
+    entrepotCode: 'IND-01',
+    declaration: { numeroDeclaration: '700', anneeDeclaration: '2026', bureauDeclaration: 'TG120', typeDeclaration: 'E', declarant: 'B' },
+    articles: [{ designation: 'CIMENT', nbColis: '10', poids: '5000' }],
+  })) as { id: string };
+  const av = (await entrepot.entrepotEntrees(cfs, { entrepotCode: 'IND-01' })) as { unite: string; rows: Record<string, unknown>[] };
+  assert.equal(av.unite, 'poids');
+  assert.equal((av.rows[0]!['articles'] as Record<string, unknown>[])[0]!['restant'], 5000);
+  const s = (await entrepot.entrepotSortie(cfs, { entreeId: e.id, numeroArticle: 1, poids: '1500' })) as { restantApres: number };
+  assert.equal(s.restantApres, 3500);
+  const st = (await entrepot.entrepotStats(cfs, { type: 'INDUSTRIEL' })) as { unite: string; entrepots: Record<string, unknown>[] };
+  assert.equal(st.unite, 'poids');
+  assert.equal(st.entrepots[0]!['entrees'], 5000);
+  assert.equal(st.entrepots[0]!['sorties'], 1500);
+  assert.equal(st.entrepots[0]!['restant'], 3500);
+});
+
+test('entrepôt : au plus 11 articles ; code unique', async () => {
+  const db = new FakeDB();
+  await entrepot.entrepotCreate(chef(db), { code: 'MAD-9', nom: 'X', type: 'MAD' });
+  await assert.rejects(() => entrepot.entrepotCreate(chef(db), { code: 'MAD-9', nom: 'Y', type: 'MAD' }), /déjà le code/);
+  const arts = Array.from({ length: 12 }, (_, i) => ({ designation: 'A' + i, nbColis: '1' }));
+  await assert.rejects(() => entrepot.entrepotEntree(ctxAvec(db), {
+    entrepotCode: 'MAD-9', declaration: { numeroDeclaration: '1' }, articles: arts,
+  }), /11 articles/);
+});
