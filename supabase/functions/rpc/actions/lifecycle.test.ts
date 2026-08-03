@@ -1287,3 +1287,75 @@ test('entrepot.sorties : détail des apurements d\'un article avec la déclarati
   assert.equal(r.rows[0]!['declaration'], '999 · 2026 · TG120 · C'); // trié par date desc
   assert.equal(r.rows[0]!['nbColis'], 10);
 });
+
+/* ---- v4.1 (2026-07-31) : pointage journalier + exports ------------------ */
+
+test('pointage journalier : re-pointable un jour suivant, bloqué le jour même', async () => {
+  const db = new FakeDB();
+  const cfs = ctxRole(db, 'CFS', 'Agent CFS');
+  db.store['stock'].push({ numero_tc: 'MSKU1234567', taille: "40'", statut: 'En stock' });
+
+  // 1er pointage : passe En stock → Positionné, date = aujourd'hui.
+  await stk.stockPointage(cfs, { numeroTC: 'MSKU1234567' });
+  const s1 = db.store['stock'][0]!;
+  assert.equal(s1['statut'], 'Positionné');
+
+  // Re-pointer LE MÊME JOUR : refusé.
+  await assert.rejects(() => stk.stockPointage(cfs, { numeroTC: 'MSKU1234567' }), /DÉJÀ POINTÉ aujourd'hui/);
+
+  // Simule un reste : la date de pointage passe à HIER.
+  const hier = new Date(Date.now() - 86400000).toISOString();
+  s1['date_pointage'] = hier; s1['date_positionne'] = hier;
+
+  // Re-pointage le lendemain : accepté, la date repasse à aujourd'hui.
+  const r = (await stk.stockPointage(cfs, { numeroTC: 'MSKU1234567' })) as { repointage: boolean };
+  assert.equal(r.repointage, true);
+  assert.equal(db.store['stock'][0]!['date_pointage']!.toString().slice(0, 10), new Date().toISOString().slice(0, 10));
+});
+
+test('stock.list : positionneJour vs restes séparés', async () => {
+  const db = new FakeDB();
+  const cfs = ctxRole(db, 'CFS', 'Agent CFS');
+  const today = new Date().toISOString();
+  const hier = new Date(Date.now() - 86400000).toISOString();
+  db.store['stock'].push(
+    { numero_tc: 'MSKU1111111', taille: "40'", statut: 'Positionné', date_pointage: today },
+    { numero_tc: 'MSKU2222222', taille: "40'", statut: 'Positionné', date_pointage: hier },
+    { numero_tc: 'MSKU3333333', taille: "40'", statut: 'En stock' },
+  );
+  const { compte, rows } = (await stk.stockList(cfs, { statut: 'Positionné' })) as { compte: Record<string, number>; rows: Record<string, unknown>[] };
+  assert.equal(compte.positionne, 2);
+  assert.equal(compte.positionneJour, 1); // MSKU1111111
+  assert.equal(compte.restes, 1);         // MSKU2222222
+  assert.equal(rows.find((r) => r['numeroTC'] === 'MSKU1111111')!['duJour'], true);
+  assert.equal(rows.find((r) => r['numeroTC'] === 'MSKU2222222')!['duJour'], false);
+});
+
+test('export cargaisons : filtre par statut + xlsx', async () => {
+  const db = new FakeDB();
+  const cfs = ctxRole(db, 'CFS', 'Agent CFS');
+  const now = new Date().toISOString();
+  db.store['cargaisons'].push(
+    { id: 'A', reference: 'A', numero_camion: 'A', statut: 'Créée', date_creation: now, type_operation: 'Enlèvement', conteneurs_details: { conteneurs: [], scellesCamion: [] } },
+    { id: 'B', reference: 'B', numero_camion: 'B', statut: 'Sortie Enregistrée', date_creation: now, date_sortie: now, type_operation: 'Enlèvement', conteneurs_details: { conteneurs: [], scellesCamion: [] } },
+  );
+  const view = (await rap.rapportCargaisons(cfs, { statut: 'Créée' })) as { compte: { total: number }; rows: Record<string, unknown>[] };
+  assert.equal(view.compte.total, 1);
+  assert.equal(view.rows[0]!['id'], 'A');
+  // (xlsx = import npm:xlsx, testé côté Deno seulement ; ici on valide le PDF pur JS.)
+  const pdf = (await rap.rapportCargaisons(cfs, { format: 'pdf' })) as { html: string };
+  assert.match(pdf.html, /<table>/);
+});
+
+test('export conteneurs : positionnés + pdf', async () => {
+  const db = new FakeDB();
+  const cfs = ctxRole(db, 'CFS', 'Agent CFS');
+  db.store['stock'].push(
+    { numero_tc: 'MSKU1111111', taille: "40'", statut: 'Positionné', date_pointage: new Date().toISOString() },
+    { numero_tc: 'MSKU2222222', taille: "20'", statut: 'En stock' },
+  );
+  const view = (await rap.rapportConteneurs(cfs, { statut: 'Positionné' })) as { compte: { total: number } };
+  assert.equal(view.compte.total, 1);
+  const pdf = (await rap.rapportConteneurs(cfs, { statut: 'Positionné', format: 'pdf' })) as { html: string };
+  assert.match(pdf.html, /MSKU1111111/);
+});

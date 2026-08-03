@@ -34,17 +34,21 @@ export async function stockList(ctx: Ctx, opts: { statut?: string }) {
   const data = await fetchAll(ctx, 'stock', '*');
   const now = new Date();
   const rows: unknown[] = [];
-  const compte = { total: 0, stock: 0, positionne: 0, depote: 0, pointes: 0, evp: 0, t20: 0, t40: 0, t45: 0, autres: 0, sejourMoyen: 0, tranches: [] as { tranche: string; n: number }[] };
+  // v4.1 — positionneJour = positionnés AUJOURD'HUI ; restes = positionnés un
+  // jour précédent, pas encore dépotés (la vue journalière les sépare).
+  const compte = { total: 0, stock: 0, positionne: 0, positionneJour: 0, restes: 0, depote: 0, pointes: 0, evp: 0, t20: 0, t40: 0, t45: 0, autres: 0, sejourMoyen: 0, tranches: [] as { tranche: string; n: number }[] };
   const dist: Record<string, number> = {};
   TRANCHES_SEJOUR.forEach((t) => (dist[t] = 0));
+  const jourNow = now.toISOString().slice(0, 10);
   let sommeJ = 0, nJ = 0;
   for (const r of data) {
     const o = versCamel(r);
     if (!o['numeroTc']) continue;
     compte.total++;
     const bk = tailleBucket(o['taille']); (compte as Record<string, number>)[bk]++; compte.evp += evpDeTaille(bk);
+    const duJour = !!o['datePointage'] && String(new Date(String(o['datePointage'])).toISOString().slice(0, 10)) === jourNow;
     if (o['statut'] === STOCK_STATUTS.STOCK) compte.stock++;
-    else if (o['statut'] === STOCK_STATUTS.POSITIONNE) compte.positionne++;
+    else if (o['statut'] === STOCK_STATUTS.POSITIONNE) { compte.positionne++; if (duJour) compte.positionneJour++; else compte.restes++; }
     else if (o['statut'] === STOCK_STATUTS.DEPOTE) compte.depote++;
     if (o['datePointage']) compte.pointes++;
     const j = o['dateEntree'] ? jours(new Date(String(o['dateEntree'])), now) : Number(o['nbSejoursImport'] || 0) || 0;
@@ -53,7 +57,7 @@ export async function stockList(ctx: Ctx, opts: { statut?: string }) {
     rows.push({
       numeroTC: o['numeroTc'], taille: o['taille'], typeConteneur: o['typeConteneur'], provenance: o['provenance'],
       statut: o['statut'], dateEntree: o['dateEntree'], datePointage: o['datePointage'], pointePar: o['pointePar'],
-      cargaisonId: o['cargaisonId'], joursSejour: j,
+      cargaisonId: o['cargaisonId'], joursSejour: j, duJour,
       anneeDeclaration: o['anneeDeclaration'], typeDeclaration: o['typeDeclaration'], numeroDeclaration: o['numeroDeclaration'],
     });
   }
@@ -232,27 +236,42 @@ export async function stockImport(
   return { ajoutes: aInserer.length, maj: majN, regularises, ignores, invalides, doublons: aMaj.length + aRegulariser.length, surDoublon };
 }
 
+/** Jour local (YYYY-MM-DD). Togo = UTC+0, donc le découpage UTC est le bon jour. */
+const jourDe = (v: unknown) => (v ? new Date(String(v)).toISOString().slice(0, 10) : '');
+
+/**
+ * v4.1 — POINTAGE JOURNALIER (décision client 2026-07-31). La règle de blocage
+ * devient JOURNALIÈRE : bloqué seulement si le conteneur a DÉJÀ été pointé
+ * AUJOURD'HUI. Un reste pointé un jour précédent, non dépoté, reste dépotable
+ * ET peut être RE-POINTÉ aujourd'hui — ce qui rafraîchit sa date au jour courant
+ * et le fait entrer dans la liste du jour. Rien n'est jamais « nettoyé » : le
+ * conteneur reste « Positionné » en base tant qu'il n'est pas dépoté, donc la
+ * saisie du dépotage n'est jamais refusée. Seule la VUE du jour se remet à zéro
+ * (voir stockList : `positionneJour` vs `restes`).
+ */
 export async function stockPointage(ctx: Ctx, p: Record<string, unknown>) {
   const tc = normTC(p['numeroTC']);
   if (!tc) throw new Error('N° conteneur requis.');
   const { data: o, error } = await ctx.db.from('stock').select('*').eq('numero_tc', tc).maybeSingle();
   if (error) throw new Error(error.message);
   if (!o) throw new Error('Conteneur « ' + tc + " » absent du stock. Importez-le d'abord.");
-  if (o.statut === STOCK_STATUTS.POSITIONNE || o.date_pointage) {
-    const dp = o.date_pointage ? new Date(o.date_pointage).toLocaleDateString('fr-FR') : '';
-    throw new Error('Conteneur « ' + tc + ' » DÉJÀ POINTÉ le ' + dp + ' (par ' + (o.pointe_par || '?') + '). Pointage bloqué.');
-  }
-  if (o.statut === STOCK_STATUTS.DEPOTE) throw new Error('Conteneur déjà dépoté.');
+  if (o.statut === STOCK_STATUTS.DEPOTE) throw new Error('Conteneur « ' + tc + ' » déjà dépoté.');
   const now = new Date().toISOString();
+  // Déjà pointé AUJOURD'HUI → on refuse le double pointage du jour. Pointé un
+  // jour précédent (reste) → on laisse re-pointer (la date passe à aujourd'hui).
+  if (o.date_pointage && jourDe(o.date_pointage) === jourDe(now)) {
+    throw new Error('Conteneur « ' + tc + ' » DÉJÀ POINTÉ aujourd\'hui (par ' + (o.pointe_par || '?') + ').');
+  }
+  const repointage = o.statut === STOCK_STATUTS.POSITIONNE; // reste d'un jour précédent
   const { error: e2 } = await ctx.db
     .from('stock')
     .update({ statut: STOCK_STATUTS.POSITIONNE, date_positionne: now, date_pointage: now, pointe_par: ctx.session.nomComplet })
     .eq('numero_tc', tc)
-    .eq('statut', STOCK_STATUTS.STOCK); // garde optimiste : bloque un double pointage concurrent
+    .neq('statut', STOCK_STATUTS.DEPOTE); // on ne re-pointe jamais un conteneur déjà dépoté
   if (e2) throw new Error(e2.message);
-  await ctx.log('Pointage matinal', tc, '');
+  await ctx.log(repointage ? 'Re-pointage (reste)' : 'Pointage matinal', tc, '');
   const s = (await stockList(ctx, { statut: 'tous' })).compte;
-  return { numeroTC: tc, positionne: s.positionne, depote: s.depote, restantAOuvrir: s.positionne };
+  return { numeroTC: tc, repointage, positionne: s.positionne, positionneJour: s.positionneJour, restes: s.restes, depote: s.depote };
 }
 
 export async function stockEntreeMagasin(ctx: Ctx, p: Record<string, unknown>) {

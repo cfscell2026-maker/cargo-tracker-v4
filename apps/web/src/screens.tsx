@@ -64,6 +64,7 @@ function CargoList({ go, screen, filtre, titre, barre }: Nav & { filtre: O; titr
         {STATUT_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
       </select>
     </div>}
+    {barre && <ExportCargaisons />}
     {loading ? <Spinner /> : error ? <div className="err-msg">{error}</div> : <>
       {barre && <div className="help" style={{ marginBottom: 6 }}>{data?.total ?? 0} cargaison(s)</div>}
       <Table cols={[['id', 'ID'], ['dateCreation', 'Date'], ['numeroCamion', 'Camion'], ['typeOperation', 'Opération'], ['statut', 'Statut'], ['numeroGps', 'GPS']]}
@@ -75,6 +76,46 @@ function CargoList({ go, screen, filtre, titre, barre }: Nav & { filtre: O; titr
       </div>}
     </>}
   </div>;
+}
+
+/**
+ * v4.1 — Extraction des cargaisons (décision client 2026-07-31) : choisir un
+ * critère (statut exact OU étape en attente) + une période, sortir en Excel ou
+ * PDF. Rétablit l'onglet « Cargaisons » exportable de l'Apps Script (« je n'ai
+ * pas la main pour le faire », pour les capitaines).
+ */
+function ExportCargaisons() {
+  const p = useReportRange('mois');
+  const [crit, setCrit] = useState(''); // '' | 'statut:<v>' | 'etape:<v>'
+  const [busy, setBusy] = useState(false);
+  async function exporter(fmt: 'xlsx' | 'pdf') {
+    const params: O = { du: p.du, au: p.au, format: fmt };
+    if (crit.startsWith('statut:')) params['statut'] = crit.slice(7);
+    else if (crit.startsWith('etape:')) params['etape'] = crit.slice(6);
+    setBusy(true);
+    try {
+      const r = await call<O>('report.cargaisons', params);
+      if (fmt === 'pdf') imprimerHtml(String(r['html'] ?? '')); else telecharger(r);
+    } catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(false); }
+  }
+  return <details style={{ border: '1px solid var(--line)', borderRadius: 6, padding: '8px 12px', marginBottom: 10 }}>
+    <summary style={{ cursor: 'pointer', fontWeight: 600 }}>⤓ Extraire (Excel / PDF) par statut et période</summary>
+    <div className="row" style={{ alignItems: 'center', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
+      <select value={crit} onChange={(e) => setCrit(e.target.value)} style={{ maxWidth: 240 }}>
+        <option value="">Tous les statuts</option>
+        {STATUT_OPTIONS.map((s) => <option key={s} value={`statut:${s}`}>{s}</option>)}
+        <option value="etape:VALIDATION">En attente — À valider</option>
+        <option value="etape:T1">En attente — T1</option>
+        <option value="etape:BALISE">En attente — Balise</option>
+        <option value="etape:BS">En attente — Bon de sortie</option>
+        <option value="etape:PP">En attente — Sortie (PP)</option>
+      </select>
+      <PeriodPicker p={p} />
+      <button className="ghost xs" disabled={busy} onClick={() => exporter('xlsx')}>⤓ Excel</button>
+      <button className="ghost xs" disabled={busy} onClick={() => exporter('pdf')}>⤓ PDF</button>
+    </div>
+    <PeriodeLue p={p} />
+  </details>;
 }
 
 /* ------------------------------ Écrans --------------------------------- */
@@ -1021,10 +1062,11 @@ function FormConso({ go }: { go: Nav['go'] }) {
 
 /* --------------------------------- Stock ------------------------------- */
 SCREENS.stock = () => <StockList statut="tous" />;
-SCREENS.stockjour = () => <StockList statut="Positionné" titre="Stock CFS journalier (positionnés)" />;
+SCREENS.stockjour = () => <StockJournalier />;
 function StockList({ statut, titre }: { statut: string; titre?: string }) {
   const { data, loading, error } = useAsync<{ rows: O[]; compte: O }>(() => call('stock.list', { statut }), [statut]);
   return <div className="card"><h2>{titre ?? 'Stock conteneurs'}</h2>
+    <ExportConteneurs statutDefaut={statut === 'tous' ? '' : statut} />
     {loading ? <Spinner /> : error ? <div className="err-msg">{error}</div> : <>
       <div className="stats">
         <StatCard n={Number(data?.compte['total'] ?? 0)} l="Total" />
@@ -1036,6 +1078,70 @@ function StockList({ statut, titre }: { statut: string; titre?: string }) {
       <Table cols={[['numeroTC', 'Conteneur'], ['taille', 'Taille'], ['statut', 'Statut'], ['provenance', 'Provenance'], ['numeroDeclaration', 'N° décl.'], ['joursSejour', 'Séjour (j)']]} rows={data?.rows ?? []} />
     </>}
   </div>;
+}
+
+/**
+ * v4.1 — Stock CFS JOURNALIER (décision client 2026-07-31). N'affiche que les
+ * conteneurs pointés AUJOURD'HUI ; les restes des jours précédents (pointés,
+ * pas encore dépotés) sont comptés à part (« restes à dépoter ») et consultables
+ * en dessous. Rien n'est effacé en base — seule la vue du jour se remet à zéro.
+ */
+function StockJournalier() {
+  const { data, loading, error } = useAsync<{ rows: O[]; compte: O }>(() => call('stock.list', { statut: 'Positionné' }), []);
+  const [voirRestes, setVoirRestes] = useState(false);
+  const rows = (data?.rows ?? []) as O[];
+  const duJour = rows.filter((r) => r['duJour']);
+  const restes = rows.filter((r) => !r['duJour']);
+  const cols: [string, string][] = [['numeroTC', 'Conteneur'], ['taille', 'Taille'], ['datePointage', 'Pointé le'], ['pointePar', 'Pointé par'], ['numeroDeclaration', 'N° décl.'], ['joursSejour', 'Séjour (j)']];
+  return <div className="card"><h2>Stock CFS journalier</h2>
+    <p className="help" style={{ marginTop: 0 }}>Conteneurs positionnés <b>aujourd'hui</b>. Les restes des jours précédents sont comptés à part et restent dépotables (et re-pointables).</p>
+    <ExportConteneurs statutDefaut="Positionné" />
+    {loading ? <Spinner /> : error ? <div className="err-msg">{error}</div> : <>
+      <div className="stats">
+        <StatCard n={Number(data?.compte['positionneJour'] ?? 0)} l="Positionnés aujourd'hui" tone="ok" />
+        <StatCard n={Number(data?.compte['restes'] ?? 0)} l="Restes à dépoter" tone="warn" onClick={() => setVoirRestes((v) => !v)} />
+        <StatCard n={Number(data?.compte['depote'] ?? 0)} l="Dépotés (total)" />
+      </div>
+      <div className="section-title">Positionnés aujourd'hui ({duJour.length})</div>
+      <Table cols={cols} rows={duJour} />
+      {restes.length > 0 && <>
+        <div className="row" style={{ alignItems: 'center', marginTop: 12 }}>
+          <div className="section-title" style={{ flex: 1, margin: 0 }}>Restes des jours précédents ({restes.length})</div>
+          <button className="ghost xs" onClick={() => setVoirRestes((v) => !v)}>{voirRestes ? 'Masquer' : 'Afficher'}</button>
+        </div>
+        {voirRestes && <Table cols={cols} rows={restes} />}
+      </>}
+    </>}
+  </div>;
+}
+
+/** v4.1 — Extraction de la liste des conteneurs (statut + période, Excel/PDF). */
+function ExportConteneurs({ statutDefaut }: { statutDefaut: string }) {
+  const p = useReportRange('mois');
+  const [statut, setStatut] = useState(statutDefaut);
+  const [busy, setBusy] = useState(false);
+  async function exporter(fmt: 'xlsx' | 'pdf') {
+    setBusy(true);
+    try {
+      const r = await call<O>('report.conteneurs', { statut, du: p.du, au: p.au, format: fmt });
+      if (fmt === 'pdf') imprimerHtml(String(r['html'] ?? '')); else telecharger(r);
+    } catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(false); }
+  }
+  return <details style={{ border: '1px solid var(--line)', borderRadius: 6, padding: '8px 12px', margin: '6px 0 10px' }}>
+    <summary style={{ cursor: 'pointer', fontWeight: 600 }}>⤓ Extraire les conteneurs (Excel / PDF) par statut et période</summary>
+    <div className="row" style={{ alignItems: 'center', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
+      <select value={statut} onChange={(e) => setStatut(e.target.value)} style={{ maxWidth: 200 }}>
+        <option value="">Tous les statuts</option>
+        <option value="En stock">En stock</option>
+        <option value="Positionné">Positionné (non dépoté)</option>
+        <option value="Dépoté">Dépoté</option>
+      </select>
+      <PeriodPicker p={p} />
+      <button className="ghost xs" disabled={busy} onClick={() => exporter('xlsx')}>⤓ Excel</button>
+      <button className="ghost xs" disabled={busy} onClick={() => exporter('pdf')}>⤓ PDF</button>
+    </div>
+    <div className="help" style={{ marginTop: 4 }}>Période sur la date de pointage (positionné) ou d'entrée. {p.inversee && <span style={{ color: 'var(--warn)' }}>dates inversées, remises à l'endroit</span>}</div>
+  </details>;
 }
 
 // v4 — chaque pointage propose les TC de la BONNE source à la frappe (datalist) :

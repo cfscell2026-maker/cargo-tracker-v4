@@ -69,6 +69,27 @@ async function fichier(nomBase: string, format: string, feuilles: { nom: string;
 }
 const libTaille: Record<string, string> = { t20: "20'", t40: "40'", t45: "45'", autres: 'Autre / non précisé' };
 
+/** Date courte fr pour les exports (vide si absente/illisible). */
+const fmtJ = (v: unknown) => { if (!v) return ''; const d = new Date(String(v)); return isNaN(d.getTime()) ? String(v) : d.toLocaleDateString('fr-FR'); };
+
+/**
+ * v4.1 — Tableau IMPRIMABLE (PDF côté client via imprimerHtml). Trame sobre A4
+ * paysage ; le client ouvre le HTML et lance l'impression → PDF.
+ */
+function htmlTableau(titre: string, sousTitre: string, entetes: string[], lignes: unknown[][]): { html: string } {
+  const esc = (v: unknown) => String(v ?? '').replace(/[&<>]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[ch] ?? ch));
+  const th = entetes.map((h) => `<th>${esc(h)}</th>`).join('');
+  const tr = lignes.map((l) => `<tr>${l.map((c) => `<td>${esc(c)}</td>`).join('')}</tr>`).join('');
+  const html = `<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>${esc(titre)}</title>` +
+    `<style>@page{size:A4 landscape;margin:14mm}body{font-family:Georgia,'Liberation Serif',serif;color:#111;font-size:11pt}` +
+    `h1{font-size:15pt;margin:0 0 2mm}.sub{color:#444;font-size:10pt;margin:0 0 4mm}` +
+    `table{border-collapse:collapse;width:100%}th,td{border:1px solid #999;padding:3px 6px;text-align:left}` +
+    `th{background:#f0f0f0}tr{page-break-inside:avoid}thead{display:table-header-group}</style></head><body>` +
+    `<h1>${esc(titre)}</h1><div class="sub">${esc(sousTitre)} — ${lignes.length} ligne(s)</div>` +
+    `<table><thead><tr>${th}</tr></thead><tbody>${tr}</tbody></table></body></html>`;
+  return { html };
+}
+
 /* ============================== CFS ==================================== */
 
 interface AggCFS { camions: number; t20: number; t40: number; t45: number; autres: number; evp: number; conteneurs: number }
@@ -460,6 +481,78 @@ export async function rapportControles(ctx: Ctx, p: Record<string, unknown>) {
     if (codeDestination(c['destinationMarchandise']) === 'TG') { r.transitNational.camions++; r.transitNational.conteneurs += nbC; }
   }
   return { du, au, ...r };
+}
+
+/* ==================== Export CARGAISONS (statut/période) ============== */
+/**
+ * v4.1 — Onglet « Cargaisons » de l'Apps Script rétabli en EXPORT : choisir un
+ * statut (ou une étape en attente) + une période, extraire en Excel ou PDF.
+ * Répond au capitaine qui « n'a pas la main » pour sortir ces listes.
+ */
+export async function rapportCargaisons(ctx: Ctx, p: Record<string, unknown>) {
+  const cargos = await loadCargos(ctx);
+  const du = p['du'] as string | undefined, au = p['au'] as string | undefined;
+  const statut = String(p['statut'] ?? '').trim();  // valeur exacte de statut ('' = tous)
+  const etape = String(p['etape'] ?? '').trim();     // étape en attente (VALIDATION/T1/BALISE/BS/PP/CFS)
+  const sansVeh = p['vehicules'] === false;
+  const rows = cargos.filter((c) => {
+    if (sansVeh && estOui(c['estVehicule'])) return false;
+    if (!inRange(c['dateCreation'], du, au)) return false;
+    if (statut && String(c['statut']) !== statut) return false;
+    if (etape && etapesEnAttente(c as never).indexOf(etape as never) < 0) return false;
+    return true;
+  }).map((c) => ({
+    id: c['id'], numeroCamion: c['numeroCamion'], typeOperation: c['typeOperation'], statut: c['statut'],
+    dateCreation: c['dateCreation'], declarant: c['declarant'], numeroDeclaration: c['numeroDeclaration'],
+    numeroGps: c['numeroGps'], dateSortie: c['dateSortie'], agentCfs: c['agentCfs'], estVehicule: estOui(c['estVehicule']),
+  }));
+  const filtreTxt = statut ? `statut : ${statut}` : etape ? `étape : ${etape}` : 'tous statuts';
+  const sousTitre = `Du ${p['du'] || '…'} au ${p['au'] || '…'} · ${filtreTxt}`;
+  const entetes = ['ID', 'Camion / Châssis', 'Opération', 'Statut', 'Créé le', 'Déclarant', 'N° décl.', 'N° GPS', 'Sorti le', 'Agent CFS'];
+  const ligne = (r: Record<string, unknown>) => [r['id'], r['numeroCamion'], r['typeOperation'], r['statut'], fmtJ(r['dateCreation']), r['declarant'], r['numeroDeclaration'], r['numeroGps'], fmtJ(r['dateSortie']), r['agentCfs']];
+  if (p['format'] === 'xlsx') {
+    const aoa: unknown[][] = [entetes]; rows.forEach((r) => aoa.push(ligne(r)));
+    return fichier('Cargaisons', 'xlsx', [{ nom: 'Cargaisons', aoa }]);
+  }
+  if (p['format'] === 'pdf') return htmlTableau('Cargaisons', sousTitre, entetes, rows.map(ligne));
+  return { rows, compte: { total: rows.length } };
+}
+
+/* ==================== Export CONTENEURS (stock/période) =============== */
+/**
+ * v4.1 — Extraction de la LISTE DES CONTENEURS du stock (positionnés non
+ * dépotés, etc.), par statut + période, en Excel ou PDF. La période porte sur
+ * la date de pointage (positionné) ou, à défaut, la date d'entrée.
+ */
+export async function rapportConteneurs(ctx: Ctx, p: Record<string, unknown>) {
+  const statut = String(p['statut'] ?? '').trim();  // '', 'En stock', 'Positionné', 'Dépoté'
+  const du = p['du'] as string | undefined, au = p['au'] as string | undefined;
+  const now = new Date();
+  const data = await fetchAll(ctx, 'stock', '*');
+  const rows: Record<string, unknown>[] = [];
+  for (const r of data) {
+    const o = versCamel(r);
+    if (!o['numeroTc']) continue;
+    if (statut && String(o['statut']) !== statut) continue;
+    const dateRef = o['datePointage'] || o['dateEntree'];
+    if ((du || au) && !inRange(dateRef, du, au)) continue;
+    const j = o['dateEntree'] ? Math.max(0, Math.floor((now.getTime() - new Date(String(o['dateEntree'])).getTime()) / 86400000)) : 0;
+    rows.push({
+      numeroTC: o['numeroTc'], taille: o['taille'], statut: o['statut'], provenance: o['provenance'],
+      dateEntree: o['dateEntree'], datePointage: o['datePointage'], pointePar: o['pointePar'],
+      numeroDeclaration: o['numeroDeclaration'], anneeDeclaration: o['anneeDeclaration'], typeDeclaration: o['typeDeclaration'],
+      joursSejour: j, cargaisonId: o['cargaisonId'],
+    });
+  }
+  const sousTitre = `${statut || 'tous statuts'} · Du ${p['du'] || '…'} au ${p['au'] || '…'}`;
+  const entetes = ['Conteneur', 'Taille', 'Statut', 'Provenance', 'Entré le', 'Pointé le', 'Pointé par', 'N° décl.', 'Année', 'Type', 'Séjour (j)'];
+  const ligne = (r: Record<string, unknown>) => [r['numeroTC'], r['taille'], r['statut'], r['provenance'], fmtJ(r['dateEntree']), fmtJ(r['datePointage']), r['pointePar'], r['numeroDeclaration'], r['anneeDeclaration'], r['typeDeclaration'], r['joursSejour']];
+  if (p['format'] === 'xlsx') {
+    const aoa: unknown[][] = [entetes]; rows.forEach((r) => aoa.push(ligne(r)));
+    return fichier('Conteneurs', 'xlsx', [{ nom: 'Conteneurs', aoa }]);
+  }
+  if (p['format'] === 'pdf') return htmlTableau('Liste des conteneurs', sousTitre, entetes, rows.map(ligne));
+  return { rows, compte: { total: rows.length } };
 }
 
 /* ============================= Dispenses ============================== */

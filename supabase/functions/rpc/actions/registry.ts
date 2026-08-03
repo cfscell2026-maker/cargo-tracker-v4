@@ -96,6 +96,8 @@ export const ACTIONS: Record<string, H> = {
   'report.ppdetail': d((ctx, data: Record<string, unknown>) => rap.rapportActiviteDetail(ctx, { ...data, kind: 'pp' })),
   'report.kpi': d(rap.rapportKPI),
   'report.dispenses': d(rap.rapportDispenses),
+  'report.cargaisons': d(rap.rapportCargaisons), // v4.1 : export cargaisons par statut + période (xlsx/pdf)
+  'report.conteneurs': d(rap.rapportConteneurs), // v4.1 : export liste conteneurs par statut + période
   'report.flux': d(rap.rapportFlux),
   'report.fluxdetail': d(rap.rapportFluxDetail),
   'report.destinations': d(rap.rapportDestinations), // v4.1 : camions sortis par destination

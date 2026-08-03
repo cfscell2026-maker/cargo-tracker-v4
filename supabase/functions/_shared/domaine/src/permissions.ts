@@ -102,6 +102,8 @@ export const PERMISSIONS: Record<string, Role[]> = {
   'report.ppdetail': [ROLES.PP, ROLES.CHEF_BRIGADE, ROLES.ADMIN],
   'report.kpi': TOUS_ROLES,
   'report.dispenses': [ROLES.BALISE, ROLES.CHEF_BRIGADE, ROLES.ADMIN],
+  'report.cargaisons': TOUS_ROLES, // v4.1 : export cargaisons (lecture) — captaines/chefs inclus
+  'report.conteneurs': TOUS_ROLES, // v4.1 : export liste conteneurs (lecture)
   'report.flux': [ROLES.CHEF_BRIGADE, ROLES.ADMIN],
   'report.fluxdetail': [ROLES.CHEF_BRIGADE, ROLES.ADMIN],
   'report.destinations': [ROLES.CFS, ROLES.PP, ROLES.CHEF_BRIGADE, ROLES.ADMIN], // v4.1 : répartition par destination
