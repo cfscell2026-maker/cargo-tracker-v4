@@ -168,6 +168,28 @@ export async function entrepotSortie(ctx: Ctx, p: Record<string, unknown>) {
   return { id, restantApres: restant - quantite };
 }
 
+/**
+ * Détail des SORTIES (apurements) — pour le tiroir « quantité apurée » : quelles
+ * déclarations sont venues apurer un article d'une entrée. Filtrable par
+ * entrepôt / entrée / article.
+ */
+export async function entrepotSortiesDetail(ctx: Ctx, opts: { entrepotCode?: string; entreeId?: string; numeroArticle?: number }) {
+  const code = maj(opts?.entrepotCode, 20).replace(/[^A-Z0-9-]/g, '');
+  const rows = (await fetchAll(ctx, 'entrepot_sorties', '*')).map((r) => versCamel(r))
+    .filter((s) => (!code || String(s['entrepotCode']) === code)
+      && (!opts?.entreeId || String(s['entreeId']) === String(opts.entreeId))
+      && (!opts?.numeroArticle || Number(s['numeroArticle']) === Number(opts.numeroArticle)));
+  rows.sort((a, b) => String(b['dateSortie'] ?? '').localeCompare(String(a['dateSortie'] ?? '')));
+  return {
+    rows: rows.map((s) => ({
+      id: s['id'], entreeId: s['entreeId'], numeroArticle: s['numeroArticle'], dateSortie: s['dateSortie'],
+      designation: s['designation'], nbColis: s['nbColis'], poids: s['poids'], agent: s['agent'],
+      declaration: [s['numeroDeclaration'], s['anneeDeclaration'], s['bureauDeclaration'], s['typeDeclaration']].filter(Boolean).join(' · '),
+      vehicules: s['vehicules'],
+    })),
+  };
+}
+
 /* ----------------------------- Statistiques ---------------------------- */
 /**
  * Entrées initiales, sorties et RESTANT THÉORIQUE, par déclaration et par

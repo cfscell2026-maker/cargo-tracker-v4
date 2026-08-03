@@ -75,6 +75,7 @@ export const PERMISSIONS: Record<string, Role[]> = {
   'entrepot.list': TOUS_ROLES,
   'entrepot.entrees': [ROLES.CFS, ROLES.CHEF_BRIGADE, ROLES.CHEF_DIVISION, ROLES.ADMIN],
   'entrepot.stats': [ROLES.CFS, ROLES.CHEF_BRIGADE, ROLES.CHEF_VISITE, ROLES.CHEF_DIVISION, ROLES.ADMIN],
+  'entrepot.sorties': [ROLES.CFS, ROLES.CHEF_BRIGADE, ROLES.CHEF_VISITE, ROLES.CHEF_DIVISION, ROLES.ADMIN],
   // Création d'entrepôt : ADMIN + chefs brigade/division (décision utilisateur 2026-07-27).
   'entrepot.create': [ROLES.ADMIN, ROLES.CHEF_BRIGADE, ROLES.CHEF_DIVISION],
   // Saisie des entrées / sorties : opérationnel = CFS (+ ADMIN).

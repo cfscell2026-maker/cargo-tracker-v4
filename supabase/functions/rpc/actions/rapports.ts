@@ -79,6 +79,10 @@ function collecteCFS(cargos: Record<string, unknown>[], du?: string, au?: string
   const total = aggVide();
   const camions: Record<string, unknown>[] = [];
   const conteneurs: Record<string, unknown>[] = [];
+  // Conteneurs PARTAGÉS (saisie manuelle sur plusieurs camions) : comptés UNE
+  // fois par n° (décision client 2026-07-30). Les N° normaux étant uniques, seuls
+  // les partagés se regroupent — camions comptés normalement, conteneurs dédupés.
+  const vus = new Set<string>();
   for (const c of cargos) {
     if (estOui(c['estVehicule'])) continue;
     if (!inRange(c['dateCreation'], du, au)) continue;
@@ -90,6 +94,8 @@ function collecteCFS(cargos: Record<string, unknown>[], du?: string, au?: string
     a.camions++; total.camions++;
     camions.push({ id: c['id'], numeroCamion: c['numeroCamion'], typeOperation: op, statut: c['statut'], dateCreation: c['dateCreation'], nbConteneurs: dets.length, agentCfs: c['agentCfs'] });
     for (const ct of dets) {
+      if (ct.num && vus.has(ct.num)) continue; // conteneur partagé : déjà compté
+      if (ct.num) vus.add(ct.num);
       const bk = tailleBucket(ct.taille); const ev = evpDeTaille(bk);
       (a as Record<string, number>)[bk]++; a.conteneurs++; a.evp += ev;
       (total as Record<string, number>)[bk]++; total.conteneurs++; total.evp += ev;
@@ -291,6 +297,12 @@ export async function ficheBord(ctx: Ctx, p: Record<string, unknown>) {
   // T1 REÇU (arrivée), pas un T1 émis vers l'extérieur.
   const bureauLocal = normAlphaNum(DEFAUTS.BUREAU_DECLARATION);
 
+  // Conteneurs PARTAGÉS (saisie manuelle, dispatchés sur plusieurs camions) :
+  // comptés UNE SEULE fois par n° (décision client 2026-07-30). Les conteneurs
+  // normaux ayant des N° uniques, seuls les partagés se regroupent.
+  const vusCfs = new Set<string>();
+  const vusPp = new Set<string>();
+
   for (const c of cargos) {
     const op = String(c['typeOperation'] ?? '');
     const veh = estOui(c['estVehicule']);
@@ -311,6 +323,8 @@ export async function ficheBord(ctx: Ctx, p: Record<string, unknown>) {
       else if (op === OPERATIONS.MAGASIN) cfs.camionsMad++;
       if (estConso) cfs.camionsConso++; // cross-cut : compté au type C, en plus du bucket d'opération
       for (const ct of conts) {
+        if (ct.num && vusCfs.has(ct.num)) continue; // conteneur partagé : compté une seule fois
+        if (ct.num) vusCfs.add(ct.num);
         if (cible) ajouterTaille(cible, ct.taille);
         ajouterTaille(cfs.total, ct.taille);
       }
@@ -348,13 +362,22 @@ export async function ficheBord(ctx: Ctx, p: Record<string, unknown>) {
 
     /* --- PP : à la date de sortie --- */
     if (inRange(c['dateSortie'], du, au)) {
-      pp.total++;
-      if (veh) pp.vehicules++;
-      else if (op === OPERATIONS.ENLEVEMENT) pp.enlevement++;
-      else if (op === OPERATIONS.DEPOTAGE) pp.depotage++;
-      else if (op === OPERATIONS.MAGASIN) pp.mad++;
-      if (!veh && estConso) pp.conso++; // cross-cut type C, comme sur la fiche papier
-      for (const ct of conts) ajouterTaille(pp.tailles, ct.taille);
+      if (veh) {
+        pp.vehicules++; // véhicules à nu : suivis à part, HORS du total des sorties PP
+      } else {
+        // Buckets MUTUELLEMENT EXCLUSIFS, conso prioritaire (décision client
+        // 2026-07-30) : une sortie de type C est une CONSO, pas un enlèvement /
+        // dépotage. Le total PP = somme de ces quatre (calculée après la boucle).
+        if (estConso) pp.conso++;
+        else if (op === OPERATIONS.ENLEVEMENT) pp.enlevement++;
+        else if (op === OPERATIONS.DEPOTAGE) pp.depotage++;
+        else if (op === OPERATIONS.MAGASIN) pp.mad++;
+        for (const ct of conts) {
+          if (ct.num && vusPp.has(ct.num)) continue; // conteneur partagé : compté une fois
+          if (ct.num) vusPp.add(ct.num);
+          ajouterTaille(pp.tailles, ct.taille);
+        }
+      }
     }
   }
 
@@ -378,6 +401,9 @@ export async function ficheBord(ctx: Ctx, p: Record<string, unknown>) {
   t1.tauxArrives = taux(t1.arrivesApures, t1.arrives);
   balise.camionsCfs = cfs.camionsCfs;
   balise.ecart = cfs.camionsCfs - balise.camions;
+  // Total sorties PP = somme des quatre flux (enlèvement + dépotage + MAD +
+  // conso), véhicules à nu EXCLUS (décision client 2026-07-30).
+  pp.total = pp.enlevement + pp.depotage + pp.mad + pp.conso;
 
   // TRANSFERTS = conteneurs annoncés par le Port Autonome et CONFIRMÉS entrés
   // au port sec sur la période (c'est le transfert qui s'achève).

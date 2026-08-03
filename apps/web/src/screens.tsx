@@ -496,21 +496,78 @@ function EntrepotSortie({ type, entrepots, nav }: { type: EntrepotType; entrepot
   </div>;
 }
 
-/** Statistiques : entrées / sorties / restant, par entrepôt et par déclaration. */
+/**
+ * Statistiques : entrées / sorties / restant, par magasin (MAD) ou entrepôt
+ * (industriel) et par déclaration — avec TIROIRS (v4.1, décision client) :
+ * cliquer un magasin ouvre le détail de ses entrées/articles ; cliquer une
+ * quantité apurée ouvre la liste des déclarations venues apurer.
+ */
 function EntrepotStats({ type }: { type: EntrepotType }) {
+  const indus = estIndus(type);
+  const lib = indus ? 'Entrepôt' : 'Magasin';
   const { data, loading } = useAsync<O>(() => call('entrepot.stats', { type }), [type]);
   const u = String(data?.['unite'] ?? 'colis') === 'poids' ? 'kg' : 'colis';
   const ents = (data?.['entrepots'] ?? []) as O[];
   const decls = (data?.['parDeclaration'] ?? []) as O[];
+  const [sel, setSel] = useState<O | null>(null);
   if (loading) return <Spinner />;
   return <>
-    <div className="card"><h2>Par entrepôt ({u})</h2>
-      <Table cols={[['nom', 'Entrepôt'], ['entrees', `Entrées (${u})`], ['sorties', `Sorties (${u})`], ['restant', `Restant (${u})`]]} rows={ents} /></div>
+    <div className="card"><h2>Par {lib.toLowerCase()} ({u})</h2>
+      <p className="help" style={{ marginTop: 0 }}>Cliquez un {lib.toLowerCase()} pour voir le détail des entrées et des apurements.</p>
+      <Table cols={[['nom', lib], ['entrees', `Entrées (${u})`], ['sorties', `Sorties (${u})`], ['restant', `Restant (${u})`]]}
+        rows={ents} onRow={(r) => setSel(r)} /></div>
     <div className="card"><h2>Par déclaration ({u})</h2>
       {decls.length === 0 ? <div className="empty">Aucune entrée enregistrée.</div>
-        : <Table cols={[['libelle', 'Déclaration'], ['entrepotCode', 'Entrepôt'], ['entrees', `Entrées (${u})`], ['sorties', `Sorties (${u})`], ['restant', `Restant (${u})`]]} rows={decls} />}
+        : <Table cols={[['libelle', 'Déclaration'], ['entrepotCode', lib], ['entrees', `Entrées (${u})`], ['sorties', `Sorties (${u})`], ['restant', `Restant (${u})`]]} rows={decls} />}
     </div>
+    {sel && <DetailEntrepotStats entrepot={sel} unite={u} lib={lib} onClose={() => setSel(null)} />}
   </>;
+}
+
+/** Tiroir d'un magasin/entrepôt : ses entrées, chaque article (entrée / apuré / restant). */
+function DetailEntrepotStats({ entrepot, unite, lib, onClose }: { entrepot: O; unite: string; lib: string; onClose: () => void }) {
+  const code = String(entrepot['code']);
+  const { data, loading } = useAsync<{ rows: O[] }>(() => call('entrepot.entrees', { entrepotCode: code }), [code]);
+  const entrees = (data?.rows ?? []) as O[];
+  const [apur, setApur] = useState<{ entreeId: string; numero: number; designation: string } | null>(null);
+  return <Modal onClose={onClose}>
+    <h2>{lib} {String(entrepot['nom'])} ({code})</h2>
+    <div className="help" style={{ marginBottom: 8 }}>Entrées : {String(entrepot['entrees'])} {unite} · Sorties : {String(entrepot['sorties'])} {unite} · Restant : <b>{String(entrepot['restant'])}</b> {unite}</div>
+    {loading ? <Spinner /> : entrees.length === 0 ? <div className="empty">Aucune entrée.</div>
+      : entrees.map((e) => <div key={String(e['id'])} style={{ border: '1px solid var(--line)', borderRadius: 6, padding: 10, marginTop: 10 }}>
+        <div className="row" style={{ alignItems: 'center' }}>
+          <b className="mono" style={{ flex: 1 }}>{[e['numeroDeclaration'], e['anneeDeclaration'], e['bureauDeclaration'], e['typeDeclaration']].filter(Boolean).join(' · ')}</b>
+          <span className="help">{fmtDate(e['dateEntree'])}</span>
+        </div>
+        <div className="help">Déclarant {String(e['declarant'] || '—')}{e['conteneurise'] ? ` · conteneurs : ${((e['conteneurs'] as string[]) || []).join(', ') || '—'}` : ''}</div>
+        <div className="tbl" style={{ marginTop: 6 }}><table>
+          <thead><tr><th>Art.</th><th>Désignation</th><th>Entrée</th><th>Apuré</th><th>Restant</th></tr></thead>
+          <tbody>{(e['articles'] as O[]).map((a) => <tr key={String(a['numero'])}>
+            <td>{String(a['numero'])}</td><td>{String(a['designation'] || '—')}</td>
+            <td>{String(a['initial'])}</td>
+            <td>{Number(a['sorti']) > 0
+              ? <button className="ghost xs" onClick={() => setApur({ entreeId: String(e['id']), numero: Number(a['numero']), designation: String(a['designation'] || '') })}>{String(a['sorti'])} ▸</button>
+              : '0'}</td>
+            <td><b>{String(a['restant'])}</b></td>
+          </tr>)}</tbody>
+        </table></div>
+      </div>)}
+    {apur && <DetailApurements code={code} apur={apur} unite={unite} onClose={() => setApur(null)} />}
+  </Modal>;
+}
+
+/** Tiroir « quantité apurée » : les déclarations venues apurer un article. */
+function DetailApurements({ code, apur, unite, onClose }: { code: string; apur: { entreeId: string; numero: number; designation: string }; unite: string; onClose: () => void }) {
+  const { data, loading } = useAsync<{ rows: O[] }>(
+    () => call('entrepot.sorties', { entrepotCode: code, entreeId: apur.entreeId, numeroArticle: apur.numero }), [code, apur.entreeId, apur.numero]);
+  const champ = unite === 'kg' ? 'poids' : 'nbColis';
+  const rows = ((data?.rows ?? []) as O[]).map((r) => ({ ...r, vehicules: ((r['vehicules'] as O[]) || []).map((v) => String(v['chassis'] ?? '')).filter(Boolean).join(', ') || '—' }));
+  return <Modal onClose={onClose}>
+    <h2>Apurements — article n°{apur.numero}{apur.designation ? ` (${apur.designation})` : ''}</h2>
+    <p className="help" style={{ marginTop: 0 }}>Déclarations venues apurer cet article ({unite}).</p>
+    {loading ? <Spinner /> : rows.length === 0 ? <div className="empty">Aucun apurement.</div>
+      : <Table cols={[['declaration', 'Déclaration d\'apurement'], [champ, `Quantité (${unite})`], ['dateSortie', 'Date'], ['vehicules', 'Véhicules'], ['agent', 'Agent']]} rows={rows} />}
+  </Modal>;
 }
 
 SCREENS.completer = (nav) => <CargoList {...nav} filtre={{ etape: 'CFS' }} titre="À compléter (CFS)" />;

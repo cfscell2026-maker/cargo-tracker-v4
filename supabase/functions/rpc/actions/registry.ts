@@ -61,6 +61,7 @@ export const ACTIONS: Record<string, H> = {
   'entrepot.entrees': d(entrepot.entrepotEntrees),
   'entrepot.sortie': d(entrepot.entrepotSortie),
   'entrepot.stats': d(entrepot.entrepotStats),
+  'entrepot.sorties': d(entrepot.entrepotSortiesDetail), // v4.1 : détail des apurements
 
   /* ----- Spéciaux ----- */
   'cargo.create': d(spe.create),

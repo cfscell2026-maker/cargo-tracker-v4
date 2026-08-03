@@ -1230,3 +1230,60 @@ test('entrepôt : au plus 11 articles ; code unique', async () => {
     entrepotCode: 'MAD-9', declaration: { numeroDeclaration: '1' }, articles: arts,
   }), /11 articles/);
 });
+
+/* ---- v4.1 (2026-07-30) : total PP, conteneur partagé, détail apurements ---- */
+
+function cargoSortie(over: Record<string, unknown>) {
+  const now = new Date().toISOString();
+  return {
+    reference: over['id'], numero_camion: over['id'], statut: 'Sortie Enregistrée',
+    date_creation: now, date_sortie: now, rapport_id: 'R',
+    conteneurs_details: { conteneurs: [], scellesCamion: [] }, nb_conteneurs: 0, ...over,
+  };
+}
+
+test('fiche PP : total = enl+dép+MAD+conso, véhicules à nu EXCLUS, conso exclusive', async () => {
+  const db = new FakeDB();
+  const cfs = ctxRole(db, 'CFS', 'A');
+  db.store['cargaisons'].push(
+    cargoSortie({ id: 'E1', type_operation: 'Enlèvement', type_declaration: 'T' }),
+    cargoSortie({ id: 'D1', type_operation: 'Dépotage', type_declaration: 'T' }),
+    cargoSortie({ id: 'C1', type_operation: 'Enlèvement', type_declaration: 'C' }), // conso (type C)
+    cargoSortie({ id: 'V1', type_operation: 'Dépotage / Véhicule', est_vehicule: true, type_declaration: 'T' }),
+  );
+  const f = (await rap.ficheBord(cfs, {})) as { pp: { total: number; enlevement: number; depotage: number; conso: number; vehicules: number } };
+  assert.equal(f.pp.enlevement, 1); // E1 seulement (le type C ne compte PAS ici)
+  assert.equal(f.pp.depotage, 1);
+  assert.equal(f.pp.conso, 1);      // C1
+  assert.equal(f.pp.vehicules, 1);  // V1, hors total
+  assert.equal(f.pp.total, 3);      // enl+dép+MAD+conso, sans le véhicule
+});
+
+test('fiche CFS : un conteneur partagé sur 2 camions compté une seule fois', async () => {
+  const db = new FakeDB();
+  const cfs = ctxRole(db, 'CFS', 'A');
+  const now = new Date().toISOString();
+  const dets = { conteneurs: [{ num: 'MSKU1234567', taille: "40'", plomb: 'S', type: 'DRY' }], scellesCamion: [] };
+  const camion = (id: string) => ({
+    id, reference: id, numero_camion: id, statut: 'Créée', date_creation: now, rapport_id: 'R',
+    type_operation: 'Enlèvement', type_declaration: 'T', conteneurs_details: dets, nb_conteneurs: 1,
+  });
+  db.store['cargaisons'].push(camion('A'), camion('B')); // MÊME conteneur sur 2 camions (saisie manuelle)
+  const f = (await rap.ficheBord(cfs, {})) as { cfs: { camionsCfs: number; total: { conteneurs: number } } };
+  assert.equal(f.cfs.camionsCfs, 2);       // 2 camions bien comptés
+  assert.equal(f.cfs.total.conteneurs, 1); // mais 1 seul conteneur (partagé)
+});
+
+test('entrepot.sorties : détail des apurements d\'un article avec la déclaration', async () => {
+  const db = new FakeDB();
+  const cfs = ctxRole(db, 'CFS', 'A');
+  db.store['entrepot_sorties'] = [
+    { id: 'SOR-1', entrepot_code: 'MAD-01', entree_id: 'ENT-1', numero_article: 1, numero_declaration: '999', annee_declaration: '2026', bureau_declaration: 'TG120', type_declaration: 'C', designation: 'RIZ', nb_colis: 10, poids: 0, vehicules: [{ chassis: 'VIN1', marque: 'X' }], date_sortie: '2026-07-02T00:00:00Z', agent: 'A' },
+    { id: 'SOR-2', entrepot_code: 'MAD-01', entree_id: 'ENT-1', numero_article: 1, numero_declaration: '777', annee_declaration: '2026', bureau_declaration: 'TG120', type_declaration: 'C', designation: 'RIZ', nb_colis: 5, poids: 0, vehicules: [], date_sortie: '2026-07-01T00:00:00Z', agent: 'A' },
+    { id: 'SOR-3', entrepot_code: 'MAD-01', entree_id: 'ENT-1', numero_article: 2, numero_declaration: '111', annee_declaration: '2026', bureau_declaration: 'TG120', type_declaration: 'C', designation: 'MIL', nb_colis: 3, poids: 0, vehicules: [], date_sortie: '2026-07-03T00:00:00Z', agent: 'A' },
+  ];
+  const r = (await entrepot.entrepotSortiesDetail(cfs, { entrepotCode: 'MAD-01', entreeId: 'ENT-1', numeroArticle: 1 })) as { rows: Record<string, unknown>[] };
+  assert.equal(r.rows.length, 2);                       // article 1 seulement
+  assert.equal(r.rows[0]!['declaration'], '999 · 2026 · TG120 · C'); // trié par date desc
+  assert.equal(r.rows[0]!['nbColis'], 10);
+});
