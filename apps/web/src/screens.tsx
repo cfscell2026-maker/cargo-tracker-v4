@@ -478,7 +478,9 @@ function EntrepotSortie({ type, entrepots, nav }: { type: EntrepotType; entrepot
   const [numeroArticle, setNumeroArticle] = useState('1');
   const [dApu, setDApu] = useState<O>({ bureauDeclaration: 'TG120', typeDeclaration: 'T', anneeDeclaration: String(new Date().getFullYear()) });
   const [qte, setQte] = useState('');
-  const [vehs, setVehs] = useState<O[]>([{ chassis: '', marque: '' }]);
+  // v4.1 — la marchandise (vrac) sort sur un CAMION scellé : N° camion + scellés.
+  const [numCamion, setNumCamion] = useState('');
+  const [scelles, setScelles] = useState(['', '', '']);
   const [busy, setBusy] = useState(false);
   const set = (k: string, v: unknown) => setDApu((o) => ({ ...o, [k]: v }));
   const entree = entrees.find((e) => e['id'] === entreeId);
@@ -492,13 +494,13 @@ function EntrepotSortie({ type, entrepots, nav }: { type: EntrepotType; entrepot
     try {
       const payload: O = {
         entreeId, numeroArticle: Number(numeroArticle), declarationApurement: dApu,
-        vehicules: vehs.filter((v) => String(v['chassis']).trim()),
+        numeroCamion: numCamion, scelles: scelles.filter(Boolean),
         designation: art['designation'],
       };
       if (estIndus(type)) payload['poids'] = qte; else payload['nbColis'] = qte;
       const r = await call<{ restantApres: number }>('entrepot.sortie', payload);
       toast(`Sortie enregistrée. Restant : ${r.restantApres}.`, 'ok');
-      setQte(''); setVehs([{ chassis: '', marque: '' }]); reload();
+      setQte(''); setNumCamion(''); setScelles(['', '', '']); reload();
     } catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(false); }
   }
 
@@ -523,14 +525,12 @@ function EntrepotSortie({ type, entrepots, nav }: { type: EntrepotType; entrepot
             <input value={qte} onChange={(e) => setQte(e.target.value.replace(estIndus(type) ? /[^0-9.,]/g : /[^0-9]/g, ''))} /></div>
         </div>
         <DeclEntrepot d={dApu} set={set} titre="Déclaration d'apurement (même que l'origine ou différente)" />
-        <div className="row" style={{ alignItems: 'center', marginTop: 12 }}>
-          <div className="section-title" style={{ flex: 1, margin: 0 }}>Véhicules</div>
-          <button className="ghost xs" onClick={() => setVehs((a) => [...a, { chassis: '', marque: '' }])}>＋ Véhicule</button>
+        <div className="section-title" style={{ marginTop: 12 }}>Camion</div>
+        <div className="grid2">
+          <div><label className="help">N° camion</label><input className="mono" value={numCamion} onChange={(e) => setNumCamion(masks.alnum(e.target.value))} /></div>
+          {[0, 1, 2].map((k) => <div key={k}><label className="help">Scellé {k + 1}</label>
+            <input value={scelles[k] ?? ''} onChange={(e) => setScelles((a) => a.map((x, j) => j === k ? masks.upper(e.target.value) : x))} /></div>)}
         </div>
-        {vehs.map((v, i) => <div key={i} className="grid2" style={{ marginTop: 4 }}>
-          <div><label className="help">Châssis</label><input className="mono" value={String(v['chassis'])} onChange={(e) => setVehs((a) => a.map((x, j) => j === i ? { ...x, chassis: masks.alnum(e.target.value) } : x))} /></div>
-          <div><label className="help">Marque</label><input value={String(v['marque'])} onChange={(e) => setVehs((a) => a.map((x, j) => j === i ? { ...x, marque: masks.upper(e.target.value) } : x))} /></div>
-        </div>)}
         <div style={{ marginTop: 14 }}><button disabled={busy} onClick={envoyer}>{busy ? 'Enregistrement…' : 'Enregistrer la sortie'}</button></div>
       </>}
     </>)}
@@ -602,12 +602,19 @@ function DetailApurements({ code, apur, unite, onClose }: { code: string; apur: 
   const { data, loading } = useAsync<{ rows: O[] }>(
     () => call('entrepot.sorties', { entrepotCode: code, entreeId: apur.entreeId, numeroArticle: apur.numero }), [code, apur.entreeId, apur.numero]);
   const champ = unite === 'kg' ? 'poids' : 'nbColis';
-  const rows = ((data?.rows ?? []) as O[]).map((r) => ({ ...r, vehicules: ((r['vehicules'] as O[]) || []).map((v) => String(v['chassis'] ?? '')).filter(Boolean).join(', ') || '—' }));
+  const rows = ((data?.rows ?? []) as O[]).map((r) => {
+    const scelles = ((r['scelles'] as string[]) || []).filter(Boolean);
+    // Sorties récentes : N° camion + scellés. Anciennes : liste de châssis (véhicules).
+    const camion = r['numeroCamion']
+      ? `${String(r['numeroCamion'])}${scelles.length ? ` (scellés ${scelles.join(', ')})` : ''}`
+      : ((r['vehicules'] as O[]) || []).map((v) => String(v['chassis'] ?? '')).filter(Boolean).join(', ');
+    return { ...r, camion: camion || '—' };
+  });
   return <Modal onClose={onClose}>
     <h2>Apurements — article n°{apur.numero}{apur.designation ? ` (${apur.designation})` : ''}</h2>
     <p className="help" style={{ marginTop: 0 }}>Déclarations venues apurer cet article ({unite}).</p>
     {loading ? <Spinner /> : rows.length === 0 ? <div className="empty">Aucun apurement.</div>
-      : <Table cols={[['declaration', 'Déclaration d\'apurement'], [champ, `Quantité (${unite})`], ['dateSortie', 'Date'], ['vehicules', 'Véhicules'], ['agent', 'Agent']]} rows={rows} />}
+      : <Table cols={[['declaration', 'Déclaration d\'apurement'], [champ, `Quantité (${unite})`], ['dateSortie', 'Date'], ['camion', 'Camion / scellés'], ['agent', 'Agent']]} rows={rows} />}
   </Modal>;
 }
 
@@ -1010,10 +1017,20 @@ function FormMagasin({ go }: { go: Nav['go'] }) {
   const [d, setD] = useState<O>({});
   const [num, setNum] = useState('');
   const [mode, setMode] = useState('balise');
+  // v4.1 — scellés du camion « comme en dépotage » (2-3). « Chargement terminé
+  // (scellés posés) » : sinon la sortie reste « En cours de chargement » et se
+  // finalise depuis la fiche.
+  const [chargementTermine, setChargementTermine] = useState(true);
+  const [scelles, setScelles] = useState(['', '', '']);
   const set = (k: string, val: unknown) => setD((o) => ({ ...o, [k]: val }));
   async function creer() {
+    if (!num) { toast('N° camion requis.', 'err'); return; }
+    if (chargementTermine && scelles.filter(Boolean).length < 2) { toast('Au moins 2 scellés camion (ou décochez « chargement terminé »).', 'err'); return; }
     try {
-      const r = await call<{ camions: { id: string }[] }>('cargo.create', { typeOperation: OPERATIONS.MAGASIN, numeroCamion: num, consoMode: mode, declaration: d });
+      const r = await call<{ camions: { id: string }[] }>('cargo.create', {
+        typeOperation: OPERATIONS.MAGASIN, numeroCamion: num, consoMode: mode, declaration: d,
+        chargementTermine, scellesCamion: scelles.filter(Boolean),
+      });
       toast('Sortie magasin créée.', 'ok'); go('detail', r.camions[0]?.id);
     } catch (e) { toast((e as Error).message, 'err'); }
   }
@@ -1023,6 +1040,14 @@ function FormMagasin({ go }: { go: Nav['go'] }) {
     <DeclFields d={d} set={set} />
     <div className="section-title" style={{ marginTop: 14 }}>Camion</div>
     <div className="grid2"><div><label className="help">N° camion</label><input className="mono" value={num} onChange={(e) => setNum(masks.alnum(e.target.value))} /></div></div>
+    <label className="help" style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 10 }}>
+      <input type="checkbox" style={{ width: 'auto' }} checked={chargementTermine} onChange={(e) => setChargementTermine(e.target.checked)} />
+      <span>Chargement terminé (scellés posés) — sinon « En cours de chargement »</span>
+    </label>
+    {chargementTermine && <div className="grid2" style={{ marginTop: 6 }}>
+      {[0, 1, 2].map((k) => <div key={k}><label className="help">Scellé camion {k + 1}{k < 2 ? ' *' : ''}</label>
+        <input value={scelles[k] ?? ''} onChange={(e) => setScelles((a) => a.map((x, j) => j === k ? masks.upper(e.target.value) : x))} /></div>)}
+    </div>}
     <div style={{ marginTop: 12 }}><button onClick={creer}>Créer</button></div>
   </div>;
 }

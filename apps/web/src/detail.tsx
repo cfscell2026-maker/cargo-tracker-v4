@@ -58,8 +58,13 @@ export function Detail({ user, arg, go, retour, ecranPrecedent }: Nav) {
       <Timeline c={c} />
 
       {/* Panneaux d'action selon rôle × étape */}
-      {(c['statut'] === STATUTS.CAMION || c['statut'] === STATUTS.CHARGEMENT || (c['statut'] === STATUTS.CREEE && binomePossible)) && can(ROLES.CFS, A) &&
+      {/* Sortie Magasin/MAD : pas de conteneurs — on ne « finalise » que les
+          scellés du camion (vrac). Les autres opérations passent par PanneauCFS. */}
+      {c['typeOperation'] !== OPERATIONS.MAGASIN
+        && (c['statut'] === STATUTS.CAMION || c['statut'] === STATUTS.CHARGEMENT || (c['statut'] === STATUTS.CREEE && binomePossible)) && can(ROLES.CFS, A) &&
         <PanneauCFS c={c} dets={dets} action={action} prefillDecl={a.prefillDecl} />}
+      {c['typeOperation'] === OPERATIONS.MAGASIN && c['statut'] === STATUTS.CHARGEMENT && can(ROLES.CFS, A) &&
+        <FinaliserMagasin id={id} action={action} />}
       {c['statut'] === STATUTS.VEHICULE_OUILLAGE && can(ROLES.CFS, A) && <PanneauOuillage c={c} action={action} />}
       {pend.includes('VALIDATION') && can(ROLES.CHEF_BRIGADE, A) && <PanneauValidation c={c} action={action} />}
       {pend.includes('T1') && can(ROLES.T1, A) && <PanneauT1 c={c} dets={dets} action={action} />}
@@ -140,7 +145,14 @@ function FicheCargaison({ c, groupes }: { c: O; groupes: Groupe[] }) {
  * l'écran ne disait quel conteneur relevait de quelle déclaration.
  */
 function CarteConteneurs({ c, dets, groupes }: { c: O; dets: ReturnType<typeof parseConteneursDetails>; groupes: Groupe[] }) {
-  if (!dets.conteneurs.length) return null;
+  if (!dets.conteneurs.length) {
+    // Sortie Magasin/MAD : vrac sans conteneur — on n'a que les scellés du camion.
+    if (c['typeOperation'] === OPERATIONS.MAGASIN && dets.scellesCamion.length) return <div className="card">
+      <h2>Camion</h2>
+      <div className="kv"><b>Scellés camion</b>{dets.scellesCamion.join(' · ')}</div>
+    </div>;
+    return null;
+  }
   const estDep = c['typeOperation'] === OPERATIONS.DEPOTAGE;
   const mixte = groupes.length > 1;
   const rang = (ct: unknown) => dets.conteneurs.indexOf(ct as never) + 1;
@@ -394,10 +406,12 @@ function AjouterCamion({ c, go }: { c: O; go: Nav['go'] }) {
         // Reprend la déclaration ; le choix « balise » suit le type de déclaration
         // du camion courant (type C non balisé = dispense déjà résolue).
         const consoMode = estOui(c['sauteBalise']) ? 'sansbalise' : 'balise';
+        // Créée « En cours de chargement » : les scellés du camion se posent
+        // ensuite sur la fiche (bouton « Finaliser la sortie »).
         const r = await call<{ camions: { id: string }[] }>('cargo.create', {
-          typeOperation: OPERATIONS.MAGASIN, numeroCamion: num, declaration: prefillDe(c), consoMode,
+          typeOperation: OPERATIONS.MAGASIN, numeroCamion: num, declaration: prefillDe(c), consoMode, chargementTermine: false,
         });
-        toast('Nouvelle sortie magasin créée.', 'ok');
+        toast('Nouvelle sortie magasin créée (à finaliser : scellés).', 'ok');
         go('detail', r.camions[0]?.id);
       } else {
         const r = await call<{ id: string }>('cargo.createcamion', { numeroCamion: num, routage: op });
@@ -428,6 +442,23 @@ function FinaliserDepotage({ id, action }: { id: string; action: ActionFn }) {
       {[0, 1, 2].map((i) => <Champ key={i} label={`Scellé camion ${i + 1}${i < 2 ? ' *' : ''}`} value={sc[i]} onChange={(e) => setSc((a) => a.map((x, j) => j === i ? masks.upper(e.target.value) : x))} />)}
     </div>
     <div style={{ marginTop: 12 }}><button onClick={() => action(() => call('cargo.declaration', { id, hauteurChargement: hauteur, nbColis: colis, scellesCamion: sc.filter(Boolean) }), 'Dépotage finalisé.')}>Finaliser → « Créée »</button></div>
+  </div>;
+}
+
+/**
+ * v4.1 — Finaliser une SORTIE MAGASIN/MAD restée « En cours de chargement » :
+ * poser les scellés du camion (2-3, comme en dépotage) → « Créée ». C'est
+ * l'équivalent, pour le vrac sans conteneur, de la finalisation du dépotage.
+ */
+function FinaliserMagasin({ id, action }: { id: string; action: ActionFn }) {
+  const [sc, setSc] = useState(['', '', '']);
+  return <div className="card">
+    <h2>Finaliser la sortie (scellés camion)</h2>
+    <p className="help" style={{ marginTop: 0 }}>Cette sortie magasin est « En cours de chargement ». Posez les scellés du camion (2-3) pour terminer le chargement → « Créée ».</p>
+    <div className="grid2">
+      {[0, 1, 2].map((i) => <Champ key={i} label={`Scellé camion ${i + 1}${i < 2 ? ' *' : ''}`} value={sc[i]} onChange={(e) => setSc((a) => a.map((x, j) => j === i ? masks.upper(e.target.value) : x))} />)}
+    </div>
+    <div style={{ marginTop: 12 }}><button onClick={() => action(() => call('cargo.sceller', { id, scellesCamion: sc.filter(Boolean) }), 'Scellés posés — chargement terminé.')}>Poser les scellés → « Créée »</button></div>
   </div>;
 }
 

@@ -242,14 +242,54 @@ test('sortie Magasin/MAD : type T garde le T1, type C le saute', async () => {
   const db = new FakeDB();
   const cfs = ctxAvec(db);
   const base = { declarant: 'A', contactDeclarant: '901234', destinationMarchandise: 'D', bureauDeclaration: 'TG120', anneeDeclaration: '2026', dateDeclaration: '2026-06-24', descriptionMarchandise: 'VRAC', nombreConteneurs: 1 };
-  await spe.create(cfs, { typeOperation: 'Sortie Magasin / MAD', numeroCamion: 'MAG-T', consoMode: 'balise', declaration: { ...base, typeDeclaration: 'T', numeroDeclaration: '30' } });
-  await spe.create(cfs, { typeOperation: 'Sortie Magasin / MAD', numeroCamion: 'MAG-C', consoMode: 'sansbalise', declaration: { ...base, typeDeclaration: 'C', numeroDeclaration: '31' } });
+  const sc = { chargementTermine: true, scellesCamion: ['SC1', 'SC2'] };
+  await spe.create(cfs, { typeOperation: 'Sortie Magasin / MAD', numeroCamion: 'MAG-T', consoMode: 'balise', declaration: { ...base, typeDeclaration: 'T', numeroDeclaration: '30' }, ...sc });
+  await spe.create(cfs, { typeOperation: 'Sortie Magasin / MAD', numeroCamion: 'MAG-C', consoMode: 'sansbalise', declaration: { ...base, typeDeclaration: 'C', numeroDeclaration: '31' }, ...sc });
   const magT = db.store['cargaisons'].find((c) => c['numero_camion'] === 'MAG-T');
   const magC = db.store['cargaisons'].find((c) => c['numero_camion'] === 'MAG-C');
   assert.equal(magT?.['saute_t1'], false);
   assert.equal(magT?.['saute_balise'], false);
   assert.equal(magC?.['saute_t1'], true);
   assert.equal(magC?.['saute_balise'], true);
+});
+
+test('sortie Magasin/MAD : scellés camion posés → « Créée » d\'emblée', async () => {
+  const db = new FakeDB();
+  const cfs = ctxAvec(db);
+  const base = { declarant: 'A', contactDeclarant: '901234', destinationMarchandise: 'D', bureauDeclaration: 'TG120', anneeDeclaration: '2026', descriptionMarchandise: 'SACS DE RIZ', typeDeclaration: 'C', numeroDeclaration: '40' };
+  const r = (await spe.create(cfs, {
+    typeOperation: 'Sortie Magasin / MAD', numeroCamion: 'MAG-S', consoMode: 'balise', declaration: base,
+    chargementTermine: true, scellesCamion: ['SC1', 'SC2'],
+  })) as { camions: { id: string }[] };
+  const cargo = db.store['cargaisons'].find((c) => c['id'] === r.camions[0]!.id)!;
+  assert.equal(cargo['statut'], STATUTS.CREEE);
+  assert.deepEqual((cargo['conteneurs_details'] as { scellesCamion: string[] }).scellesCamion, ['SC1', 'SC2']);
+});
+
+test('sortie Magasin/MAD : « chargement terminé » exige ≥ 2 scellés', async () => {
+  const db = new FakeDB();
+  const cfs = ctxAvec(db);
+  const base = { declarant: 'A', contactDeclarant: '901234', destinationMarchandise: 'D', bureauDeclaration: 'TG120', anneeDeclaration: '2026', descriptionMarchandise: 'RIZ', typeDeclaration: 'C', numeroDeclaration: '41' };
+  await assert.rejects(
+    spe.create(cfs, { typeOperation: 'Sortie Magasin / MAD', numeroCamion: 'MAG-X', consoMode: 'balise', declaration: base, chargementTermine: true, scellesCamion: ['SEUL'] }),
+    /2 scellés/,
+  );
+});
+
+test('sortie Magasin/MAD : sans « chargement terminé » → « En cours de chargement », finalisée par cargo.sceller', async () => {
+  const db = new FakeDB();
+  const cfs = ctxAvec(db);
+  const base = { declarant: 'A', contactDeclarant: '901234', destinationMarchandise: 'D', bureauDeclaration: 'TG120', anneeDeclaration: '2026', descriptionMarchandise: 'RIZ', typeDeclaration: 'C', numeroDeclaration: '42' };
+  const r = (await spe.create(cfs, {
+    typeOperation: 'Sortie Magasin / MAD', numeroCamion: 'MAG-P', consoMode: 'balise', declaration: base, chargementTermine: false,
+  })) as { camions: { id: string }[] };
+  const id = r.camions[0]!.id;
+  assert.equal(statutDe(db, id), STATUTS.CHARGEMENT);
+  // Finalisation : pose des scellés camion → « Créée ».
+  await ecr.sceller(cfs, { id, scellesCamion: ['S1', 'S2', 'S3'] });
+  assert.equal(statutDe(db, id), STATUTS.CREEE);
+  const cargo = db.store['cargaisons'].find((c) => c['id'] === id)!;
+  assert.deepEqual((cargo['conteneurs_details'] as { scellesCamion: string[] }).scellesCamion, ['S1', 'S2', 'S3']);
 });
 
 test('confirmation entrée port sec EN LOT : confirme les pointés cochés, ignore le reste', async () => {

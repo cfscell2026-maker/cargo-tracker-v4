@@ -290,9 +290,11 @@ export async function sceller(ctx: Ctx, p: Record<string, unknown>) {
   const pd = parseConteneursDetails(c['conteneursDetails']);
   const conts = pd.conteneurs;
   let scellesCamion = pd.scellesCamion;
-  if (type === OPERATIONS.DEPOTAGE) {
+  // Dépotage ET sortie Magasin/MAD : les scellés sont posés AU NIVEAU DU CAMION
+  // (2-3), pas par conteneur — la sortie magasin est un vrac sans conteneur.
+  if (type === OPERATIONS.DEPOTAGE || type === OPERATIONS.MAGASIN) {
     const sc = (Array.isArray(p['scellesCamion']) ? (p['scellesCamion'] as unknown[]) : []).map((s) => maj(s, 30)).filter(Boolean);
-    if (sc.length < 2) throw new Error('Au moins 2 scellés requis (dépotage).');
+    if (sc.length < 2) throw new Error('Au moins 2 scellés requis.');
     if (sc.length > 3) throw new Error('3 scellés maximum.');
     scellesCamion = sc;
   } else {

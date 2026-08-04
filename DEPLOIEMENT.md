@@ -53,11 +53,12 @@ cd apps/web && npx tsc --noEmit && npx vite build
 > Edge Function **échouent** si le schéma n'est pas à jour d'abord. Donc, à
 > chaque déploiement de ce lot, **toujours dans cet ordre** :
 > ```bash
-> supabase db push                              # applique 00060 (pesée) + 00070 (entrepôts)
+> supabase db push                              # applique 00060 + 00070 + 00080
 > supabase functions deploy rpc --no-verify-jwt # PUIS la fonction
 > ```
 > - `00060_pesee_surcharge.sql` : colonnes `en_surcharge` / `poids_surcharge` (nullables, additives).
 > - `00070_entrepots.sql` : tables `entrepots` / `entrepot_entrees` / `entrepot_sorties` (+ RLS).
+> - `00080_sortie_camion.sql` : colonnes `numero_camion` / `scelles` sur `entrepot_sorties` (sortie par camion scellé au lieu de véhicules ; additives).
 >
 > Le **front** (Netlify) se met à jour tout seul au `git push` sur `main` ; il
 > peut afficher les nouveaux écrans même avant `db push`, mais toute écriture

@@ -83,6 +83,17 @@ async function creerRapportMagasin(ctx: Ctx, p: Record<string, unknown>) {
   // v4 — comme en dépotage : type T → T1 + Balise ; type C → saute le T1,
   // balisée ou non balisée selon consoMode (règle unique sautsTypeC).
   const { sauteT1, sauteBalise } = sautsTypeC(decl.typeDeclaration, p['consoMode']);
+  // v4.1 — SCELLÉS DU CAMION « comme en dépotage » (décision utilisateur
+  // 2026-08-04) : le camion de sortie magasin porte 2-3 scellés, posés à la fin
+  // de chargement. Tant qu'ils ne le sont pas, la sortie reste « En cours de
+  // chargement » et se finalise depuis la fiche (cargo.sceller).
+  const chargementTermine = !(p['chargementTermine'] === false);
+  const scellesCamion = (Array.isArray(p['scellesCamion']) ? (p['scellesCamion'] as unknown[]) : [])
+    .map((s) => maj(s, 30)).filter(Boolean);
+  if (chargementTermine && scellesCamion.length < 2)
+    throw new Error('Sortie magasin : au moins 2 scellés camion sont requis (ou décochez « chargement terminé »).');
+  if (scellesCamion.length > 3) throw new Error('3 scellés camion maximum.');
+  const statut = chargementTermine ? STATUTS.CREEE : STATUTS.CHARGEMENT;
   const rapportId = await nextRapportId(ctx);
   const id = await nextId(ctx);
   const now = new Date().toISOString();
@@ -93,8 +104,8 @@ async function creerRapportMagasin(ctx: Ctx, p: Record<string, unknown>) {
     bureau_declaration: decl.bureauDeclaration, type_declaration: decl.typeDeclaration, numero_declaration: decl.numeroDeclaration,
     annee_declaration: decl.anneeDeclaration, description_marchandise: decl.descriptionMarchandise,
     observations_cfs: obsCFS, agent_cfs: ctx.session.nomComplet, agent_cfs_id: ctx.session.userId,
-    statut: STATUTS.CREEE, derniere_maj: now, rapport_id: rapportId,
-    conteneurs_details: { conteneurs: [], scellesCamion: [] }, nb_conteneurs: 0,
+    statut, derniere_maj: now, rapport_id: rapportId,
+    conteneurs_details: { conteneurs: [], scellesCamion }, nb_conteneurs: 0,
     saute_t1: sauteT1, saute_balise: sauteBalise,
   };
   const { error } = await ctx.db.from('cargaisons').insert(row);

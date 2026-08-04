@@ -152,6 +152,11 @@ export async function entrepotSortie(ctx: Ctx, p: Record<string, unknown>) {
 
   const d = (p['declarationApurement'] ?? {}) as Record<string, unknown>;
   const id = await nextRef(ctx, 'SEQ_SOR', 'SOR');
+  // v4.1 — la marchandise (vrac) sort sur un CAMION scellé, pas des véhicules :
+  // N° camion + scellés (comme une sortie Magasin/MAD). `vehicules` reste accepté
+  // pour compatibilité mais n'est plus saisi côté écran.
+  const numeroCamion = maj(p['numeroCamion'], 30).replace(/[^A-Z0-9-]/g, '');
+  const scelles = (Array.isArray(p['scelles']) ? (p['scelles'] as unknown[]) : []).map((s) => maj(s, 30)).filter(Boolean);
   const vehicules = Array.isArray(p['vehicules']) ? p['vehicules'] : [];
   const row = {
     id, entrepot_code: code, entree_id: entreeId, numero_article: numeroArticle,
@@ -159,7 +164,7 @@ export async function entrepotSortie(ctx: Ctx, p: Record<string, unknown>) {
     annee_declaration: maj(d['anneeDeclaration'], 6), bureau_declaration: maj(d['bureauDeclaration'], 20),
     type_declaration: maj(d['typeDeclaration'], 10),
     designation: maj(p['designation'], 200) || String(arts[numeroArticle - 1]?.['designation'] ?? ''),
-    nb_colis: nbColis, poids, vehicules,
+    nb_colis: nbColis, poids, numero_camion: numeroCamion, scelles, vehicules,
     agent: ctx.session.nomComplet, observations: maj(p['observations'], 1000),
   };
   const { error } = await ctx.db.from('entrepot_sorties').insert(row);
@@ -185,7 +190,7 @@ export async function entrepotSortiesDetail(ctx: Ctx, opts: { entrepotCode?: str
       id: s['id'], entreeId: s['entreeId'], numeroArticle: s['numeroArticle'], dateSortie: s['dateSortie'],
       designation: s['designation'], nbColis: s['nbColis'], poids: s['poids'], agent: s['agent'],
       declaration: [s['numeroDeclaration'], s['anneeDeclaration'], s['bureauDeclaration'], s['typeDeclaration']].filter(Boolean).join(' · '),
-      vehicules: s['vehicules'],
+      numeroCamion: s['numeroCamion'], scelles: s['scelles'], vehicules: s['vehicules'],
     })),
   };
 }
