@@ -8,7 +8,7 @@
 --  Ce script :
 --    • VIDE les données métier (cargaisons, conteneurs, déclarations, stock,
 --      stock annoncé) ;
---    • REMET le journal d'audit (Historique) à zéro — chaîne redémarrée à GENESIS ;
+--    • CONSERVE le journal d'audit — voir le point 3 (correctif SEC-04) ;
 --    • REMET les compteurs de numérotation à zéro.
 --  Il CONSERVE : le schéma, les fonctions, et les COMPTES utilisateurs
 --  (tables profils + auth.users intactes — inutile de recréer les comptes).
@@ -22,10 +22,23 @@ truncate conteneurs, stock, stock_annonce, cargaisons, declarations restart iden
 --    les ID du nouvel export (aucun doublon d'ID).
 update compteurs set valeur = 0 where cle in ('SEQ','SEQ_RPT');
 
--- 3) Journal d'audit — remise à zéro. NB : TRUNCATE contourne le verrou
---    append-only (le déclencheur bloque UPDATE/DELETE, pas TRUNCATE) et
---    s'exécute ici en tant que propriétaire (SQL Editor = rôle postgres).
-truncate audit_log restart identity;
+-- 3) Journal d'audit — VOLONTAIREMENT PRÉSERVÉ (correctif SEC-04, 2026-08-10).
+--
+--    Ce script remettait auparavant `audit_log` à zéro par TRUNCATE, en
+--    exploitant le fait que le verrou append-only ne bloquait que UPDATE et
+--    DELETE. C'était la seule faille assumée du journal : un script du dépôt
+--    documentait comment effacer la preuve.
+--
+--    La migration 00090 ajoute un déclencheur BEFORE TRUNCATE : la commande
+--    ci-dessous ÉCHOUERAIT désormais, et c'est le comportement voulu. Le
+--    journal d'audit survit aux ré-imports — c'est précisément son rôle.
+--
+--    Si une remise à zéro du journal est réellement nécessaire (montage d'un
+--    environnement de recette vierge, JAMAIS en production), elle relève d'une
+--    décision tracée : supprimer explicitement le déclencheur, purger, le
+--    recréer, et consigner l'opération par écrit.
+--
+-- truncate audit_log restart identity;   -- ⛔ NE PAS RÉACTIVER EN PRODUCTION
 
 -- 4) Contrôle : doit renvoyer 0 partout.
 select
@@ -34,4 +47,4 @@ select
   (select count(*) from declarations)   as declarations,
   (select count(*) from stock)          as stock,
   (select count(*) from stock_annonce)  as stock_annonce,
-  (select count(*) from audit_log)      as audit_log;
+  (select count(*) from audit_log)      as audit_log_conserve;

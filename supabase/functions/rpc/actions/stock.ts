@@ -29,6 +29,54 @@ export async function declLookup(ctx: Ctx, p: Record<string, unknown>) {
 
 /* -------------------------------- stock -------------------------------- */
 
+/**
+ * v4.2 — RECHERCHE D'UN CONTENEUR DANS TOUT LE PARC, quel que soit son statut.
+ *
+ * Le problème auquel cela répond : le pointage matinal fige la liste des
+ * conteneurs « Positionné » du jour. Or des conteneurs continuent d'être
+ * positionnés dans la journée, après le passage de l'agent. Au moment de les
+ * dépoter, ils n'apparaissent nulle part — ni dans la liste du jour, ni ailleurs
+ * — et les agents se rabattent sur « saisie manuelle ». Résultat : le conteneur
+ * n'est jamais rattaché à sa fiche stock, il reste « En stock » indéfiniment, et
+ * le parc affiche des conteneurs présents qui sont partis depuis longtemps.
+ *
+ * Cette action permet à l'écran de dire ce qui se passe vraiment : le conteneur
+ * EST au parc, il n'a simplement pas été pointé. L'agent peut alors le pointer
+ * à la volée (cf. `cargo.cfs`, paramètre `pointerSiNonPositionne`) au lieu de
+ * contourner le stock.
+ */
+export async function stockLookup(ctx: Ctx, p: { numeroTC?: string }) {
+  const tc = normTC(p?.numeroTC);
+  if (!tc) return { existe: false, numeroTC: '' };
+  const { data, error } = await ctx.db.from('stock').select('*').eq('numero_tc', tc).maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!data) {
+    // Absent du parc : la saisie manuelle est alors légitime (conteneur partagé,
+    // arrivé hors circuit d'import…).
+    return { existe: false, numeroTC: tc };
+  }
+  const o = versCamel(data);
+  const jourNow = new Date().toISOString().slice(0, 10);
+  const pointeAujourdhui = !!o['datePointage'] && jourDe(o['datePointage']) === jourNow;
+  const statut = String(o['statut'] ?? '');
+  return {
+    existe: true,
+    numeroTC: tc,
+    statut,
+    taille: o['taille'] ?? '',
+    typeConteneur: o['typeConteneur'] ?? '',
+    provenance: o['provenance'] ?? '',
+    dateEntree: o['dateEntree'] ?? null,
+    datePointage: o['datePointage'] ?? null,
+    pointePar: o['pointePar'] ?? '',
+    cargaisonId: o['cargaisonId'] ?? '',
+    pointeAujourdhui,
+    depote: statut === STOCK_STATUTS.DEPOTE,
+    /** true = présent au parc mais PAS pointé positionné : le cas à signaler. */
+    aRegulariser: statut !== STOCK_STATUTS.DEPOTE && statut !== STOCK_STATUTS.POSITIONNE,
+  };
+}
+
 export async function stockList(ctx: Ctx, opts: { statut?: string }) {
   const statut = opts?.statut || 'tous';
   const data = await fetchAll(ctx, 'stock', '*');
@@ -487,4 +535,70 @@ export async function rapportStock(ctx: Ctx) {
   compte.sejourMoyen = nJ ? Math.round(sommeJ / nJ) : 0;
   instance.sort((a, b) => (b as { joursSejour: number }).joursSejour - (a as { joursSejour: number }).joursSejour);
   return { compte, tranches: TRANCHES_SEJOUR.map((t) => dist[t]), instance, seuil: SEUIL_ALERTE_SEJOUR };
+}
+
+
+/* ------------------------ Statistiques de dépotage --------------------- */
+
+/**
+ * v4.2 — STATISTIQUES DE DÉPOTAGE, jour par jour.
+ *
+ * Trois chiffres par journée de travail :
+ *   · positionnés = conteneurs pointés ce jour-là (pointage matinal + les
+ *     régularisations faites dans la journée) ;
+ *   · dépotés     = conteneurs effectivement dépotés ce jour-là ;
+ *   · restant     = conteneurs pointés à cette date ou avant et pas encore
+ *     dépotés à la fin de la journée. C'est le stock de travail qui se reporte
+ *     au lendemain : s'il enfle, le dépotage ne suit pas le positionnement.
+ *
+ * ⚠ SÉMANTIQUE DU POINTAGE, à connaître pour lire le tableau : `date_pointage`
+ * porte le DERNIER pointage d'un conteneur. Un reste pointé lundi puis re-pointé
+ * mercredi compte au mercredi, pas au lundi — c'est déjà la règle de l'écran
+ * « Stock CFS journalier » (v4.1). La colonne « positionnés » est donc une photo
+ * par journée, pas un cumul d'arrivées.
+ */
+export async function rapportDepotage(ctx: Ctx, p: Record<string, unknown>) {
+  const data = await fetchAll(ctx, 'stock', 'numero_tc, taille, statut, date_pointage, date_depote');
+  const du = String(p?.['du'] ?? '').slice(0, 10);
+  const au = String(p?.['au'] ?? '').slice(0, 10);
+  const dansPeriode = (j: string) => !!j && (!du || j >= du) && (!au || j <= au);
+
+  // Un couple (jour de pointage, jour de dépotage) par conteneur : tout se
+  // déduit de là, sans relire la table.
+  const parc = data
+    .map((r) => versCamel(r))
+    .filter((o) => o['numeroTc'])
+    .map((o) => ({
+      jp: jourDe(o['datePointage']),
+      jd: jourDe(o['dateDepote']),
+      statut: String(o['statut'] ?? ''),
+      taille: o['taille'],
+    }));
+
+  const parJour = new Map<string, { jour: string; positionnes: number; depotes: number; restant: number }>();
+  const ligne = (j: string) => {
+    let l = parJour.get(j);
+    if (!l) { l = { jour: j, positionnes: 0, depotes: 0, restant: 0 }; parJour.set(j, l); }
+    return l;
+  };
+
+  const compte = { pointes: 0, depotes: 0, restant: 0, jamaisPointes: 0, evp: 0 };
+  for (const x of parc) {
+    if (dansPeriode(x.jp)) { ligne(x.jp).positionnes++; compte.pointes++; }
+    if (dansPeriode(x.jd)) { ligne(x.jd).depotes++; compte.depotes++; }
+    if (!x.jp && x.statut !== STOCK_STATUTS.DEPOTE) compte.jamaisPointes++;
+    if (x.statut === STOCK_STATUTS.POSITIONNE) {
+      compte.restant++;
+      compte.evp += evpDeTaille(tailleBucket(x.taille));
+    }
+  }
+
+  // Restant en fin de journée — calculé sur TOUT le parc, pas seulement sur la
+  // période affichée : sinon le report des jours antérieurs disparaîtrait.
+  for (const l of parJour.values()) {
+    l.restant = parc.filter((x) => x.jp && x.jp <= l.jour && (!x.jd || x.jd > l.jour)).length;
+  }
+
+  const rows = [...parJour.values()].sort((a, b) => b.jour.localeCompare(a.jour));
+  return { rows, compte };
 }

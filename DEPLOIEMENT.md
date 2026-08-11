@@ -47,6 +47,42 @@ cd apps/web && npx tsc --noEmit && npx vite build
    supabase functions deploy rpc --no-verify-jwt
    ```
 
+> ### ⛔ MISE À JOUR v4.2 — LOT DE SÉCURITÉ (migration 00090) — À DÉPLOYER EN BLOC
+>
+> Le lot du 2026-08-10 corrige les failles de `AUDIT_SECURITE_2026-08-10.md`.
+> Ses trois morceaux (schéma, Edge Function, front) **ne fonctionnent qu'ensemble** :
+>
+> ```bash
+> supabase db push                              # 1. migration 00090
+> supabase functions deploy rpc --no-verify-jwt # 2. routeur + actions
+> git push origin main                          # 3. front (Netlify)
+> ```
+>
+> **Avant le `db push`, renseigner les nouveaux secrets** (Supabase → Edge
+> Functions → Secrets), faute de quoi l'application devient injoignable :
+>
+> | Secret | Valeur | Sans lui |
+> |---|---|---|
+> | `ORIGINES_AUTORISEES` | `https://<votre-site>.netlify.app` | **aucun navigateur ne peut appeler l'API** (CORS) |
+> | `MFA_REQUISE` | `true` | (défaut `true`) |
+> | `SORTIE_EXIGE_PIECES` | `false` | (défaut `false`) |
+>
+> Et côté Netlify : `VITE_MFA_REQUISE=true`, **identique** à `MFA_REQUISE`. Si le
+> serveur exige la 2FA et pas le client, les agents sont rejetés sans jamais voir
+> l'écran d'enrôlement.
+>
+> **Effet immédiat sur les comptes** : la migration positionne
+> `doit_changer_mdp = true` sur **tous** les profils existants — ils partageaient
+> le mot de passe provisoire commun « CargoPia2026 ». À leur prochaine connexion,
+> les agents devront en choisir un (12 caractères minimum). Prévenez-les avant.
+>
+> Ce qui change encore, et qui se voit : le N° de camion n'est plus corrigeable
+> par la Balise ni par la PP et exige un motif (SEC-11) ; la suppression d'une
+> cargaison devient une annulation motivée, impossible après signature (SEC-12) ;
+> la checklist de la Porte Principale enregistre l'état réel et non les cases
+> cochées (SEC-13). Détail et justification : `AUDIT_SECURITE_2026-08-10.md`.
+> Exploitation courante : `EXPLOITATION.md`.
+
 > ### ⚠ MISE À JOUR v4.1 — ORDRE OBLIGATOIRE (migrations 00060 + 00070)
 > Le lot v4.1 (pesée/surcharge à la validation ; module **MAD & Entrepôt
 > industriel**) ajoute des colonnes et des tables. Les écritures de la nouvelle

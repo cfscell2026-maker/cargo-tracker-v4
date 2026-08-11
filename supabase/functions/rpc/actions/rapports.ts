@@ -22,10 +22,23 @@ import { filtrerConfidentiel } from './lecture.ts';
 
 /* ------------------------------- Helpers ------------------------------- */
 
+/**
+ * RGPD-01 — Le N° de balise n'est servi qu'aux profils qui le voient déjà sur la
+ * fiche (cf. `filtrerConfidentiel`). Sans ce garde-fou, le filtrage de
+ * `cargo.get` serait contourné par un export Excel ouvert à tous les rôles.
+ */
+const ROLES_VOIENT_BALISE: string[] = [
+  ROLES.BALISE, ROLES.PP, ROLES.CFS, ROLES.CHEF_BRIGADE, ROLES.CHEF_BRIGADE_ADJOINT,
+  ROLES.CHEF_VISITE, ROLES.CHEF_DIVISION, ROLES.ADMIN,
+];
+const voitBalise = (ctx: Ctx) => ROLES_VOIENT_BALISE.indexOf(ctx.session.role) >= 0;
+
 async function loadCargos(ctx: Ctx): Promise<Record<string, unknown>[]> {
   // fetchAll : pagine (5000+ cargaisons migrées) sinon les rapports sous-comptent.
   const data = await fetchAll(ctx, 'cargaisons', '*');
-  return data.map((r) => versCamel(r));
+  // SEC-12 — une cargaison annulée (doublon écarté) reste en base pour l'audit
+  // mais ne doit compter dans AUCUN rapport, sinon elle fausse tous les totaux.
+  return data.filter((r) => r['annule'] !== true).map((r) => versCamel(r));
 }
 const lc = (v: unknown) => String(v ?? '').toLowerCase();
 const inRange = (v: unknown, du?: string, au?: string): boolean => {
@@ -504,12 +517,20 @@ export async function rapportCargaisons(ctx: Ctx, p: Record<string, unknown>) {
   }).map((c) => ({
     id: c['id'], numeroCamion: c['numeroCamion'], typeOperation: c['typeOperation'], statut: c['statut'],
     dateCreation: c['dateCreation'], declarant: c['declarant'], numeroDeclaration: c['numeroDeclaration'],
-    numeroGps: c['numeroGps'], dateSortie: c['dateSortie'], agentCfs: c['agentCfs'], estVehicule: estOui(c['estVehicule']),
+    // RGPD-01 — cet export est ouvert à TOUS_ROLES. Le N° de balise n'y figure
+    // que pour les profils qui le voient déjà sur la fiche : sans quoi le
+    // filtrage de `cargo.get` serait contourné par un simple export Excel.
+    numeroGps: voitBalise(ctx) ? c['numeroGps'] : '',
+    dateSortie: c['dateSortie'], agentCfs: c['agentCfs'], estVehicule: estOui(c['estVehicule']),
   }));
   const filtreTxt = statut ? `statut : ${statut}` : etape ? `étape : ${etape}` : 'tous statuts';
   const sousTitre = `Du ${p['du'] || '…'} au ${p['au'] || '…'} · ${filtreTxt}`;
   const entetes = ['ID', 'Camion / Châssis', 'Opération', 'Statut', 'Créé le', 'Déclarant', 'N° décl.', 'N° GPS', 'Sorti le', 'Agent CFS'];
   const ligne = (r: Record<string, unknown>) => [r['id'], r['numeroCamion'], r['typeOperation'], r['statut'], fmtJ(r['dateCreation']), r['declarant'], r['numeroDeclaration'], r['numeroGps'], fmtJ(r['dateSortie']), r['agentCfs']];
+  if (p['format'] === 'xlsx' || p['format'] === 'pdf') {
+    // RGPD-01 — un export nominatif quitte l'application : il est tracé.
+    await ctx.log('Export cargaisons', '', `${rows.length} ligne(s) · ${filtreTxt} · ${p['format']}`);
+  }
   if (p['format'] === 'xlsx') {
     const aoa: unknown[][] = [entetes]; rows.forEach((r) => aoa.push(ligne(r)));
     return fichier('Cargaisons', 'xlsx', [{ nom: 'Cargaisons', aoa }]);
@@ -1249,8 +1270,11 @@ export async function listerHistorique(ctx: Ctx, opts: Record<string, unknown>) 
   const page = Math.max(1, Number(opts['page'] || 1));
   const pageSize = Math.min(200, Number(opts['pageSize'] || 50));
   let q = ctx.db.from('audit_log').select('*', { count: 'exact' });
-  // Connexions / déconnexions = bruit : toujours exclues de l'historique métier.
-  q = q.not('action', 'ilike', '%connexion%');
+  // SEC-05 — Les connexions étaient TOUJOURS exclues (« bruit »), ce qui rendait
+  // impossible de répondre à « qui s'est connecté cette nuit, depuis quelle
+  // adresse ». Elles restent masquées PAR DÉFAUT pour ne pas noyer la lecture
+  // métier, mais l'administrateur peut désormais les afficher.
+  if (opts['avecConnexions'] !== true) q = q.not('action', 'ilike', '%connexion%');
   if (opts['username']) q = q.eq('username', String(opts['username']).toLowerCase());
   if (opts['action']) q = q.eq('action', String(opts['action'])); // filtre par événement
   if (opts['du']) q = q.gte('ts', String(opts['du']) + 'T00:00:00');
@@ -1268,9 +1292,25 @@ export async function listerHistorique(ctx: Ctx, opts: Record<string, unknown>) 
   return { rows, total, page, pages: Math.max(1, Math.ceil(total / pageSize)) };
 }
 
+/**
+ * Export du journal d'audit.
+ *
+ * ⚠ Corrigé le 2026-08-10 : l'appel demandait `pageSize: 100000`, mais
+ * `listerHistorique` plafonne à 200 (`Math.min(200, …)`). L'export ne contenait
+ * donc QUE LES 200 DERNIÈRES LIGNES, en silence — pour un journal d'audit dont
+ * l'archivage hors base est justement la parade au risque de réécriture
+ * (SEC-04), c'était le pire endroit où tronquer. On pagine désormais réellement.
+ */
 export async function rapportHistorique(ctx: Ctx, p: Record<string, unknown>) {
-  const all = await listerHistorique(ctx, { ...p, pageSize: 100000, page: 1 });
   const aoa: unknown[][] = [['Horodatage', 'Utilisateur', 'Nom', 'Rôle', 'Action', 'Cargaison', 'Détails']];
-  (all.rows as Record<string, unknown>[]).forEach((r) => aoa.push([r['timestamp'], r['username'], r['nomComplet'], r['role'], r['action'], r['cargaisonId'], r['details']]));
+  const BLOC = 200; // plafond dur de listerHistorique
+  const MAX_LIGNES = 200_000; // garde-fou mémoire (l'Edge Function n'est pas extensible)
+  for (let page = 1; aoa.length <= MAX_LIGNES; page++) {
+    const lot = await listerHistorique(ctx, { ...p, pageSize: BLOC, page });
+    const rows = lot.rows as Record<string, unknown>[];
+    rows.forEach((r) => aoa.push([r['timestamp'], r['username'], r['nomComplet'], r['role'], r['action'], r['cargaisonId'], r['details']]));
+    if (rows.length < BLOC || page >= lot.pages) break;
+  }
+  await ctx.log('Export historique', '', `${aoa.length - 1} ligne(s)`);
   return fichier('Historique', String(p['format'] || 'xlsx'), [{ nom: 'Historique', aoa }]);
 }

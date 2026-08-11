@@ -278,10 +278,13 @@ function itemsConteneurs(role: string): [string, string, string][] {
   const annonce: [string, string, string] = ['annonce', 'Stock annoncé', '▦'];
   const pointEntree: [string, string, string] = ['pointentree', 'Pointage entrée', '◉'];
   const confEntree: [string, string, string] = ['confentree', 'Confirmer entrée', '✔'];
-  if (role === 'ADMIN') return [stock, pointage, stockjour, imp, impAnn, annonce, pointEntree, confEntree];
+  // v4.2 — positionnés / dépotés / restant par jour (demande CFS).
+  const depot: [string, string, string] = ['depotstats', 'Statistiques de dépotage', '◭'];
+  if (role === 'ADMIN') return [stock, pointage, stockjour, depot, imp, impAnn, annonce, pointEntree, confEntree];
   if (role === 'PP') return [annonce, pointEntree, confEntree];
-  if (role === 'CFS') return [stock, pointage, stockjour, imp, annonce, confEntree];
-  return [stock, annonce]; // lecture seule (chefs)
+  if (role === 'CFS') return [stock, pointage, stockjour, depot, imp, annonce, confEntree];
+  // Chefs : lecture seule, mais les statistiques de dépotage les intéressent.
+  return [stock, depot, annonce];
 }
 SCREENS.conteneurs = (nav) => <Hub nav={nav} titre="Opérations sur conteneurs"
   desc="Stock du parc, pointages, imports et entrées annoncées — tout au même endroit." items={itemsConteneurs(nav.user.role)} />;
@@ -411,12 +414,21 @@ function EntrepotEntree({ type, entrepots }: { type: EntrepotType; entrepots: O[
   const [d, setD] = useState<O>({ bureauDeclaration: 'TG120', typeDeclaration: 'T', anneeDeclaration: String(new Date().getFullYear()) });
   const artVide = () => ({ designation: '', nbColis: '', poids: '' });
   const [arts, setArts] = useState<O[]>([artVide()]);
-  const [conteneurise, setConteneurise] = useState(false);
+  // v4.2 — la marchandise arrive CONTENEURISÉE dans la grande majorité des cas :
+  // la case est cochée d'emblée, on la décoche pour le vrac (décision utilisateur).
+  const [conteneurise, setConteneurise] = useState(true);
+  // v4.2 — saisie manuelle : la liste ne propose que les conteneurs POSITIONNÉS
+  // au CFS. Un conteneur arrivé hors de ce circuit (partagé, positionné après le
+  // pointage) n'y figure pas ; sans cette bascule, l'agent restait bloqué.
+  const [manuelTC, setManuelTC] = useState(false);
   const [conts, setConts] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const set = (k: string, v: unknown) => setD((o) => ({ ...o, [k]: v }));
   const majArt = (i: number, k: string, v: unknown) => setArts((a) => a.map((x, j) => j === i ? { ...x, [k]: v } : x));
-  const { data: stk } = useAsync<{ rows: O[] }>(() => (conteneurise ? call('stock.list', { statut: 'Positionné' }) : Promise.resolve({ rows: [] })), [conteneurise]);
+  const { data: stk } = useAsync<{ rows: O[] }>(
+    () => (conteneurise && !manuelTC ? call('stock.list', { statut: 'Positionné' }) : Promise.resolve({ rows: [] })),
+    [conteneurise, manuelTC],
+  );
   const tcs = ((stk?.rows ?? []) as O[]).map((r) => String(r['numeroTC'] ?? '')).filter(Boolean);
 
   async function envoyer() {
@@ -428,7 +440,7 @@ function EntrepotEntree({ type, entrepots }: { type: EntrepotType; entrepots: O[
       await call('entrepot.entree', { entrepotCode: code, declaration: d, conteneurise, conteneurs: conts, articles });
       toast('Entrée enregistrée.', 'ok');
       setD({ bureauDeclaration: 'TG120', typeDeclaration: 'T', anneeDeclaration: String(new Date().getFullYear()) });
-      setArts([artVide()]); setConteneurise(false); setConts([]);
+      setArts([artVide()]); setConteneurise(true); setManuelTC(false); setConts([]);
     } catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(false); }
   }
 
@@ -451,13 +463,22 @@ function EntrepotEntree({ type, entrepots }: { type: EntrepotType; entrepots: O[
 
     <label className="help" style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 14 }}>
       <input type="checkbox" style={{ width: 'auto' }} checked={conteneurise} onChange={(e) => setConteneurise(e.target.checked)} />
-      <span>Marchandise <b>conteneurisée</b> à l'arrivée</span>
+      <span>Marchandise <b>conteneurisée</b> à l'arrivée <span style={{ fontWeight: 400 }}>— décochez pour du vrac</span></span>
     </label>
     {conteneurise && <div style={{ marginTop: 6 }}>
-      <label className="help">Conteneurs (appelés du stock ; saisie manuelle possible)</label>
-      <datalist id="dl-ent-tc">{tcs.map((t) => <option key={t} value={t} />)}</datalist>
+      <label className="help" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <input type="checkbox" style={{ width: 'auto' }} checked={manuelTC} onChange={(e) => setManuelTC(e.target.checked)} />
+        <span>Saisie manuelle (conteneur absent de la liste du CFS)</span>
+      </label>
+      <label className="help" style={{ marginTop: 6 }}>
+        {manuelTC
+          ? 'Conteneurs — saisie libre, sans contrôle sur le stock du jour'
+          : `Conteneurs — ${tcs.length} positionné(s) au CFS proposé(s) à la frappe`}
+      </label>
+      {!manuelTC && <datalist id="dl-ent-tc">{tcs.map((t) => <option key={t} value={t} />)}</datalist>}
       {conts.map((c, i) => <div key={i} className="row" style={{ marginTop: 4 }}>
-        <input className="mono" value={c} list="dl-ent-tc" onChange={(e) => setConts((a) => a.map((x, j) => j === i ? masks.tc(e.target.value) : x))} style={{ flex: 1 }} />
+        <input className="mono" value={c} {...(manuelTC ? {} : { list: 'dl-ent-tc' })}
+          onChange={(e) => setConts((a) => a.map((x, j) => j === i ? masks.tc(e.target.value) : x))} style={{ flex: 1 }} />
         <button className="ghost xs" onClick={() => setConts((a) => a.filter((_, j) => j !== i))}>Retirer</button>
       </div>)}
       <button className="ghost xs" style={{ marginTop: 6 }} onClick={() => setConts((a) => [...a, ''])}>＋ Conteneur</button>
@@ -487,6 +508,14 @@ function EntrepotSortie({ type, entrepots, nav }: { type: EntrepotType; entrepot
   const articles = (entree?.['articles'] as O[]) ?? [];
   const art = articles[Number(numeroArticle) - 1];
 
+  /* v4.2 — BALISE / DISPENSE sur la marchandise qui sort.
+   * Le camion qui emporte le vrac apuré doit être balisé ou non selon le TYPE de
+   * la déclaration d'apurement : un transit (T) l'est par nature, les types C
+   * (consommation) et A (admission) laissent le choix. Le cas courant étant la
+   * SORTIE SANS BALISE, c'est le défaut proposé — l'agent coche pour baliser. */
+  const apuSansT1 = estTypeSansT1(dApu['typeDeclaration']);
+  const [baliseRequise, setBaliseRequise] = useState(false);
+
   async function envoyer() {
     if (!entreeId || !art) { toast('Choisissez l\'entrée et l\'article à apurer.', 'err'); return; }
     if (!qte) { toast('Quantité à apurer requise.', 'err'); return; }
@@ -496,6 +525,8 @@ function EntrepotSortie({ type, entrepots, nav }: { type: EntrepotType; entrepot
         entreeId, numeroArticle: Number(numeroArticle), declarationApurement: dApu,
         numeroCamion: numCamion, scelles: scelles.filter(Boolean),
         designation: art['designation'],
+        // v4.2 — décision balise, n'a de sens que pour les types C et A.
+        baliseRequise: apuSansT1 ? baliseRequise : undefined,
       };
       if (estIndus(type)) payload['poids'] = qte; else payload['nbColis'] = qte;
       const r = await call<{ restantApres: number }>('entrepot.sortie', payload);
@@ -525,6 +556,20 @@ function EntrepotSortie({ type, entrepots, nav }: { type: EntrepotType; entrepot
             <input value={qte} onChange={(e) => setQte(e.target.value.replace(estIndus(type) ? /[^0-9.,]/g : /[^0-9]/g, ''))} /></div>
         </div>
         <DeclEntrepot d={dApu} set={set} titre="Déclaration d'apurement (même que l'origine ou différente)" />
+        {/* v4.2 — le choix n'apparaît que pour les types C et A : un transit est
+            balisé par nature, poser la question n'aurait pas de sens. */}
+        {apuSansT1 && <div style={{ marginTop: 8 }}>
+          <label className="help">Type {String(dApu['typeDeclaration'])} — balise du camion de sortie</label>
+          <select value={baliseRequise ? 'balise' : 'sansbalise'} onChange={(e) => setBaliseRequise(e.target.value === 'balise')}>
+            <option value="sansbalise">À ne pas baliser (cas courant)</option>
+            <option value="balise">À baliser</option>
+          </select>
+          <p className="help" style={{ marginTop: 4 }}>
+            {libelleTypeSansT1(dApu['typeDeclaration'])} : {baliseRequise
+              ? <>le camion emportant la marchandise <b>doit être balisé</b>.</>
+              : <>le camion emportant la marchandise <b>sort sans balise</b>.</>}
+          </p>
+        </div>}
         <div className="section-title" style={{ marginTop: 12 }}>Camion</div>
         <div className="grid2">
           <div><label className="help">N° camion</label><input className="mono" value={numCamion} onChange={(e) => setNumCamion(masks.alnum(e.target.value))} /></div>
@@ -1088,6 +1133,59 @@ function FormConso({ go }: { go: Nav['go'] }) {
 /* --------------------------------- Stock ------------------------------- */
 SCREENS.stock = () => <StockList statut="tous" />;
 SCREENS.stockjour = () => <StockJournalier />;
+
+/**
+ * v4.2 — STATISTIQUES DE DÉPOTAGE (demande CFS).
+ *
+ * Trois chiffres par journée : combien de conteneurs ont été positionnés
+ * (pointés), combien ont été dépotés, et combien restaient à dépoter en fin de
+ * journée. Le troisième est celui qui compte : c'est le report qui grossit quand
+ * le dépotage ne suit pas le positionnement.
+ */
+SCREENS.depotstats = () => <StatsDepotage />;
+function StatsDepotage() {
+  const p = useReportRange('semaine');
+  const { data, loading, error } = useAsync<{ rows: O[]; compte: O }>(
+    () => call('report.depotage', { du: p.du, au: p.au }), [p.du, p.au]);
+  const c = (data?.compte ?? {}) as O;
+  return <div className="card">
+    <div className="row" style={{ alignItems: 'center', flexWrap: 'wrap' }}>
+      <h2 style={{ flex: 1, margin: 0 }}>Statistiques de dépotage</h2>
+      <PeriodPicker p={p} />
+    </div>
+    <PeriodeLue p={p} />
+    {/* Netlify déploie le front dès le push, l'Edge Function quelques minutes
+        plus tard : entre les deux, cette action n'existe pas encore côté
+        serveur. On l'annonce comme telle plutôt que d'afficher une erreur
+        technique à un agent qui n'y peut rien. */}
+    {loading ? <Spinner /> : error ? (
+      /Action inconnue|Action non gérée/.test(error)
+        ? <div className="empty">Écran disponible dès la prochaine mise à jour du serveur.</div>
+        : <div className="err-msg">{error}</div>
+    ) : <>
+      <div className="stats" style={{ marginTop: 10 }}>
+        <StatCard n={Number(c['pointes'] ?? 0)} l="Positionnés (période)" />
+        <StatCard n={Number(c['depotes'] ?? 0)} l="Dépotés (période)" tone="ok" />
+        <StatCard n={Number(c['restant'] ?? 0)} l="Restant à dépoter" tone="warn" />
+        <StatCard n={Number(c['evp'] ?? 0)} l="EVP restants" />
+        <StatCard n={Number(c['jamaisPointes'] ?? 0)} l="Au parc, jamais pointés" tone="warn" />
+      </div>
+      <p className="help" style={{ marginTop: 8 }}>
+        « Restant » = conteneurs pointés à cette date ou avant et pas encore dépotés
+        en fin de journée : c'est le report d'un jour sur l'autre.
+        <br />
+        Un conteneur re-pointé un jour suivant compte au jour de son <b>dernier</b> pointage —
+        la colonne « positionnés » est une photo de la journée de travail, pas un cumul d'arrivées.
+        « Au parc, jamais pointés » compte les conteneurs présents qui ne sont jamais
+        passés par un pointage : ce sont eux qui échappent au suivi.
+      </p>
+      {(data?.rows ?? []).length === 0
+        ? <div className="empty">Aucun mouvement sur la période.</div>
+        : <Table cols={[['jour', 'Jour'], ['positionnes', 'Positionnés'], ['depotes', 'Dépotés'], ['restant', 'Restant en fin de journée']]}
+            rows={data?.rows ?? []} />}
+    </>}
+  </div>;
+}
 function StockList({ statut, titre }: { statut: string; titre?: string }) {
   const { data, loading, error } = useAsync<{ rows: O[]; compte: O }>(() => call('stock.list', { statut }), [statut]);
   return <div className="card"><h2>{titre ?? 'Stock conteneurs'}</h2>
@@ -2068,7 +2166,10 @@ SCREENS.users = () => {
         const action = prompt(`Action pour ${u['username']} : 1=activer/désactiver, 2=réinit. mdp, 3=réinit. 2FA`);
         try {
           if (action === '1') { await call('user.toggle', { username: u['username'] }); }
-          else if (action === '2') { const p = prompt('Nouveau mot de passe (min 6)'); if (p) await call('user.resetpwd', { username: u['username'], password: p }); }
+          // SEC-03 : 12 caractères minimum, 3 familles. L'agent devra le
+          // remplacer à sa prochaine connexion — ce mot de passe ne sert qu'à
+          // lui rendre l'accès, il ne l'engage pas.
+          else if (action === '2') { const p = prompt('Nouveau mot de passe provisoire — 12 caractères minimum, mêlant minuscules, majuscules, chiffres et/ou signes.\nÀ remettre en main propre : l\'agent devra le changer à sa prochaine connexion.'); if (p) await call('user.resetpwd', { username: u['username'], password: p }); }
           else if (action === '3') { await call('user.resetmfa', { username: u['username'] }); }
           else return; toast('Fait.', 'ok'); reload();
         } catch (e) { toast((e as Error).message, 'err'); }
@@ -2078,7 +2179,9 @@ SCREENS.users = () => {
         <div><label className="help">Identifiant</label><input value={String(form['username'])} onChange={(e) => setForm({ ...form, username: e.target.value.toLowerCase() })} /></div>
         <div><label className="help">Nom complet</label><input value={String(form['nomComplet'])} onChange={(e) => setForm({ ...form, nomComplet: e.target.value })} /></div>
         <div><label className="help">Rôle</label><select value={String(form['role'])} onChange={(e) => setForm({ ...form, role: e.target.value })}>{ROLES_LISTE.map((r) => <option key={r}>{r}</option>)}</select></div>
-        <div><label className="help">Mot de passe provisoire</label><input value={String(form['password'])} onChange={(e) => setForm({ ...form, password: e.target.value })} /></div>
+        <div><label className="help">Mot de passe provisoire — 12 caractères minimum, 3 familles (minuscules, majuscules, chiffres, signes)</label>
+          <input value={String(form['password'])} onChange={(e) => setForm({ ...form, password: e.target.value })} minLength={12} />
+          <p className="help" style={{ marginTop: 4 }}>À remettre en main propre. L'agent devra le remplacer à sa première connexion.</p></div>
       </div>
       <div style={{ marginTop: 12 }}><button onClick={() => creer(form)}>Créer</button></div>
     </Modal>}
@@ -2162,7 +2265,7 @@ SCREENS.account = ({ user }) => {
     <div className="kv"><b>Identifiant</b>{user.username}</div><div className="kv"><b>Nom</b>{user.nomComplet}</div><div className="kv"><b>Rôle</b>{user.role}</div>
     <div className="section-title">Changer mon mot de passe</div>
     <label className="help">Ancien</label><input type="password" value={anc} onChange={(e) => setAnc(e.target.value)} />
-    <label className="help">Nouveau (min 6)</label><input type="password" value={nouv} onChange={(e) => setNouv(e.target.value)} />
+    <label className="help">Nouveau — 12 caractères minimum, 3 familles</label><input type="password" value={nouv} onChange={(e) => setNouv(e.target.value)} minLength={12} />
     <div style={{ marginTop: 12 }}><button onClick={changer} disabled={!anc || nouv.length < 6}>Changer</button></div>
   </div>;
 };

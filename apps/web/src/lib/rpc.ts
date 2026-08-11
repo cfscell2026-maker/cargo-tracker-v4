@@ -7,6 +7,8 @@ import { supabase } from './supabase.ts';
 
 export interface RpcErreur extends Error {
   auth?: boolean;
+  /** Référence de corrélation d'une erreur technique, à citer à l'administrateur. */
+  ref?: string;
 }
 
 export async function call<T = unknown>(action: string, data: Record<string, unknown> = {}): Promise<T> {
@@ -28,14 +30,25 @@ export async function call<T = unknown>(action: string, data: Record<string, unk
     data?: T;
     error?: string;
     auth?: boolean;
+    /** SEC-03 — le serveur exige le changement du mot de passe attribué. */
+    motDePasseAChanger?: boolean;
+    /** SEC-08 — référence de corrélation d'une erreur technique. */
+    ref?: string;
   };
 
   if (!body.ok) {
     const err = new Error(body.error || 'Erreur inconnue.') as RpcErreur;
     err.auth = !!body.auth;
+    err.ref = body.ref;
     if (err.auth) {
       // Session expirée ou 2FA non validé : on force le retour au login.
       window.dispatchEvent(new CustomEvent('cargo:auth-requise'));
+    } else if (body.motDePasseAChanger) {
+      // La règle vit sur le SERVEUR : une session ouverte avant la
+      // réinitialisation se heurte au mur en cours de route. On ramène alors
+      // l'agent sur l'écran de changement plutôt que de le laisser devant une
+      // suite d'erreurs incompréhensibles.
+      window.dispatchEvent(new CustomEvent('cargo:mdp-requis'));
     }
     throw err;
   }

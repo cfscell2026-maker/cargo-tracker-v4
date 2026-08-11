@@ -216,12 +216,24 @@ test('matrice PERMISSIONS complète (72 actions + resetmfa)', () => {
   assert.ok(!PERMISSIONS['cargo.validerlot']!.includes(ROLES.CFS));
 });
 
-test('correction de plaque : ouverte à TOUTES les cellules', () => {
-  // La Balise et la Porte Principale lisent la plaque au passage du camion :
-  // ce sont elles qui repèrent une saisie erronée en amont. L'Apps Script leur
-  // laissait déjà la main (TOUS_ROLES) ; la v4 avait perdu le bouton, pas le droit.
-  for (const r of [ROLES.BALISE, ROLES.PP, ROLES.T1, ROLES.BON_SORTIE, ROLES.CFS, ROLES.ADMIN])
+test('correction de plaque : réservée au CFS, au chef de brigade et à l\'ADMIN (SEC-11)', () => {
+  // Le N° d'immatriculation identifie le camion sur le bon de sortie et sur
+  // l'ordre d'exécution. L'action était ouverte à TOUS_ROLES, à tout statut :
+  // sur les données de production, 638 corrections (un mouvement sur huit),
+  // dont 442 par la BALISE et 143 par la PP, 7 après la sortie du camion.
+  // Elle reste ouverte à ceux qui ont une légitimité métier sur la plaque.
+  for (const r of [ROLES.CFS, ROLES.CHEF_BRIGADE, ROLES.ADMIN])
     assert.doesNotThrow(() => verifierPermission(r, 'cargo.editcamion'));
+  // Les cellules en aval signalent l'erreur, elles ne réécrivent plus la plaque.
+  for (const r of [ROLES.BALISE, ROLES.PP, ROLES.T1, ROLES.BON_SORTIE])
+    assert.throws(() => verifierPermission(r, 'cargo.editcamion'), /Accès refusé/);
+});
+
+test('trace de connexion : ouverte à tous les rôles (SEC-05)', () => {
+  // Sans cette action, la v4 n'enregistrait plus AUCUNE connexion : impossible
+  // de savoir qui s'est connecté, quand, depuis quelle adresse.
+  for (const r of [ROLES.CFS, ROLES.BALISE, ROLES.PP, ROLES.T1, ROLES.ADMIN])
+    assert.doesNotThrow(() => verifierPermission(r, 'account.signin'));
 });
 
 test('correction de balise : cellule Balise + ADMIN, personne d\'autre', () => {

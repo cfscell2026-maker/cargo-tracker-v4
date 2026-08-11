@@ -70,6 +70,8 @@ export const ACTIONS: Record<string, H> = {
   /* ----- Déclarations & stock ----- */
   'decl.lookup': d(stk.declLookup),
   'stock.list': d(stk.stockList),
+  'stock.lookup': d(stk.stockLookup), // v4.2 : un conteneur, tous statuts confondus
+  'report.depotage': d(stk.rapportDepotage), // v4.2 : positionnés / dépotés / restant par jour
   'stock.import': d(stk.stockImport),
   'stock.pointage': d(stk.stockPointage),
   'stock.entreemagasin': d(stk.stockEntreeMagasin),
@@ -119,6 +121,12 @@ export const ACTIONS: Record<string, H> = {
   'user.resetmfa': d(usr.userResetmfa),
 
   /* ----- Compte courant ----- */
-  'account.me': d((ctx) => Promise.resolve({ username: ctx.session.username, nomComplet: ctx.session.nomComplet, role: ctx.session.role })),
+  'account.me': d((ctx) => Promise.resolve({
+    username: ctx.session.username,
+    nomComplet: ctx.session.nomComplet,
+    role: ctx.session.role,
+    motDePasseAChanger: ctx.session.doitChangerMdp === true, // SEC-03
+  })),
   'account.changepwd': d(usr.accountChangepwd),
+  'account.signin': d((ctx) => usr.accountSignin(ctx)), // SEC-05 : trace de connexion
 };

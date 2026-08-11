@@ -8,7 +8,18 @@
  *    - garde-fou anti-doublon (refuse si l'historique est déjà présent),
  *    - insertion via la fonction SQL fn_import_audit (chaîne de hachage OK).
  *
- *  Utilisation :
+ *  ⚠ OBSOLÈTE DEPUIS LE 2026-08-10 (correctif SEC-01).
+ *  `fn_import_audit` a été SUPPRIMÉE par la migration 00090 : une fonction
+ *  SECURITY DEFINER capable d'insérer des lignes d'audit arbitraires était
+ *  exécutable par n'importe qui via /rest/v1/rpc (les REVOKE ne portaient que
+ *  sur `anon`, pas sur PUBLIC). L'import historique ayant déjà été réalisé, la
+ *  fonction n'avait plus de raison d'exister.
+ *
+ *  Si un ré-import devait s'avérer nécessaire : recréer la fonction dans une
+ *  migration dédiée, l'exécuter, puis la SUPPRIMER dans la même migration.
+ *  Ne jamais la laisser en place.
+ *
+ *  Utilisation (historique) :
  *    1) export.xlsx en place + .env (SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
  *    2) npm run historique
  * ============================================================================
@@ -85,6 +96,20 @@ async function main() {
     return;
   }
   console.log(`   ${rows.length} nouvelle(s) entrée(s) à ajouter.`);
+
+  // ⛔ SEC-01 — garde-fou explicite : `fn_import_audit` a été supprimée de la
+  // base (migration 00090). Plutôt que de laisser l'appel échouer sur une
+  // erreur PostgREST cryptique, on arrête ici avec la marche à suivre.
+  console.error(
+    "\n⛔  Import indisponible : la fonction SQL « fn_import_audit » a été supprimée\n" +
+      "    par la migration 00090 (correctif de sécurité SEC-01 — elle était\n" +
+      "    appelable sans authentification et permettait d'écrire n'importe quoi\n" +
+      "    dans le journal d'audit).\n\n" +
+      '    L\'import historique a déjà été réalisé le 2026-07 ; ce script n\'a plus\n' +
+      "    vocation à servir. S'il le fallait vraiment : recréer la fonction dans\n" +
+      '    une migration dédiée, lancer ce script, puis la SUPPRIMER aussitôt.\n',
+  );
+  process.exit(1);
 
   // Envoi par paquets à la fonction SQL (boucle serveur = chaîne de hachage OK).
   const paquet = 1000;

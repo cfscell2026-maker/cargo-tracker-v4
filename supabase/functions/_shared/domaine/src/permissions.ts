@@ -27,7 +27,17 @@ export const PERMISSIONS: Record<string, Role[]> = {
   'cargo.declaration': [ROLES.CFS, ROLES.ADMIN],
   'cargo.create': [ROLES.CFS, ROLES.ADMIN],
   'cargo.update': [ROLES.CFS, ROLES.ADMIN],
-  'cargo.editcamion': TOUS_ROLES, // correction ciblée du N° camion (tous rôles, tout statut) — I-3 conservé
+  // SEC-11 (2026-08-10) — Le N° d'immatriculation est l'élément identifiant du
+  // bon de sortie et de l'ordre d'exécution. Il était corrigeable par LES DIX
+  // RÔLES, à TOUT statut, y compris après la sortie du camion (« I-3 conservé »
+  // de la v3.6). Ce n'était pas théorique : sur l'historique de production, 638
+  // corrections — soit un mouvement sur huit — dont 442 par la cellule BALISE et
+  // 143 par la PP, et 7 après enregistrement de la sortie. Aucune de ces deux
+  // cellules n'a de légitimité métier sur la plaque.
+  // La correction reste possible là où elle a un sens : le CFS qui a saisi, le
+  // chef de brigade qui contrôle, l'ADMIN qui dépanne. Un motif est désormais
+  // exigé, et l'action est fermée après la validation (sauf ADMIN).
+  'cargo.editcamion': [ROLES.CFS, ROLES.CHEF_BRIGADE, ROLES.ADMIN],
   'cargo.edittype': [ROLES.CFS, ROLES.ADMIN], // correction du type d'opération (phase CFS ; ADMIN partout)
   'cargo.delete': [ROLES.ADMIN], // suppression d'un doublon de cargaison (ADMIN uniquement)
   'cargo.editconteneur': [ROLES.CFS, ROLES.ADMIN], // v4 : correction / retrait d'un conteneur mal saisi (phase CFS ; ADMIN partout)
@@ -60,10 +70,16 @@ export const PERMISSIONS: Record<string, Role[]> = {
   'decl.lookup': [ROLES.CFS, ROLES.ADMIN],
   // Stock physique de conteneurs
   'stock.list': TOUS_ROLES,
+  // v4.2 — recherche d'UN conteneur dans tout le parc, quel que soit son statut.
+  // Sert à dire à l'agent, au dépotage, qu'un conteneur est bien au parc mais
+  // n'a pas été pointé — plutôt que de le laisser basculer en saisie manuelle.
+  'stock.lookup': TOUS_ROLES,
   'stock.import': [ROLES.CFS, ROLES.ADMIN],
   'stock.pointage': [ROLES.CFS, ROLES.ADMIN],
   'stock.entreemagasin': [ROLES.CFS, ROLES.ADMIN],
   'report.stock': [ROLES.CFS, ROLES.CHEF_BRIGADE, ROLES.ADMIN],
+  // v4.2 — statistiques de dépotage : positionnés / dépotés / restant par jour.
+  'report.depotage': [ROLES.CFS, ROLES.CHEF_BRIGADE, ROLES.CHEF_VISITE, ROLES.CHEF_DIVISION, ROLES.ADMIN],
   // Stock ANNONCÉ (v2.8)
   'stockannonce.import': [ROLES.ADMIN],
   'stockannonce.list': TOUS_ROLES,
@@ -129,6 +145,7 @@ export const PERMISSIONS: Record<string, Role[]> = {
   // Compte courant
   'account.me': TOUS_ROLES, // v4 : profil de la session (username, nomComplet, role)
   'account.changepwd': TOUS_ROLES,
+  'account.signin': TOUS_ROLES, // SEC-05 : trace de connexion (appelée par le client après login)
 };
 
 /** Vérifie une permission ; messages identiques à Auth.gs _exigerPermission_. */

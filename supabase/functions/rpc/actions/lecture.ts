@@ -11,6 +11,7 @@ import { fetchAll } from './helpers.ts';
 import {
   STATUTS,
   APP,
+  ROLES,
   VOIENT_HORSGABARIT,
   etapesEnAttente,
   estOui,
@@ -34,12 +35,44 @@ function ts(v: unknown): number {
 
 /* ------------------------------ cargo.get ------------------------------ */
 
+/**
+ * RGPD-01 / v4.2 — Rôles autorisés à voir les COORDONNÉES du déclarant.
+ *
+ * `contact_declarant` est renseigné sur la totalité du fichier (5 022/5 022 à
+ * l'audit du 2026-08-10), dont 5 009 numéros de téléphone : c'est une donnée à
+ * caractère personnel au sens de la loi togolaise n° 2019-014 et du RGPD (le
+ * projet est hébergé en région Europe). Elle était lisible par LES DIX RÔLES
+ * via `cargo.get`, alors qu'elle ne sert qu'au CFS (qui appelle le déclarant) et
+ * à l'encadrement. Principe de minimisation : on la retire aux autres.
+ */
+const VOIENT_CONTACT: Role[] = [
+  ROLES.CFS, ROLES.CHEF_BRIGADE, ROLES.CHEF_BRIGADE_ADJOINT,
+  ROLES.CHEF_VISITE, ROLES.CHEF_DIVISION, ROLES.ADMIN,
+];
+
+/**
+ * RGPD-01 / v4.2 — Rôles autorisés à voir le NUMÉRO DE BALISE.
+ *
+ * Le numéro identifie le dispositif censé garantir le transit. Le diffuser à
+ * l'ensemble des cellules est un risque opérationnel autant que de
+ * confidentialité : il permet de désigner une balise précise à l'extérieur. Il
+ * reste visible pour ceux qui en ont l'usage — la cellule qui la pose, celle
+ * qui contrôle la sortie, et l'encadrement.
+ */
+const VOIENT_BALISE: Role[] = [
+  ROLES.BALISE, ROLES.PP, ROLES.CFS, ROLES.CHEF_BRIGADE, ROLES.CHEF_BRIGADE_ADJOINT,
+  ROLES.CHEF_VISITE, ROLES.CHEF_DIVISION, ROLES.ADMIN,
+];
+
 /** v3.0/v3.2 — retire les champs CONFIDENTIELS si la session n'y a pas droit. */
 export function filtrerConfidentiel<T extends Record<string, unknown>>(obj: T, role: Role): T {
+  const o = obj as Record<string, unknown>;
   if (VOIENT_HORSGABARIT.indexOf(role) === -1) {
-    delete (obj as Record<string, unknown>)['horsGabarit'];
-    delete (obj as Record<string, unknown>)['hauteurChargement'];
+    delete o['horsGabarit'];
+    delete o['hauteurChargement'];
   }
+  if (VOIENT_CONTACT.indexOf(role) === -1) delete o['contactDeclarant']; // RGPD-01
+  if (VOIENT_BALISE.indexOf(role) === -1) delete o['numeroGps']; // RGPD-01
   return obj;
 }
 
@@ -48,6 +81,10 @@ export async function cargoGet(ctx: Ctx, data: { id?: string }) {
   const { data: row, error } = await ctx.db.from('cargaisons').select('*').eq('id', id).maybeSingle();
   if (error) throw new Error(error.message);
   if (!row) throw new Error('Cargaison introuvable : ' + id);
+  // SEC-12 — une cargaison annulée n'est plus une écriture vivante : elle reste
+  // en base (on ne détruit pas de pièce) mais n'est plus servie aux cellules.
+  if (row['annule'] === true && ctx.session.role !== ROLES.ADMIN)
+    throw new Error('Cargaison introuvable : ' + id);
   return filtrerConfidentiel(versCamel(row), ctx.session.role);
 }
 
@@ -134,7 +171,9 @@ export async function vehiculeList(ctx: Ctx, opts: { search?: string; actifs?: b
   for (let debut = 0; ; debut += BLOC) {
     const { data, error } = await ctx.db.from('cargaisons')
       .select('id, numero_camion, statut, date_creation, date_sortie, vehicule_details, conteneur_origine, destination_marchandise')
-      .eq('est_vehicule', true).order('date_creation', { ascending: false }).range(debut, debut + BLOC - 1);
+      .eq('est_vehicule', true)
+      .neq('annule', true) // SEC-12 : les cargaisons annulées sortent des listes
+      .order('date_creation', { ascending: false }).range(debut, debut + BLOC - 1);
     if (error) throw new Error(error.message);
     const lot = (data ?? []) as Record<string, unknown>[];
     brut.push(...lot);

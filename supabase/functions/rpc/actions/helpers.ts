@@ -55,11 +55,20 @@ export async function fetchAll(
   return out;
 }
 
-/** Lecture d'une cargaison ; lève « Cargaison introuvable : id » (v3.6). */
+/**
+ * Lecture d'une cargaison ; lève « Cargaison introuvable : id » (v3.6).
+ *
+ * SEC-12 — Une cargaison ANNULÉE (doublon de saisie retiré par un ADMIN) est
+ * conservée en base pour ne pas détruire de pièce, mais elle n'est plus une
+ * écriture vivante : toutes les actions d'écriture passant par ce point d'entrée
+ * la refusent. La relecture pour consultation/audit passe par `cargoGet`.
+ */
 export async function getCargo(ctx: Ctx, id: string): Promise<CargoRow> {
   const { data, error } = await ctx.db.from('cargaisons').select('*').eq('id', id).maybeSingle();
   if (error) throw new Error(error.message);
   if (!data) throw new Error('Cargaison introuvable : ' + id);
+  if (data['annule'] === true)
+    throw new Error('Cargaison annulée le ' + String(data['annule_le'] ?? '').slice(0, 10) + ' : plus aucune saisie possible.');
   return { raw: data, o: versCamel(data) };
 }
 

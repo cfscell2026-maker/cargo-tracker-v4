@@ -144,7 +144,7 @@ test('déclaration : date et nombre de conteneurs FACULTATIFS (dépotage)', asyn
   assert.equal(Number(db.store['declarations'][0]?.['nombre_conteneurs']), 0); // inconnu = 0
 });
 
-test('suppression de doublon (ADMIN) : retire la cargaison et libère le stock', async () => {
+test('annulation de doublon (ADMIN) : suppression LOGIQUE, stock libéré, pièces conservées (SEC-12)', async () => {
   const db = new FakeDB();
   db.store['stock'].push({ numero_tc: 'MSKU1234567', taille: "40'", statut: 'Positionné' });
   const cfs = ctxAvec(db);
@@ -154,10 +154,46 @@ test('suppression de doublon (ADMIN) : retire la cargaison et libère le stock',
     declaration: { declarant: 'A', contactDeclarant: '901234', destinationMarchandise: 'D', bureauDeclaration: 'TG120', typeDeclaration: 'T', numeroDeclaration: '70', anneeDeclaration: '2026', descriptionMarchandise: 'X' },
   });
   assert.equal(db.store['stock'][0]?.['statut'], 'Dépoté'); // conteneur lié
-  await ecr.supprimerCargo(ctxRole(db, 'ADMIN', 'Admin'), { id });
-  assert.equal(db.store['cargaisons'].length, 0);
-  assert.equal(db.store['conteneurs'].length, 0);
+
+  // Le motif est obligatoire : sans lui, l'audit ne dit pas POURQUOI la pièce
+  // a été écartée, et la trace ne vaut rien.
+  await assert.rejects(
+    () => ecr.supprimerCargo(ctxRole(db, 'ADMIN', 'Admin'), { id }),
+    /motif de l'annulation/,
+  );
+
+  await ecr.supprimerCargo(ctxRole(db, 'ADMIN', 'Admin'), { id, motif: 'doublon de saisie du 12/08' });
+  // La cargaison et ses conteneurs RESTENT en base : on n'efface pas une
+  // écriture douanière, on la marque annulée.
+  assert.equal(db.store['cargaisons'].length, 1);
+  assert.equal(db.store['cargaisons'][0]?.['annule'], true);
+  assert.equal(db.store['cargaisons'][0]?.['annule_motif'], 'doublon de saisie du 12/08');
+  assert.equal(db.store['conteneurs'].length, 1);
   assert.equal(db.store['stock'][0]?.['statut'], 'En stock'); // stock libéré
+
+  // Plus aucune écriture n'est possible sur une cargaison annulée.
+  await assert.rejects(
+    () => ecr.editcamion(ctxRole(db, 'CFS', 'C'), { id, numeroCamion: 'AUTRE1', motif: 'test' }),
+    /annulée/,
+  );
+});
+
+test('annulation refusée après validation du chef de brigade (SEC-12)', async () => {
+  const db = new FakeDB();
+  db.store['stock'].push({ numero_tc: 'MSKU7654321', taille: "40'", statut: 'En stock' });
+  const cfs = ctxAvec(db);
+  // Enlèvement : la saisie du conteneur scellé vaut fin de chargement (« Créée »),
+  // donc la validation du chef de brigade est possible dans la foulée.
+  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'DUP98', routage: 'Enlèvement' })) as { id: string };
+  await ecr.cfs(cfs, {
+    id, conteneur: { num: 'MSKU7654321', taille: "40'", type: 'DRY', plomb: 'S1' },
+    declaration: { declarant: 'A', contactDeclarant: '901234', destinationMarchandise: 'D', bureauDeclaration: 'TG120', typeDeclaration: 'T', numeroDeclaration: '71', anneeDeclaration: '2026', descriptionMarchandise: 'X', nombreConteneurs: 1 },
+  });
+  await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'Chef'), { id, enSurcharge: 'Non' });
+  await assert.rejects(
+    () => ecr.supprimerCargo(ctxRole(db, 'ADMIN', 'Admin'), { id, motif: 'erreur' }),
+    /déjà validée et signée/,
+  );
 });
 
 test('véhicule : le conteneur d\'origine (TC) est obligatoire', async () => {
@@ -726,25 +762,72 @@ test('correction de balise impossible une fois le camion sorti', async () => {
   );
 });
 
-test('plaque : Balise et PP corrigent le N° de camion en aval', async () => {
+test('plaque : le CFS corrige avec motif, et la correction suit les conteneurs (SEC-11)', async () => {
   const db = new FakeDB();
   db.store['stock'].push({ numero_tc: 'MSKU1111111', taille: "40'", statut: 'En stock' });
   const id = await camionBalise(db, 'MAUVAISE1');
 
-  // La Balise rectifie la plaque relevée au passage…
-  const b = ctxTrace(db, 'BALISE', 'Agent Balise');
-  await ecr.editcamion(b.ctx, { id, numeroCamion: 'BONNE2' });
-  assert.equal(versCamel(db.store['cargaisons'][0]!)['numeroCamion'], 'BONNE2');
-  assert.match(b.traces[0]!.detail, /MAUVAISE1 → BONNE2/);
+  // Le motif est obligatoire : c'est lui qui rend l'audit exploitable. 638
+  // corrections de plaque figurent dans l'historique de production, sans qu'on
+  // puisse dire laquelle est une coquille et laquelle est une substitution.
+  const c = ctxTrace(db, 'CFS', 'Agent CFS');
+  await assert.rejects(
+    () => ecr.editcamion(c.ctx, { id, numeroCamion: 'BONNE2' }),
+    /motif de la correction/,
+  );
 
-  // …et la Porte Principale peut encore le faire au moment de la sortie.
-  const p = ctxTrace(db, 'PP', 'Agent PP');
-  await ecr.editcamion(p.ctx, { id, numeroCamion: 'BONNE3' });
-  assert.equal(versCamel(db.store['cargaisons'][0]!)['numeroCamion'], 'BONNE3');
+  await ecr.editcamion(c.ctx, { id, numeroCamion: 'BONNE2', motif: 'plaque illisible à l\'entrée' });
+  assert.equal(versCamel(db.store['cargaisons'][0]!)['numeroCamion'], 'BONNE2');
+  assert.match(c.traces.at(-1)!.detail, /MAUVAISE1 → BONNE2 · motif : plaque illisible/);
 
   // La correction suit le camion sur ses conteneurs, pas seulement sur la fiche.
   const ct = db.store['conteneurs'].find((x) => x['cargaison_id'] === id);
-  if (ct) assert.equal(ct['numero_camion'], 'BONNE3');
+  if (ct) assert.equal(ct['numero_camion'], 'BONNE2');
+});
+
+test('plaque : verrouillée après validation, puis après la sortie (SEC-11)', async () => {
+  const db = new FakeDB();
+  db.store['stock'].push({ numero_tc: 'MSKU1111111', taille: "40'", statut: 'En stock' });
+  const id = await camionBalise(db, 'VERROU1');
+
+  // Une fois le chef de brigade passé, la plaque n'appartient plus au CFS.
+  await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'Chef'), { id, enSurcharge: 'Non' });
+  await assert.rejects(
+    () => ecr.editcamion(ctxRole(db, 'CFS', 'C'), { id, numeroCamion: 'APRES2', motif: 'coquille' }),
+    /relève de l'administrateur/,
+  );
+  // L'ADMIN reste capable de dépanner tant que le camion est dans l'enceinte.
+  await ecr.editcamion(ctxRole(db, 'ADMIN', 'Admin'), { id, numeroCamion: 'APRES2', motif: 'coquille avérée' });
+  assert.equal(versCamel(db.store['cargaisons'][0]!)['numeroCamion'], 'APRES2');
+
+  // Après la sortie, plus personne — pas même l'ADMIN : le camion est parti
+  // avec un bon de sortie portant cette plaque. (Le T1 conditionne la sortie.)
+  await ecr.t1(ctxRole(db, 'T1', 'T1'), { id, bureauDestination: 'TG120', t1Numeros: [{ conteneur: 'MSKU1111111', numero: 'T1-1' }] });
+  await ecr.sortie(ctxRole(db, 'PP', 'PP'), { id, ckCfs: true, ckT1: true, ckBalise: true, ckBs: true });
+  await assert.rejects(
+    () => ecr.editcamion(ctxRole(db, 'ADMIN', 'Admin'), { id, numeroCamion: 'APRES3', motif: 'x' }),
+    /déjà sorti/,
+  );
+});
+
+test('checklist PP : une case cochée ne crée pas la pièce manquante (SEC-13)', async () => {
+  const db = new FakeDB();
+  db.store['stock'].push({ numero_tc: 'MSKU1111111', taille: "40'", statut: 'En stock' });
+  const id = await camionBalise(db, 'CHKPP1');
+  await ecr.t1(ctxRole(db, 'T1', 'T1'), { id, bureauDestination: 'TG120', t1Numeros: [{ conteneur: 'MSKU1111111', numero: 'T1-9' }] });
+
+  // L'agent coche les 4 contrôles alors qu'AUCUN bon de sortie n'a été émis.
+  const pp = ctxTrace(db, 'PP', 'Agent PP');
+  const res = (await ecr.sortie(pp.ctx, { id, ckCfs: true, ckT1: true, ckBalise: true, ckBs: true })) as { ecart?: string[] };
+
+  const ck = versCamel(db.store['cargaisons'][0]!)['ppChecklist'] as Record<string, unknown>;
+  // Ce que la base retient, c'est l'ÉTAT RÉEL — pas la case cochée.
+  assert.equal(ck['bs'], false, 'le bon de sortie ne doit pas être consigné comme fait');
+  assert.equal((ck['declare'] as Record<string, unknown>)['bs'], true, 'la déclaration de l\'agent est conservée à part');
+  assert.deepEqual(ck['ecart'], ['bon de sortie']);
+  assert.deepEqual(res.ecart, ['bon de sortie']);
+  // …et l'écart part au journal, il ne reste pas enfoui dans une colonne JSON.
+  assert.match(pp.traces.at(-1)!.action, /Sortie sans pièce complète/);
 });
 
 /* ------- v4.1 : enlèvement = fin de chargement à la saisie ------------- */
@@ -1398,4 +1481,109 @@ test('export conteneurs : positionnés + pdf', async () => {
   assert.equal(view.compte.total, 1);
   const pdf = (await rap.rapportConteneurs(cfs, { statut: 'Positionné', format: 'pdf' })) as { html: string };
   assert.match(pdf.html, /MSKU1111111/);
+});
+
+/* --------- v4.2 : conteneur au parc mais pas pointé « Positionné » ------ */
+
+test('dépotage : un conteneur au parc non pointé est refusé, puis pointé à la volée', async () => {
+  const db = new FakeDB();
+  // Le cas réel : positionné dans la journée, APRÈS le pointage matinal. Il est
+  // donc au parc, mais son statut est resté « En stock ».
+  db.store['stock'].push({ numero_tc: 'MSKU2222222', taille: "40'", type_conteneur: 'DRY', statut: 'En stock' });
+  const cfs = ctxAvec(db);
+  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'TARDIF1', routage: 'Dépotage' })) as { id: string };
+  const conteneur = { num: 'MSKU2222222', taille: "40'", type: 'DRY' };
+  const declaration = { declarant: 'A', contactDeclarant: '901234', destinationMarchandise: 'D', bureauDeclaration: 'TG120', typeDeclaration: 'T', numeroDeclaration: '90', anneeDeclaration: '2026', descriptionMarchandise: 'X', nombreConteneurs: 1 };
+
+  // Sans confirmation : refus, mais le message dit que le conteneur EST au parc
+  // — c'est ce qui évite le réflexe « saisie manuelle ».
+  await assert.rejects(
+    () => ecr.cfs(cfs, { id, conteneur, declaration }),
+    /est au parc .* n'a pas été pointé comme POSITIONNÉ/s,
+  );
+
+  // Avec confirmation : on le pointe au passage, puis le dépotage suit son cours.
+  const trace = ctxTrace(db, 'CFS', 'Agent CFS');
+  await ecr.cfs(trace.ctx, { id, conteneur, declaration, pointerSiNonPositionne: true });
+
+  const stock = db.store['stock'][0]!;
+  // Le conteneur reste RATTACHÉ à sa fiche de parc — c'est tout l'enjeu : la
+  // saisie manuelle, elle, l'aurait laissé « En stock » indéfiniment.
+  assert.equal(stock['statut'], 'Dépoté');
+  assert.equal(stock['cargaison_id'], id);
+  assert.equal(stock['pointe_par'], 'Agent CFS');
+  assert.ok(stock['date_pointage'], 'le pointage à la volée doit être horodaté');
+  // …et il est tracé à part du pointage matinal.
+  assert.ok(trace.traces.some((t) => t.action === 'Pointage à la volée (dépotage)'),
+    'le pointage à la volée doit apparaître au journal');
+});
+
+test('dépotage : un conteneur déjà POSITIONNÉ passe sans confirmation', async () => {
+  const db = new FakeDB();
+  db.store['stock'].push({ numero_tc: 'MSKU3333333', taille: "40'", statut: 'Positionné' });
+  const cfs = ctxAvec(db);
+  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'NORMAL1', routage: 'Dépotage' })) as { id: string };
+  await ecr.cfs(cfs, {
+    id, conteneur: { num: 'MSKU3333333', taille: "40'", type: 'DRY' },
+    declaration: { declarant: 'A', contactDeclarant: '901234', destinationMarchandise: 'D', bureauDeclaration: 'TG120', typeDeclaration: 'T', numeroDeclaration: '91', anneeDeclaration: '2026', descriptionMarchandise: 'X', nombreConteneurs: 1 },
+  });
+  assert.equal(db.store['stock'][0]!['statut'], 'Dépoté');
+});
+
+test('statistiques de dépotage : positionnés, dépotés et RESTANT en fin de journée', async () => {
+  const db = new FakeDB();
+  // Trois conteneurs pointés le 10, un seul dépoté le 10 ; un quatrième pointé
+  // le 11 et dépoté le 12. Un cinquième au parc jamais pointé.
+  db.store['stock'].push(
+    { numero_tc: 'MSKU0000001', taille: "40'", statut: 'Dépoté', date_pointage: '2026-08-10T06:00:00Z', date_depote: '2026-08-10T14:00:00Z' },
+    { numero_tc: 'MSKU0000002', taille: "40'", statut: 'Positionné', date_pointage: '2026-08-10T06:00:00Z' },
+    { numero_tc: 'MSKU0000003', taille: "20'", statut: 'Positionné', date_pointage: '2026-08-10T06:00:00Z' },
+    { numero_tc: 'MSKU0000004', taille: "40'", statut: 'Dépoté', date_pointage: '2026-08-11T06:00:00Z', date_depote: '2026-08-12T09:00:00Z' },
+    { numero_tc: 'MSKU0000005', taille: "40'", statut: 'En stock' },
+  );
+  const r = (await stk.rapportDepotage(ctxAvec(db), { du: '2026-08-10', au: '2026-08-12' })) as
+    { rows: Record<string, unknown>[]; compte: Record<string, number> };
+  const jour = (j: string) => r.rows.find((x) => x['jour'] === j)!;
+
+  assert.equal(jour('2026-08-10')['positionnes'], 3);
+  assert.equal(jour('2026-08-10')['depotes'], 1);
+  // Fin du 10 : 3 pointés, 1 dépoté → 2 se reportent au lendemain.
+  assert.equal(jour('2026-08-10')['restant'], 2);
+
+  assert.equal(jour('2026-08-11')['positionnes'], 1);
+  // Fin du 11 : les 2 restes du 10 + celui du 11, pas encore dépoté.
+  assert.equal(jour('2026-08-11')['restant'], 3);
+
+  assert.equal(jour('2026-08-12')['depotes'], 1);
+  assert.equal(jour('2026-08-12')['restant'], 2);
+
+  assert.equal(r.compte['pointes'], 4);
+  assert.equal(r.compte['depotes'], 2);
+  assert.equal(r.compte['restant'], 2); // statut « Positionné » aujourd'hui
+  // Le conteneur au parc jamais pointé : celui qui échappe au suivi.
+  assert.equal(r.compte['jamaisPointes'], 1);
+});
+
+test('stock.lookup : distingue absent, au parc non pointé, positionné et dépoté', async () => {
+  const db = new FakeDB();
+  db.store['stock'].push(
+    { numero_tc: 'MSKU1000001', taille: "40'", statut: 'En stock' },
+    { numero_tc: 'MSKU1000002', taille: "40'", statut: 'Positionné', date_pointage: new Date().toISOString() },
+    { numero_tc: 'MSKU1000003', taille: "40'", statut: 'Dépoté', cargaison_id: 'CT-2026-000001' },
+  );
+  const ctx = ctxAvec(db);
+  const absent = (await stk.stockLookup(ctx, { numeroTC: 'MSKU9999999' })) as Record<string, unknown>;
+  assert.equal(absent['existe'], false);
+
+  const aRegulariser = (await stk.stockLookup(ctx, { numeroTC: 'MSKU1000001' })) as Record<string, unknown>;
+  assert.equal(aRegulariser['existe'], true);
+  assert.equal(aRegulariser['aRegulariser'], true, 'au parc mais pas pointé → à signaler');
+
+  const ok = (await stk.stockLookup(ctx, { numeroTC: 'MSKU1000002' })) as Record<string, unknown>;
+  assert.equal(ok['aRegulariser'], false);
+  assert.equal(ok['pointeAujourdhui'], true);
+
+  const depote = (await stk.stockLookup(ctx, { numeroTC: 'MSKU1000003' })) as Record<string, unknown>;
+  assert.equal(depote['depote'], true);
+  assert.equal(depote['cargaisonId'], 'CT-2026-000001');
 });

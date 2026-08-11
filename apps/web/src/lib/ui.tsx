@@ -41,6 +41,7 @@ export const TITLES: Record<string, string> = {
   dash: 'Tableau de bord', new: 'Nouveau rapport', list: 'Cargaisons', search: 'Recherche — cargaisons en cours',
   creercamion: 'Créer un camion (entrée)',
   completer: 'Saisir / compléter les camions', stockjour: 'Stock CFS journalier',
+  depotstats: 'Statistiques de dépotage',
   wait_valid: 'À valider — chef brigade', etatcfs: 'Pointage des camions à la sortie', t1: 'Cellule T1', wait_t1: 'En attente T1',
   chargement: 'Bon de chargement — par déclaration',
   gps: 'Cellule Balise', wait_gps: 'En attente Balise', bonsortie: 'Cellule Bon de Sortie', wait_bs: 'En attente Bon de Sortie',

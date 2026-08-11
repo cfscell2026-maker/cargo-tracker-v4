@@ -15,6 +15,25 @@
   # repose sur les Row Level Security policies côté Postgres, pas sur leur secret.
   # Le scanner de secrets Netlify les repère (bundle + CSP) : on les exclut.
   SECRETS_SCAN_OMIT_KEYS = "VITE_SUPABASE_URL,VITE_SUPABASE_ANON_KEY"
+  # SEC-02 — Double authentification.
+  #
+  # ⚠ VOLONTAIREMENT À « false » POUR CE DÉPLOIEMENT.
+  #
+  # Le code a pour défaut `true` (on ne livre pas une application de données
+  # douanières avec la 2FA débranchée par omission). Mais la valeur est forcée
+  # ici à `false` le temps de la bascule, pour une raison d'exploitation :
+  #   · Netlify déploie le front dès le push sur `main`, donc AVANT que
+  #     l'Edge Function ne soit redéployée ;
+  #   · aucun des comptes n'a de facteur TOTP enrôlé à ce jour ;
+  #   · si le fournisseur TOTP n'est pas activé côté Supabase, l'enrôlement
+  #     échoue et PERSONNE ne peut plus entrer.
+  # Un front qui exige la 2FA face à un serveur qui ne la connaît pas encore
+  # arrêterait le port sec en pleine journée.
+  #
+  # ÉTAPE 2, une fois les mots de passe changés et les agents accompagnés :
+  # passer cette valeur à "true" ET le secret MFA_REQUISE à "true" côté Supabase
+  # — les deux ensemble, jamais l'un sans l'autre. Voir EXPLOITATION.md §7.
+  VITE_MFA_REQUISE = "false"
 
 # --- SPA : toutes les routes servent index.html (React Router) ---
 [[redirects]]

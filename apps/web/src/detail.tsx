@@ -2,7 +2,7 @@
  * Détail d'une cargaison : timeline des 5 cellules + panneaux d'action
  * conditionnels (rôle × étape en attente), reproduction de renderDetail (v3.6).
  */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { call } from './lib/rpc.ts';
 import { useAsync } from './lib/hooks.ts';
 import { Spinner, Tag, masks, toast, fmtDate, BoutonRetour, ChampDestination } from './lib/ui.tsx';
@@ -84,9 +84,14 @@ export function Detail({ user, arg, go, retour, ecranPrecedent }: Nav) {
       {/* v4 — Éditer : le CFS a la main JUSQU'À la fin de chargement ; l'ADMIN toujours. */}
       {peutTtEditer
         ? <PanneauEditer c={c} dets={dets} action={action} apresSuppression={quitter} admin={role === A} />
-        // Les autres cellules (Balise, PP, T1, Bon de sortie, chefs) gardent au
-        // minimum la correction de la plaque, comme dans l'Apps Script.
-        : <CorrigerCamion c={c} action={action} estVeh={estVeh} />}
+        /* SEC-11 (2026-08-10) — La correction de plaque n'est plus ouverte à
+           toutes les cellules. Seul le chef de brigade la conserve ici ; la
+           Balise, la PP, le T1 et le Bon de sortie signalent l'erreur au CFS.
+           Sans ce filtrage, ces cellules verraient un bouton qui échouerait
+           systématiquement sur « Accès refusé » — pire que pas de bouton. */
+        : role === ROLES.CHEF_BRIGADE
+          ? <CorrigerCamion c={c} action={action} estVeh={estVeh} />
+          : <SignalerPlaque estVeh={estVeh} />}
     </div>
   );
 }
@@ -203,22 +208,35 @@ function PanneauEditer({ c, dets, action, apresSuppression, admin }: { c: O; det
   </details>;
 }
 
-/** v4 — Suppression d'un doublon de cargaison (ADMIN uniquement). */
+/**
+ * v4 — Annulation d'un doublon de cargaison (ADMIN uniquement).
+ * SEC-12 : la cargaison n'est plus effacée mais marquée annulée, et le MOTIF est
+ * obligatoire — sans lui, l'historique dit qu'une pièce a été retirée mais pas
+ * pourquoi, ce qui ne vaut rien lors d'un contrôle.
+ */
 function PanneauSupprimer({ c, apresSuppression }: { c: O; apresSuppression: () => void }) {
   const id = c['id'] as string;
   const [busy, setBusy] = useState(false);
+  const [motif, setMotif] = useState('');
   async function supprimer() {
-    if (!window.confirm(`Supprimer définitivement la cargaison ${id} (${String(c['numeroCamion'] || '')}) ? Le stock rattaché redevient « En stock ».`)) return;
+    if (!window.confirm(`Annuler la cargaison ${id} (${String(c['numeroCamion'] || '')}) ? Elle disparaîtra des listes et des rapports ; le stock rattaché redevient « En stock ».`)) return;
     setBusy(true);
     try {
-      await call('cargo.delete', { id });
-      toast('Cargaison supprimée.', 'ok');
-      apresSuppression(); // la fiche n'existe plus : on repart d'où l'on venait
+      await call('cargo.delete', { id, motif });
+      toast('Cargaison annulée.', 'ok');
+      apresSuppression(); // la fiche sort des listes : on repart d'où l'on venait
     } catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(false); }
   }
-  return <details style={EDIT_ITEM}><summary style={{ cursor: 'pointer', fontWeight: 600, color: 'var(--warn)' }}>Supprimer cette cargaison (doublon) — ADMIN</summary>
-    <p className="help" style={{ marginTop: 10 }}>Action réservée à l'administrateur, pour retirer un <b>doublon de saisie</b>. Irréversible ; l'action est tracée dans l'historique.</p>
-    <button className="ghost" disabled={busy} style={{ color: 'var(--warn)' }} onClick={supprimer}>Supprimer définitivement</button>
+  return <details style={EDIT_ITEM}><summary style={{ cursor: 'pointer', fontWeight: 600, color: 'var(--warn)' }}>Annuler cette cargaison (doublon) — ADMIN</summary>
+    <p className="help" style={{ marginTop: 10 }}>
+      Réservé à l'administrateur, pour écarter un <b>doublon de saisie</b>. La cargaison
+      et ses conteneurs sont <b>conservés en base</b> (on ne détruit pas une écriture
+      douanière) mais sortent des listes et des rapports. Impossible après la signature
+      du chef de brigade ou la sortie du camion. Action tracée dans l'historique.
+    </p>
+    <label className="help">Motif de l'annulation (obligatoire)</label>
+    <input value={motif} onChange={(e) => setMotif(e.target.value)} placeholder="ex. doublon du camion AB1234 saisi deux fois le 12/08" />
+    <button className="ghost" disabled={busy || !motif.trim()} style={{ color: 'var(--warn)', marginTop: 8 }} onClick={supprimer}>Annuler cette cargaison</button>
   </details>;
 }
 
@@ -264,6 +282,77 @@ function Champ({ label, ...p }: { label: string } & React.InputHTMLAttributes<HT
   return <div><label className="help">{label}</label><input {...p} /></div>;
 }
 
+/**
+ * v4.2 — État d'un conteneur DANS LE PARC, affiché sous le champ de saisie.
+ *
+ * Répond au cas réel signalé par le CFS : « il y a des positionnements dans la
+ * journée ; quand on fait le pointage matinal et qu'on part, ils viennent encore
+ * ajouter des conteneurs. Du coup, quand on veut les mettre en dépotage, on ne
+ * les voit pas et on utilise la saisie manuelle. »
+ *
+ * La saisie manuelle est justement ce qu'il faut éviter : elle ne rattache pas
+ * le conteneur à sa fiche stock. On dit donc ce qui se passe réellement, et on
+ * propose l'action juste.
+ */
+function EtatConteneurParc({
+  fiche, cherche, estEnl, manuel, regulariser, setRegulariser, activerManuel,
+}: {
+  fiche: O | null; cherche: boolean; estEnl: boolean; manuel: boolean;
+  regulariser: boolean; setRegulariser: (v: boolean) => void; activerManuel: () => void;
+}) {
+  if (manuel) return <p className="help" style={{ marginTop: 6 }}>Saisie manuelle : le conteneur ne sera pas rattaché à une fiche du parc.</p>;
+  if (cherche) return <p className="help" style={{ marginTop: 6 }}>Recherche dans le parc…</p>;
+  if (!fiche) return null;
+
+  const enc = (fond: string, bord: string): React.CSSProperties => ({
+    marginTop: 8, padding: '8px 10px', borderRadius: 6,
+    background: fond, border: `1px solid ${bord}`, fontSize: 13,
+  });
+
+  // Absent du parc : la saisie manuelle devient l'issue légitime.
+  if (!fiche['existe']) return <div style={enc('#fff7ed', '#fdba74')}>
+    <b>Conteneur absent du parc.</b> Il n'a pas été importé ni annoncé. S'il s'agit
+    d'un conteneur partagé ou arrivé hors circuit, cochez « saisie manuelle » ;
+    sinon vérifiez le numéro.
+    <div style={{ marginTop: 6 }}><button className="ghost xs" onClick={activerManuel}>Passer en saisie manuelle</button></div>
+  </div>;
+
+  // Déjà dépoté : c'est une erreur de numéro, ou un doublon.
+  if (fiche['depote']) return <div style={enc('#fef2f2', '#fca5a5')}>
+    <b>Conteneur déjà dépoté</b>{fiche['cargaisonId'] ? <> sur la cargaison <b>{String(fiche['cargaisonId'])}</b></> : null}.
+    Vérifiez le numéro : un conteneur ne se dépote qu'une fois.
+  </div>;
+
+  // Au parc et pointé positionné : rien à signaler.
+  if (!fiche['aRegulariser']) return <div style={enc('#f0fdf4', '#86efac')}>
+    Conteneur au parc, <b>positionné</b>
+    {fiche['datePointage'] ? <> — pointé le {String(fiche['datePointage']).slice(0, 10)}{fiche['pointePar'] ? ` par ${String(fiche['pointePar'])}` : ''}</> : null}
+    {fiche['pointeAujourdhui'] ? ' (aujourd\'hui).' : '.'}
+  </div>;
+
+  // LE CAS VISÉ : présent au parc, jamais pointé comme positionné au CFS.
+  if (estEnl) return <div style={enc('#f0fdf4', '#86efac')}>
+    Conteneur au parc — statut <b>{String(fiche['statut'])}</b>. Enlèvement : rien à pointer.
+  </div>;
+
+  return <div style={enc('#fffbeb', '#fcd34d')}>
+    <b>Ce conteneur est au parc mais n'a pas été pointé comme positionné au CFS.</b>
+    <div style={{ marginTop: 4 }}>
+      Statut actuel : <b>{String(fiche['statut'])}</b>
+      {fiche['dateEntree'] ? <> · entré le {String(fiche['dateEntree']).slice(0, 10)}</> : null}.
+      C'est le cas typique d'un conteneur positionné <i>après</i> le pointage matinal.
+    </div>
+    <label className="help" style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8 }}>
+      <input type="checkbox" style={{ width: 'auto' }} checked={regulariser} onChange={(e) => setRegulariser(e.target.checked)} />
+      <span>Le pointer maintenant et poursuivre le dépotage</span>
+    </label>
+    <div className="help" style={{ marginTop: 4 }}>
+      Préférez ceci à la saisie manuelle : le conteneur restera rattaché à sa fiche
+      de parc, et le pointage sera tracé au nom de l'agent.
+    </div>
+  </div>;
+}
+
 function PanneauCFS({ c, dets, action, prefillDecl }: { c: O; dets: ReturnType<typeof parseConteneursDetails>; action: ActionFn; prefillDecl?: O }) {
   const id = c['id'] as string;
   const estEnl = c['typeOperation'] === OPERATIONS.ENLEVEMENT;
@@ -280,6 +369,34 @@ function PanneauCFS({ c, dets, action, prefillDecl }: { c: O; dets: ReturnType<t
   const stockByTc = Object.fromEntries(stockRows.map((r) => [String(r['numeroTC'] ?? ''), r]));
   const set = (k: string, v: unknown) => setF((o) => ({ ...o, [k]: v }));
 
+  /* v4.2 — LE CONTENEUR EST AU PARC MAIS N'A PAS ÉTÉ POINTÉ.
+   *
+   * La liste ci-dessus ne contient que les conteneurs « Positionné ». Or le
+   * pointage matinal fige la liste du jour, et des conteneurs continuent d'être
+   * positionnés dans la journée : au dépotage, ils sont introuvables, et les
+   * agents se rabattent sur « saisie manuelle » — qui ne rattache RIEN à la
+   * fiche stock. Le conteneur reste « En stock » pour toujours et le parc
+   * affiche des conteneurs partis depuis longtemps.
+   *
+   * On interroge donc tout le parc dès que le numéro est complet, et on dit à
+   * l'agent ce qu'il en est. S'il est là mais non pointé, un bouton le pointe
+   * et enchaîne — au lieu de le contourner. */
+  const [fiche, setFiche] = useState<O | null>(null);
+  const [cherche, setCherche] = useState(false);
+  const [regulariser, setRegulariser] = useState(false);
+  const numSaisi = String(f['num'] ?? '');
+
+  useEffect(() => {
+    if (!tcValide(numSaisi) || f['manuel']) { setFiche(null); setRegulariser(false); return; }
+    let annule = false;
+    setCherche(true);
+    call<O>('stock.lookup', { numeroTC: numSaisi })
+      .then((r) => { if (!annule) { setFiche(r); setRegulariser(false); } })
+      .catch(() => { if (!annule) setFiche(null); })
+      .finally(() => { if (!annule) setCherche(false); });
+    return () => { annule = true; };
+  }, [numSaisi, f['manuel']]);
+
   // v4 — à la saisie/choix d'un conteneur du stock, pré-remplit taille + type
   // depuis la fiche stock (l'agent n'a plus à les ressaisir ; reste modifiable).
   function choisirConteneur(v: string) {
@@ -294,6 +411,17 @@ function PanneauCFS({ c, dets, action, prefillDecl }: { c: O; dets: ReturnType<t
       return next;
     });
   }
+
+  // Complète taille/type depuis la fiche du parc quand le conteneur n'est pas
+  // dans la liste du jour (il n'a donc pas pu être pré-rempli plus haut).
+  useEffect(() => {
+    if (!fiche?.['existe']) return;
+    setF((o) => ({
+      ...o,
+      taille: String(o['taille'] ?? '') || String(fiche['taille'] ?? ''),
+      type: String(o['type'] ?? '') || String(fiche['typeConteneur'] ?? ''),
+    }));
+  }, [fiche]);
   const setDd = (k: string, v: unknown) => setD((o) => ({ ...o, [k]: v }));
   const montrerDecl = premier || !estEnl; // enlèvement 1er conteneur / dépotage : chaque conteneur
   const estConso = estTypeSansT1(d['typeDeclaration']); // C (conso) / A (admission) → saute le T1
@@ -301,9 +429,15 @@ function PanneauCFS({ c, dets, action, prefillDecl }: { c: O; dets: ReturnType<t
   async function ajouter() {
     if (!tcValide(String(f['num']))) { toast('N° conteneur invalide (4 lettres + 7 chiffres).', 'err'); return; }
     const payload: O = { id, conteneur: { num: f['num'], taille: f['taille'], type: f['type'], poids: f['poids'], plomb: f['plomb'], manuel: f['manuel'] } };
+    // v4.2 — confirmation explicite du pointage à la volée (le serveur refuse sans).
+    if (regulariser) payload['pointerSiNonPositionne'] = true;
     if (montrerDecl && String(d['declarant']).trim()) { payload['declaration'] = d; if (estConso) payload['consoMode'] = consoMode; }
-    await action(() => call('cargo.cfs', payload), 'Conteneur ajouté.');
+    await action(
+      () => call('cargo.cfs', payload),
+      regulariser ? 'Conteneur pointé et ajouté.' : 'Conteneur ajouté.',
+    );
     set('num', ''); set('plomb', ''); set('taille', ''); set('type', '');
+    setFiche(null); setRegulariser(false);
   }
 
   return (
@@ -319,6 +453,11 @@ function PanneauCFS({ c, dets, action, prefillDecl }: { c: O; dets: ReturnType<t
         <label className="help" style={{ alignSelf: 'end' }}><input type="checkbox" style={{ width: 'auto' }} checked={!!f['manuel']} onChange={(e) => set('manuel', e.target.checked)} /> Saisie manuelle (conteneur hors stock)</label>
       </div>
       <div className="help" style={{ marginTop: 6 }}>{estEnl ? 'Enlèvement' : 'Dépotage'} : {tcOptions.length} conteneur(s) {estEnl ? 'en stock (PIA)' : 'positionné(s) du jour'} — tapez pour choisir.</div>
+      <EtatConteneurParc
+        fiche={fiche} cherche={cherche} estEnl={estEnl} manuel={!!f['manuel']}
+        regulariser={regulariser} setRegulariser={setRegulariser}
+        activerManuel={() => set('manuel', true)}
+      />
       {montrerDecl && (
         <>
           <div className="section-title">Déclaration</div>
@@ -624,21 +763,45 @@ function CorrigerCamion({ c, action, estVeh }: { c: O; action: ActionFn; estVeh:
   const id = c['id'] as string;
   const libelle = estVeh ? 'N° de châssis' : 'N° de camion';
   const [num, setNum] = useState((c['numeroCamion'] as string) || '');
+  const [motif, setMotif] = useState('');
   const inchange = !num.trim() || num.trim() === String(c['numeroCamion'] ?? '').trim();
   return <details className="card">
     <summary style={{ cursor: 'pointer', fontWeight: 700 }}>✎ Corriger le {libelle}</summary>
     <p className="help" style={{ marginTop: 8 }}>
       Rectifie une plaque mal saisie en amont. La correction suit le camion sur toute la fiche
-      et sur ses conteneurs ; elle est tracée dans l'historique.
+      et sur ses conteneurs. <b>Le motif est obligatoire</b> et part à l'historique : c'est lui
+      qui distingue une coquille d'une substitution de camion.
     </p>
     <div className="row">
       <input className="mono" value={num} onChange={(e) => setNum(masks.alnum(e.target.value))} style={{ maxWidth: 220 }} />
-      <button className="ghost" disabled={inchange}
-        onClick={() => action(() => call('cargo.editcamion', { id, numeroCamion: num }), `${libelle} corrigé.`)}>
-        Corriger
-      </button>
     </div>
+    <input value={motif} onChange={(e) => setMotif(e.target.value)} style={{ marginTop: 8 }}
+      placeholder="Motif : plaque illisible à l'entrée, erreur de frappe…" />
+    <button className="ghost" style={{ marginTop: 8 }} disabled={inchange || !motif.trim()}
+      onClick={() => action(() => call('cargo.editcamion', { id, numeroCamion: num, motif }), `${libelle} corrigé.`)}>
+      Corriger
+    </button>
   </details>;
+}
+
+/**
+ * SEC-11 — Ce que voient les cellules qui n'ont plus la main sur la plaque
+ * (Balise, PP, T1, Bon de sortie). Elles restent les mieux placées pour REPÉRER
+ * l'erreur au passage du camion : on leur dit quoi en faire, plutôt que de leur
+ * laisser un bouton qui échouerait.
+ */
+function SignalerPlaque({ estVeh }: { estVeh: boolean }) {
+  const libelle = estVeh ? 'N° de châssis' : 'N° de camion';
+  return <div className="card">
+    <h2>{libelle} erroné ?</h2>
+    <p className="help" style={{ marginTop: 0 }}>
+      La correction de la plaque appartient désormais au <b>CFS</b> (qui l'a saisie) et
+      au <b>chef de brigade</b>. Si le numéro affiché ne correspond pas au camion que vous
+      avez devant vous, <b>ne laissez pas passer</b> : signalez-le au CFS avant de valider
+      votre étape. Le N° de camion est l'élément qui identifie ce chargement sur le bon
+      de sortie et sur l'ordre d'exécution.
+    </p>
+  </div>;
 }
 
 function PanneauEtatCFS({ c, action }: { c: O; action: ActionFn }) {
@@ -658,11 +821,15 @@ function PanneauEtatCFS({ c, action }: { c: O; action: ActionFn }) {
 function PanneauEditCamion({ c, action }: { c: O; action: ActionFn }) {
   const id = c['id'] as string;
   const [num, setNum] = useState((c['numeroCamion'] as string) || '');
+  const [motif, setMotif] = useState(''); // SEC-11 : motif obligatoire
   return <details style={EDIT_ITEM}><summary style={{ cursor: 'pointer', fontWeight: 600 }}>Corriger le N° de camion</summary>
     <div className="row" style={{ marginTop: 10 }}>
       <input value={num} onChange={(e) => setNum(masks.alnum(e.target.value))} style={{ maxWidth: 200 }} />
-      <button className="ghost" onClick={() => action(() => call('cargo.editcamion', { id, numeroCamion: num }), 'N° camion corrigé.')}>Corriger</button>
     </div>
+    <input value={motif} onChange={(e) => setMotif(e.target.value)} style={{ marginTop: 8 }}
+      placeholder="Motif de la correction (obligatoire)" />
+    <button className="ghost" style={{ marginTop: 8 }} disabled={!motif.trim()}
+      onClick={() => action(() => call('cargo.editcamion', { id, numeroCamion: num, motif }), 'N° camion corrigé.')}>Corriger</button>
   </details>;
 }
 

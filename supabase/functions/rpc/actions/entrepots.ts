@@ -13,7 +13,7 @@
 import type { Ctx } from '../ctx.ts';
 import { versCamel } from '../ctx.ts';
 import {
-  ENTREPOT_TYPES, ARTICLES_MAX, uniteApurement, cleDecl, maj, tcValide,
+  ENTREPOT_TYPES, ARTICLES_MAX, uniteApurement, cleDecl, maj, tcValide, estTypeSansT1,
 } from '../../_shared/domaine/src/index.ts';
 import { fetchAll, nextRef } from './helpers.ts';
 
@@ -158,19 +158,38 @@ export async function entrepotSortie(ctx: Ctx, p: Record<string, unknown>) {
   const numeroCamion = maj(p['numeroCamion'], 30).replace(/[^A-Z0-9-]/g, '');
   const scelles = (Array.isArray(p['scelles']) ? (p['scelles'] as unknown[]) : []).map((s) => maj(s, 30)).filter(Boolean);
   const vehicules = Array.isArray(p['vehicules']) ? p['vehicules'] : [];
+
+  /* v4.2 — BALISE / DISPENSE sur la sortie d'entrepôt.
+   *
+   * Le camion qui emporte la marchandise apurée doit être balisé ou non selon le
+   * TYPE de la déclaration d'apurement. Pour un transit (T) la question ne se
+   * pose pas : il est balisé. Pour les types C (consommation) et A (admission),
+   * l'agent tranche — et le cas courant est SANS balise.
+   *
+   * On enregistre la DÉCISION, sans créer de cargaison : la sortie d'entrepôt
+   * reste un apurement de sommier, pas un mouvement du parcours CFS → PP.
+   */
+  const typeApu = maj(d['typeDeclaration'], 10) || String(entree['typeDeclaration'] ?? '');
+  const baliseRequise = estTypeSansT1(typeApu)
+    ? p['baliseRequise'] === true || String(p['baliseRequise']).toLowerCase() === 'oui'
+    : null; // type T (ou autre) : sans objet, le transit est balisé par nature
+
   const row = {
     id, entrepot_code: code, entree_id: entreeId, numero_article: numeroArticle,
     numero_declaration: maj(d['numeroDeclaration'], 30) || String(entree['numeroDeclaration']),
     annee_declaration: maj(d['anneeDeclaration'], 6), bureau_declaration: maj(d['bureauDeclaration'], 20),
-    type_declaration: maj(d['typeDeclaration'], 10),
+    type_declaration: typeApu,
     designation: maj(p['designation'], 200) || String(arts[numeroArticle - 1]?.['designation'] ?? ''),
     nb_colis: nbColis, poids, numero_camion: numeroCamion, scelles, vehicules,
+    balise_requise: baliseRequise,
     agent: ctx.session.nomComplet, observations: maj(p['observations'], 1000),
   };
   const { error } = await ctx.db.from('entrepot_sorties').insert(row);
   if (error) throw new Error(error.message);
-  await ctx.log('Sortie entrepôt ' + code, id, 'entrée ' + entreeId + ' art.' + numeroArticle + ' · ' + quantite + ' ' + unite);
-  return { id, restantApres: restant - quantite };
+  const mentionBalise = baliseRequise === null ? '' : baliseRequise ? ' · à baliser' : ' · sans balise';
+  await ctx.log('Sortie entrepôt ' + code, id,
+    'entrée ' + entreeId + ' art.' + numeroArticle + ' · ' + quantite + ' ' + unite + mentionBalise);
+  return { id, restantApres: restant - quantite, baliseRequise };
 }
 
 /**
@@ -191,6 +210,8 @@ export async function entrepotSortiesDetail(ctx: Ctx, opts: { entrepotCode?: str
       designation: s['designation'], nbColis: s['nbColis'], poids: s['poids'], agent: s['agent'],
       declaration: [s['numeroDeclaration'], s['anneeDeclaration'], s['bureauDeclaration'], s['typeDeclaration']].filter(Boolean).join(' · '),
       numeroCamion: s['numeroCamion'], scelles: s['scelles'], vehicules: s['vehicules'],
+      // v4.2 — décision balise prise à l'apurement (null = sans objet / antérieure).
+      baliseRequise: s['baliseRequise'],
     })),
   };
 }
