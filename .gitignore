@@ -7,7 +7,11 @@ dist/
 !.env.example
 *.local
 .netlify/
-supabase/.temp/
+# Cache de la CLI Supabase (référence du projet, URL du pooler, versions).
+# Motif GÉNÉRAL : la CLI écrit ce dossier à côté du `supabase/` qu'elle trouve,
+# donc pas forcément à la racine — un `.temp` s'était retrouvé commité sous
+# packages/domaine/src/supabase/ après un lancement depuis le mauvais dossier.
+**/.temp/
 coverage/
 
 # Exports Google Sheets (données douanières + hachages de mots de passe) — JAMAIS commités

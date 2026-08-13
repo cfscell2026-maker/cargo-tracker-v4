@@ -17,26 +17,48 @@
 ### Lancer les tests en local (facultatif)
 
 ```bash
-# Cœur métier
-cd packages/domaine/src && node --test
-# Actions serveur (cycle de vie + complétude du routeur)
+# Cœur métier (49 tests)
+cd supabase/functions/_shared/domaine/src && node --test
+# Actions serveur — cycle de vie, rapports, complétude du routeur (82 tests)
 cd supabase/functions/rpc/actions && node --test
 # Typecheck + build du front
 cd apps/web && npx tsc --noEmit && npx vite build
 ```
 
-> **Note bundling** : l'Edge Function `rpc` importe le cœur métier partagé depuis `packages/domaine` (relatif). `supabase functions deploy rpc` suit le graphe d'imports et l'inclut. Si une version de CLI refusait un import hors du dossier `functions/`, déplacez `packages/domaine/src` sous `supabase/functions/_shared/domaine/` et ajustez les chemins (mécanique, sans changement de code).
+> **Note bundling** : l'Edge Function `rpc` importe le cœur métier partagé depuis
+> `supabase/functions/_shared/domaine/` (chemin relatif). `supabase functions deploy rpc`
+> suit le graphe d'imports et l'inclut automatiquement.
+>
+> *(Ce guide indiquait `packages/domaine/` : le déplacement sous `_shared/` a été
+> fait depuis, et `packages/` supprimé le 2026-08-10 — il ne contenait plus qu'un
+> cache de la CLI Supabase commité par accident. Lancer les tests dans l'ancien
+> chemin n'exécutait donc rien du tout, en affichant « 0 test » sans erreur.)*
 
 ---
 
 ## Étape 1 — Supabase (région Europe)
 
 1. Dans le projet Supabase créé : **Project Settings → General** → vérifier la **région = Europe** (Francfort/Paris). Sinon recréer le projet dans une région EU (la région n'est pas modifiable après coup).
-2. **Installer la CLI** et se connecter :
+2. **Utiliser la CLI** — aucune installation n'est nécessaire, `npx` la télécharge
+   et l'exécute à la demande (vérifié sur le poste d'exploitation, v2.114) :
    ```bash
-   npm i -g supabase
-   supabase login
-   supabase link --project-ref <REF_DU_PROJET>
+   npx.cmd supabase@latest login
+   ```
+   > **Sous PowerShell, écrire `npx.cmd` et non `npx`.** Deux erreurs classiques :
+   > `Le terme «supabase» n'est pas reconnu…` (la CLI n'est pas installée en
+   > global → préfixer par `npx.cmd supabase@latest`), et `Impossible de charger
+   > le fichier …\npx.ps1, car l'exécution de scripts est désactivée` (PowerShell
+   > refuse les scripts `.ps1` → le shim `.cmd` n'est pas concerné).
+   > Inutile de toucher à `Set-ExecutionPolicy` : c'est un réglage de sécurité
+   > de la machine, et `npx.cmd` suffit. `cmd.exe` fonctionne aussi tel quel.
+   >
+   > Installation permanente (facultatif) : `scoop install supabase`, ou
+   > l'exécutable des [releases GitHub](https://github.com/supabase/cli/releases).
+
+   La **liaison au projet** n'est pas obligatoire : chaque commande accepte
+   `--project-ref`. Réf. du projet de production : **`hwutqjlbzfcjfxvnugnx`**.
+   ```bash
+   npx.cmd supabase@latest link --project-ref hwutqjlbzfcjfxvnugnx   # facultatif
    ```
 3. **Appliquer le schéma** (crée toutes les tables, RLS, audit chaîné, compteurs) :
    ```bash

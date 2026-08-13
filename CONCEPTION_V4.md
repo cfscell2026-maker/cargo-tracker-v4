@@ -59,12 +59,12 @@ cargo-tracker/
 │  ├─ src/screens/            # 1 fichier par écran (mêmes écrans que TITLES actuel)
 │  ├─ src/components/         # UI partagée (tables, cartes stats, modales détail…)
 │  └─ src/lib/rpc.ts          # client RPC (fetch → Edge Function)
-├─ packages/domaine/          # ← LE CŒUR : constantes, statuts, moteur d'étapes, Zod
 ├─ supabase/
 │  ├─ migrations/             # schéma SQL versionné
+│  ├─ functions/_shared/domaine/  # ← LE CŒUR : constantes, statuts, moteur d'étapes,
+│  │                          #   permissions, calcul des délais. Partagé front + serveur.
 │  └─ functions/rpc/          # Edge Function unique (Deno) : routeur + métier
-│     ├─ actions/             # 1 module par famille (cargo, stock, annonce, report, user…)
-│     └─ permissions.ts       # matrice PERMISSIONS (copie conforme)
+│     └─ actions/             # 1 module par famille (cargo, stock, annonce, report, user…)
 ├─ scripts/migration/         # import ponctuel Google Sheets → PostgreSQL
 └─ netlify.toml               # en-têtes de sécurité + SPA redirect
 ```
