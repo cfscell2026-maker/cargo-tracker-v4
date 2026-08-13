@@ -5,11 +5,11 @@ import { useEffect, useState } from 'react';
 import * as XLSX from 'xlsx';
 import { call } from './lib/rpc.ts';
 import { useAsync } from './lib/hooks.ts';
-import { Spinner, StatCard, Tag, Modal, masks, toast, fmtDate, fmtJour, ChampDestination, Graphique } from './lib/ui.tsx';
+import { Spinner, StatCard, Tag, Modal, masks, toast, fmtDate, fmtJour, ChampDestination, Graphique, BarresClassees } from './lib/ui.tsx';
 import { bornesDe, isoDate, normaliserPlage, type ModePeriode } from './lib/periode.ts';
 import { Detail } from './detail.tsx';
 import type { Nav } from './App.tsx';
-import { OPERATIONS, VEHICULE_DESTINATIONS, TYPES_DECLARATION, STATUTS, tcValide, etapesEnAttente, estTypeSansT1, libelleTypeSansT1 } from '../../../supabase/functions/_shared/domaine/src/index.ts';
+import { OPERATIONS, VEHICULE_DESTINATIONS, TYPES_DECLARATION, STATUTS, tcValide, etapesEnAttente, estTypeSansT1, libelleTypeSansT1, dureeLisible } from '../../../supabase/functions/_shared/domaine/src/index.ts';
 
 const STATUT_OPTIONS = Object.values(STATUTS);
 
@@ -145,6 +145,27 @@ SCREENS.dash = (nav) => {
       <StatCard n={Number(s['attPP'] ?? 0)} l="Attente sortie" onClick={() => nav.go('wait_sortie')} />
       <StatCard n={Number(s['sortie'] ?? 0)} l="Sortis" tone="ok" onClick={() => go('Sortie Enregistrée')} />
       <StatCard n={Number(s['vehiculesAttente'] ?? 0)} l="Véhicules en attente" onClick={() => nav.go('vehicules')} />
+    </div>}
+    {/* Neuf tuiles disent COMBIEN, aucune ne dit OÙ ÇA BLOQUE : c'est pourtant
+        la première question d'un chef le matin. Le classement des files répond
+        d'un coup d'œil, et chaque barre ouvre la file concernée. */}
+    {!loading && <div className="card"><h2>Où sont les dossiers en attente</h2>
+      <BarresClassees
+        lignes={[
+          { nom: 'Validation chef de brigade', valeur: Number(s['attValidation'] ?? 0) },
+          { nom: 'Cellule T1', valeur: Number(s['attT1'] ?? 0) },
+          { nom: 'Cellule Balise', valeur: Number(s['attBalise'] ?? 0) },
+          { nom: 'Bon de sortie', valeur: Number(s['attBs'] ?? 0) },
+          { nom: 'Sortie (Porte Principale)', valeur: Number(s['attPP'] ?? 0) },
+        ]}
+        onClic={(nom) => nav.go(nom.startsWith('Validation') ? 'wait_valid'
+          : nom.startsWith('Cellule T1') ? 'wait_t1'
+            : nom.startsWith('Cellule Balise') ? 'wait_gps'
+              : nom.startsWith('Bon') ? 'wait_bs' : 'wait_sortie')} />
+      <p className="help" style={{ marginBottom: 0 }}>
+        Les files sont <b>parallèles</b> : un même camion peut attendre à plusieurs postes à la fois.
+        Le total dépasse donc le nombre de dossiers — les parts se lisent poste par poste.
+      </p>
     </div>}
     <FicheBord p={p} />
   </>;
@@ -1181,8 +1202,30 @@ function StatsDepotage() {
       </p>
       {(data?.rows ?? []).length === 0
         ? <div className="empty">Aucun mouvement sur la période.</div>
-        : <Table cols={[['jour', 'Jour'], ['positionnes', 'Positionnés'], ['depotes', 'Dépotés'], ['restant', 'Restant en fin de journée']]}
-            rows={data?.rows ?? []} />}
+        : <>
+          {/* Le report d'un jour sur l'autre est une TENDANCE : sur un tableau
+              de chiffres, une dérive lente passe inaperçue ; sur une courbe,
+              elle saute aux yeux. D'où l'aire pour le restant, superposée aux
+              barres du mouvement quotidien. */}
+          <div style={{ marginTop: 12 }}>
+            <Graphique
+              cats={(data?.rows ?? []).map((r) => fmtJour(String(r['jour'])))}
+              series={[
+                { nom: 'Positionnés (pointés)', valeurs: (data?.rows ?? []).map((r) => Number(r['positionnes'] ?? 0)) },
+                { nom: 'Dépotés', valeurs: (data?.rows ?? []).map((r) => Number(r['depotes'] ?? 0)) },
+              ]}
+              type="barres" ordonnee="Conteneurs" valeursSurBarres />
+          </div>
+          <div style={{ marginTop: 14 }}>
+            <div className="section-title">Report en fin de journée</div>
+            <Graphique
+              cats={(data?.rows ?? []).map((r) => fmtJour(String(r['jour'])))}
+              series={[{ nom: 'Restant à dépoter', valeurs: (data?.rows ?? []).map((r) => Number(r['restant'] ?? 0)), couleur: '#b4531f' }]}
+              type="aire" ordonnee="Conteneurs" hauteur={220} />
+          </div>
+          <Table cols={[['jour', 'Jour'], ['positionnes', 'Positionnés'], ['depotes', 'Dépotés'], ['restant', 'Restant en fin de journée']]}
+            rows={data?.rows ?? []} />
+        </>}
     </>}
   </div>;
 }
@@ -2025,9 +2068,27 @@ SCREENS.dispenses = () => {
   </div>;
 };
 
-/** Étiquettes courtes de l'axe X selon le regroupement (« S1, S2 » / « M1, M2 » / année). */
+const MOIS_COURT = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.'];
+
+/**
+ * Étiquettes de l'axe X.
+ *
+ * Elles valaient « S1, S2… » et « M1, M2… » : sur un graphique couvrant une
+ * année, personne ne peut dire de quel mois parle « M7 », et il faut
+ * redescendre dans le tableau pour le savoir — ce qui vide le graphique de son
+ * intérêt. La clé de période renvoyée par le serveur porte l'information
+ * (`2026`, `2026-07`, `2026-07-06`) : on l'affiche telle qu'un agent la lit.
+ */
 function libellesPeriode(rows: O[], gran: string): string[] {
-  return rows.map((r, i) => gran === 'annee' ? String(r['periode']) : gran === 'semaine' ? `S${i + 1}` : `M${i + 1}`);
+  return rows.map((r) => {
+    const k = String(r['periode'] ?? '');
+    if (gran === 'annee') return k;
+    const [a, m, j] = k.split('-');
+    if (gran === 'mois') return m ? `${MOIS_COURT[Number(m) - 1] ?? m} ${String(a).slice(2)}` : k;
+    // Semaine : la clé est le lundi. « sem. 06/07 » se repère sur un calendrier.
+    if (gran === 'semaine') return j ? `sem. ${j}/${m}` : k;
+    return j ? `${j}/${m}` : k;
+  });
 }
 
 SCREENS.flux = () => {
@@ -2068,9 +2129,14 @@ SCREENS.flux = () => {
         <StatCard n={Number(tot['baliseC'] ?? 0)} l="Camions balisés" />
         <StatCard n={Number(tot['ppC'] ?? 0)} l="Camions sortis" tone="ok" />
       </div></div>
-      <div className="card"><Table cols={[['periode', 'Période'], ['enlevesC', 'Cont. enlevés'], ['depotesC', 'Cont. dépotés'], ['tc', 'Total TC'], ['evp', 'EVP'], ['baliseC', 'Camions balisés'], ['ppC', 'Camions sortis']]} rows={rows} /></div>
-      <div className="card"><h2>Graphique d'analyse</h2>
-        <Graphique cats={cats} series={series} type="barres" ordonnee="Nombre" /></div>
+      <div className="card"><h2>Évolution du flux</h2>
+        <p className="help" style={{ marginTop: 0 }}>Volume traité par période. Isolez une série pour la lire seule.</p>
+        <Graphique cats={cats} series={series} type="barres" ordonnee="Nombre" valeursSurBarres /></div>
+      <div className="card"><h2>Répartition cumulée</h2>
+        <p className="help" style={{ marginTop: 0 }}>La même donnée empilée : la hauteur totale donne la charge de la période.</p>
+        <Graphique cats={cats} series={series} type="barresEmpilees" ordonnee="Total" hauteur={260} /></div>
+      <div className="card"><h2>Détail chiffré</h2>
+        <Table cols={[['periode', 'Période'], ['enlevesC', 'Cont. enlevés'], ['depotesC', 'Cont. dépotés'], ['tc', 'Total TC'], ['evp', 'EVP'], ['baliseC', 'Camions balisés'], ['ppC', 'Camions sortis']]} rows={rows} /></div>
     </>}
   </>;
 };
@@ -2090,6 +2156,16 @@ SCREENS.controles = () => {
   return <>
     <div className="card"><div className="row" style={{ flexWrap: 'wrap' }}><h2 style={{ flex: 1 }}>Statistiques de contrôle</h2><PeriodPicker p={p} /></div><PeriodeLue p={p} /></div>
     {loading ? <Spinner /> : <>
+      {/* Trois blocs de cartes se lisent isolément mais ne se COMPARENT pas :
+          on ne voit pas lequel pèse le plus, ni dans quelle proportion. */}
+      <div className="card"><h2>Comparaison des motifs de contrôle</h2>
+        <Graphique
+          cats={['Hors gabarit', 'Surcharge', 'Transit national (TG)']}
+          series={[
+            { nom: 'Camions', valeurs: [Number(hg['camions'] ?? 0), Number(su['camions'] ?? 0), Number(tn['camions'] ?? 0)] },
+            { nom: 'Conteneurs', valeurs: [Number(hg['conteneurs'] ?? 0), Number(su['conteneurs'] ?? 0), Number(tn['conteneurs'] ?? 0)] },
+          ]}
+          type="barres" ordonnee="Nombre" hauteur={250} valeursSurBarres /></div>
       {bloc('Hors gabarit', hg, 'warn')}
       {bloc('Surcharge', su, 'warn')}
       {bloc('Transit national (TG)', tn)}
@@ -2124,11 +2200,168 @@ SCREENS.destinations = () => {
     {loading ? <Spinner /> : <>
       <div className="card"><div className="help" style={{ marginBottom: 6 }}>Camions sortis vers chaque destination sur la période — {Number(data?.['total'] ?? 0)} au total.</div>
         <div className="stats">{codes.map((c) => <StatCard key={c} n={Number(parDest[c] ?? 0)} l={c} />)}</div></div>
+      {/* Le classement répond à « qui pèse le plus », que la courbe ne dit pas :
+          avec une destination à 80 % du volume, toutes les autres se confondent
+          avec l'axe. Les deux vues sont complémentaires. */}
+      <div className="card"><h2>Classement des destinations</h2>
+        <BarresClassees lignes={codes.map((c) => ({ nom: c, valeur: Number(parDest[c] ?? 0) }))}
+          total={Number(data?.['total'] ?? 0)} max={10} /></div>
       <div className="card"><h2>Évolution des camions sortis par destination</h2>
         <Graphique cats={cats} series={series} type="lignes" ordonnee="Camions sortis" /></div>
     </>}
   </>;
 };
+
+/* -------------------- v4.2 : temps de passage par poste ---------------- */
+
+/**
+ * Combien de temps un dossier reste-t-il à chaque poste, et combien de temps
+ * s'écoule entre l'entrée du camion et sa sortie à la Porte Principale.
+ *
+ * Trois niveaux de lecture, du plus général au plus fin : la performance
+ * globale en tête, la moyenne par poste ensuite, puis le détail dossier par
+ * dossier. Le graphique journalier répond à la question posée : « aujourd'hui,
+ * combien de temps a mis la marchandise à chaque poste ».
+ */
+SCREENS.temps = ({ go }) => {
+  const p = useReportRange('semaine');
+  const { du, au } = p;
+  const [avecVeh, setAvecVeh] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const { data, loading, error } = useAsync<O>(
+    () => call('report.temps', { du, au, ...(avecVeh ? {} : { vehicules: false }) }), [du, au, avecVeh]);
+
+  async function exporter(fmt: 'xlsx' | 'pdf') {
+    setBusy(true);
+    try {
+      const r = await call<O>('report.temps', { du, au, format: fmt, ...(avecVeh ? {} : { vehicules: false }) });
+      if (fmt === 'pdf') imprimerHtml(String(r['html'] ?? '')); else telecharger(r);
+    } catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(false); }
+  }
+
+  const cp = (data?.['compte'] ?? {}) as O;
+  const glob = (data?.['global'] ?? {}) as O;
+  const postes = (data?.['postes'] ?? []) as O[];
+  const parJour = (data?.['parJour'] ?? []) as O[];
+  const lignes = (data?.['lignes'] ?? []) as O[];
+
+  const cats = parJour.map((j) => fmtJour(String(j['jour'])));
+  // ⚠ Ne PAS remplacer une absence de mesure par 0 : le serveur renvoie `null`
+  // quand aucun dossier n'a été mesuré à ce poste ce jour-là, et la courbe doit
+  // se couper. Un `?? 0` afficherait « zéro minute d'attente », soit l'inverse
+  // de la réalité.
+  const series = POSTES_UI.map(([cle, nom]) => ({
+    nom,
+    valeurs: parJour.map((j) => (j[cle] === null || j[cle] === undefined ? null : Number(j[cle]))),
+  }));
+
+  return <>
+    <div className="card">
+      <div className="row" style={{ flexWrap: 'wrap' }}><h2 style={{ flex: 1 }}>Temps de passage par poste</h2><PeriodPicker p={p} /></div>
+      <div className="row" style={{ alignItems: 'center', flexWrap: 'wrap', gap: 8, marginTop: 6 }}>
+        <label className="help" style={{ display: 'flex', gap: 6, alignItems: 'center', margin: 0 }}>
+          <input type="checkbox" style={{ width: 'auto' }} checked={avecVeh} onChange={(e) => setAvecVeh(e.target.checked)} />
+          <span>Inclure les véhicules</span>
+        </label>
+        <span style={{ flex: 1 }} />
+        <button className="ghost xs" disabled={busy} onClick={() => exporter('xlsx')}>⤓ Excel</button>
+        <button className="ghost xs" disabled={busy} onClick={() => exporter('pdf')}>⤓ PDF</button>
+      </div>
+      <PeriodeLue p={p} />
+      <p className="help" style={{ marginBottom: 0 }}>
+        Un dossier est rattaché au <b>jour d'entrée du camion</b>. Pour la journée en cours,
+        les moyennes ne portent donc que sur les dossiers <b>déjà sortis</b> — l'effectif
+        mesuré est indiqué à côté de chaque chiffre.
+      </p>
+    </div>
+
+    {loading ? <Spinner /> : error ? (
+      /Action inconnue|Action non gérée/.test(error)
+        ? <div className="card"><div className="empty">Écran disponible dès la prochaine mise à jour du serveur.</div></div>
+        : <div className="card"><div className="err-msg">{error}</div></div>
+    ) : <>
+      <div className="card">
+        <h2>Performance globale — entrée du camion → sortie à la PP</h2>
+        <div className="stats">
+          <StatCard n={Number(cp['dossiers'] ?? 0)} l="Dossiers de la période" />
+          <StatCard n={Number(cp['sortis'] ?? 0)} l="Déjà sortis" tone="ok" />
+          <StatCard n={dureeLisible(glob['moyenne'] as number | null)} l={`Temps moyen (${Number(glob['n'] ?? 0)} mesurés)`} />
+          <StatCard n={dureeLisible(glob['mediane'] as number | null)} l="Temps médian" />
+          <StatCard n={dureeLisible(glob['p90'] as number | null)} l="9 dossiers sur 10 en moins de" />
+        </div>
+        {Number(cp['sansFin'] ?? 0) > 0 && <p className="help" style={{ color: 'var(--warn)', marginBottom: 0 }}>
+          ⚠ {String(cp['sansFin'])} dossier(s) sans horodatage de fin de chargement — antérieurs à la mise en service
+          de cette mesure. Leur <b>temps global reste exact</b>, mais le détail par poste n'est pas
+          reconstituable et n'est donc pas compté (plutôt que d'être inventé).
+        </p>}
+        {Number(cp['incoherents'] ?? 0) > 0 && <p className="help" style={{ color: 'var(--warn)', marginBottom: 0 }}>
+          ⚠ {String(cp['incoherents'])} dossier(s) portent des dates incohérentes (une étape enregistrée
+          avant l'étape qui la précède). Ces durées sont écartées des moyennes — voir la colonne du détail.
+        </p>}
+      </div>
+
+      <div className="card">
+        <h2>Moyenne par poste sur la période</h2>
+        <Table
+          cols={[['libelle', 'Poste'], ['nTxt', 'Dossiers mesurés'], ['moyenneTxt', 'Moyenne'], ['medianeTxt', 'Médiane'], ['p90Txt', '9 sur 10 sous'], ['maxTxt', 'Maximum']]}
+          rows={postes.map((x) => ({
+            libelle: x['libelle'], nTxt: String(x['n'] ?? 0),
+            moyenneTxt: dureeLisible(x['moyenne'] as number | null),
+            medianeTxt: dureeLisible(x['mediane'] as number | null),
+            p90Txt: dureeLisible(x['p90'] as number | null),
+            maxTxt: dureeLisible(x['max'] as number | null),
+          }))} />
+      </div>
+
+      <div className="card">
+        <h2>Temps moyen par jour et par poste</h2>
+        <p className="help" style={{ marginTop: 0 }}>
+          Un jour sans dossier mesuré à un poste <b>coupe la courbe</b> au lieu de retomber à zéro :
+          une absence de mesure n'est pas une performance parfaite.
+        </p>
+        {parJour.length ? <Graphique cats={cats} series={series} type="lignes" ordonnee="Durée"
+          format={(v) => dureeLisible(Math.round(v * 60))} hauteur={320} />
+          : <div className="empty">Aucun dossier sur la période.</div>}
+      </div>
+
+      <div className="card">
+        <h2>Détail par dossier ({lignes.length})</h2>
+        <Table
+          cols={[['numeroCamion', 'Camion / Châssis'], ['declaration', 'Déclaration'], ['jourTxt', 'Entré le'],
+            ['cfsTxt', 'CFS'], ['validationTxt', 'Brigade'], ['t1Txt', 'T1'], ['baliseTxt', 'Balise'], ['bsTxt', 'Bon sortie'], ['ppTxt', 'PP'], ['globalTxt', 'GLOBAL']]}
+          rows={lignes.map((l) => ({
+            id: l['id'], numeroCamion: l['numeroCamion'], declaration: l['declaration'],
+            jourTxt: fmtJour(String(l['jour'] ?? '')),
+            cfsTxt: dureeLisible(l['cfs'] as number | null),
+            validationTxt: dureeLisible(l['validation'] as number | null),
+            t1Txt: dureeLisible(l['t1'] as number | null),
+            baliseTxt: dureeLisible(l['balise'] as number | null),
+            bsTxt: dureeLisible(l['bs'] as number | null),
+            ppTxt: dureeLisible(l['pp'] as number | null),
+            globalTxt: (l['incoherent'] ? '⚠ ' : '') + dureeLisible(l['global'] as number | null),
+          }))}
+          onRow={(r) => go('detail', r['id'])} />
+        <p className="help" style={{ marginBottom: 0 }}>
+          « — » = étape non mesurée : cellule sautée par nature (type C/A sans T1, véhicule sans balise),
+          étape pas encore faite, ou dossier antérieur à la mise en service de la mesure.
+        </p>
+      </div>
+    </>}
+  </>;
+};
+
+/**
+ * Séries du graphique — même ordre et mêmes libellés que le serveur.
+ *
+ * Le temps GLOBAL est volontairement ABSENT : il vaut la somme des attentes
+ * cumulées, donc plusieurs fois n'importe quel poste. Tracé sur le même axe, il
+ * écraserait les six courbes qu'on cherche justement à comparer. Il est lu en
+ * tête d'écran, sous forme de cartes, et figure dans l'export.
+ */
+const POSTES_UI: [string, string][] = [
+  ['cfs', 'CFS (chargement)'], ['validation', 'Chef de brigade'], ['t1', 'Cellule T1'],
+  ['balise', 'Cellule Balise'], ['bs', 'Bon de sortie'], ['pp', 'Porte Principale'],
+];
 
 SCREENS.dwell = ({ go }) => {
   const { data, loading } = useAsync<{ compte: O; tranches: O[]; instance: O[]; seuil: number }>(() => call('report.dwell', {}), []);

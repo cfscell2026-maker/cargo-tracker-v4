@@ -33,6 +33,17 @@ export interface SourceEtapes {
   estVehicule?: unknown;
   datePoseGps?: unknown;
   sauteBS?: unknown;
+  /**
+   * ⚠ CORRECTIF 2026-08-10. La colonne SQL `saute_bs` devient `sauteBs` en
+   * camelCase (`versCamel` ne met en majuscule QUE la lettre suivant le
+   * souligné). Le moteur ne lisait que `sauteBS` — l'orthographe des payloads
+   * client — si bien que le saut du bon de sortie écrit en base par les flux
+   * ouillage et magasin/MAD n'était JAMAIS honoré : ces cargaisons restaient
+   * indéfiniment dans la file « Bon de sortie » et dans le compteur du tableau
+   * de bord. On accepte désormais les deux orthographes, comme on accepte déjà
+   * 'Oui' et `true`.
+   */
+  sauteBs?: unknown;
   bonSortieNumero?: unknown;
 }
 
@@ -67,7 +78,9 @@ export function etatCellules(c: SourceEtapes): EtatCellules {
     valide: estOui(c.sauteValidation) || aFait(c.dateValidation), // v3.0 : signature du chef brigade
     t1: estOui(c.sauteT1) || aFait(c.dateT1),
     balise: estOui(c.sauteBalise) || estOui(c.estVehicule) || aFait(c.datePoseGps),
-    bs: estOui(c.sauteBS) || aFait(c.bonSortieNumero), // v3.6 : ouillage saute le bon de sortie
+    // v3.6 : ouillage saute le bon de sortie. Les DEUX orthographes sont lues —
+    // voir le commentaire de `sauteBs` dans SourceEtapes.
+    bs: estOui(c.sauteBS) || estOui(c.sauteBs) || aFait(c.bonSortieNumero),
     sorti: c.statut === STATUTS.SORTIE,
   };
 }

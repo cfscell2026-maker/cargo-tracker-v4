@@ -16,6 +16,8 @@ import {
   tailleBucket, evpDeTaille, trancheAge, parseConteneursDetails, estOui, aFait, normAlphaNum,
   groupesDeclaration, estChargementMixte, libelleDeclaration,
   etapesEnAttente, etatCellules, estDispenseBalise,
+  // v4.2 — temps de passage par poste
+  delaisDe, agreger, dureeLisible, enHeures, POSTES, LIBELLE_POSTE,
 } from '../../_shared/domaine/src/index.ts';
 import { fetchAll, lookupDeclaration } from './helpers.ts';
 import { filtrerConfidentiel } from './lecture.ts';
@@ -750,6 +752,125 @@ export async function rapportSejourDetail(ctx: Ctx, p: Record<string, unknown>) 
   if (bucket === 'alerte') rows = rows.filter((x) => (x['age'] as number) >= SEUIL_ALERTE_SEJOUR);
   if (tranche) rows = rows.filter((x) => trancheAge(x['age'] as number) === tranche);
   return { titre: bucket + (tranche ? ' · ' + tranche : ''), rows };
+}
+
+/* ================= Temps de passage par poste (v4.2) ================== */
+
+/**
+ * TEMPS DE PASSAGE — demande utilisateur du 2026-08-10.
+ *
+ * Trois lectures d'une même donnée :
+ *   · GLOBAL   — entrée du camion → sortie à la Porte Principale. La performance
+ *     de bout en bout, la seule qui se compare d'un mois sur l'autre.
+ *   · PAR POSTE — combien de temps le dossier a attendu à chaque cellule.
+ *   · PAR JOUR  — la moyenne de chaque poste, jour par jour, pour le graphique.
+ *
+ * COHORTE PAR JOUR D'ENTRÉE. Un dossier est rattaché au jour où le camion est
+ * entré, pas au jour où il est sorti. C'est la lecture que demande l'exploitant
+ * (« les déclarations de la journée ») et la seule qui permette de dire « les
+ * camions entrés mardi ont mis en moyenne tant ». Conséquence assumée et
+ * affichée : pour la journée en cours, la moyenne ne porte que sur les dossiers
+ * DÉJÀ sortis — d'où l'effectif `n` publié à côté de chaque moyenne.
+ *
+ * Les durées non mesurables restent `null` et sont exclues des moyennes ; elles
+ * ne sont jamais comptées zéro (voir delais.ts).
+ */
+export async function rapportTemps(ctx: Ctx, p: Record<string, unknown>) {
+  const cargos = await loadCargos(ctx);
+  const du = p['du'] as string | undefined;
+  const au = p['au'] as string | undefined;
+  const sansVeh = p['vehicules'] === false;
+
+  const lignes: Record<string, unknown>[] = [];
+  let avecFin = 0, sansFin = 0, incoherents = 0, sortis = 0;
+
+  for (const c of cargos) {
+    if (sansVeh && estOui(c['estVehicule'])) continue;
+    if (!inRange(c['dateCreation'], du, au)) continue;
+    const d = delaisDe(c as never);
+    if (d.approx) sansFin++; else avecFin++;
+    if (d.incoherent) incoherents++;
+    if (c['statut'] === STATUTS.SORTIE) sortis++;
+    lignes.push({
+      id: c['id'], numeroCamion: c['numeroCamion'], typeOperation: c['typeOperation'],
+      statut: c['statut'], estVehicule: estOui(c['estVehicule']),
+      declaration: libelleDeclaration(c as never),
+      jour: String(c['dateCreation'] ?? '').slice(0, 10),
+      dateCreation: c['dateCreation'], dateSortie: c['dateSortie'],
+      cfs: d.cfs, validation: d.validation, t1: d.t1, balise: d.balise, bs: d.bs, pp: d.pp,
+      global: d.global, approx: d.approx, incoherent: d.incoherent,
+    });
+  }
+  lignes.sort((a, b) => String(b['dateCreation'] ?? '').localeCompare(String(a['dateCreation'] ?? '')));
+
+  // --- Synthèse par poste + global -----------------------------------------
+  const postes = POSTES.map((poste) => ({
+    poste, libelle: LIBELLE_POSTE[poste],
+    ...agreger(lignes.map((l) => l[poste] as number | null)),
+  }));
+  const global = agreger(lignes.map((l) => l['global'] as number | null));
+
+  // --- Moyennes par jour (unité du graphique : heures décimales) ------------
+  const parJourMap = new Map<string, Record<string, unknown>[]>();
+  for (const l of lignes) {
+    const j = String(l['jour'] ?? '');
+    if (!j) continue;
+    (parJourMap.get(j) ?? parJourMap.set(j, []).get(j)!).push(l);
+  }
+  const parJour = [...parJourMap.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([jour, ls]) => {
+      const ligne: Record<string, unknown> = { jour, dossiers: ls.length };
+      for (const poste of POSTES) {
+        const a = agreger(ls.map((l) => l[poste] as number | null));
+        ligne[poste] = enHeures(a.moyenne);
+        ligne['n_' + poste] = a.n;
+      }
+      const g = agreger(ls.map((l) => l['global'] as number | null));
+      ligne['global'] = enHeures(g.moyenne);
+      ligne['n_global'] = g.n;
+      return ligne;
+    });
+
+  const data = {
+    compte: { dossiers: lignes.length, sortis, incoherents, avecFin, sansFin },
+    global, postes, parJour, lignes,
+  };
+
+  /* ------------------------------- Exports ------------------------------- */
+  if (p['format'] === 'xlsx' || p['format'] === 'pdf') {
+    const periode = `Du ${du || '…'} au ${au || '…'}`;
+    const entetesPoste = ['Poste', 'Dossiers mesurés', 'Moyenne', 'Médiane', '90e centile', 'Mini', 'Maxi'];
+    const lignesPoste = [
+      ...postes.map((x) => [x.libelle, x.n, dureeLisible(x.moyenne), dureeLisible(x.mediane), dureeLisible(x.p90), dureeLisible(x.min), dureeLisible(x.max)]),
+      ['GLOBAL — entrée du camion → sortie PP', global.n, dureeLisible(global.moyenne), dureeLisible(global.mediane), dureeLisible(global.p90), dureeLisible(global.min), dureeLisible(global.max)],
+    ];
+    await ctx.log('Export temps de passage', '', `${lignes.length} dossier(s) · ${periode} · ${p['format']}`);
+
+    if (p['format'] === 'pdf') return htmlTableau('Temps de passage par poste', periode, entetesPoste, lignesPoste);
+
+    const aoaJour: unknown[][] = [['Jour', 'Dossiers', ...POSTES.map((x) => LIBELLE_POSTE[x] + ' (h)'), 'Global (h)']];
+    parJour.forEach((j) => aoaJour.push([fmtJ(j['jour']), j['dossiers'], ...POSTES.map((x) => j[x] ?? ''), j['global'] ?? '']));
+
+    const aoaDetail: unknown[][] = [[
+      'ID', 'Camion / Châssis', 'Opération', 'Déclaration', 'Entré le', 'Sorti le',
+      ...POSTES.map((x) => LIBELLE_POSTE[x]), 'GLOBAL', 'Détail par poste disponible', 'Dates incohérentes',
+    ]];
+    lignes.forEach((l) => aoaDetail.push([
+      l['id'], l['numeroCamion'], l['typeOperation'], l['declaration'],
+      fmtJ(l['dateCreation']), fmtJ(l['dateSortie']),
+      ...POSTES.map((x) => dureeLisible(l[x] as number | null)),
+      dureeLisible(l['global'] as number | null),
+      l['approx'] ? 'non' : 'oui', l['incoherent'] ? 'OUI' : '',
+    ]));
+
+    return fichier('Temps_de_passage', 'xlsx', [
+      { nom: 'Synthèse par poste', aoa: [[periode], [], ...[entetesPoste], ...lignesPoste] },
+      { nom: 'Moyennes par jour', aoa: aoaJour },
+      { nom: 'Détail par dossier', aoa: aoaDetail },
+    ]);
+  }
+  return data;
 }
 
 /* ===================== Bon de chargement / listes ===================== */

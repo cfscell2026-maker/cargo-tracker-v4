@@ -1587,3 +1587,101 @@ test('stock.lookup : distingue absent, au parc non pointé, positionné et dépo
   assert.equal(depote['depote'], true);
   assert.equal(depote['cargaisonId'], 'CT-2026-000001');
 });
+
+/* ---------------- v4.2 : temps de passage par poste -------------------- */
+
+/**
+ * ⚠ La base en mémoire n'a pas de déclencheur SQL : `date_fin_chargement` est
+ * posée en production par `fn_marquer_fin_chargement` (migration 00110). On la
+ * renseigne donc explicitement ici, comme le ferait la base — sinon tous les
+ * dossiers de test seraient « détail par poste indisponible » et le test ne
+ * vérifierait rien de ce qui compte.
+ */
+function semerDossier(db: FakeDB, id: string, jour: string, heures: Record<string, number | null>) {
+  const t = (h: number | null) => (h === null ? null : new Date(`${jour}T06:00:00Z`).getTime() + h * 3600000);
+  const iso = (h: number | null) => { const v = t(h); return v === null ? null : new Date(v).toISOString(); };
+  db.store['cargaisons'].push({
+    id, numero_camion: 'TPS' + id.slice(-2), type_operation: 'Enlèvement', statut: heures['sortie'] === null ? 'GPS Installé' : 'Sortie Enregistrée',
+    date_creation: iso(0), date_fin_chargement: iso(heures['fin'] ?? 0),
+    date_validation: iso(heures['validation'] ?? null), date_t1: iso(heures['t1'] ?? null),
+    date_pose_gps: iso(heures['balise'] ?? null), date_bon_sortie: iso(heures['bs'] ?? null),
+    date_sortie: iso(heures['sortie'] ?? null),
+    annule: false, est_vehicule: false, conteneurs_details: { conteneurs: [], scellesCamion: [] },
+    numero_declaration: '12345', annee_declaration: '2026', bureau_declaration: 'TG120', type_declaration: 'T',
+  });
+}
+
+test('temps de passage : moyennes par poste, global, et cohorte par jour d\'entrée', async () => {
+  const db = new FakeDB();
+  // Deux dossiers le même jour : CFS 2 h et 4 h → moyenne 3 h.
+  semerDossier(db, 'CT-2026-900001', '2026-08-10', { fin: 2, validation: 3, t1: 5, balise: 6, bs: 4, sortie: 7 });
+  semerDossier(db, 'CT-2026-900002', '2026-08-10', { fin: 4, validation: 5, t1: 6, balise: 7, bs: 5, sortie: 9 });
+  // Un dossier le lendemain, encore dans l'enceinte : compte dans l'effectif,
+  // mais ne pèse pas sur les moyennes de sortie.
+  semerDossier(db, 'CT-2026-900003', '2026-08-11', { fin: 1, validation: null, t1: 2, balise: 3, bs: null, sortie: null });
+
+  const r = await rap.rapportTemps(ctxRole(db, 'CHEF_BRIGADE', 'Chef'), { du: '2026-08-10', au: '2026-08-11' }) as {
+    compte: Record<string, number>;
+    global: { n: number; moyenne: number | null };
+    postes: { poste: string; n: number; moyenne: number | null }[];
+    parJour: Record<string, unknown>[];
+    lignes: Record<string, unknown>[];
+  };
+
+  assert.equal(r.compte['dossiers'], 3);
+  assert.equal(r.compte['sortis'], 2);
+  assert.equal(r.compte['sansFin'], 0, 'la date de fin de chargement est renseignée sur les trois');
+
+  // CFS : 2 h et 4 h et 1 h → moyenne 140 min.
+  const cfs = r.postes.find((x) => x.poste === 'cfs')!;
+  assert.equal(cfs.n, 3);
+  assert.equal(cfs.moyenne, 140);
+
+  // GLOBAL : seuls les DEUX dossiers sortis sont mesurables (7 h et 9 h → 8 h).
+  assert.equal(r.global.n, 2, 'un dossier non sorti ne fausse pas la moyenne globale');
+  assert.equal(r.global.moyenne, 480);
+
+  // Porte Principale : depuis le dernier jalon exigé (balise à 6 h → sortie 7 h
+  // = 1 h ; balise à 7 h → sortie 9 h = 2 h) → moyenne 90 min.
+  const pp = r.postes.find((x) => x.poste === 'pp')!;
+  assert.equal(pp.n, 2);
+  assert.equal(pp.moyenne, 90);
+
+  // Cohorte : deux jours, le dossier du 11 rattaché à SON jour d'entrée.
+  assert.equal(r.parJour.length, 2);
+  assert.equal(r.parJour[0]!['jour'], '2026-08-10');
+  assert.equal(r.parJour[0]!['dossiers'], 2);
+  assert.equal(r.parJour[0]!['cfs'], 3, 'moyenne CFS du 10 août en heures décimales');
+  assert.equal(r.parJour[1]!['n_global'], 0, 'le 11 août : aucun dossier encore sorti');
+});
+
+test('temps de passage : export imprimable (synthèse par poste)', async () => {
+  const db = new FakeDB();
+  semerDossier(db, 'CT-2026-900010', '2026-08-10', { fin: 1, validation: 2, t1: 3, balise: 4, bs: 2, sortie: 5 });
+  // (xlsx = import npm:xlsx, testable côté Deno seulement ; ici on valide le PDF pur JS.)
+  const r = await rap.rapportTemps(ctxRole(db, 'ADMIN', 'Admin'),
+    { du: '2026-08-10', au: '2026-08-10', format: 'pdf' }) as { html: string };
+  assert.match(r.html, /Temps de passage par poste/);
+  assert.match(r.html, /CFS \(chargement\)/);
+  assert.match(r.html, /GLOBAL — entrée du camion → sortie PP/);
+  assert.match(r.html, /1 h/, 'les durées sortent en clair, pas en minutes brutes');
+});
+
+test('temps de passage : sans fin de chargement, le global reste exact', async () => {
+  const db = new FakeDB();
+  // Cargaison migrée : pas de date_fin_chargement (le déclencheur n'existait pas).
+  db.store['cargaisons'].push({
+    id: 'CT-2026-800001', numero_camion: 'OLD01', type_operation: 'Enlèvement', statut: 'Sortie Enregistrée',
+    date_creation: '2026-08-10T06:00:00.000Z', date_fin_chargement: null,
+    date_t1: '2026-08-10T09:00:00.000Z', date_pose_gps: '2026-08-10T10:00:00.000Z',
+    date_sortie: '2026-08-10T12:00:00.000Z', annule: false, est_vehicule: false,
+    conteneurs_details: { conteneurs: [], scellesCamion: [] },
+  });
+  const r = await rap.rapportTemps(ctxRole(db, 'ADMIN', 'Admin'), { du: '2026-08-10', au: '2026-08-10' }) as {
+    compte: Record<string, number>; global: { moyenne: number | null }; postes: { poste: string; n: number }[];
+  };
+  assert.equal(r.compte['sansFin'], 1, 'le dossier est compté comme « détail par poste indisponible »');
+  assert.equal(r.global.moyenne, 360, 'entrée → sortie PP = 6 h, mesurable sans fin de chargement');
+  assert.equal(r.postes.find((x) => x.poste === 'cfs')!.n, 0, 'le temps CFS n\'est pas inventé');
+  assert.equal(r.postes.find((x) => x.poste === 'pp')!.n, 1, 'la PP reste mesurable : elle part du dernier jalon');
+});

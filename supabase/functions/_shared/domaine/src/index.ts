@@ -4,6 +4,7 @@
  */
 export * from './constantes.ts';
 export * from './workflow.ts';
+export * from './delais.ts';
 export * from './normalisation.ts';
 export * from './construction.ts';
 export * from './permissions.ts';

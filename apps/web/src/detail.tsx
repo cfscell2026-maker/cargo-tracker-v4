@@ -245,14 +245,15 @@ function Timeline({ c }: { c: O }) {
     cfs: c['statut'] !== STATUTS.CAMION && c['statut'] !== STATUTS.CHARGEMENT && c['statut'] !== STATUTS.VEHICULE_OUILLAGE,
     valide: !!c['dateValidation'], t1: estOui(c['sauteT1']) || !!c['dateT1'],
     balise: estOui(c['sauteBalise']) || estOui(c['estVehicule']) || !!c['datePoseGps'],
-    bs: estOui(c['sauteBS']) || !!c['bonSortieNumero'], pp: c['statut'] === STATUTS.SORTIE,
+    // `sauteBs` (camelCase de la colonne) ET `sauteBS` (payload client) — cf. workflow.ts.
+    bs: estOui(c['sauteBS']) || estOui(c['sauteBs']) || !!c['bonSortieNumero'], pp: c['statut'] === STATUTS.SORTIE,
   };
   const steps: [boolean, string, string][] = [
     [e.cfs, 'CFS — chargement', c['agentCfs'] ? `${c['agentCfs']}` : ''],
     [e.valide, 'Validation chef brigade', c['agentValidation'] ? `${c['agentValidation']} · ${fmtDate(c['dateValidation'])}` : ''],
     [e.t1, estOui(c['sauteT1']) ? 'T1 (sauté)' : 'T1', c['agentT1'] ? `${c['agentT1']} · ${fmtDate(c['dateT1'])}` : ''],
     [e.balise, estOui(c['estVehicule']) || estOui(c['sauteBalise']) ? 'Balise (sautée)' : (c['numeroGps'] ? 'Balisé' : 'Balise/Dispense'), c['datePoseGps'] ? `${c['agentBalise']} · ${fmtDate(c['datePoseGps'])}` : ''],
-    [e.bs, estOui(c['sauteBS']) ? 'Bon de sortie (sauté)' : 'Bon de sortie', c['dateBonSortie'] ? `${c['agentBonSortie']} · ${fmtDate(c['dateBonSortie'])}` : ''],
+    [e.bs, (estOui(c['sauteBS']) || estOui(c['sauteBs'])) ? 'Bon de sortie (sauté)' : 'Bon de sortie', c['dateBonSortie'] ? `${c['agentBonSortie']} · ${fmtDate(c['dateBonSortie'])}` : ''],
     [e.pp, 'Sortie (PP)', c['dateSortie'] ? `${c['agentPp']} · ${fmtDate(c['dateSortie'])}` : ''],
   ];
   // Cargaison clôturée : une étape non faite ne le sera plus → on l'affiche

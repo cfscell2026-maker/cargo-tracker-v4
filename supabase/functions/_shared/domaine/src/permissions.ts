@@ -125,6 +125,10 @@ export const PERMISSIONS: Record<string, Role[]> = {
   'report.destinations': [ROLES.CFS, ROLES.PP, ROLES.CHEF_BRIGADE, ROLES.ADMIN], // v4.1 : répartition par destination
   'report.controles': [ROLES.CHEF_BRIGADE, ROLES.CHEF_BRIGADE_ADJOINT, ROLES.CHEF_VISITE, ROLES.CHEF_DIVISION, ROLES.ADMIN], // v4.1 : hors gabarit / surcharge / transit
   'report.dwell': [ROLES.CFS, ROLES.CHEF_BRIGADE, ROLES.ADMIN],
+  // v4.2 — Temps de passage par poste. Indicateur de performance des cellules :
+  // il se lit à l'échelle du service, donc l'encadrement au complet, plus le CFS
+  // qui pilote le flux au quotidien.
+  'report.temps': [ROLES.CFS, ROLES.CHEF_BRIGADE, ROLES.CHEF_BRIGADE_ADJOINT, ROLES.CHEF_VISITE, ROLES.CHEF_DIVISION, ROLES.ADMIN],
   'report.dwelldetail': [ROLES.CFS, ROLES.CHEF_BRIGADE, ROLES.ADMIN],
   'report.list': [ROLES.ADMIN],
   'report.history': [ROLES.ADMIN],

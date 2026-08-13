@@ -104,6 +104,7 @@ export const ACTIONS: Record<string, H> = {
   'report.fluxdetail': d(rap.rapportFluxDetail),
   'report.destinations': d(rap.rapportDestinations), // v4.1 : camions sortis par destination
   'report.controles': d(rap.rapportControles), // v4.1 : hors gabarit / surcharge / transit national
+  'report.temps': d(rap.rapportTemps), // v4.2 : temps de passage par poste
   'report.dwell': d(rap.rapportSejour),
   'report.dwelldetail': d(rap.rapportSejourDetail),
   'report.list': d(rap.rapportListe),
