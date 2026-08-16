@@ -13,7 +13,7 @@
  * ============================================================================
  */
 
-import { STATUTS, type Statut } from './constantes.ts';
+import { STATUTS, estTypeSansT1, type Statut } from './constantes.ts';
 
 /** Étapes possibles d'une cargaison. */
 export type Etape = 'CFS' | 'VALIDATION' | 'T1' | 'BALISE' | 'BS' | 'PP';
@@ -27,6 +27,13 @@ export interface SourceEtapes {
   statut: Statut | string;
   sauteValidation?: unknown; // ⚠ champ fantôme v3.6 (I-2) : jamais alimenté — conservé à l'identique
   dateValidation?: unknown;
+  /**
+   * Type de déclaration (T/C/S/A/E). Les types HORS TRANSIT (C = conso,
+   * A = admission) sautent le T1 PAR NATURE. On le lit ici pour que le saut soit
+   * honoré même quand le flag `sauteT1` n'a pas été persisté (données migrées,
+   * type corrigé après coup, déclarant saisi tardivement) — cf. `etatCellules`.
+   */
+  typeDeclaration?: unknown;
   sauteT1?: unknown;
   dateT1?: unknown;
   sauteBalise?: unknown;
@@ -73,15 +80,29 @@ export function etatCellules(c: SourceEtapes): EtatCellules {
     c.statut === STATUTS.CAMION ||
     c.statut === STATUTS.CHARGEMENT ||
     c.statut === STATUTS.VEHICULE_OUILLAGE;
+  const sorti = c.statut === STATUTS.SORTIE;
+  // T1 fait, sauté par flag, OU sauté PAR NATURE (type hors transit C/A). Le
+  // « par nature » rattrape les cargaisons dont le flag `saute_t1` n'a pas été
+  // écrit — sans quoi un type A/C réclamait indûment le T1.
+  const t1 = estOui(c.sauteT1) || estTypeSansT1(c.typeDeclaration) || aFait(c.dateT1);
   return {
     cfs: !enCharge, // fin de chargement atteinte (≥ « Créée »)
-    valide: estOui(c.sauteValidation) || aFait(c.dateValidation), // v3.0 : signature du chef brigade
-    t1: estOui(c.sauteT1) || aFait(c.dateT1),
+    // CASCADE DESCENDANTE (décision utilisateur 2026-08-15) — « réputé validé » :
+    // la validation du chef brigade est réputée acquise dès que l'étape suivante
+    // (le T1, RÉELLEMENT saisi) est faite, ou dès que le camion est SORTI. On ne
+    // fabrique AUCUNE signature : c'est une déduction d'affichage/de file, qui
+    // vide les fausses « en attente de validation » des camions déjà partis ou
+    // déjà passés en T1. La vraie signature (table `validations`) reste seule
+    // preuve probante quand elle existe.
+    valide: estOui(c.sauteValidation) || aFait(c.dateValidation) || aFait(c.dateT1) || sorti,
+    t1,
     balise: estOui(c.sauteBalise) || estOui(c.estVehicule) || aFait(c.datePoseGps),
     // v3.6 : ouillage saute le bon de sortie. Les DEUX orthographes sont lues —
     // voir le commentaire de `sauteBs` dans SourceEtapes.
-    bs: estOui(c.sauteBS) || estOui(c.sauteBs) || aFait(c.bonSortieNumero),
-    sorti: c.statut === STATUTS.SORTIE,
+    // CASCADE : un camion SORTI (passé la PP) n'attend plus son bon de sortie —
+    // il est réputé acquis, ce qui vide les fausses « en attente Bon de sortie ».
+    bs: estOui(c.sauteBS) || estOui(c.sauteBs) || aFait(c.bonSortieNumero) || sorti,
+    sorti,
   };
 }
 

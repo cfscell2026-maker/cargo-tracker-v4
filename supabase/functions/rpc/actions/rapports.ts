@@ -1125,7 +1125,11 @@ export async function validationParDeclaration(ctx: Ctx, p: Record<string, unkno
   const r = await collecterParDeclaration(ctx, p, (c) =>
     etatCellules(c as never).cfs && c['statut'] !== STATUTS.SORTIE);
   const lignes = [...r.camions, ...r.vehicules];
-  const aValider = lignes.filter((l) => !aFait(l['dateValidation']));
+  // « À valider » = réellement encore en attente de validation. On s'appuie sur
+  // le moteur (etapesEnAttente 'VALIDATION') et non sur `dateValidation` seul :
+  // ainsi la CASCADE (T1 fait ou camion sorti ⇒ validation réputée acquise) ne
+  // laisse plus de camions déjà avancés dans le lot à signer.
+  const aValider = lignes.filter((l) => enAttente(l));
   return {
     ...r,
     aValider: aValider.map((l) => l['id']),

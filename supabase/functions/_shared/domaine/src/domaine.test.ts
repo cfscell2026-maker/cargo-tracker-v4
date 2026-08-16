@@ -59,6 +59,43 @@ test('conso non balisée : sauts T1 + Balise → Bon de sortie + PP', () => {
   assert.deepEqual(etapesEnAttente(c), ['BS', 'PP']);
 });
 
+test('type A/C SANS flag saute_t1 : le T1 est sauté PAR NATURE (régression 2026-08-15)', () => {
+  // Données migrées / type corrigé après coup : le flag n'a pas été écrit.
+  const a = { statut: STATUTS.CREEE, dateValidation: 'x', typeDeclaration: 'A' };
+  assert.equal(etatCellules(a).t1, true);
+  assert.equal(etapesEnAttente(a).includes('T1'), false);
+  const c = { statut: STATUTS.CREEE, dateValidation: 'x', typeDeclaration: 'C' };
+  assert.equal(etapesEnAttente(c).includes('T1'), false);
+  // Le transit, lui, garde le T1.
+  const t = { statut: STATUTS.CREEE, dateValidation: 'x', typeDeclaration: 'T' };
+  assert.equal(etapesEnAttente(t).includes('T1'), true);
+});
+
+test('cascade : T1 fait ⇒ validation chef brigade réputée acquise (2026-08-15)', () => {
+  // T1 saisi mais chef brigade jamais passé : la validation ne doit plus être
+  // réclamée (cascade descendante), sans qu'aucune signature n'ait été écrite.
+  const c = { statut: STATUTS.T1, dateT1: 'x', datePoseGps: 'x' };
+  assert.equal(etatCellules(c).valide, true);
+  assert.equal(etapesEnAttente(c).includes('VALIDATION'), false);
+});
+
+test('cascade : camion sorti ⇒ validation ET bon de sortie réputés acquis (2026-08-15)', () => {
+  // Camion déjà passé à la PP sans validation ni bon de sortie enregistrés :
+  // il ne doit plus figurer dans AUCUNE file d'attente.
+  const c = { statut: STATUTS.SORTIE };
+  const e = etatCellules(c);
+  assert.equal(e.valide, true);
+  assert.equal(e.bs, true);
+  assert.deepEqual(etapesEnAttente(c), []);
+});
+
+test('cascade : un camion NON sorti et sans T1 attend TOUJOURS sa validation', () => {
+  // La cascade ne doit pas dispenser un camion encore sur site et non avancé.
+  const c = { statut: STATUTS.CREEE, typeDeclaration: 'T' };
+  assert.equal(etatCellules(c).valide, false);
+  assert.equal(etapesEnAttente(c).includes('VALIDATION'), true);
+});
+
 test('ouillage saute le BS', () => {
   const c = { statut: STATUTS.T1, dateValidation: 'x', dateT1: 'x', sauteBalise: 'Oui', sauteBS: 'Oui' };
   assert.deepEqual(etapesEnAttente(c), ['PP']);

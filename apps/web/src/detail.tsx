@@ -241,19 +241,32 @@ function PanneauSupprimer({ c, apresSuppression }: { c: O; apresSuppression: () 
 }
 
 function Timeline({ c }: { c: O }) {
+  const pp = c['statut'] === STATUTS.SORTIE;
+  // CASCADE DESCENDANTE (cf. workflow.ts / etatCellules) : la validation chef
+  // brigade est RÉPUTÉE acquise dès que le T1 est saisi ou que le camion est
+  // sorti ; le bon de sortie est réputé acquis dès la sortie. Aucune signature
+  // n'est fabriquée — c'est un état déduit, signalé « (réputée) » ci-dessous.
+  const valideReel = !!c['dateValidation'];
+  const bsReel = estOui(c['sauteBS']) || estOui(c['sauteBs']) || !!c['bonSortieNumero'];
   const e = {
     cfs: c['statut'] !== STATUTS.CAMION && c['statut'] !== STATUTS.CHARGEMENT && c['statut'] !== STATUTS.VEHICULE_OUILLAGE,
-    valide: !!c['dateValidation'], t1: estOui(c['sauteT1']) || !!c['dateT1'],
+    // T1 sauté par nature pour les types hors transit (C/A), même si le flag
+    // `sauteT1` n'a pas été persisté — cf. workflow.ts / etatCellules.
+    valide: valideReel || !!c['dateT1'] || pp, t1: estOui(c['sauteT1']) || estTypeSansT1(c['typeDeclaration']) || !!c['dateT1'],
     balise: estOui(c['sauteBalise']) || estOui(c['estVehicule']) || !!c['datePoseGps'],
     // `sauteBs` (camelCase de la colonne) ET `sauteBS` (payload client) — cf. workflow.ts.
-    bs: estOui(c['sauteBS']) || estOui(c['sauteBs']) || !!c['bonSortieNumero'], pp: c['statut'] === STATUTS.SORTIE,
+    bs: bsReel || pp, pp,
   };
   const steps: [boolean, string, string][] = [
     [e.cfs, 'CFS — chargement', c['agentCfs'] ? `${c['agentCfs']}` : ''],
-    [e.valide, 'Validation chef brigade', c['agentValidation'] ? `${c['agentValidation']} · ${fmtDate(c['dateValidation'])}` : ''],
-    [e.t1, estOui(c['sauteT1']) ? 'T1 (sauté)' : 'T1', c['agentT1'] ? `${c['agentT1']} · ${fmtDate(c['dateT1'])}` : ''],
+    [e.valide, 'Validation chef brigade',
+      c['agentValidation'] ? `${c['agentValidation']} · ${fmtDate(c['dateValidation'])}`
+        : (e.valide && !valideReel ? 'réputée (T1/sortie effectué)' : '')],
+    [e.t1, (estOui(c['sauteT1']) || estTypeSansT1(c['typeDeclaration'])) && !c['dateT1'] ? 'T1 (sauté)' : 'T1', c['agentT1'] ? `${c['agentT1']} · ${fmtDate(c['dateT1'])}` : ''],
     [e.balise, estOui(c['estVehicule']) || estOui(c['sauteBalise']) ? 'Balise (sautée)' : (c['numeroGps'] ? 'Balisé' : 'Balise/Dispense'), c['datePoseGps'] ? `${c['agentBalise']} · ${fmtDate(c['datePoseGps'])}` : ''],
-    [e.bs, (estOui(c['sauteBS']) || estOui(c['sauteBs'])) ? 'Bon de sortie (sauté)' : 'Bon de sortie', c['dateBonSortie'] ? `${c['agentBonSortie']} · ${fmtDate(c['dateBonSortie'])}` : ''],
+    [e.bs, (estOui(c['sauteBS']) || estOui(c['sauteBs'])) ? 'Bon de sortie (sauté)' : 'Bon de sortie',
+      c['dateBonSortie'] ? `${c['agentBonSortie']} · ${fmtDate(c['dateBonSortie'])}`
+        : (e.bs && !bsReel ? 'réputé (sortie effectuée)' : '')],
     [e.pp, 'Sortie (PP)', c['dateSortie'] ? `${c['agentPp']} · ${fmtDate(c['dateSortie'])}` : ''],
   ];
   // Cargaison clôturée : une étape non faite ne le sera plus → on l'affiche

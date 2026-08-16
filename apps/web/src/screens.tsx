@@ -1714,6 +1714,10 @@ const qVide = (): QDecl => ({ numeroDeclaration: '', anneeDeclaration: '', burea
 
 function ValidationDeclaration({ go, arg, retour, ecranPrecedent }: Nav) {
   const [q, setQ] = useState<QDecl>(qVide());
+  // v4.3 (décision utilisateur 2026-08-15) — sélection de PLUSIEURS déclarations
+  // pour les signer d'un seul geste. `sel` est indexé par la clé de déclaration.
+  const [sel, setSel] = useState<Record<string, QDecl>>({});
+  const [groupe, setGroupe] = useState(false);
   // La déclaration ouverte vit dans l'ARGUMENT D'ÉCRAN, pas dans un état local :
   // ainsi, ouvrir une fiche de cargaison puis revenir rouvre le dossier là où on
   // l'avait laissé, au lieu de retomber sur la file d'attente.
@@ -1728,11 +1732,26 @@ function ValidationDeclaration({ go, arg, retour, ecranPrecedent }: Nav) {
     reload={reload} fermer={() => (ecranPrecedent === 'wait_valid' ? retour() : go('wait_valid'))} go={go} />;
 
   const decls = (data?.['declarations'] as O[]) ?? [];
+  const selCles = Object.keys(sel);
+  const cleDe = (r: O): QDecl => ({
+    numeroDeclaration: String(r['numeroDeclaration']), anneeDeclaration: String(r['anneeDeclaration'] ?? ''),
+    bureauDeclaration: String(r['bureauDeclaration'] ?? ''), typeDeclaration: String(r['typeDeclaration'] ?? ''),
+  });
+  const basculer = (r: O) => {
+    const k = String(r['cle']);
+    setSel((s) => { const n = { ...s }; if (n[k]) delete n[k]; else n[k] = cleDe(r); return n; });
+  };
+
+  if (groupe) return <ValidationGroupee cles={Object.values(sel)} go={go}
+    fermer={() => setGroupe(false)}
+    onDone={() => { setSel({}); setGroupe(false); reload(); }} />;
+
   return <div className="card">
     <h2>Déclarations à valider</h2>
     <p className="help" style={{ marginTop: 0 }}>
       Ouvrez une déclaration pour examiner <b>tous</b> ses camions, véhicules et conteneurs,
-      puis signer l'ensemble en une fois.
+      puis signer l'ensemble en une fois — ou <b>cochez plusieurs déclarations</b> et validez-les
+      toutes d'un même geste.
     </p>
     <div className="row" style={{ alignItems: 'flex-end', gap: 8, marginBottom: 12 }}>
       <div style={{ flex: 1, minWidth: 200 }}><label className="help">Ouvrir directement un N° de déclaration</label>
@@ -1746,14 +1765,34 @@ function ValidationDeclaration({ go, arg, retour, ecranPrecedent }: Nav) {
     {loading ? <Spinner /> : error ? <div className="err-msg">{error}</div> : decls.length === 0
       ? <div className="empty">Aucune déclaration en attente de validation.</div>
       : <>
-        <div className="help" style={{ marginBottom: 6 }}>{decls.length} déclaration(s) en attente — la plus ancienne en tête.</div>
+        <div className="row" style={{ alignItems: 'center', justifyContent: 'space-between', marginBottom: 6, gap: 8 }}>
+          <div className="help">{decls.length} déclaration(s) en attente — la plus ancienne en tête. Cochez pour valider en lot.</div>
+          <div className="row" style={{ alignItems: 'center', gap: 8 }}>
+            {selCles.length > 0 && <button className="ghost xs" onClick={() => setSel({})}>Tout décocher</button>}
+            <button disabled={selCles.length === 0} onClick={() => setGroupe(true)}>
+              ✔ Valider la sélection{selCles.length ? ` (${selCles.length})` : ''}
+            </button>
+          </div>
+        </div>
         <div className="tbl"><table>
-          <thead><tr><th>Déclaration</th><th>Déclarant</th><th>Camions</th><th>Véhicules</th><th>Conteneurs</th><th>Plus ancienne</th></tr></thead>
+          <thead><tr>
+            <th style={{ width: 28 }}>
+              <input type="checkbox" aria-label="Tout sélectionner"
+                checked={selCles.length === decls.length && decls.length > 0}
+                onChange={(e) => setSel(e.target.checked
+                  ? Object.fromEntries(decls.map((r) => [String(r['cle']), cleDe(r)]))
+                  : {})} />
+            </th>
+            <th>Déclaration</th><th>Déclarant</th><th>Camions</th><th>Véhicules</th><th>Conteneurs</th><th>Plus ancienne</th>
+          </tr></thead>
           <tbody>{decls.map((r) => (
-            <tr key={String(r['cle'])} className="clk" onClick={() => ouvrir({
-              numeroDeclaration: String(r['numeroDeclaration']), anneeDeclaration: String(r['anneeDeclaration'] ?? ''),
-              bureauDeclaration: String(r['bureauDeclaration'] ?? ''), typeDeclaration: String(r['typeDeclaration'] ?? ''),
-            })}>
+            <tr key={String(r['cle'])} className="clk"
+              style={sel[String(r['cle'])] ? { background: 'var(--warn-soft)' } : undefined}
+              onClick={() => ouvrir(cleDe(r))}>
+              <td onClick={(e) => e.stopPropagation()}>
+                <input type="checkbox" aria-label={`Sélectionner ${String(r['libelle'])}`}
+                  checked={!!sel[String(r['cle'])]} onChange={() => basculer(r)} />
+              </td>
               <td className="mono">{String(r['libelle'])}</td><td>{String(r['declarant'] || '—')}</td>
               <td>{String(r['camions'])}</td><td>{String(r['vehicules'])}</td><td>{String(r['conteneurs'])}</td>
               <td>{fmtJour(r['plusAncienne'])}</td>
@@ -1761,6 +1800,82 @@ function ValidationDeclaration({ go, arg, retour, ecranPrecedent }: Nav) {
           ))}</tbody>
         </table></div>
       </>}
+  </div>;
+}
+
+/**
+ * v4.3 — VALIDATION GROUPÉE sur PLUSIEURS déclarations (décision utilisateur
+ * 2026-08-15). Le chef brigade coche plusieurs dossiers dans la file, les
+ * parcourt regroupés par déclaration, renseigne la pesée de chaque camion, puis
+ * signe l'ensemble en UN seul appel `cargo.validerlot`. Chaque cargaison reçoit
+ * malgré tout SA propre signature (garantie par validerLot) : une signature de
+ * lot n'aurait aucune valeur probante sur une fiche isolée.
+ */
+function ValidationGroupee({ cles, fermer, go, onDone }: {
+  cles: QDecl[]; fermer: () => void; go: Nav['go']; onDone: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [pesees, setPesees] = useState<Record<string, Pesee>>({});
+  const { data, loading, error } = useAsync<O[]>(
+    () => Promise.all(cles.map((c) => call<O>('report.validationdecl', c))),
+    [JSON.stringify(cles)]);
+  const dossiers = data ?? [];
+  const aValider = dossiers.flatMap((d) => (d['aValider'] as string[]) ?? []);
+  const setPesee = (id: string, p: Pesee) => setPesees((o) => ({ ...o, [id]: p }));
+  const peseesPretes = aValider.every((id) => peseeComplete(pesees[id]));
+
+  async function signer() {
+    if (!peseesPretes) { toast('Renseignez la pesée de chaque camion avant de signer.', 'err'); return; }
+    if (!window.confirm(
+      `Valider et signer ${aValider.length} cargaison(s) réparties sur ${cles.length} déclaration(s) ?\n\n`
+      + 'Votre signature numérique sera apposée sur chacune.')) return;
+    setBusy(true);
+    try {
+      const payloadPesees: Record<string, { enSurcharge: boolean; poidsSurcharge: string }> = {};
+      for (const id of aValider) { const p = pesees[id]!; payloadPesees[id] = { enSurcharge: p.enSurcharge === 'oui', poidsSurcharge: p.poids }; }
+      const r = await call<{ compte: O; erreurs: O[] }>('cargo.validerlot', { ids: aValider, pesees: payloadPesees });
+      const nb = Number(r.compte['validees'] ?? 0);
+      toast(`${nb} cargaison(s) validée(s)${r.erreurs.length ? ` · ${r.erreurs.length} en erreur` : ''}.`,
+        r.erreurs.length ? 'err' : 'ok');
+      r.erreurs.forEach((e) => toast(`${String(e['id'])} : ${String(e['message'])}`, 'err'));
+      onDone();
+    } catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(false); }
+  }
+
+  return <div>
+    <button className="ghost" onClick={fermer}>← Retour à la sélection</button>
+    <div className="card" style={{ marginTop: 10 }}>
+      <h2 style={{ margin: 0 }}>Validation groupée — {cles.length} déclaration(s)</h2>
+      {loading ? <Spinner /> : error ? <div className="err-msg">{error}</div> : <>
+        <div className="row" style={{ alignItems: 'center', marginTop: 12 }}>
+          <button disabled={busy || !peseesPretes || !aValider.length} onClick={signer}>
+            {busy ? 'Signature…' : `✔ Valider et signer les ${aValider.length} cargaison(s)`}
+          </button>
+          <span className="help">{!aValider.length ? 'Rien à valider dans la sélection.'
+            : peseesPretes ? 'Signature apposée sur chacune.' : 'Renseignez d\'abord la pesée de chaque camion ci-dessous.'}</span>
+        </div>
+
+        {dossiers.map((dos, i) => {
+          const d = (dos['declaration'] as O) ?? {};
+          const cam = (dos['camions'] as O[]) ?? [];
+          const veh = (dos['vehicules'] as O[]) ?? [];
+          const cpt = (dos['compte'] as O) ?? {};
+          return <div key={cles[i]?.numeroDeclaration ?? i} style={{ marginTop: 16 }}>
+            <div className="section-title">
+              Déclaration {String(d['numeroDeclaration'] ?? cles[i]?.numeroDeclaration ?? '—')}
+              {' — '}<span className="help">{String(d['declarant'] || '—')} · {Number(cpt['aValider'] ?? 0)} à valider</span>
+            </div>
+            {!cam.length && !veh.length && <div className="empty">Rien à valider pour cette déclaration.</div>}
+            {[['Camions', cam] as const, ['Véhicules', veh] as const].map(([titre, lst]) => lst.length
+              ? <div key={titre} style={{ marginTop: 8 }}>
+                <div className="help" style={{ marginBottom: 4 }}>{titre} ({lst.length})</div>
+                {lst.map((r) => <LigneValidation key={String(r['id'])} r={r} go={go}
+                  pesee={pesees[String(r['id'])]} onPesee={(p) => setPesee(String(r['id']), p)} />)}
+              </div> : null)}
+          </div>;
+        })}
+      </>}
+    </div>
   </div>;
 }
 
