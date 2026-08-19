@@ -144,6 +144,11 @@ export const PERMISSIONS: Record<string, Role[]> = {
   // il se lit à l'échelle du service, donc l'encadrement au complet, plus le CFS
   // qui pilote le flux au quotidien.
   'report.temps': [ROLES.CFS, ROLES.CHEF_BRIGADE, ROLES.CHEF_BRIGADE_ADJOINT, ROLES.CHEF_VISITE, ROLES.CHEF_DIVISION, ROLES.ADMIN],
+  // v4.3 — Horodatage / plage d'activité par cellule (2026-08-19). Chaque agent
+  // de cellule voit l'activité de TOUTE sa cellule (heures de début/fin, volume) ;
+  // l'encadrement voit l'ensemble.
+  'report.horodatage': [ROLES.CFS, ROLES.T1, ROLES.BALISE, ROLES.BON_SORTIE, ROLES.PP,
+    ROLES.CHEF_BRIGADE, ROLES.CHEF_BRIGADE_ADJOINT, ROLES.CHEF_VISITE, ROLES.CHEF_DIVISION, ROLES.ADMIN],
   'report.dwelldetail': [ROLES.CFS, ROLES.CHEF_BRIGADE, ROLES.ADMIN],
   'report.list': [ROLES.ADMIN],
   'report.history': [ROLES.ADMIN],

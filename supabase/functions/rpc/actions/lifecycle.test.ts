@@ -1304,6 +1304,20 @@ test('ENLÈVEMENT : validé SANS pesée (hors gabarit/surcharge = dépotage only
   assert.equal(c['poidsSurcharge'], '');
 });
 
+test('horodatage : plage d\'activité par cellule/agent (2026-08-19)', async () => {
+  const db = new FakeDB();
+  const cfs = ctxAvec(db); // agent « Agent CFS Un »
+  db.store['stock'].push({ numero_tc: 'MSKU5000001', taille: "40'", statut: 'En stock' });
+  const a = (await ecr.createcamion(cfs, { numeroCamion: 'HORO1', routage: 'Enlèvement' })) as { id: string };
+  await ecr.cfs(cfs, { id: a.id, conteneur: { num: 'MSKU5000001', taille: "40'", type: 'DRY', plomb: 'S1' }, declaration: DECL_OK });
+  const r = (await rap.rapportHorodatage(cfs, {})) as { rows: { cellule: string; agent: string; camions: number; debut: string; fin: string }[] };
+  const cfsRow = r.rows.find((x) => x.cellule === 'CFS');
+  assert.ok(cfsRow, 'une ligne d\'activité CFS est attendue');
+  assert.equal(cfsRow!.agent, 'Agent CFS Un');
+  assert.ok(cfsRow!.camions >= 1);
+  assert.match(cfsRow!.debut, /^\d\d:\d\d$/); // heure « HH:MM »
+});
+
 /* ---- v4.1 : entrepôts MAD & industriel (entrées / sorties / stats) ------- */
 import * as entrepot from './entrepots.ts';
 

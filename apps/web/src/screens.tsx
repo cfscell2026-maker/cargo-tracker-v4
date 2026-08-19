@@ -2572,6 +2572,55 @@ SCREENS.temps = ({ go }) => {
   </>;
 };
 
+/* --------- v4.3 : Horodatage / plage d'activité par cellule ------------ */
+/**
+ * Heures de travail de chaque cellule (2026-08-19) : pour la période choisie,
+ * chaque agent voit, PAR JOUR, son heure de début (1re action), de fin (dernière
+ * action), sa durée d'activité et le volume traité (camions / conteneurs). Chaque
+ * agent d'une cellule voit TOUTE la cellule (pas seulement lui-même).
+ */
+const CELLULES_HORODATAGE: [string, string][] = [
+  ['', 'Toutes les cellules'], ['CFS', 'CFS (entrée / chargement)'], ['VALIDATION', 'Validation (chef brigade)'],
+  ['T1', 'Cellule T1'], ['BALISE', 'Cellule Balise'], ['BS', 'Bon de sortie'], ['PP', 'Porte principale (sortie)'],
+];
+SCREENS.horodatage = () => {
+  const p = useReportRange('jour'); // par défaut : la journée d'aujourd'hui
+  const { du, au } = p;
+  const [cellule, setCellule] = useState('');
+  const { data, loading } = useAsync<O>(() => call('report.horodatage', { du, au, cellule }), [du, au, cellule]);
+  const rows = ((data?.['rows'] as O[]) ?? []).map((r) => ({
+    ...r, dureeTxt: dureeLisible(Number(r['dureeMin'] ?? 0)), jourTxt: fmtJour(String(r['jour'] ?? '')),
+  }));
+  const [busy, setBusy] = useState(false);
+  async function exporter() {
+    setBusy(true);
+    try { telecharger(await call<O>('report.horodatage', { du, au, cellule, format: 'xlsx' })); }
+    catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(false); }
+  }
+  return <div className="card">
+    <div className="row" style={{ flexWrap: 'wrap', alignItems: 'center' }}>
+      <h2 style={{ flex: 1 }}>Plage d'activité par cellule</h2><PeriodPicker p={p} />
+    </div>
+    <PeriodeLue p={p} />
+    <p className="help" style={{ marginTop: 0 }}>
+      Pour chaque cellule et chaque agent, PAR JOUR : heure de <b>début</b> (première action),
+      heure de <b>fin</b> (dernière action), <b>durée</b> d'activité et <b>volume</b> traité.
+    </p>
+    <div className="row" style={{ alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
+      <select value={cellule} onChange={(e) => setCellule(e.target.value)} style={{ maxWidth: 240 }}>
+        {CELLULES_HORODATAGE.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+      </select>
+      <span style={{ flex: 1 }} />
+      <button className="ghost xs" disabled={busy} onClick={exporter}>⤓ Excel</button>
+    </div>
+    {loading ? <Spinner /> : rows.length === 0
+      ? <div className="empty">Aucune activité sur la période.</div>
+      : <Table cols={[['celluleLibelle', 'Cellule'], ['agent', 'Agent'], ['jourTxt', 'Jour'],
+        ['debut', 'Début'], ['fin', 'Fin'], ['dureeTxt', 'Durée'], ['camions', 'Camions'], ['conteneurs', 'Conteneurs']]}
+        rows={rows} />}
+  </div>;
+};
+
 /**
  * Séries du graphique — même ordre et mêmes libellés que le serveur.
  *

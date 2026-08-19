@@ -298,6 +298,84 @@ export async function rapportActiviteDetail(ctx: Ctx, p: Record<string, unknown>
   return { kind: 'conteneurs', titre: metric in libTaille ? libTaille[metric] : 'Conteneurs', rows: conts };
 }
 
+/* ============= Horodatage / plage d'activité par cellule =============== */
+/**
+ * HORODATAGE PAR CELLULE — demande utilisateur 2026-08-19.
+ *
+ * Pour chaque cellule (CFS → PP) et chaque agent, PAR JOUR&nbsp;:
+ *   · heure de DÉBUT   = 1re action de l'agent ce jour-là sur cette cellule ;
+ *   · heure de FIN     = dernière action du même jour ;
+ *   · durée d'activité = fin − début ;
+ *   · volume traité    = nombre de camions et de conteneurs sur l'intervalle.
+ *
+ * Chaque passage est daté à SA cellule (comme les rapports de cellule)&nbsp;: un
+ * camion entré le matin compte pour le CFS du matin, sorti le soir compte pour la
+ * PP du soir. Le Togo étant à UTC+0, l'heure stockée EST l'heure locale&nbsp;: on
+ * lit donc les heures/jours directement en UTC, sans décalage.
+ */
+const CELLULES_HORO: { cle: string; libelle: string; dateCol: string; agentCols: string[] }[] = [
+  { cle: 'CFS', libelle: 'CFS (entrée / chargement)', dateCol: 'dateCreation', agentCols: ['agentCfs', 'agentEntree'] },
+  { cle: 'VALIDATION', libelle: 'Validation (chef brigade)', dateCol: 'dateValidation', agentCols: ['agentValidation'] },
+  { cle: 'T1', libelle: 'Cellule T1', dateCol: 'dateT1', agentCols: ['agentT1'] },
+  { cle: 'BALISE', libelle: 'Cellule Balise', dateCol: 'datePoseGps', agentCols: ['agentBalise'] },
+  { cle: 'BS', libelle: 'Bon de sortie', dateCol: 'dateBonSortie', agentCols: ['agentBonSortie'] },
+  { cle: 'PP', libelle: 'Porte principale (sortie)', dateCol: 'dateSortie', agentCols: ['agentPp'] },
+];
+const ORDRE_HORO: Record<string, number> = { CFS: 0, VALIDATION: 1, T1: 2, BALISE: 3, BS: 4, PP: 5 };
+/** Jour local (UTC, = heure locale au Togo) 'YYYY-MM-DD'. */
+const jourUTC = (d: Date) => d.toISOString().slice(0, 10);
+/** 'HH:MM' en UTC (= heure locale au Togo). */
+const heureUTC = (d: Date) => d.toISOString().slice(11, 16);
+
+export async function rapportHorodatage(ctx: Ctx, p: Record<string, unknown>) {
+  const du = p['du'] as string | undefined;
+  const au = p['au'] as string | undefined;
+  const celluleFiltre = String(p['cellule'] ?? '').trim(); // '' = toutes
+  const cargos = await loadCargos(ctx);
+
+  interface Grp { cellule: string; celluleLibelle: string; agent: string; jour: string; debut: Date; fin: Date; camions: number; conteneurs: number }
+  const map = new Map<string, Grp>();
+
+  for (const c of cargos) {
+    const nbC = detsDeRow(c).length || Number(c['nbConteneurs'] || 0);
+    for (const cell of CELLULES_HORO) {
+      if (celluleFiltre && cell.cle !== celluleFiltre) continue;
+      const v = c[cell.dateCol];
+      if (!v || !inRange(v, du, au)) continue;
+      const d = new Date(String(v));
+      if (isNaN(d.getTime())) continue;
+      let agent = '';
+      for (const k of cell.agentCols) { if (String(c[k] ?? '').trim()) { agent = String(c[k]).trim(); break; } }
+      if (!agent) agent = '— (agent non renseigné)';
+      const jour = jourUTC(d);
+      const key = cell.cle + '|' + agent.toLowerCase() + '|' + jour;
+      let g = map.get(key);
+      if (!g) { g = { cellule: cell.cle, celluleLibelle: cell.libelle, agent, jour, debut: d, fin: d, camions: 0, conteneurs: 0 }; map.set(key, g); }
+      if (d < g.debut) g.debut = d;
+      if (d > g.fin) g.fin = d;
+      g.camions++;
+      g.conteneurs += nbC;
+    }
+  }
+
+  const rows = [...map.values()].map((g) => ({
+    cellule: g.cellule, celluleLibelle: g.celluleLibelle, agent: g.agent, jour: g.jour,
+    debut: heureUTC(g.debut), fin: heureUTC(g.fin),
+    dureeMin: Math.max(0, Math.round((g.fin.getTime() - g.debut.getTime()) / 60000)),
+    camions: g.camions, conteneurs: g.conteneurs,
+  })).sort((a, b) =>
+    (ORDRE_HORO[a.cellule]! - ORDRE_HORO[b.cellule]!) ||
+    b.jour.localeCompare(a.jour) || // jours récents en tête
+    a.agent.localeCompare(b.agent));
+
+  if (p['format'] === 'xlsx') {
+    const aoa: unknown[][] = [['Cellule', 'Agent', 'Jour', 'Début', 'Fin', 'Durée (min)', 'Camions', 'Conteneurs']];
+    rows.forEach((r) => aoa.push([r.celluleLibelle, r.agent, r.jour, r.debut, r.fin, r.dureeMin, r.camions, r.conteneurs]));
+    return fichier('Horodatage_cellules', 'xlsx', [{ nom: 'Plages activité', aoa }]);
+  }
+  return { du, au, rows };
+}
+
 /* ==================== Fiche « tableau de bord » ======================== */
 /**
  * v4.1 — FICHE DE SYNTHÈSE reprenant, bloc par bloc, la fiche papier du chef
