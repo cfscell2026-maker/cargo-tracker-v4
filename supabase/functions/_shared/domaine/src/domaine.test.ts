@@ -6,7 +6,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   STATUTS, OPERATIONS, ROLES,
-  etatCellules, etapesEnAttente, prochaineEtape, estOui, aFait,
+  etatCellules, etapesEnAttente, fileAttente, prochaineEtape, estOui, aFait, exigeControlePoids,
   tcValide, maj, alphaNumMaj, normAlphaNum, declKey, normaliserDeclaration,
   parseConteneursDetails, parseDateImport, tailleBucket, evpDeTaille, trancheAge,
   verifierPermission, PERMISSIONS, TYPES_DECLARATION,
@@ -100,6 +100,38 @@ test('cascade : un camion NON sorti et sans T1 attend TOUJOURS sa validation', (
 test('ouillage saute le BS', () => {
   const c = { statut: STATUTS.T1, dateValidation: 'x', dateT1: 'x', sauteBalise: 'Oui', sauteBS: 'Oui' };
   assert.deepEqual(etapesEnAttente(c), ['PP']);
+});
+
+test('fileAttente : file UNIQUE et séquentielle (2026-08-19)', () => {
+  // Un dossier ne figure QUE dans une file = sa prochaine étape, dans l'ordre
+  // CFS → VALIDATION → T1 → BALISE → BS → PP.
+  assert.equal(fileAttente({ statut: STATUTS.CAMION }), 'CFS');
+  assert.equal(fileAttente({ statut: STATUTS.CREEE, typeDeclaration: 'T' }), 'VALIDATION');
+  assert.equal(fileAttente({ statut: STATUTS.CREEE, dateValidation: 'x', typeDeclaration: 'T' }), 'T1');
+  assert.equal(fileAttente({ statut: STATUTS.T1, dateValidation: 'x', dateT1: 'x' }), 'BALISE');
+  // Balise faite mais bon de sortie PAS émis → il attend le BON DE SORTIE (pas la PP).
+  assert.equal(fileAttente({ statut: STATUTS.T1, dateValidation: 'x', dateT1: 'x', datePoseGps: 'x' }), 'BS');
+  // Bon de sortie émis → et seulement là, il attend la SORTIE.
+  assert.equal(fileAttente({ statut: STATUTS.T1, dateValidation: 'x', dateT1: 'x', datePoseGps: 'x', bonSortieNumero: 'BS1' }), 'PP');
+  // Étapes sautées franchies automatiquement (conso non balisée → BS directement).
+  assert.equal(fileAttente({ statut: STATUTS.CREEE, dateValidation: 'x', sauteT1: 'Oui', sauteBalise: 'Oui' }), 'BS');
+  // Sorti → aucune file.
+  assert.equal(fileAttente({ statut: STATUTS.SORTIE }), null);
+});
+
+test('sorti = terminal même si le statut est resté intermédiaire (dateSortie)', () => {
+  // Donnée incohérente : date de sortie posée mais statut jamais passé à « Sortie ».
+  // Le dossier est SORTI : plus aucune file, plus aucune étape en attente.
+  const c = { statut: STATUTS.T1, dateSortie: '2026-08-19T10:00:00Z' };
+  assert.equal(etatCellules(c).sorti, true);
+  assert.deepEqual(etapesEnAttente(c), []);
+  assert.equal(fileAttente(c), null);
+});
+
+test('hors gabarit / surcharge : dépotage uniquement (2026-08-19)', () => {
+  assert.equal(exigeControlePoids(OPERATIONS.DEPOTAGE), true);
+  for (const op of [OPERATIONS.ENLEVEMENT, OPERATIONS.VEHICULE, OPERATIONS.CONSO, OPERATIONS.MAGASIN, '', undefined])
+    assert.equal(exigeControlePoids(op), false);
 });
 
 test('prochaineEtape = 1re en attente', () => {

@@ -15,7 +15,7 @@ import {
   ROLES, STATUTS, OPERATIONS, DEFAUTS, DESTINATION_CODES, codeDestination, TRANCHES_SEJOUR, SEUIL_ALERTE_SEJOUR,
   tailleBucket, evpDeTaille, trancheAge, parseConteneursDetails, estOui, aFait, normAlphaNum,
   groupesDeclaration, estChargementMixte, libelleDeclaration,
-  etapesEnAttente, etatCellules, estDispenseBalise,
+  etapesEnAttente, fileAttente, etatCellules, estDispenseBalise,
   // v4.2 — temps de passage par poste
   delaisDe, agreger, dureeLisible, enHeures, POSTES, LIBELLE_POSTE,
 } from '../../_shared/domaine/src/index.ts';
@@ -402,8 +402,11 @@ export async function ficheBord(ctx: Ctx, p: Record<string, unknown>) {
     // comptait AUSSI les véhicules (qui ne prennent pas de balise), les dispenses
     // et conso non balisées (jamais de balise à prendre), les camions encore en
     // chargement au CFS, et toute la base migrée restée à un statut intermédiaire.
-    // « En attente de balise » = l'étape BALISE figure dans les étapes restantes,
-    // ce qui exclut d'office véhicules / dispensés / balisés / sortis / pré-CFS.
+    // « Camions au parking » = PHYSIQUEMENT au parc en attente de pose de balise :
+    // tout camion à qui il reste la BALISE à faire (qu'il soit ou non déjà validé
+    // / passé au T1). On garde donc la MEMBRESHIP parallèle (etapesEnAttente), et
+    // NON la file unique (fileAttente) — ici on compte une présence au parc, pas
+    // une place dans la file séquentielle du tableau de bord.
     if (etapesEnAttente(c as never).indexOf('BALISE') >= 0) balise.parking++;
 
     /* --- BON DE SORTIE : à la date d'émission --- */
@@ -542,7 +545,7 @@ export async function rapportCargaisons(ctx: Ctx, p: Record<string, unknown>) {
     if (sansVeh && estOui(c['estVehicule'])) return false;
     if (!inRange(c['dateCreation'], du, au)) return false;
     if (statut && String(c['statut']) !== statut) return false;
-    if (etape && etapesEnAttente(c as never).indexOf(etape as never) < 0) return false;
+    if (etape && fileAttente(c as never) !== etape) return false; // file unique (2026-08-19)
     if (!correspond(c)) return false;
     return true;
   }).map((c) => ({

@@ -137,6 +137,19 @@ export function libelleTypeSansT1(typeDeclaration: unknown): string {
   return 'Type ' + t;
 }
 
+/**
+ * v4.3 — HORS GABARIT & SURCHARGE : DÉPOTAGE UNIQUEMENT (décision utilisateur
+ * 2026-08-19). Seul un dépotage (déchargement de conteneurs, marchandise pesée
+ * et mesurée à l'entrée) peut être hors gabarit ou en surcharge. Un enlèvement
+ * (conteneur plombé qui ressort), un véhicule, une conso ou une sortie magasin ne
+ * sont NI pesés NI contrôlés en gabarit&nbsp;: on ne demande donc plus la pesée à
+ * la validation pour ces opérations, et le hors gabarit ne les concerne pas.
+ * Source unique utilisée par le CFS (hauteur), la validation (pesée) et l'affichage.
+ */
+export function exigeControlePoids(typeOperation: unknown): boolean {
+  return String(typeOperation ?? '') === OPERATIONS.DEPOTAGE;
+}
+
 /** Destinations / régimes possibles pour un véhicule dépoté. */
 export const VEHICULE_DESTINATIONS = ['Transit', 'Conso', 'MAD', 'Véhicule abandonné'] as const;
 

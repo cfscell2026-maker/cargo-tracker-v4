@@ -1256,15 +1256,26 @@ async function camionAValider(db: FakeDB, plaque = 'PES001') {
   return id;
 }
 
-test('validation refusée sans pesée renseignée', async () => {
+// v4.3 — DÉPOTAGE prêt à valider : la pesée (surcharge) ne concerne QUE le
+// dépotage (2026-08-19), donc les tests de pesée doivent partir d'un dépotage.
+async function depotageAValider(db: FakeDB, plaque = 'DEP001', tc = 'MSKU8888888') {
+  db.store['stock'].push({ numero_tc: tc, taille: "40'", statut: 'Positionné' });
+  const cfs = ctxAvec(db);
+  const { id } = (await ecr.createcamion(cfs, { numeroCamion: plaque, routage: 'Dépotage' })) as { id: string };
+  await ecr.cfs(cfs, { id, conteneur: { num: tc, taille: "40'", type: 'DRY' }, declaration: DECL_OK });
+  await ecr.declaration(cfs, { id, hauteurChargement: '3', nbColis: '10', scellesCamion: ['S1', 'S2'] });
+  return id;
+}
+
+test('validation refusée sans pesée renseignée (dépotage)', async () => {
   const db = new FakeDB();
-  const id = await camionAValider(db);
+  const id = await depotageAValider(db);
   await assert.rejects(() => ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'), { id }), /Renseignez la pesée/);
 });
 
-test('pesée EN SURCHARGE : le poids est obligatoire puis enregistré', async () => {
+test('pesée EN SURCHARGE : le poids est obligatoire puis enregistré (dépotage)', async () => {
   const db = new FakeDB();
-  const id = await camionAValider(db, 'PES002');
+  const id = await depotageAValider(db, 'PES002', 'MSKU8888802');
   await assert.rejects(() => ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'), { id, enSurcharge: true }), /poids en surcharge/);
   await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'), { id, enSurcharge: true, poidsSurcharge: '1200' });
   const c = versCamel(db.store['cargaisons'][0]!);
@@ -1273,11 +1284,22 @@ test('pesée EN SURCHARGE : le poids est obligatoire puis enregistré', async ()
   assert.ok(c['dateValidation']);
 });
 
-test('pesée HORS SURCHARGE : validé sans poids, poids resté vide', async () => {
+test('pesée HORS SURCHARGE : validé sans poids, poids resté vide (dépotage)', async () => {
   const db = new FakeDB();
-  const id = await camionAValider(db, 'PES003');
+  const id = await depotageAValider(db, 'PES003', 'MSKU8888803');
   await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'), { id, enSurcharge: false });
   const c = versCamel(db.store['cargaisons'][0]!);
+  assert.equal(c['enSurcharge'], false);
+  assert.equal(c['poidsSurcharge'], '');
+});
+
+test('ENLÈVEMENT : validé SANS pesée (hors gabarit/surcharge = dépotage only, 2026-08-19)', async () => {
+  const db = new FakeDB();
+  const id = await camionAValider(db, 'ENL001'); // enlèvement
+  // Aucune pesée fournie : la validation passe quand même, hors surcharge.
+  await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'), { id });
+  const c = versCamel(db.store['cargaisons'][0]!);
+  assert.ok(c['dateValidation']);
   assert.equal(c['enSurcharge'], false);
   assert.equal(c['poidsSurcharge'], '');
 });

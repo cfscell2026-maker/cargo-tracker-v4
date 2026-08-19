@@ -9,7 +9,7 @@ import { Spinner, StatCard, Tag, Modal, masks, toast, fmtDate, fmtJour, ChampDes
 import { bornesDe, isoDate, normaliserPlage, type ModePeriode } from './lib/periode.ts';
 import { Detail } from './detail.tsx';
 import type { Nav } from './App.tsx';
-import { OPERATIONS, VEHICULE_DESTINATIONS, TYPES_DECLARATION, STATUTS, tcValide, etapesEnAttente, estTypeSansT1, libelleTypeSansT1, dureeLisible } from '../../../supabase/functions/_shared/domaine/src/index.ts';
+import { OPERATIONS, VEHICULE_DESTINATIONS, TYPES_DECLARATION, STATUTS, tcValide, fileAttente, estTypeSansT1, libelleTypeSansT1, exigeControlePoids, dureeLisible } from '../../../supabase/functions/_shared/domaine/src/index.ts';
 
 const STATUT_OPTIONS = Object.values(STATUTS);
 
@@ -161,8 +161,10 @@ SCREENS.dash = (nav) => {
       indépendamment de la période.
       {p.inversee && <span style={{ color: 'var(--warn)' }}> — dates inversées, remises à l'endroit</span>}</div></div>
     {loading ? <Spinner /> : <div className="stats">
-      {/* Événements datés sur la période — chacun ouvre le rapport / la liste correspondants. */}
+      {/* Événements datés sur la période — le travail EFFECTIF de chaque cellule
+          sur la période, compté à la date de la cellule (pas à la création). */}
       <StatCard n={Number(s['creesPeriode'] ?? 0)} l="Entrées CFS (période)" onClick={() => nav.go('cfsreport')} />
+      <StatCard n={Number(s['t1Periode'] ?? 0)} l="T1 saisis (période)" onClick={() => go(STATUTS.T1)} />
       <StatCard n={Number(s['balisesPeriode'] ?? 0)} l="Balisés (période)" onClick={() => nav.go('baliserep')} />
       <StatCard n={Number(s['bonsPeriode'] ?? 0)} l="Bons de sortie (période)" onClick={() => go(STATUTS.BS)} />
       <StatCard n={Number(s['sortiePeriode'] ?? 0)} l="Sortis (période)" tone="ok" onClick={() => nav.go('pprep')} />
@@ -987,8 +989,9 @@ const ETAPE_LABELS: Record<string, string> = {
   BALISE: 'Cellule Balise', BS: 'Bon de sortie', PP: 'Porte principale',
 };
 function avecEtape(r: O): O {
-  const pend = etapesEnAttente(r as never).map((e) => ETAPE_LABELS[e] ?? e);
-  return { ...r, etapeEnCours: pend.join(' + ') || '—' };
+  // File unique (2026-08-19) : une seule prochaine cellule, pas une liste parallèle.
+  const f = fileAttente(r as never);
+  return { ...r, etapeEnCours: f ? (ETAPE_LABELS[f] ?? f) : '—' };
 }
 
 /* --------------------- Nouveau (Véhicule/Conso/MAD) -------------------- */
@@ -1899,19 +1902,18 @@ function ValidationGroupee({ cles, fermer, go, onDone }: {
     [JSON.stringify(cles)]);
   const dossiers = data ?? [];
   const aValider = dossiers.flatMap((d) => (d['aValider'] as string[]) ?? []);
+  const aPeser = idsAPeser(dossiers);
   const setPesee = (id: string, p: Pesee) => setPesees((o) => ({ ...o, [id]: p }));
-  const peseesPretes = aValider.every((id) => peseeComplete(pesees[id]));
+  const peseesPretes = peseesLotPretes(aValider, aPeser, pesees);
 
   async function signer() {
-    if (!peseesPretes) { toast('Renseignez la pesée de chaque camion avant de signer.', 'err'); return; }
+    if (!peseesPretes) { toast('Renseignez la pesée de chaque dépotage avant de signer.', 'err'); return; }
     if (!window.confirm(
       `Valider et signer ${aValider.length} cargaison(s) réparties sur ${cles.length} déclaration(s) ?\n\n`
       + 'Votre signature numérique sera apposée sur chacune.')) return;
     setBusy(true);
     try {
-      const payloadPesees: Record<string, { enSurcharge: boolean; poidsSurcharge: string }> = {};
-      for (const id of aValider) { const p = pesees[id]!; payloadPesees[id] = { enSurcharge: p.enSurcharge === 'oui', poidsSurcharge: p.poids }; }
-      const r = await call<{ compte: O; erreurs: O[] }>('cargo.validerlot', { ids: aValider, pesees: payloadPesees });
+      const r = await call<{ compte: O; erreurs: O[] }>('cargo.validerlot', { ids: aValider, pesees: payloadPesees(aValider, pesees) });
       const nb = Number(r.compte['validees'] ?? 0);
       toast(`${nb} cargaison(s) validée(s)${r.erreurs.length ? ` · ${r.erreurs.length} en erreur` : ''}.`,
         r.erreurs.length ? 'err' : 'ok');
@@ -1970,20 +1972,19 @@ function DossierValidation({ decl, data, loading, error, reload, fermer, go }: {
   const d = (data?.['declaration'] as O) ?? {};
   const apu = data?.['apurement'] as O | null;
   const aValider = (data?.['aValider'] as string[]) ?? [];
+  const aPeser = idsAPeser(data ? [data] : []);
   const setPesee = (id: string, p: Pesee) => setPesees((o) => ({ ...o, [id]: p }));
-  // Toutes les cargaisons à valider doivent avoir une pesée complète.
-  const peseesPretes = aValider.every((id) => peseeComplete(pesees[id]));
+  // Chaque DÉPOTAGE à valider doit avoir une pesée complète ; le reste est prêt d'office.
+  const peseesPretes = peseesLotPretes(aValider, aPeser, pesees);
 
   async function signer() {
-    if (!peseesPretes) { toast('Renseignez la pesée de chaque camion avant de signer.', 'err'); return; }
+    if (!peseesPretes) { toast('Renseignez la pesée de chaque dépotage avant de signer.', 'err'); return; }
     if (!window.confirm(
       `Valider et signer ${aValider.length} cargaison(s) de la déclaration ${String(d['numeroDeclaration'] ?? decl.numeroDeclaration)} ?\n\n`
       + `${Number(cpt['conteneursAValider'] ?? 0)} conteneur(s) concerné(s). Votre signature numérique sera apposée sur chacune.`)) return;
     setBusy(true);
     try {
-      const payloadPesees: Record<string, { enSurcharge: boolean; poidsSurcharge: string }> = {};
-      for (const id of aValider) { const p = pesees[id]!; payloadPesees[id] = { enSurcharge: p.enSurcharge === 'oui', poidsSurcharge: p.poids }; }
-      const r = await call<{ compte: O; erreurs: O[] }>('cargo.validerlot', { ids: aValider, pesees: payloadPesees });
+      const r = await call<{ compte: O; erreurs: O[] }>('cargo.validerlot', { ids: aValider, pesees: payloadPesees(aValider, pesees) });
       const nb = Number(r.compte['validees'] ?? 0);
       toast(`${nb} cargaison(s) validée(s)${r.erreurs.length ? ` · ${r.erreurs.length} en erreur` : ''}.`,
         r.erreurs.length ? 'err' : 'ok');
@@ -2040,6 +2041,31 @@ function DossierValidation({ decl, data, loading, error, reload, fermer, go }: {
 type Pesee = { enSurcharge: '' | 'oui' | 'non'; poids: string };
 export const peseeComplete = (p?: Pesee): boolean => !!p && (p.enSurcharge === 'non' || (p.enSurcharge === 'oui' && p.poids.trim() !== ''));
 
+/** v4.3 — ids des camions qui DOIVENT être pesés (dépotage) dans un/des dossier(s)
+ *  de validation. Les autres opérations ne sont pas pesées (2026-08-19). */
+function idsAPeser(dossiers: O[]): Set<string> {
+  const s = new Set<string>();
+  for (const dos of dossiers)
+    for (const grp of [dos['camions'], dos['vehicules']])
+      for (const r of ((grp as O[]) ?? []))
+        if (exigeControlePoids(r['typeOperation'])) s.add(String(r['id']));
+  return s;
+}
+/** Pesée prête pour un lot : chaque camion À PESER a une pesée complète ; les
+ *  autres (non pesés) sont d'office prêts. */
+function peseesLotPretes(aValider: string[], aPeser: Set<string>, pesees: Record<string, Pesee>): boolean {
+  return aValider.every((id) => !aPeser.has(id) || peseeComplete(pesees[id]));
+}
+/** Charge utile de pesées pour validerlot, sans planter sur un camion non pesé. */
+function payloadPesees(aValider: string[], pesees: Record<string, Pesee>): Record<string, { enSurcharge: boolean; poidsSurcharge: string }> {
+  const out: Record<string, { enSurcharge: boolean; poidsSurcharge: string }> = {};
+  for (const id of aValider) {
+    const p = pesees[id] ?? { enSurcharge: '' as const, poids: '' };
+    out[id] = { enSurcharge: p.enSurcharge === 'oui', poidsSurcharge: p.poids };
+  }
+  return out;
+}
+
 /** Une cargaison du dossier : tout ce qu'il faut voir AVANT de signer. */
 function LigneValidation({ r, go, pesee, onPesee }: { r: O; go: Nav['go']; pesee?: Pesee; onPesee?: (p: Pesee) => void }) {
   const conts = (r['conteneurs'] as O[]) ?? [];
@@ -2048,6 +2074,8 @@ function LigneValidation({ r, go, pesee, onPesee }: { r: O; go: Nav['go']; pesee
   const v = r['vehicule'] as O | undefined;
   const valide = Boolean(r['dateValidation']);
   const pe = pesee ?? { enSurcharge: '' as const, poids: '' };
+  // v4.3 — pesée seulement en dépotage (2026-08-19).
+  const exigePesee = exigeControlePoids(r['typeOperation']);
   const reste = ((r['etapesEnAttente'] as string[]) ?? []).filter((e) => e !== 'VALIDATION');
   return <div style={{
     border: '1px solid var(--line)', borderLeft: `3px solid var(--${valide ? 'ok' : 'warn'})`,
@@ -2074,8 +2102,9 @@ function LigneValidation({ r, go, pesee, onPesee }: { r: O; go: Nav['go']; pesee
     {!valide && reste.length > 0 && <div className="help">Restera ensuite : {reste.join(' · ')}</div>}
     {conts.length > 0 && <Table cols={[['num', 'Conteneur'], ['plomb', 'Scellé'], ['taille', 'Taille'], ['type', 'Type']]} rows={conts} />}
     {!conts.length && !v && r['descriptionMarchandise'] ? <div className="help">Effets divers : {String(r['descriptionMarchandise'])}</div> : null}
-    {/* v4.1 — pesée à renseigner AVANT la signature (seulement si à valider). */}
-    {!valide && onPesee && <div className="row" style={{ alignItems: 'center', gap: 12, flexWrap: 'wrap', marginTop: 8, paddingTop: 8, borderTop: '1px dotted var(--line)' }}>
+    {/* v4.1 — pesée à renseigner AVANT la signature (seulement à valider, et
+        seulement en DÉPOTAGE : enlèvement / véhicule ne sont pas pesés). */}
+    {!valide && onPesee && exigePesee && <div className="row" style={{ alignItems: 'center', gap: 12, flexWrap: 'wrap', marginTop: 8, paddingTop: 8, borderTop: '1px dotted var(--line)' }}>
       <span className="help" style={{ fontWeight: 600 }}>Pesée :</span>
       <label className="help" style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
         <input type="radio" style={{ width: 'auto' }} checked={pe.enSurcharge === 'oui'} onChange={() => onPesee({ enSurcharge: 'oui', poids: pe.poids })} /> En surcharge</label>

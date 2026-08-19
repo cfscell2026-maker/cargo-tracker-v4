@@ -9,7 +9,7 @@
 import { ErreurMetier, type Ctx } from '../ctx.ts';
 import { versCamel } from '../ctx.ts';
 import {
-  ROLES, STATUTS, STOCK_STATUTS, OPERATIONS, ETATS_SORTIE, HAUTEUR_HORS_GABARIT, CONTENEURS_MAX,
+  ROLES, STATUTS, STOCK_STATUTS, OPERATIONS, ETATS_SORTIE, HAUTEUR_HORS_GABARIT, CONTENEURS_MAX, exigeControlePoids,
   alphaNumMaj, maj, txt, tcValide, normaliserConteneur, normaliserDeclaration, parseConteneursDetails,
   declKey, typeDeRoutage, tailleBucket, construireCamion, verifierBinome, apercuConteneurs,
   etapesEnAttente, etatCellules, estOui, aFait, sautsTypeC,
@@ -387,7 +387,11 @@ export async function visite(ctx: Ctx, p: Record<string, unknown>) {
  * `enSurcharge` OUI/NON ; si OUI, le poids en surcharge (kg) est requis ; si NON,
  * le camion est « hors surcharge ». Renvoie le patch de pesée à appliquer.
  */
-function peseePatch(p: Record<string, unknown>): Record<string, unknown> {
+function peseePatch(p: Record<string, unknown>, exige: boolean): Record<string, unknown> {
+  // v4.3 — la pesée (surcharge) ne concerne QUE le dépotage (2026-08-19). Hors
+  // dépotage (enlèvement, véhicule, conso, magasin), aucune pesée n'est demandée :
+  // la cargaison est simplement « hors surcharge », sans rien à saisir.
+  if (!exige) return { en_surcharge: false, poids_surcharge: '' };
   const brut = p['enSurcharge'];
   if (brut === undefined || brut === null || brut === '')
     throw new Error('Renseignez la pesée (en surcharge : OUI / NON) avant de valider.');
@@ -447,7 +451,8 @@ export async function valider(ctx: Ctx, p: Record<string, unknown>) {
   const dejaValidee = aFait(c['dateValidation']);
   if (dejaValidee && ctx.session.role !== ROLES.ADMIN)
     throw new ErreurMetier('Cargaison déjà validée le ' + fmtDate(c['dateValidation']) + '.');
-  const pesee = peseePatch(p);
+  // Pesée exigée uniquement en dépotage (2026-08-19).
+  const pesee = peseePatch(p, exigeControlePoids(c['typeOperation']));
   const now = new Date().toISOString();
   const empreinte = await empreinteValidation(c, pesee);
   const sig = await signature(id + '|' + ctx.session.username + '|' + now + '|' + empreinte);

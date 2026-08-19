@@ -10,7 +10,7 @@ import type { Nav } from './App.tsx';
 import {
   STATUTS, OPERATIONS, ROLES, TYPES_DECLARATION, ETATS_SORTIE,
   etapesEnAttente, estOui, tcValide, parseConteneursDetails, tailleBucket,
-  groupesDeclaration, libelleDeclaration, estTypeSansT1, libelleTypeSansT1,
+  groupesDeclaration, libelleDeclaration, estTypeSansT1, libelleTypeSansT1, exigeControlePoids,
 } from '../../../supabase/functions/_shared/domaine/src/index.ts';
 
 type O = Record<string, unknown>;
@@ -638,20 +638,25 @@ function PanneauOuillage({ c, action }: { c: O; action: ActionFn }) {
 function PanneauValidation({ c, action }: { c: O; action: ActionFn }) {
   const id = c['id'] as string;
   const horsGab = estOui(c['horsGabarit']);
+  // v4.3 — hors gabarit & surcharge = DÉPOTAGE uniquement (2026-08-19). En
+  // enlèvement / véhicule / conso / magasin, pas de pesée : rien à cocher.
+  const exigePesee = exigeControlePoids(c['typeOperation']);
   // v4.1 — pesée AVANT la signature : en surcharge OUI/NON ; si OUI, le poids (kg).
   const [enSurcharge, setEnSurcharge] = useState<'' | 'oui' | 'non'>('');
   const [poids, setPoids] = useState('');
-  const pretPesee = enSurcharge === 'non' || (enSurcharge === 'oui' && poids.trim() !== '');
+  const pretPesee = !exigePesee || enSurcharge === 'non' || (enSurcharge === 'oui' && poids.trim() !== '');
   return <div className="card"><h2>Validation — chef brigade</h2>
-    {horsGab && <p style={{ background: 'var(--warn-soft)', color: 'var(--warn)', padding: 10, borderRadius: 6 }}>⚠ Chargement <b>hors gabarit</b> ({(c['hauteurChargement'] as string) || '?'} m).</p>}
-    <div className="section-title">Pesée</div>
-    <div className="row" style={{ alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
-      <label className="help" style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-        <input type="radio" name={`surch-${id}`} style={{ width: 'auto' }} checked={enSurcharge === 'oui'} onChange={() => setEnSurcharge('oui')} /> En surcharge</label>
-      <label className="help" style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-        <input type="radio" name={`surch-${id}`} style={{ width: 'auto' }} checked={enSurcharge === 'non'} onChange={() => { setEnSurcharge('non'); setPoids(''); }} /> Hors surcharge</label>
-      {enSurcharge === 'oui' && <Champ label="Poids en surcharge (kg)" value={poids} onChange={(e) => setPoids(e.target.value.replace(/[^0-9.,]/g, ''))} />}
-    </div>
+    {horsGab && exigePesee && <p style={{ background: 'var(--warn-soft)', color: 'var(--warn)', padding: 10, borderRadius: 6 }}>⚠ Chargement <b>hors gabarit</b> ({(c['hauteurChargement'] as string) || '?'} m).</p>}
+    {exigePesee ? <>
+      <div className="section-title">Pesée</div>
+      <div className="row" style={{ alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+        <label className="help" style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+          <input type="radio" name={`surch-${id}`} style={{ width: 'auto' }} checked={enSurcharge === 'oui'} onChange={() => setEnSurcharge('oui')} /> En surcharge</label>
+        <label className="help" style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+          <input type="radio" name={`surch-${id}`} style={{ width: 'auto' }} checked={enSurcharge === 'non'} onChange={() => { setEnSurcharge('non'); setPoids(''); }} /> Hors surcharge</label>
+        {enSurcharge === 'oui' && <Champ label="Poids en surcharge (kg)" value={poids} onChange={(e) => setPoids(e.target.value.replace(/[^0-9.,]/g, ''))} />}
+      </div>
+    </> : <p className="help" style={{ marginTop: 0 }}>Opération « {String(c['typeOperation'])} » : pas de pesée ni de hors gabarit (réservés au dépotage).</p>}
     <p style={{ color: '#5c6b7a', marginTop: 10 }}>Votre validation (signature numérique) débloque les cellules T1 / Balise / Bon de sortie.</p>
     <button disabled={!pretPesee}
       onClick={() => action(() => call('cargo.valider', { id, enSurcharge: enSurcharge === 'oui', poidsSurcharge: poids }), 'Cargaison validée et signée.')}>

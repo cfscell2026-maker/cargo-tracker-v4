@@ -13,7 +13,7 @@ import {
   APP,
   ROLES,
   VOIENT_HORSGABARIT,
-  etapesEnAttente,
+  fileAttente,
   estOui,
   aFait,
   normAlphaNum,
@@ -126,7 +126,10 @@ export async function cargoList(
   if (etape) {
     // File d'attente d'une cellule (modèle parallèle : un camion post-T1 figure
     // À LA FOIS dans la file Balise et Bon de Sortie).
-    all = all.filter((r) => etapesEnAttente(r as never).indexOf(etape as never) >= 0);
+    // FILE UNIQUE (2026-08-19) : la liste d'attente d'une cellule ne montre que
+    // les dossiers dont c'est LA prochaine étape — plus de camion présent dans
+    // deux files à la fois (cf. fileAttente vs etapesEnAttente).
+    all = all.filter((r) => fileAttente(r as never) === etape);
     if (etape === 'BALISE') all = all.filter((r) => !estOui(r['estVehicule']));
   } else if (categorie !== 'tous') {
     // Les véhicules sont suivis à part : on ne les mélange pas aux camions.
@@ -359,12 +362,16 @@ export async function dashboardStats(ctx: Ctx, opts: { du?: string; au?: string 
     stats.total++;
     if (r['statut'] === STATUTS.CAMION) stats.camion++;
     else if (r['statut'] === STATUTS.CHARGEMENT) stats.chargement++;
-    const pend = etapesEnAttente(r as never);
-    if (pend.indexOf('VALIDATION') >= 0) stats.attValidation++;
-    if (pend.indexOf('T1') >= 0) stats.attT1++;
-    if (pend.indexOf('BALISE') >= 0) stats.attBalise++;
-    if (pend.indexOf('BS') >= 0) stats.attBs++;
-    if (pend.indexOf('PP') >= 0) stats.attPP++;
+    // FILE UNIQUE (2026-08-19) : chaque camion ne compte QUE dans sa prochaine
+    // étape. Les files ne se chevauchent plus → la somme des tuiles « en attente »
+    // égale le nombre de dossiers réellement en cours (fin des totaux gonflés).
+    switch (fileAttente(r as never)) {
+      case 'VALIDATION': stats.attValidation++; break;
+      case 'T1': stats.attT1++; break;
+      case 'BALISE': stats.attBalise++; break;
+      case 'BS': stats.attBs++; break;
+      case 'PP': stats.attPP++; break;
+    }
   }
   stats.sortie = stats.sortiePeriode; // alias compat (ancien libellé client)
   return stats;
