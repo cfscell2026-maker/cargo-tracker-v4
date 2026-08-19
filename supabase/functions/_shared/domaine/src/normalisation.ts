@@ -305,6 +305,74 @@ export function estChargementMixte(
   return groupesDeclaration(conteneurs, camion).length > 1;
 }
 
+/* --------------------- Similitude de N° (anti-doublons) ---------------- */
+/**
+ * DÉTECTION DE QUASI-DOUBLONS — demande utilisateur 2026-08-19. À la frappe d'un
+ * N° de camion, une petite erreur (un caractère de trop / de moins / faux, ou
+ * deux caractères intervertis) crée un doublon quasi identique. On mesure ici la
+ * ressemblance entre deux N° pour AVERTIR (jamais bloquer) : « ce camion
+ * ressemble à X, est-ce le même ? ». La personne confirme si c'est bien un
+ * nouveau camion.
+ *
+ * `distanceOSA` : distance d'édition « Optimal String Alignment » (Damerau-
+ * Levenshtein restreinte). Comme la distance de Levenshtein classique, mais une
+ * INTERVERSION de deux caractères ADJACENTS coûte 1 et non 2 — c'est la faute de
+ * frappe la plus courante (AB…→BA…), qu'on veut donc rattraper.
+ */
+export function distanceOSA(a: string, b: string): number {
+  const n = a.length, m = b.length;
+  if (n === 0) return m;
+  if (m === 0) return n;
+  // Matrice (n+1) × (m+1). Tailles de N° modestes : le coût est négligeable.
+  const d: number[][] = Array.from({ length: n + 1 }, () => new Array<number>(m + 1).fill(0));
+  for (let i = 0; i <= n; i++) d[i]![0] = i;
+  for (let j = 0; j <= m; j++) d[0]![j] = j;
+  for (let i = 1; i <= n; i++) {
+    for (let j = 1; j <= m; j++) {
+      const cout = a[i - 1] === b[j - 1] ? 0 : 1;
+      let v = Math.min(
+        d[i - 1]![j]! + 1,      // suppression
+        d[i]![j - 1]! + 1,      // insertion
+        d[i - 1]![j - 1]! + cout, // substitution
+      );
+      // Interversion de deux caractères adjacents (a[i-1]a[i-2] == b[j-2]b[j-1]).
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1])
+        v = Math.min(v, d[i - 2]![j - 2]! + 1);
+      d[i]![j] = v;
+    }
+  }
+  return d[n]![m]!;
+}
+
+/**
+ * Ressemblance de deux N° (0 = tout différent, 1 = identique), calculée sur leur
+ * forme normalisée (MAJUSCULES, alphanumérique strict) : « AB-12-CD » et
+ * « ab12cd » sont donc identiques. Deux N° vides comptent comme identiques.
+ */
+export function similariteNum(a: unknown, b: unknown): number {
+  const x = normAlphaNum(a), y = normAlphaNum(b);
+  if (!x && !y) return 1;
+  const max = Math.max(x.length, y.length);
+  if (max === 0) return 1;
+  return 1 - distanceOSA(x, y) / max;
+}
+
+/**
+ * Vrai si `a` et `b` sont assez proches pour mériter un AVERTISSEMENT de
+ * quasi-doublon, sans être identiques (l'égalité stricte est traitée à part,
+ * comme un vrai doublon). Sensibilité MOYENNE (décision utilisateur 2026-08-19,
+ * « à 10-20 % près ») : on alerte au-delà de ~82 % de ressemblance, et on
+ * rattrape aussi toute faute d'un seul caractère (distance 1) sur les N° d'au
+ * moins 4 caractères — le cas le plus courant, qui pourrait sinon passer sous le
+ * seuil sur un N° court.
+ */
+export function numeroQuasiDoublon(a: unknown, b: unknown): boolean {
+  const x = normAlphaNum(a), y = normAlphaNum(b);
+  if (!x || !y || x === y) return false;
+  if (Math.min(x.length, y.length) >= 4 && distanceOSA(x, y) <= 1) return true;
+  return similariteNum(x, y) >= 0.82;
+}
+
 /** Libellé court d'une déclaration : « 12345 · 2026 · TG120 · T ». */
 export function libelleDeclaration(o: Record<string, unknown> | GroupeDeclaration): string {
   const r = o as Record<string, unknown>;

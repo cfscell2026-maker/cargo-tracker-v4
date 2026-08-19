@@ -174,20 +174,33 @@ export async function rapportCFSDetail(ctx: Ctx, p: Record<string, unknown>) {
 const VEH_BUCKETS = ['Transit', 'Conso', 'MAD', 'Véhicule abandonné'];
 function destBucket(d: unknown) { const s = String(d ?? ''); return VEH_BUCKETS.indexOf(s) >= 0 ? s : 'Autres'; }
 
+/**
+ * v4.2 — correctif 2026-08-19 (demande utilisateur). Un véhicule est compté à LA
+ * DATE DE SON PASSAGE, pas à sa seule date de création : un véhicule SORTI dans
+ * la période mais entré avant compte bien dans « Sortis » de la période. On
+ * retient donc un véhicule dès qu'il a un événement dans la période — entrée
+ * (dateCreation) OU sortie (dateSortie) — et on le classe par cet événement :
+ *   · SORTIS  = sortie effective dans la période ;
+ *   · ATTENTE = entré dans la période et pas (encore) sorti dans la période.
+ * L'ancienne version filtrait tout sur la date de création : une sortie du jour
+ * pour un véhicule entré la veille n'apparaissait jamais.
+ */
 function collecteVehicules(cargos: Record<string, unknown>[], du?: string, au?: string, agentLc?: string) {
   const compte = { total: 0, attente: 0, sortis: 0, conteneurs: 0 } as Record<string, number>;
   const parDest: Record<string, number> = {}; [...VEH_BUCKETS, 'Autres'].forEach((d) => (parDest[d] = 0));
   const vehicules: Record<string, unknown>[] = [];
   for (const c of cargos) {
     if (!estOui(c['estVehicule'])) continue;
-    if (!inRange(c['dateCreation'], du, au)) continue;
     if (agentLc && lc(c['agentCfs']) !== agentLc) continue;
+    const sortiEnPeriode = c['statut'] === STATUTS.SORTIE && inRange(c['dateSortie'], du, au);
+    const entreEnPeriode = inRange(c['dateCreation'], du, au);
+    if (!sortiEnPeriode && !entreEnPeriode) continue; // aucun événement dans la période
     compte.total++;
-    if (c['statut'] === STATUTS.SORTIE) compte.sortis++; else compte.attente++;
+    if (sortiEnPeriode) compte.sortis++; else compte.attente++;
     const vd = (c['vehiculeDetails'] ?? {}) as Record<string, unknown>;
     parDest[destBucket(vd['destination'])]++;
     if (Number(c['nbConteneurs'] || 0) > 0) compte.conteneurs++;
-    vehicules.push({ id: c['id'], chassis: c['numeroCamion'], destination: vd['destination'], statut: c['statut'], dateCreation: c['dateCreation'] });
+    vehicules.push({ id: c['id'], chassis: c['numeroCamion'], destination: vd['destination'], statut: c['statut'], dateCreation: c['dateCreation'], dateSortie: c['dateSortie'] });
   }
   return { compte, parDest, vehicules };
 }
@@ -510,11 +523,27 @@ export async function rapportCargaisons(ctx: Ctx, p: Record<string, unknown>) {
   const statut = String(p['statut'] ?? '').trim();  // valeur exacte de statut ('' = tous)
   const etape = String(p['etape'] ?? '').trim();     // étape en attente (VALIDATION/T1/BALISE/BS/PP/CFS)
   const sansVeh = p['vehicules'] === false;
+  // v4.2 — 2026-08-19 : l'extraction reçoit désormais AUSSI le texte recherché
+  // dans la liste, pour que « extraire » sorte EXACTEMENT ce qui est affiché
+  // (même recherche tolérante que cargo.list : brut alphanumérique en plus).
+  const search = String(p['search'] ?? '').trim().toLowerCase();
+  const searchBrut = search ? normAlphaNum(search) : '';
+  const correspond = (c: Record<string, unknown>): boolean => {
+    if (!search) return true;
+    const champs = [c['id'], c['reference'], c['rapportId'], c['numeroCamion'], c['numeroGps'], c['numeroDeclaration']];
+    for (const ct of detsDeRow(c)) champs.push(ct.num);
+    return champs.some((x) => {
+      const v = String(x ?? '');
+      if (v.toLowerCase().indexOf(search) > -1) return true;
+      return !!searchBrut && normAlphaNum(v).indexOf(searchBrut) > -1;
+    });
+  };
   const rows = cargos.filter((c) => {
     if (sansVeh && estOui(c['estVehicule'])) return false;
     if (!inRange(c['dateCreation'], du, au)) return false;
     if (statut && String(c['statut']) !== statut) return false;
     if (etape && etapesEnAttente(c as never).indexOf(etape as never) < 0) return false;
+    if (!correspond(c)) return false;
     return true;
   }).map((c) => ({
     id: c['id'], numeroCamion: c['numeroCamion'], typeOperation: c['typeOperation'], statut: c['statut'],
@@ -525,7 +554,8 @@ export async function rapportCargaisons(ctx: Ctx, p: Record<string, unknown>) {
     numeroGps: voitBalise(ctx) ? c['numeroGps'] : '',
     dateSortie: c['dateSortie'], agentCfs: c['agentCfs'], estVehicule: estOui(c['estVehicule']),
   }));
-  const filtreTxt = statut ? `statut : ${statut}` : etape ? `étape : ${etape}` : 'tous statuts';
+  const filtreTxt = (statut ? `statut : ${statut}` : etape ? `étape : ${etape}` : 'tous statuts')
+    + (search ? ` · recherche « ${search} »` : '');
   const sousTitre = `Du ${p['du'] || '…'} au ${p['au'] || '…'} · ${filtreTxt}`;
   const entetes = ['ID', 'Camion / Châssis', 'Opération', 'Statut', 'Créé le', 'Déclarant', 'N° décl.', 'N° GPS', 'Sorti le', 'Agent CFS'];
   const ligne = (r: Record<string, unknown>) => [r['id'], r['numeroCamion'], r['typeOperation'], r['statut'], fmtJ(r['dateCreation']), r['declarant'], r['numeroDeclaration'], r['numeroGps'], fmtJ(r['dateSortie']), r['agentCfs']];
@@ -1045,7 +1075,7 @@ async function collecterParDeclaration(
       // Éléments que le chef brigade doit voir AVANT de signer : ce qui reste dû
       // sur le parcours, et le hors gabarit (champ confidentiel, filtré plus bas
       // pour les rôles qui n'y ont pas droit).
-      dateValidation: c['dateValidation'], agentValidation: c['agentValidation'],
+      dateValidation: c['dateValidation'], agentValidation: c['agentValidation'], roleValidation: c['roleValidation'],
       etapesEnAttente: etapesEnAttente(c as never),
       horsGabarit: estOui(c['horsGabarit']), hauteurChargement: c['hauteurChargement'],
       // Mixte DÉDUIT des déclarations portées par les conteneurs (le drapeau

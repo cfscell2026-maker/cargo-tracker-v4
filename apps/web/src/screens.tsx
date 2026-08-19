@@ -64,7 +64,7 @@ function CargoList({ go, screen, filtre, titre, barre }: Nav & { filtre: O; titr
         {STATUT_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
       </select>
     </div>}
-    {barre && <ExportCargaisons />}
+    {barre && <ExportCargaisons statutListe={statut} searchListe={search} />}
     {loading ? <Spinner /> : error ? <div className="err-msg">{error}</div> : <>
       {barre && <div className="help" style={{ marginBottom: 6 }}>{data?.total ?? 0} cargaison(s)</div>}
       <Table cols={[['id', 'ID'], ['dateCreation', 'Date'], ['numeroCamion', 'Camion'], ['typeOperation', 'Opération'], ['statut', 'Statut'], ['numeroGps', 'GPS']]}
@@ -84,14 +84,28 @@ function CargoList({ go, screen, filtre, titre, barre }: Nav & { filtre: O; titr
  * PDF. Rétablit l'onglet « Cargaisons » exportable de l'Apps Script (« je n'ai
  * pas la main pour le faire », pour les capitaines).
  */
-function ExportCargaisons() {
+function ExportCargaisons({ statutListe, searchListe }: { statutListe?: string; searchListe?: string }) {
   const p = useReportRange('mois');
-  const [crit, setCrit] = useState(''); // '' | 'statut:<v>' | 'etape:<v>'
+  // v4.2 — 2026-08-19 : l'extraction PART du filtre AFFICHÉ dans la liste (statut
+  // + recherche). Avant, elle avait ses propres sélecteurs indépendants et
+  // sortait « toute la base » quand on venait d'une liste filtrée. Désormais :
+  //   · le statut sélectionné dans la liste pré-remplit le critère ;
+  //   · le texte recherché est transmis tel quel au serveur ;
+  //   · la période est FACULTATIVE (décochée = toute la base, comme la liste, qui
+  //     n'a pas de filtre de période) et ne s'applique que si on la coche.
+  const critInitial = statutListe && statutListe !== 'tous' ? `statut:${statutListe}` : '';
+  const [crit, setCrit] = useState(critInitial); // '' | 'statut:<v>' | 'etape:<v>'
+  // Suit le statut de la liste tant que l'utilisateur n'a pas choisi lui-même.
+  const [critTouche, setCritTouche] = useState(false);
+  useEffect(() => { if (!critTouche) setCrit(critInitial); }, [critInitial, critTouche]);
+  const [limiterPeriode, setLimiterPeriode] = useState(false);
   const [busy, setBusy] = useState(false);
   async function exporter(fmt: 'xlsx' | 'pdf') {
-    const params: O = { du: p.du, au: p.au, format: fmt };
+    const params: O = { format: fmt };
+    if (limiterPeriode) { params['du'] = p.du; params['au'] = p.au; }
     if (crit.startsWith('statut:')) params['statut'] = crit.slice(7);
     else if (crit.startsWith('etape:')) params['etape'] = crit.slice(6);
+    if (searchListe && searchListe.trim()) params['search'] = searchListe.trim();
     setBusy(true);
     try {
       const r = await call<O>('report.cargaisons', params);
@@ -99,9 +113,11 @@ function ExportCargaisons() {
     } catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(false); }
   }
   return <details style={{ border: '1px solid var(--line)', borderRadius: 6, padding: '8px 12px', marginBottom: 10 }}>
-    <summary style={{ cursor: 'pointer', fontWeight: 600 }}>⤓ Extraire (Excel / PDF) par statut et période</summary>
+    <summary style={{ cursor: 'pointer', fontWeight: 600 }}>⤓ Extraire (Excel / PDF) — reprend le filtre affiché</summary>
+    {searchListe && searchListe.trim() &&
+      <p className="help" style={{ margin: '8px 0 0' }}>Recherche appliquée : <b className="mono">{searchListe.trim()}</b></p>}
     <div className="row" style={{ alignItems: 'center', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
-      <select value={crit} onChange={(e) => setCrit(e.target.value)} style={{ maxWidth: 240 }}>
+      <select value={crit} onChange={(e) => { setCritTouche(true); setCrit(e.target.value); }} style={{ maxWidth: 240 }}>
         <option value="">Tous les statuts</option>
         {STATUT_OPTIONS.map((s) => <option key={s} value={`statut:${s}`}>{s}</option>)}
         <option value="etape:VALIDATION">En attente — À valider</option>
@@ -110,11 +126,16 @@ function ExportCargaisons() {
         <option value="etape:BS">En attente — Bon de sortie</option>
         <option value="etape:PP">En attente — Sortie (PP)</option>
       </select>
-      <PeriodPicker p={p} />
+      <label className="help" style={{ display: 'flex', alignItems: 'center', gap: 6, margin: 0 }}>
+        <input type="checkbox" checked={limiterPeriode} onChange={(e) => setLimiterPeriode(e.target.checked)} />
+        Limiter à une période
+      </label>
+      {limiterPeriode && <PeriodPicker p={p} />}
       <button className="ghost xs" disabled={busy} onClick={() => exporter('xlsx')}>⤓ Excel</button>
       <button className="ghost xs" disabled={busy} onClick={() => exporter('pdf')}>⤓ PDF</button>
     </div>
-    <PeriodeLue p={p} />
+    {limiterPeriode ? <PeriodeLue p={p} />
+      : <p className="help" style={{ margin: '6px 0 0' }}>Toute la base (aucune limite de période) — cochez pour restreindre.</p>}
   </details>;
 }
 
@@ -133,17 +154,24 @@ SCREENS.dash = (nav) => {
       <h2 style={{ flex: 1, margin: 0 }}>Tableau de bord</h2>
       <label className="help" style={{ margin: 0 }}>Période</label>
       <PeriodPicker p={p} />
-    </div><div className="help">Cargaisons créées du {fmtJour(du)} au {fmtJour(au)}
+    </div><div className="help">
+      <b>Événements du {fmtJour(du)} au {fmtJour(au)}</b> (« (période) ») : ce qui s'est passé à chaque cellule
+      sur la période, compté <b>à la date de chaque passage</b> — une sortie du jour reste une sortie du jour,
+      même si le camion est entré avant. Les tuiles <b>« Attente »</b> montrent l'état <b>à l'instant T</b>,
+      indépendamment de la période.
       {p.inversee && <span style={{ color: 'var(--warn)' }}> — dates inversées, remises à l'endroit</span>}</div></div>
     {loading ? <Spinner /> : <div className="stats">
-      <StatCard n={Number(s['camion'] ?? 0)} l="Camions créés" onClick={() => go('Camion créé')} />
-      <StatCard n={Number(s['chargement'] ?? 0)} l="En chargement" onClick={() => go('En cours de chargement')} />
+      {/* Événements datés sur la période — chacun ouvre le rapport / la liste correspondants. */}
+      <StatCard n={Number(s['creesPeriode'] ?? 0)} l="Entrées CFS (période)" onClick={() => nav.go('cfsreport')} />
+      <StatCard n={Number(s['balisesPeriode'] ?? 0)} l="Balisés (période)" onClick={() => nav.go('baliserep')} />
+      <StatCard n={Number(s['bonsPeriode'] ?? 0)} l="Bons de sortie (période)" onClick={() => go(STATUTS.BS)} />
+      <StatCard n={Number(s['sortiePeriode'] ?? 0)} l="Sortis (période)" tone="ok" onClick={() => nav.go('pprep')} />
+      {/* En attente — état instantané (hors période). */}
       <StatCard n={Number(s['attValidation'] ?? 0)} l="Attente validation" tone="warn" onClick={() => nav.go('wait_valid')} />
       <StatCard n={Number(s['attT1'] ?? 0)} l="Attente T1" onClick={() => nav.go('wait_t1')} />
       <StatCard n={Number(s['attBalise'] ?? 0)} l="Attente Balise" onClick={() => nav.go('wait_gps')} />
       <StatCard n={Number(s['attBs'] ?? 0)} l="Attente Bon de sortie" onClick={() => nav.go('wait_bs')} />
       <StatCard n={Number(s['attPP'] ?? 0)} l="Attente sortie" onClick={() => nav.go('wait_sortie')} />
-      <StatCard n={Number(s['sortie'] ?? 0)} l="Sortis" tone="ok" onClick={() => go('Sortie Enregistrée')} />
       <StatCard n={Number(s['vehiculesAttente'] ?? 0)} l="Véhicules en attente" onClick={() => nav.go('vehicules')} />
     </div>}
     {/* Neuf tuiles disent COMBIEN, aucune ne dit OÙ ÇA BLOQUE : c'est pourtant
@@ -704,12 +732,20 @@ SCREENS.sortie = (nav) => <CargoList {...nav} filtre={{ etape: 'PP' }} titre="So
  * (mixte) au lieu de créer un doublon. S'appuie sur cargo.checkdup.
  */
 const STATUTS_EDITABLES = [STATUTS.CAMION, STATUTS.CHARGEMENT, STATUTS.CREEE] as string[];
-async function chercherExistantActif(num: string): Promise<O | null> {
-  if (!num.trim()) return null;
+/**
+ * Analyse anti-doublons à la saisie d'un N° :
+ *   · `mixte`      — un existant ACTIF encore modifiable (même N° exact) → on
+ *                    propose de l'ouvrir en chargement mixte ;
+ *   · `similaires` — des N° actifs TRÈS RESSEMBLANTS (faute de frappe probable)
+ *                    → on avertit (jamais bloquant, décision 2026-08-19).
+ */
+async function analyserDoublons(num: string): Promise<{ mixte: O | null; similaires: O[] }> {
+  if (!num.trim()) return { mixte: null, similaires: [] };
   try {
-    const r = await call<{ camion: O[] }>('cargo.checkdup', { numeroCamion: num });
-    return (r.camion ?? []).find((c) => c['actif'] && STATUTS_EDITABLES.includes(String(c['statut']))) ?? null;
-  } catch { return null; }
+    const r = await call<{ camion: O[]; similaires: O[] }>('cargo.checkdup', { numeroCamion: num });
+    const mixte = (r.camion ?? []).find((c) => c['actif'] && STATUTS_EDITABLES.includes(String(c['statut']))) ?? null;
+    return { mixte, similaires: r.similaires ?? [] };
+  } catch { return { mixte: null, similaires: [] }; }
 }
 /** Modale « ce numéro existe déjà » : ouvrir (mixte) / créer quand même / annuler. */
 function ModaleMixte({ match, quoi, onOuvrir, onCreer, onAnnuler }: {
@@ -729,11 +765,41 @@ function ModaleMixte({ match, quoi, onOuvrir, onCreer, onAnnuler }: {
   </Modal>;
 }
 
+/**
+ * Modale « N° ressemblant » (quasi-doublon) : la saisie ressemble fortement à un
+ * ou plusieurs {quoi}s actifs. On propose d'OUVRIR le bon dossier (faute de
+ * frappe) ou de CONFIRMER un nouveau {quoi}. Jamais bloquant.
+ */
+function ModaleSimilaires({ similaires, quoi, onOuvrir, onCreer, onAnnuler }: {
+  similaires: O[]; quoi: string; onOuvrir: (id: string) => void; onCreer: () => void; onAnnuler: () => void;
+}) {
+  const plur = similaires.length > 1;
+  return <Modal onClose={onAnnuler}>
+    <h2>Ce numéro ressemble à un {quoi} existant</h2>
+    <p className="help" style={{ marginTop: 0 }}>
+      Le numéro saisi ressemble de très près à {plur ? `des ${quoi}s déjà enregistrés` : `un ${quoi} déjà enregistré`},
+      encore présent{plur ? 's' : ''} dans l'enceinte — peut-être une <b>faute de frappe</b>.
+      Si c'est le même, ouvrez le bon dossier ; sinon, confirmez qu'il s'agit bien d'un <b>nouveau</b> {quoi}.
+    </p>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, margin: '8px 0' }}>
+      {similaires.map((c) => <button key={String(c['id'])} className="ghost mono" style={{ justifyContent: 'flex-start', textAlign: 'left' }}
+        onClick={() => onOuvrir(String(c['id']))}>
+        Ouvrir « {String(c['numeroCamion'])} » — statut « {String(c['statut'])} »
+      </button>)}
+    </div>
+    <div className="row" style={{ marginTop: 12, flexWrap: 'wrap' }}>
+      <button onClick={onCreer}>Non, c'est un nouveau {quoi} — créer</button>
+      <button className="ghost" onClick={onAnnuler}>Annuler</button>
+    </div>
+  </Modal>;
+}
+
 SCREENS.creercamion = ({ go }) => {
   const [num, setNum] = useState('');
   const [routage, setRoutage] = useState(OPERATIONS.ENLEVEMENT as string);
   const [busy, setBusy] = useState(false);
   const [match, setMatch] = useState<O | null>(null);
+  const [simil, setSimil] = useState<O[] | null>(null);
   async function faireCreer() {
     setBusy(true);
     try {
@@ -744,9 +810,10 @@ SCREENS.creercamion = ({ go }) => {
   async function creer() {
     if (!num) { toast('N° camion requis.', 'err'); return; }
     setBusy(true);
-    const ex = await chercherExistantActif(num);
+    const { mixte, similaires } = await analyserDoublons(num);
     setBusy(false);
-    if (ex) { setMatch(ex); return; } // propose le mixte
+    if (mixte) { setMatch(mixte); return; }          // même N° exact → chargement mixte
+    if (similaires.length) { setSimil(similaires); return; } // N° ressemblant → avertir
     await faireCreer();
   }
   return <div className="card" style={{ maxWidth: 480 }}>
@@ -760,6 +827,10 @@ SCREENS.creercamion = ({ go }) => {
       onOuvrir={() => { setMatch(null); go('detail', match['id']); }}
       onCreer={() => { setMatch(null); faireCreer(); }}
       onAnnuler={() => setMatch(null)} />}
+    {simil && <ModaleSimilaires similaires={simil} quoi="camion"
+      onOuvrir={(id) => { setSimil(null); go('detail', id); }}
+      onCreer={() => { setSimil(null); faireCreer(); }}
+      onAnnuler={() => setSimil(null)} />}
   </div>;
 };
 
@@ -966,6 +1037,7 @@ function FormVehicule({ go }: { go: Nav['go'] }) {
 
   const majCam = (i: number, patch: Partial<CamEffets>) => setCams((a) => a.map((c, j) => (j === i ? { ...c, ...patch } : c)));
   const [match, setMatch] = useState<O | null>(null); // v4.1 : véhicule déjà présent → mixte ?
+  const [simil, setSimil] = useState<O[] | null>(null); // 2026-08-19 : châssis ressemblant → avertir
 
   async function faireCreer() {
     try {
@@ -980,9 +1052,11 @@ function FormVehicule({ go }: { go: Nav['go'] }) {
     if (!origine) { toast("Le N° de conteneur d'origine (TC) est obligatoire.", 'err'); return; }
     if (manuelOrigine && !tcValide(origine)) { toast('N° conteneur d\'origine invalide (4 lettres + 7 chiffres).', 'err'); return; }
     // v4.1 — si le 1er châssis existe déjà à un statut modifiable : proposer le mixte.
+    // 2026-08-19 — sinon, avertir si un châssis actif ressemble fortement (frappe).
     const chassis = String(vs[0]?.['chassis'] ?? '').trim();
-    const ex = chassis ? await chercherExistantActif(chassis) : null;
-    if (ex) { setMatch(ex); return; }
+    const { mixte, similaires } = chassis ? await analyserDoublons(chassis) : { mixte: null, similaires: [] };
+    if (mixte) { setMatch(mixte); return; }
+    if (similaires.length) { setSimil(similaires); return; }
     await faireCreer();
   }
 
@@ -1054,6 +1128,10 @@ function FormVehicule({ go }: { go: Nav['go'] }) {
       onOuvrir={() => { setMatch(null); go('detail', match['id']); }}
       onCreer={() => { setMatch(null); faireCreer(); }}
       onAnnuler={() => setMatch(null)} />}
+    {simil && <ModaleSimilaires similaires={simil} quoi="véhicule"
+      onOuvrir={(id) => { setSimil(null); go('detail', id); }}
+      onCreer={() => { setSimil(null); faireCreer(); }}
+      onAnnuler={() => setSimil(null)} />}
   </div>;
 }
 
@@ -1992,7 +2070,7 @@ function LigneValidation({ r, go, pesee, onPesee }: { r: O; go: Nav['go']; pesee
     {autres.length > 0 && <div className="help" style={{ color: 'var(--warn)' }}>
       Porte aussi : {autres.map((a) => `${String(a['libelle'])} (${String(a['nbConteneurs'])} TC)`).join(' · ')} — hors de cette déclaration.
     </div>}
-    {valide && <div className="help" style={{ color: 'var(--ok)' }}>Validée par {String(r['agentValidation'] || '—')} le {fmtDate(r['dateValidation'])}</div>}
+    {valide && <div className="help" style={{ color: 'var(--ok)' }}>Validée par {String(r['agentValidation'] || '—')}{r['roleValidation'] === 'CBPI' ? ' (par intérim)' : ''} le {fmtDate(r['dateValidation'])}</div>}
     {!valide && reste.length > 0 && <div className="help">Restera ensuite : {reste.join(' · ')}</div>}
     {conts.length > 0 && <Table cols={[['num', 'Conteneur'], ['plomb', 'Scellé'], ['taille', 'Taille'], ['type', 'Type']]} rows={conts} />}
     {!conts.length && !v && r['descriptionMarchandise'] ? <div className="help">Effets divers : {String(r['descriptionMarchandise'])}</div> : null}
@@ -2499,7 +2577,7 @@ SCREENS.stockdwell = () => {
 };
 
 /* ---------------------------- Utilisateurs ----------------------------- */
-const ROLES_LISTE = ['CFS', 'CHEF_BRIGADE', 'CHEF_BRIGADE_ADJOINT', 'CHEF_VISITE', 'CHEF_DIVISION', 'T1', 'BALISE', 'BON_SORTIE', 'PP', 'ADMIN'];
+const ROLES_LISTE = ['CFS', 'CHEF_BRIGADE', 'CHEF_BRIGADE_ADJOINT', 'CBPI', 'CHEF_VISITE', 'CHEF_DIVISION', 'T1', 'BALISE', 'BON_SORTIE', 'PP', 'ADMIN'];
 SCREENS.users = () => {
   const { data, loading, reload } = useAsync<O[]>(() => call('user.list'), []);
   const [form, setForm] = useState<O | null>(null);

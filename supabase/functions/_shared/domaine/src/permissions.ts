@@ -14,10 +14,24 @@
 
 import { ROLES, TOUS_ROLES, type Role } from './constantes.ts';
 
+/**
+ * CBPI (chef brigade par intérim, 2026-08-19) : profil VOLONTAIREMENT ÉTROIT. Il
+ * n'est PAS dans TOUS_ROLES — il ne bénéficie donc d'AUCUN accès en lecture par
+ * défaut (ni recherche, ni stock, ni rapports, ni tableau de bord). Il reçoit
+ * UNIQUEMENT, et de façon explicite ci-dessous :
+ *   · account.me / account.changepwd / account.signin — entrer dans l'appli ;
+ *   · cargo.get — ouvrir la fiche d'un dossier à valider ;
+ *   · report.validationdecl — la file « À valider » et le dossier par déclaration ;
+ *   · cargo.valider / cargo.validerlot — signer (unitaire ou en lot).
+ * Toute autre action lui est refusée côté serveur (verifierPermission).
+ */
+const VALIDE_ET_COMPTE: Role[] = [ROLES.CBPI];
+
 export const PERMISSIONS: Record<string, Role[]> = {
   // Lecture / recherche (tous les rôles)
   'cargo.search': TOUS_ROLES,
-  'cargo.get': TOUS_ROLES,
+  // cargo.get : + CBPI, qui doit ouvrir la fiche du dossier qu'il signe.
+  'cargo.get': [...TOUS_ROLES, ...VALIDE_ET_COMPTE],
   'cargo.list': TOUS_ROLES,
   'vehicule.list': TOUS_ROLES, // v4.1 : recherche véhicule (châssis + marque)
   'cargo.checkdup': TOUS_ROLES,
@@ -47,8 +61,9 @@ export const PERMISSIONS: Record<string, Role[]> = {
   'cargo.sceller': [ROLES.CFS, ROLES.ADMIN],
   'cargo.visite': [ROLES.CFS, ROLES.ADMIN],
   'cargo.mixte': [ROLES.CFS, ROLES.ADMIN],
-  'cargo.valider': [ROLES.CHEF_BRIGADE, ROLES.ADMIN],
-  'cargo.validerlot': [ROLES.CHEF_BRIGADE, ROLES.ADMIN], // v4 : signature de toute une déclaration
+  // Validation / signature : chef brigade titulaire, CBPI (intérim), ADMIN.
+  'cargo.valider': [ROLES.CHEF_BRIGADE, ROLES.CBPI, ROLES.ADMIN],
+  'cargo.validerlot': [ROLES.CHEF_BRIGADE, ROLES.CBPI, ROLES.ADMIN], // v4 : signature de toute une déclaration
   'cargo.horsgabarit': [ROLES.CHEF_BRIGADE, ROLES.CHEF_BRIGADE_ADJOINT, ROLES.CHEF_VISITE, ROLES.CHEF_DIVISION, ROLES.ADMIN],
   'cargo.t1': [ROLES.T1, ROLES.ADMIN],
   'cargo.gps': [ROLES.BALISE, ROLES.ADMIN],
@@ -107,7 +122,7 @@ export const PERMISSIONS: Record<string, Role[]> = {
   'report.ordre': [ROLES.CFS, ROLES.CHEF_BRIGADE, ROLES.ADMIN], // v4 : ordre d'exécution imprimable
   // v4 : dossier de validation par déclaration — même périmètre que cargo.valider
   // (le chef signe ; l'ADMIN dépanne). Le CFS n'y a PAS accès : il ne valide pas.
-  'report.validationdecl': [ROLES.CHEF_BRIGADE, ROLES.ADMIN],
+  'report.validationdecl': [ROLES.CHEF_BRIGADE, ROLES.CBPI, ROLES.ADMIN],
   'report.cfs': [ROLES.CFS, ROLES.CHEF_BRIGADE, ROLES.ADMIN],
   'report.cfsdetail': [ROLES.CFS, ROLES.CHEF_BRIGADE, ROLES.ADMIN],
   'report.vehicule': [ROLES.CFS, ROLES.CHEF_BRIGADE, ROLES.ADMIN],
@@ -146,10 +161,10 @@ export const PERMISSIONS: Record<string, Role[]> = {
   'user.toggle': [ROLES.ADMIN],
   'user.resetpwd': [ROLES.ADMIN],
   'user.resetmfa': [ROLES.ADMIN], // v4 : réinitialisation du 2FA d'un agent
-  // Compte courant
-  'account.me': TOUS_ROLES, // v4 : profil de la session (username, nomComplet, role)
-  'account.changepwd': TOUS_ROLES,
-  'account.signin': TOUS_ROLES, // SEC-05 : trace de connexion (appelée par le client après login)
+  // Compte courant — + CBPI (sinon il ne pourrait pas entrer dans l'appli).
+  'account.me': [...TOUS_ROLES, ...VALIDE_ET_COMPTE], // v4 : profil de la session (username, nomComplet, role)
+  'account.changepwd': [...TOUS_ROLES, ...VALIDE_ET_COMPTE],
+  'account.signin': [...TOUS_ROLES, ...VALIDE_ET_COMPTE], // SEC-05 : trace de connexion (appelée par le client après login)
 };
 
 /** Vérifie une permission ; messages identiques à Auth.gs _exigerPermission_. */

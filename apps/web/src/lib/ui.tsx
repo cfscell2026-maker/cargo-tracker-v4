@@ -23,6 +23,9 @@ export const MENUS: Record<string, MenuItem[]> = {
     ['flux', 'Analyse des flux', '⇄'], ['destinations', 'Par destination', '⇄'], ['controles', 'Contrôles (gabarit/surcharge)', '⚖'], ['dwell', 'Délai & instance', '⏱'], ['stockdwell', 'Séjour conteneurs', '⏱'], ['temps', 'Temps de passage', '⏳'], ['account', 'Mon compte', '◔'],
   ],
   CHEF_BRIGADE_ADJOINT: [['search', 'Recherche (en cours)', '⌕'], ['list', 'Cargaisons', '▤'], ['vehicules', 'Véhicules', '🚗'], ['kpi', 'KPI / EVP', '◫'], ['controles', 'Contrôles (gabarit/surcharge)', '⚖'], ['temps', 'Temps de passage', '⏳'], ['account', 'Mon compte', '◔']],
+  // CBPI — chef brigade par intérim : UNIQUEMENT la file « À valider » (+ son
+  // compte). Aucun autre écran : c'est une délégation de signature, rien d'autre.
+  CBPI: [['wait_valid', 'À valider', '✔'], ['account', 'Mon compte', '◔']],
   CHEF_VISITE: [['dash', 'Tableau de bord', '▦'], ['search', 'Recherche (en cours)', '⌕'], ['list', 'Cargaisons', '▤'], ['vehicules', 'Véhicules', '🚗'], ['kpi', 'KPI / EVP', '◫'], ['controles', 'Contrôles (gabarit/surcharge)', '⚖'], ['temps', 'Temps de passage', '⏳'], ['account', 'Mon compte', '◔']],
   CHEF_DIVISION: [['dash', 'Tableau de bord', '▦'], ['search', 'Recherche (en cours)', '⌕'], ['list', 'Cargaisons', '▤'], ['vehicules', 'Véhicules', '🚗'], ['kpi', 'KPI / EVP', '◫'], ['controles', 'Contrôles (gabarit/surcharge)', '⚖'], ['temps', 'Temps de passage', '⏳'], ['account', 'Mon compte', '◔']],
   T1: [['t1', 'Cellule T1', '①'], ['wait_t1', 'En attente T1', '◷'], ['search', 'Recherche (en cours)', '⌕'], ['list', 'Cargaisons', '▤'], ['account', 'Mon compte', '◔']],

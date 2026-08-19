@@ -35,6 +35,12 @@ export const ROLES = {
   CFS: 'CFS',
   CHEF_BRIGADE: 'CHEF_BRIGADE',
   CHEF_BRIGADE_ADJOINT: 'CHEF_BRIGADE_ADJOINT',
+  // CBPI — Chef brigade PAR INTÉRIM (2026-08-19). Délégation de la SEULE
+  // validation/signature quand le chef brigade titulaire n'est pas là. Ce profil
+  // ne voit QUE la file « À valider » et ne peut QUE valider (aucun autre écran,
+  // aucune autre action). La traçabilité distingue ses signatures de celles du
+  // titulaire (colonne role_validation + libellé sur la fiche).
+  CBPI: 'CBPI',
   CHEF_VISITE: 'CHEF_VISITE',
   CHEF_DIVISION: 'CHEF_DIVISION',
   T1: 'T1',
@@ -94,10 +100,15 @@ export type Operation = (typeof OPERATIONS)[keyof typeof OPERATIONS];
  * laissent à l'agent le choix de baliser ou non.
  *   C = mise à la consommation ;
  *   A = admission (décision utilisateur 2026-07-22 : « le type A se comporte
- *       comme la conso — on donne le choix de baliser ou pas »).
- * Le type T (transit) et les autres restent sur le parcours T1 → Balise.
+ *       comme la conso — on donne le choix de baliser ou pas ») ;
+ *   S = ne prend pas le T1 non plus (décision utilisateur 2026-08-19 : « seules
+ *       les déclarations de type T et E prennent les T1 »).
+ * SEULS les types T (transit) et E restent sur le parcours T1 → Balise. Tout
+ * autre type explicitement saisi saute le T1 ; un type ENCORE VIDE (camion tout
+ * juste créé, déclaration pas renseignée) n'est PAS considéré comme sauté — il
+ * reste dans la file T1 jusqu'à ce que le type soit connu (voir estTypeSansT1).
  */
-export const TYPES_SANS_T1 = ['C', 'A'] as const;
+export const TYPES_SANS_T1 = ['C', 'A', 'S'] as const;
 export function estTypeSansT1(typeDeclaration: unknown): boolean {
   const t = String(typeDeclaration ?? '').trim().toUpperCase();
   return (TYPES_SANS_T1 as readonly string[]).indexOf(t) >= 0;
@@ -122,6 +133,7 @@ export function libelleTypeSansT1(typeDeclaration: unknown): string {
   const t = String(typeDeclaration ?? '').trim().toUpperCase();
   if (t === 'C') return 'Type C = mise à la consommation';
   if (t === 'A') return 'Type A = admission (même parcours que la conso)';
+  if (t === 'S') return 'Type S = ne prend pas le T1';
   return 'Type ' + t;
 }
 
@@ -229,6 +241,7 @@ export const ROLE_LABELS: Record<string, string> = {
   PORTE_CFS: 'Agent CFS', // alias historique conservé (comptes migrés)
   CHEF_BRIGADE: 'Chef brigade',
   CHEF_BRIGADE_ADJOINT: 'Chef brigade adjoint',
+  CBPI: 'Chef brigade par intérim',
   CHEF_VISITE: 'Chef visite',
   CHEF_DIVISION: 'Chef division',
   T1: 'Agent T1',

@@ -17,6 +17,8 @@ import {
   estOui,
   aFait,
   normAlphaNum,
+  numeroQuasiDoublon,
+  similariteNum,
   type Role,
 } from '../../_shared/domaine/src/index.ts';
 
@@ -213,23 +215,42 @@ export async function cargoCheckdup(
   const numCam = normAlphaNum(p.numeroCamion);
   const conts = (Array.isArray(p.conteneurs) ? p.conteneurs : []).map(normAlphaNum).filter(Boolean);
 
-  const res: { camion: unknown[]; conteneurs: Record<string, unknown[]> } = { camion: [], conteneurs: {} };
+  // `similaires` (2026-08-19) : quasi-doublons de N° de camion — un caractère de
+  // trop / de moins / faux, ou deux caractères intervertis. AVERTISSEMENT only :
+  // on ne renvoie que des camions ACTIFS (encore dans l'enceinte), non identiques
+  // (l'identique exact est déjà dans `camion`), triés du plus ressemblant au
+  // moins ressemblant et plafonnés — de quoi demander « n'est-ce pas celui-là ? ».
+  const res: {
+    camion: unknown[];
+    conteneurs: Record<string, unknown[]>;
+    similaires: unknown[];
+  } = { camion: [], conteneurs: {}, similaires: [] };
   for (const k of conts) res.conteneurs[k] = [];
 
   const resume = await chargerResume(ctx);
+  const similaires: { id: string; statut: string; dateCreation: unknown; numeroCamion: string; similarite: number }[] = [];
   const infoById: Record<string, { id: string; statut: string; dateCreation: unknown; numeroCamion: string; actif: boolean }> = {};
   for (const r of resume) {
     const id = String(r['id']);
+    const actif = r['statut'] !== STATUTS.SORTIE;
     infoById[id] = {
       id,
       statut: String(r['statut'] ?? ''),
       dateCreation: r['dateCreation'],
       numeroCamion: String(r['numeroCamion'] ?? ''),
-      actif: r['statut'] !== STATUTS.SORTIE,
+      actif,
     };
     if (id === exclude || !numCam) continue;
     if (normAlphaNum(r['numeroCamion']) === numCam) res.camion.push(infoById[id]);
+    else if (actif && numeroQuasiDoublon(numCam, r['numeroCamion'])) {
+      similaires.push({
+        id, statut: String(r['statut'] ?? ''), dateCreation: r['dateCreation'],
+        numeroCamion: String(r['numeroCamion'] ?? ''), similarite: similariteNum(numCam, r['numeroCamion']),
+      });
+    }
   }
+  similaires.sort((a, b) => b.similarite - a.similarite);
+  res.similaires = similaires.slice(0, 6);
 
   if (conts.length) {
     const { data, error } = await ctx.db
@@ -264,44 +285,88 @@ function memeJourLocal(v: unknown, ref: Date): boolean {
   return d.getFullYear() === ref.getFullYear() && d.getMonth() === ref.getMonth() && d.getDate() === ref.getDate();
 }
 
+/**
+ * TABLEAU DE BORD — refonte 2026-08-19 (demande utilisateur).
+ *
+ * DEUX natures de chiffres, qu'il ne faut plus mélanger :
+ *
+ *   · ÉVÉNEMENTS DE LA PÉRIODE — « qu'est-ce qui s'est PASSÉ à chaque cellule
+ *     dans la période choisie ? ». Chaque passage est compté à LA DATE DE SA
+ *     PROPRE CELLULE, jamais à la date de création du camion : une sortie du
+ *     jour est une sortie du jour, même si le camion est entré la semaine
+ *     dernière. C'est exactement la lecture de la fiche de synthèse (ficheBord).
+ *     → creesPeriode (entrée CFS), t1Periode, balisesPeriode, bonsPeriode,
+ *       sortiePeriode, vehiculesSortisPeriode.
+ *
+ *   · EN ATTENTE MAINTENANT — « où sont, à l'instant T, les dossiers en
+ *     souffrance ? ». État instantané, INDÉPENDANT de la période : un camion
+ *     entré il y a un mois et toujours bloqué au T1 doit apparaître dans la file
+ *     T1 d'aujourd'hui. On ne filtre donc PAS ces compteurs par la période.
+ *     → attValidation, attT1, attBalise, attBs, attPP, camion, chargement,
+ *       vehiculesAttente.
+ *
+ * L'ancienne version filtrait TOUT par la date de création : la tuile « Sortis »
+ * ne montrait que les camions créés ET sortis dans la période — un camion sorti
+ * aujourd'hui mais entré avant n'y figurait pas. C'est le défaut corrigé ici.
+ */
 export async function dashboardStats(ctx: Ctx, opts: { du?: string; au?: string }) {
   const stats = {
-    total: 0, camion: 0, chargement: 0, sortie: 0, aujourdHui: 0,
+    // Événements datés sur la période (chaque cellule à sa propre date).
+    creesPeriode: 0, t1Periode: 0, balisesPeriode: 0, bonsPeriode: 0, sortiePeriode: 0,
+    vehiculesSortisPeriode: 0,
+    // En attente — état instantané, hors période.
     attValidation: 0, attT1: 0, attBalise: 0, attBs: 0, attPP: 0,
-    creee: 0, t1: 0, gps: 0, bs: 0, // alias compat libellés client
-    vehiculesAttente: 0, vehiculesSortis: 0,
+    camion: 0, chargement: 0, vehiculesAttente: 0,
+    // Divers / compat.
+    total: 0, sortie: 0, aujourdHui: 0,
   };
   const du = opts.du ? new Date(opts.du + 'T00:00:00') : null;
   const auJ = opts.au ? new Date(opts.au + 'T00:00:00') : null;
   const auEx = auJ ? new Date(auJ.getTime() + 86400000) : null; // borne haute exclusive
+  const dansPeriode = (v: unknown): boolean => {
+    if (!v) return false;
+    const d = new Date(String(v));
+    if (isNaN(d.getTime())) return false;
+    if (du && d < du) return false;
+    if (auEx && d >= auEx) return false;
+    return true;
+  };
 
   const data = await chargerResume(ctx);
   const today = new Date();
   for (const r of data) {
-    if (du || auEx) {
-      const d = r['dateCreation'] ? new Date(String(r['dateCreation'])) : null;
-      if (!d || isNaN(d.getTime())) continue;
-      if (du && d < du) continue;
-      if (auEx && d >= auEx) continue;
+    const veh = estOui(r['estVehicule']);
+
+    /* --- ÉVÉNEMENTS DE LA PÉRIODE (chaque cellule à sa date) --- */
+    if (veh) {
+      if (dansPeriode(r['dateSortie'])) stats.vehiculesSortisPeriode++;
+    } else {
+      if (dansPeriode(r['dateCreation'])) stats.creesPeriode++;
+      if (dansPeriode(r['dateT1'])) stats.t1Periode++;
+      if (dansPeriode(r['datePoseGps'])) stats.balisesPeriode++;
+      // date_bon_sortie n'est ajoutée à la vue résumé que par la migration
+      // 00130 ; en son absence le champ est `undefined` → 0 (dégradation propre).
+      if (dansPeriode(r['dateBonSortie']) && aFait(r['bonSortieNumero'])) stats.bonsPeriode++;
+      if (dansPeriode(r['dateSortie'])) stats.sortiePeriode++;
+      if (memeJourLocal(r['dateCreation'], today)) stats.aujourdHui++;
     }
-    if (estOui(r['estVehicule'])) {
-      if (r['statut'] === STATUTS.SORTIE) stats.vehiculesSortis++;
-      else stats.vehiculesAttente++;
+
+    /* --- EN ATTENTE MAINTENANT (instant T, hors période) --- */
+    if (veh) {
+      if (r['statut'] !== STATUTS.SORTIE) stats.vehiculesAttente++;
       continue;
     }
     stats.total++;
     if (r['statut'] === STATUTS.CAMION) stats.camion++;
     else if (r['statut'] === STATUTS.CHARGEMENT) stats.chargement++;
-    else if (r['statut'] === STATUTS.SORTIE) stats.sortie++;
     const pend = etapesEnAttente(r as never);
     if (pend.indexOf('VALIDATION') >= 0) stats.attValidation++;
     if (pend.indexOf('T1') >= 0) stats.attT1++;
     if (pend.indexOf('BALISE') >= 0) stats.attBalise++;
     if (pend.indexOf('BS') >= 0) stats.attBs++;
     if (pend.indexOf('PP') >= 0) stats.attPP++;
-    if (memeJourLocal(r['dateCreation'], today)) stats.aujourdHui++;
   }
-  stats.creee = stats.attT1; stats.t1 = stats.attBalise; stats.gps = stats.attBs; stats.bs = stats.attPP;
+  stats.sortie = stats.sortiePeriode; // alias compat (ancien libellé client)
   return stats;
 }
 

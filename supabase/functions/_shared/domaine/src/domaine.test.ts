@@ -12,6 +12,7 @@ import {
   verifierPermission, PERMISSIONS, TYPES_DECLARATION,
   groupesDeclaration, estChargementMixte, libelleDeclaration,
   sautsTypeC, estTypeSansT1, DESTINATION_CODES, estDispenseBalise, codeDestination,
+  distanceOSA, similariteNum, numeroQuasiDoublon,
 } from './index.ts';
 
 /* ------------------------------ Moteur workflow ------------------------ */
@@ -253,6 +254,18 @@ test('matrice PERMISSIONS complète (72 actions + resetmfa)', () => {
   assert.ok(!PERMISSIONS['cargo.validerlot']!.includes(ROLES.CFS));
 });
 
+test('CBPI (chef brigade par intérim) : UNIQUEMENT valider + compte (2026-08-19)', () => {
+  // Il peut signer, ouvrir la fiche à signer et gérer son compte.
+  for (const a of ['cargo.valider', 'cargo.validerlot', 'report.validationdecl', 'cargo.get',
+    'account.me', 'account.changepwd', 'account.signin'])
+    assert.doesNotThrow(() => verifierPermission(ROLES.CBPI, a), `CBPI devrait pouvoir ${a}`);
+  // Il ne voit RIEN d'autre : ni saisie, ni autres cellules, ni listes/recherche,
+  // ni tableau de bord, ni administration.
+  for (const a of ['cargo.cfs', 'cargo.createcamion', 'cargo.t1', 'cargo.gps', 'cargo.bonsortie',
+    'cargo.sortie', 'cargo.list', 'cargo.search', 'dashboard.stats', 'report.cfs', 'user.list'])
+    assert.throws(() => verifierPermission(ROLES.CBPI, a), /Accès refusé/, `CBPI ne devrait pas pouvoir ${a}`);
+});
+
 test('correction de plaque : réservée au CFS, au chef de brigade et à l\'ADMIN (SEC-11)', () => {
   // Le N° d'immatriculation identifie le camion sur le bon de sortie et sur
   // l'ordre d'exécution. L'action était ouverte à TOUS_ROLES, à tout statut :
@@ -286,19 +299,42 @@ test('TYPES_DECLARATION = T,C,S,A,E', () => {
   assert.deepEqual([...TYPES_DECLARATION], ['T', 'C', 'S', 'A', 'E']);
 });
 
-test('types hors transit (C conso, A admission) : sautent le T1, balise au choix', () => {
-  // Décision utilisateur 2026-07-22 : « le type A se comporte comme la conso —
-  // on donne le choix de baliser ou pas ».
-  for (const t of ['C', 'A', 'a']) {
+test('hors transit (C, A, S) : sautent le T1, balise au choix ; seuls T et E prennent le T1', () => {
+  // Décision utilisateur 2026-07-22 : « le type A se comporte comme la conso ».
+  // Décision utilisateur 2026-08-19 : « seules les déclarations de type T et E
+  // prennent les T1 » → le type S rejoint C/A dans les types qui sautent le T1.
+  for (const t of ['C', 'A', 'a', 'S', 's']) {
     assert.deepEqual(sautsTypeC(t, 'balise'), { sauteT1: true, sauteBalise: false });
     assert.deepEqual(sautsTypeC(t, 'sansbalise'), { sauteT1: true, sauteBalise: true });
     assert.equal(estTypeSansT1(t), true);
   }
-  // Le transit et les autres types gardent le parcours T1 → Balise.
-  for (const t of ['T', 'S', 'E', '']) {
+  // Le transit (T) et le type E gardent le parcours T1 → Balise. Un type ENCORE
+  // VIDE reste aussi dans la file T1 (pas de saut tant que le type est inconnu).
+  for (const t of ['T', 'E', '']) {
     assert.deepEqual(sautsTypeC(t, 'sansbalise'), { sauteT1: false, sauteBalise: false });
     assert.equal(estTypeSansT1(t), false);
   }
+});
+
+test('similitude de N° : distance, ratio, quasi-doublon (2026-08-19)', () => {
+  // Distance OSA : substitution / insertion / suppression = 1 ; interversion
+  // de deux caractères adjacents = 1 (et non 2 comme en Levenshtein pur).
+  assert.equal(distanceOSA('ABC1234', 'ABC1234'), 0);
+  assert.equal(distanceOSA('ABC1234', 'ABC1235'), 1); // substitution
+  assert.equal(distanceOSA('ABC1234', 'ABC12345'), 1); // insertion
+  assert.equal(distanceOSA('AB1234', 'BA1234'), 1);    // interversion adjacente
+
+  // Normalisation : ponctuation / casse ignorées → identiques.
+  assert.equal(similariteNum('AB-12-CD', 'ab12cd'), 1);
+  assert.equal(numeroQuasiDoublon('AB-12-CD', 'ab12cd'), false); // identique ≠ quasi-doublon
+
+  // Quasi-doublons à AVERTIR : une faute d'un caractère, une interversion.
+  assert.equal(numeroQuasiDoublon('TG1234A', 'TG1234B'), true); // 1 caractère faux
+  assert.equal(numeroQuasiDoublon('TG1234A', 'TG124A'), true);  // 1 caractère en moins
+  assert.equal(numeroQuasiDoublon('AB1234CD', 'BA1234CD'), true); // interversion
+  // Trop différents : pas d'alerte (vrais camions distincts).
+  assert.equal(numeroQuasiDoublon('AB1234CD', 'XY9876ZZ'), false);
+  assert.equal(numeroQuasiDoublon('TG1234A', ''), false); // rien à comparer
 });
 
 test('codeDestination : codes reconnus, texte libre → Autres', () => {

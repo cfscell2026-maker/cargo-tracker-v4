@@ -66,7 +66,7 @@ export function Detail({ user, arg, go, retour, ecranPrecedent }: Nav) {
       {c['typeOperation'] === OPERATIONS.MAGASIN && c['statut'] === STATUTS.CHARGEMENT && can(ROLES.CFS, A) &&
         <FinaliserMagasin id={id} action={action} />}
       {c['statut'] === STATUTS.VEHICULE_OUILLAGE && can(ROLES.CFS, A) && <PanneauOuillage c={c} action={action} />}
-      {pend.includes('VALIDATION') && can(ROLES.CHEF_BRIGADE, A) && <PanneauValidation c={c} action={action} />}
+      {pend.includes('VALIDATION') && can(ROLES.CHEF_BRIGADE, ROLES.CBPI, A) && <PanneauValidation c={c} action={action} />}
       {pend.includes('T1') && can(ROLES.T1, A) && <PanneauT1 c={c} dets={dets} action={action} />}
       {pend.includes('BALISE') && can(ROLES.BALISE, A) && !estVeh && <PanneauBalise c={c} action={action} />}
       {pend.includes('BS') && can(ROLES.BON_SORTIE, A) && <PanneauBS c={c} dets={dets} action={action} />}
@@ -260,7 +260,9 @@ function Timeline({ c }: { c: O }) {
   const steps: [boolean, string, string][] = [
     [e.cfs, 'CFS — chargement', c['agentCfs'] ? `${c['agentCfs']}` : ''],
     [e.valide, 'Validation chef brigade',
-      c['agentValidation'] ? `${c['agentValidation']} · ${fmtDate(c['dateValidation'])}`
+      // Traçabilité CBPI : on nomme le signataire ET, s'il a signé par intérim,
+      // on le signale explicitement (« par intérim »).
+      c['agentValidation'] ? `${c['agentValidation']}${c['roleValidation'] === ROLES.CBPI ? ' (par intérim)' : ''} · ${fmtDate(c['dateValidation'])}`
         : (e.valide && !valideReel ? 'réputée (T1/sortie effectué)' : '')],
     [e.t1, (estOui(c['sauteT1']) || estTypeSansT1(c['typeDeclaration'])) && !c['dateT1'] ? 'T1 (sauté)' : 'T1', c['agentT1'] ? `${c['agentT1']} · ${fmtDate(c['dateT1'])}` : ''],
     [e.balise, estOui(c['estVehicule']) || estOui(c['sauteBalise']) ? 'Balise (sautée)' : (c['numeroGps'] ? 'Balisé' : 'Balise/Dispense'), c['datePoseGps'] ? `${c['agentBalise']} · ${fmtDate(c['datePoseGps'])}` : ''],
@@ -625,7 +627,7 @@ function PanneauOuillage({ c, action }: { c: O; action: ActionFn }) {
       <Champ label="Contact" value={String(d['contactDeclarant'])} onChange={(e) => setDd('contactDeclarant', masks.tel(e.target.value))} />
       <ChampDestination value={String(d['destinationMarchandise'])} onChange={(v) => setDd('destinationMarchandise', v)} />
       <Champ label="Bureau" value={String(d['bureauDeclaration'])} onChange={(e) => setDd('bureauDeclaration', masks.upper(e.target.value))} />
-      <div><label className="help">Type (T = Transit → T1)</label><select value={String(d['typeDeclaration'])} onChange={(e) => setDd('typeDeclaration', e.target.value)}>{TYPES_DECLARATION.map((t) => <option key={t}>{t}</option>)}</select></div>
+      <div><label className="help">Type (seuls T et E → T1)</label><select value={String(d['typeDeclaration'])} onChange={(e) => setDd('typeDeclaration', e.target.value)}>{TYPES_DECLARATION.map((t) => <option key={t}>{t}</option>)}</select></div>
       <Champ label="N° déclaration" value={String(d['numeroDeclaration'])} onChange={(e) => setDd('numeroDeclaration', masks.upper(e.target.value))} />
       <Champ label="Année" value={String(d['anneeDeclaration'])} onChange={(e) => setDd('anneeDeclaration', e.target.value)} />
     </div>

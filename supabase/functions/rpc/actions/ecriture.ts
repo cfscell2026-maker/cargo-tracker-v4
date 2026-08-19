@@ -454,6 +454,11 @@ export async function valider(ctx: Ctx, p: Record<string, unknown>) {
 
   await patchCargo(ctx, cargo, {
     date_validation: now, agent_validation: ctx.session.nomComplet, agent_validation_id: ctx.session.userId,
+    // TRAÇABILITÉ CBPI (2026-08-19) — on garde SUR LA FICHE le rôle du signataire :
+    // chef brigade titulaire ou chef brigade par intérim. Le nom seul (agent_validation)
+    // ne dit pas à quel titre la personne a signé ; la table `validations` en garde
+    // déjà l'historique, on le remonte ici pour l'affichage direct.
+    role_validation: ctx.session.role,
     signature_validation: sig, ...pesee,
   });
 
