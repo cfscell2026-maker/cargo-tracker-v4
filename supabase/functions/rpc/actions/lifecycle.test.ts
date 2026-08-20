@@ -1341,6 +1341,18 @@ test('archivage goulots : analyse, archive (réversible) sort des rapports (2026
   assert.equal(db.store['cargaisons'].find((c) => c['id'] === a.id)!['archive'], false);
 });
 
+test('rapport de cellule T1 : compte les T1 saisis, datés au T1 (2026-08-19)', async () => {
+  const db = new FakeDB();
+  const cfs = ctxAvec(db);
+  db.store['stock'].push({ numero_tc: 'MSKU7000001', taille: "40'", statut: 'En stock' });
+  const a = (await ecr.createcamion(cfs, { numeroCamion: 'T1REP', routage: 'Enlèvement' })) as { id: string };
+  await ecr.cfs(cfs, { id: a.id, conteneur: { num: 'MSKU7000001', taille: "40'", type: 'DRY', plomb: 'S1' }, declaration: DECL_OK });
+  await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'), { id: a.id }); // enlèvement : sans pesée
+  await ecr.t1(ctxRole(db, 'T1', 'Agent T1'), { id: a.id, bureauDestination: 'TG120', t1Numeros: [{ conteneur: 'MSKU7000001', numero: 'T1-X' }] });
+  const r = (await rap.rapportActivite(cfs, { kind: 't1' })) as { total: { camions: number } };
+  assert.ok(r.total.camions >= 1, 'le T1 saisi doit être compté dans le rapport de la cellule T1');
+});
+
 /* ---- v4.1 : entrepôts MAD & industriel (entrées / sorties / stats) ------- */
 import * as entrepot from './entrepots.ts';
 

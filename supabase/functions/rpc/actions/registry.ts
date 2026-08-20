@@ -98,6 +98,11 @@ export const ACTIONS: Record<string, H> = {
   'report.balisedetail': d((ctx, data: Record<string, unknown>) => rap.rapportActiviteDetail(ctx, { ...data, kind: 'balise' })),
   'report.pp': d((ctx, data: Record<string, unknown>) => rap.rapportActivite(ctx, { ...data, kind: 'pp' })),
   'report.ppdetail': d((ctx, data: Record<string, unknown>) => rap.rapportActiviteDetail(ctx, { ...data, kind: 'pp' })),
+  // v4.3 — rapports des cellules T1 et Bon de sortie (datés à leur propre cellule).
+  'report.t1': d((ctx, data: Record<string, unknown>) => rap.rapportActivite(ctx, { ...data, kind: 't1' })),
+  'report.t1detail': d((ctx, data: Record<string, unknown>) => rap.rapportActiviteDetail(ctx, { ...data, kind: 't1' })),
+  'report.bonsortie': d((ctx, data: Record<string, unknown>) => rap.rapportActivite(ctx, { ...data, kind: 'bonsortie' })),
+  'report.bonsortiedetail': d((ctx, data: Record<string, unknown>) => rap.rapportActiviteDetail(ctx, { ...data, kind: 'bonsortie' })),
   'report.kpi': d(rap.rapportKPI),
   'report.dispenses': d(rap.rapportDispenses),
   'report.cargaisons': d(rap.rapportCargaisons), // v4.1 : export cargaisons par statut + période (xlsx/pdf)

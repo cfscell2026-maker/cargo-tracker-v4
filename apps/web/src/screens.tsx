@@ -2251,6 +2251,9 @@ function DetailCellule({ detail, du, au, op, metric, go, onClose }: {
 SCREENS.cfsreport = ({ go }) => <RapportCellule action="report.cfs" detail="report.cfsdetail" titre="Rapport CFS" camLabel="Camions" go={go} />;
 SCREENS.baliserep = ({ go }) => <RapportCellule action="report.balise" detail="report.balisedetail" titre="Rapport Balise (pose balise)" twins camLabel="Camions balisés" go={go} />;
 SCREENS.pprep = ({ go }) => <RapportCellule action="report.pp" detail="report.ppdetail" titre="Rapport Porte Principale (sorties)" camLabel="Camions sortis" go={go} />;
+// v4.3 — rapports des cellules T1 et Bon de sortie, datés à leur propre cellule.
+SCREENS.t1report = ({ go }) => <RapportCellule action="report.t1" detail="report.t1detail" titre="Rapport T1 (T1 saisis)" camLabel="Camions (T1)" go={go} />;
+SCREENS.bonsortiereport = ({ go }) => <RapportCellule action="report.bonsortie" detail="report.bonsortiedetail" titre="Rapport Bon de sortie (bons émis)" camLabel="Camions (bons émis)" go={go} />;
 
 SCREENS.vehreport = () => {
   const p = useReportRange();

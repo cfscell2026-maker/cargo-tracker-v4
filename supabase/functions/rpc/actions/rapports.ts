@@ -232,9 +232,16 @@ export async function rapportVehiculesDetail(ctx: Ctx, p: Record<string, unknown
 /* ========================= Activité Balise / PP ======================= */
 
 function cfgActivite(kind: string) {
-  return kind === 'pp'
-    ? { dateCol: 'dateSortie', agentCol: 'agentPp', role: ROLES.PP }
-    : { dateCol: 'datePoseGps', agentCol: 'agentBalise', role: ROLES.BALISE };
+  // v4.3 (2026-08-19) — chaque cellule a son rapport, DATÉ À SA PROPRE CELLULE :
+  // T1 aux T1 saisis (dateT1), Bon de sortie aux bons émis (dateBonSortie), en
+  // plus de la Balise (pose) et de la PP (sortie). « 30 balises aujourd'hui » =
+  // 30 poses datées aujourd'hui, quelle que soit la date de création du camion.
+  switch (kind) {
+    case 'pp': return { dateCol: 'dateSortie', agentCol: 'agentPp', role: ROLES.PP };
+    case 't1': return { dateCol: 'dateT1', agentCol: 'agentT1', role: ROLES.T1 };
+    case 'bonsortie': return { dateCol: 'dateBonSortie', agentCol: 'agentBonSortie', role: ROLES.BON_SORTIE };
+    default: return { dateCol: 'datePoseGps', agentCol: 'agentBalise', role: ROLES.BALISE };
+  }
 }
 function collecteActivite(cargos: Record<string, unknown>[], dateCol: string, agentCol: string, du?: string, au?: string, agentLc?: string) {
   const parOp: Record<string, AggCFS & { twins: number; sansBalise: number }> = {

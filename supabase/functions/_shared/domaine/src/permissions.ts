@@ -135,6 +135,11 @@ export const PERMISSIONS: Record<string, Role[]> = {
   'report.balisedetail': [ROLES.BALISE, ROLES.CHEF_BRIGADE, ROLES.ADMIN],
   'report.pp': [ROLES.PP, ROLES.CHEF_BRIGADE, ROLES.ADMIN],
   'report.ppdetail': [ROLES.PP, ROLES.CHEF_BRIGADE, ROLES.ADMIN],
+  // v4.3 — rapports cellules T1 et Bon de sortie (l'agent voit TOUTE sa cellule).
+  'report.t1': [ROLES.T1, ROLES.CHEF_BRIGADE, ROLES.ADMIN],
+  'report.t1detail': [ROLES.T1, ROLES.CHEF_BRIGADE, ROLES.ADMIN],
+  'report.bonsortie': [ROLES.BON_SORTIE, ROLES.CHEF_BRIGADE, ROLES.ADMIN],
+  'report.bonsortiedetail': [ROLES.BON_SORTIE, ROLES.CHEF_BRIGADE, ROLES.ADMIN],
   'report.kpi': TOUS_ROLES,
   'report.dispenses': [ROLES.BALISE, ROLES.CHEF_BRIGADE, ROLES.ADMIN],
   'report.cargaisons': TOUS_ROLES, // v4.1 : export cargaisons (lecture) — captaines/chefs inclus
