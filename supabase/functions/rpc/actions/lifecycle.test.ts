@@ -1318,6 +1318,29 @@ test('horodatage : plage d\'activité par cellule/agent (2026-08-19)', async () 
   assert.match(cfsRow!.debut, /^\d\d:\d\d$/); // heure « HH:MM »
 });
 
+test('archivage goulots : analyse, archive (réversible) sort des rapports (2026-08-19)', async () => {
+  const db = new FakeDB();
+  const cfs = ctxAvec(db);
+  const admin = ctxRole(db, 'ADMIN', 'Admin');
+  const a = (await ecr.createcamion(cfs, { numeroCamion: 'GOULOT1', routage: 'Dépotage' })) as { id: string };
+  // Reste au statut « Camion créé » = goulot. L'analyse le voit (seuil 0 j).
+  let g = (await rap.rapportGoulots(cfs, { joursMin: 0 })) as { total: number; rows: O[] };
+  assert.ok(g.rows.some((r) => r['id'] === a.id), 'le goulot doit apparaître dans l\'analyse');
+  // Archivage (ADMIN) — motif obligatoire.
+  await assert.rejects(() => ecr.archiverGoulots(admin, { ids: [a.id], motif: '' }), /motif/i);
+  const r = (await ecr.archiverGoulots(admin, { ids: [a.id], motif: 'vieux dossier migré' })) as { compte: O };
+  assert.equal(Number(r.compte['archives']), 1);
+  assert.equal(db.store['cargaisons'].find((c) => c['id'] === a.id)!['archive'], true);
+  // Exclu des rapports/files ; listé dans les archives.
+  g = (await rap.rapportGoulots(cfs, { joursMin: 0 })) as { total: number; rows: O[] };
+  assert.equal(g.rows.find((x) => x['id'] === a.id), undefined);
+  const arch = (await rap.rapportArchives(cfs, {})) as { rows: O[] };
+  assert.ok(arch.rows.some((x) => x['id'] === a.id));
+  // Réversible.
+  await ecr.desarchiverGoulots(admin, { ids: [a.id] });
+  assert.equal(db.store['cargaisons'].find((c) => c['id'] === a.id)!['archive'], false);
+});
+
 /* ---- v4.1 : entrepôts MAD & industriel (entrées / sorties / stats) ------- */
 import * as entrepot from './entrepots.ts';
 

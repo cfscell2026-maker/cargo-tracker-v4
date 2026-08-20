@@ -36,7 +36,7 @@ export const MENUS: Record<string, MenuItem[]> = {
     ['dash', 'Tableau de bord', '▦'], ['creercamion', 'Créer un camion', '＋'], ['completer', 'Saisir / compléter', '✎'], ['wait_valid', 'À valider', '✔'], ['conso', 'Conso (type C)', '＋'], ['search', 'Recherche (en cours)', '⌕'], ['list', 'Cargaisons', '▤'], ['vehicules', 'Véhicules', '🚗'],
     ['conteneurs', 'Opérations sur conteneurs', '▦'], ['mad', 'Magasin / MAD', '▥'], ['entrepindus', 'Entrepôt industriel', '🏭'], ['etatcfs', 'Pointage camions (sortie)', '◨'], ['chargement', 'Bon de chargement', '▤'],
     ['kpi', 'KPI / EVP', '◫'], ['cfsreport', 'Rapport CFS', '∑'], ['vehreport', 'Rapport véhicules', '∑'], ['baliserep', 'Rapport Balise', '∑'], ['pprep', 'Rapport PP', '∑'], ['dispenses', 'Dispenses', '⚑'],
-    ['flux', 'Analyse des flux', '⇄'], ['destinations', 'Par destination', '⇄'], ['controles', 'Contrôles (gabarit/surcharge)', '⚖'], ['dwell', 'Délai & instance', '⏱'], ['stockdwell', 'Séjour conteneurs', '⏱'], ['temps', 'Temps de passage', '⏳'], ['horodatage', 'Heures d\'activité', '⏰'], ['history', 'Historique', '◵'], ['users', 'Utilisateurs', '◑'], ['account', 'Mon compte', '◔'],
+    ['flux', 'Analyse des flux', '⇄'], ['destinations', 'Par destination', '⇄'], ['controles', 'Contrôles (gabarit/surcharge)', '⚖'], ['dwell', 'Délai & instance', '⏱'], ['stockdwell', 'Séjour conteneurs', '⏱'], ['temps', 'Temps de passage', '⏳'], ['horodatage', 'Heures d\'activité', '⏰'], ['goulots', 'Nettoyage (goulots)', '🧹'], ['history', 'Historique', '◵'], ['users', 'Utilisateurs', '◑'], ['account', 'Mon compte', '◔'],
   ],
 };
 
@@ -52,6 +52,7 @@ export const TITLES: Record<string, string> = {
   account: 'Mon compte', detail: 'Détail cargaison', cfsreport: 'Rapport CFS', vehreport: 'Rapport véhicules',
   baliserep: 'Rapport Balise', pprep: 'Rapport PP', flux: 'Analyse des flux', dwell: 'Délai & camions en instance',
   horodatage: "Plage d'activité par cellule",
+  goulots: 'Nettoyage — vieux dossiers (goulots)',
   vehicules: 'Véhicules', stock: 'Stock conteneurs', pointage: 'Pointage matinal', import: 'Stock initial — import',
   magasin: 'Entrée Magasin / MAD', importannonce: 'Annonce de transfert — import', annonce: 'Stock annoncé',
   pointentree: 'Pointage entrée (stock annoncé)', confentree: "Confirmer l'entrée au stock (annoncé)",

@@ -54,6 +54,10 @@ export const PERMISSIONS: Record<string, Role[]> = {
   'cargo.editcamion': [ROLES.CFS, ROLES.CHEF_BRIGADE, ROLES.ADMIN],
   'cargo.edittype': [ROLES.CFS, ROLES.ADMIN], // correction du type d'opération (phase CFS ; ADMIN partout)
   'cargo.delete': [ROLES.ADMIN], // suppression d'un doublon de cargaison (ADMIN uniquement)
+  // v4.3 (2026-08-19) — Archivage des vieux dossiers « goulots » (ADMIN) :
+  // clôture réversible et tracée, distincte de l'annulation d'un doublon.
+  'cargo.archiver': [ROLES.ADMIN],
+  'cargo.desarchiver': [ROLES.ADMIN],
   'cargo.editconteneur': [ROLES.CFS, ROLES.ADMIN], // v4 : correction / retrait d'un conteneur mal saisi (phase CFS ; ADMIN partout)
   'cargo.editdecl': [ROLES.CFS, ROLES.ADMIN], // v4 : correction des infos de déclaration d'un camion enregistré
   'cargo.lotcamions': [ROLES.CFS, ROLES.ADMIN], // v4 : saisie en lot de plusieurs camions sur une même déclaration
@@ -149,6 +153,9 @@ export const PERMISSIONS: Record<string, Role[]> = {
   // l'encadrement voit l'ensemble.
   'report.horodatage': [ROLES.CFS, ROLES.T1, ROLES.BALISE, ROLES.BON_SORTIE, ROLES.PP,
     ROLES.CHEF_BRIGADE, ROLES.CHEF_BRIGADE_ADJOINT, ROLES.CHEF_VISITE, ROLES.CHEF_DIVISION, ROLES.ADMIN],
+  // v4.3 — Analyse des goulots + liste des archivés (nettoyage) : ADMIN + chefs.
+  'report.goulots': [ROLES.ADMIN, ROLES.CHEF_BRIGADE, ROLES.CHEF_DIVISION],
+  'report.archives': [ROLES.ADMIN, ROLES.CHEF_BRIGADE, ROLES.CHEF_DIVISION],
   'report.dwelldetail': [ROLES.CFS, ROLES.CHEF_BRIGADE, ROLES.ADMIN],
   'report.list': [ROLES.ADMIN],
   'report.history': [ROLES.ADMIN],

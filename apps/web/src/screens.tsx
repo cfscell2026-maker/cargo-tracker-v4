@@ -2621,6 +2621,126 @@ SCREENS.horodatage = () => {
   </div>;
 };
 
+/* --------- v4.3 : Nettoyage des vieux dossiers « goulots » -------------- */
+/**
+ * Archivage des vieux dossiers (2026-08-19). Les dossiers migrés jamais menés à
+ * la sortie restent « en attente » pour toujours et gonflent les files. Cet
+ * écran les analyse (par statut / poste / âge) et permet à l'ADMIN de les
+ * ARCHIVER — clôture RÉVERSIBLE et TRACÉE : rien n'est supprimé, ils sortent
+ * seulement des files et des rapports. Un désarchivage les réactive.
+ */
+function BlocArchives() {
+  const { data, loading, reload } = useAsync<{ total: number; rows: O[] }>(() => call('report.archives', {}), []);
+  const [sel, setSel] = useState<Set<string>>(new Set());
+  const [busy, setBusy] = useState(false);
+  const rows = data?.rows ?? [];
+  const toggle = (id: string) => setSel((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  async function desarchiver() {
+    if (!sel.size) return;
+    setBusy(true);
+    try { await call('cargo.desarchiver', { ids: [...sel] }); toast(`${sel.size} réactivé(s).`, 'ok'); setSel(new Set()); reload(); }
+    catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(false); }
+  }
+  return <details className="card">
+    <summary style={{ cursor: 'pointer', fontWeight: 600 }}>Dossiers archivés {data ? `(${data.total})` : ''} — désarchiver</summary>
+    {loading ? <Spinner /> : rows.length === 0 ? <p className="help">Aucun dossier archivé.</p> : <>
+      <div className="row" style={{ margin: '8px 0' }}>
+        <button disabled={busy || !sel.size} onClick={desarchiver}>↺ Désarchiver la sélection ({sel.size})</button>
+      </div>
+      <div className="tbl"><table><thead><tr>
+        <th style={{ width: 28 }}></th><th>ID</th><th>Camion</th><th>Statut</th><th>Archivé le</th><th>Par</th><th>Motif</th>
+      </tr></thead><tbody>{rows.map((r) => <tr key={String(r['id'])}>
+        <td><input type="checkbox" checked={sel.has(String(r['id']))} onChange={() => toggle(String(r['id']))} /></td>
+        <td className="mono">{String(r['id'])}</td><td className="mono">{String(r['numeroCamion'] || '—')}</td>
+        <td>{String(r['statut'])}</td><td>{fmtDate(r['archiveLe'])}</td><td>{String(r['archivePar'] || '—')}</td>
+        <td>{String(r['archiveMotif'] || '—')}</td>
+      </tr>)}</tbody></table></div>
+    </>}
+  </details>;
+}
+
+SCREENS.goulots = (nav) => {
+  const admin = nav.user.role === 'ADMIN';
+  const [jours, setJours] = useState(90);
+  const [sel, setSel] = useState<Set<string>>(new Set());
+  const [motif, setMotif] = useState('');
+  const [busy, setBusy] = useState(false);
+  const { data, loading, reload } = useAsync<O>(() => call('report.goulots', { joursMin: jours }), [jours]);
+  const rows = (data?.['rows'] as O[]) ?? [];
+  const parEtape = (data?.['parEtape'] as O[]) ?? [];
+  const parStatut = (data?.['parStatut'] as O[]) ?? [];
+  const parAge = (data?.['parAge'] as O[]) ?? [];
+  const toggle = (id: string) => setSel((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const tousCoches = rows.length > 0 && rows.every((r) => sel.has(String(r['id'])));
+  async function archiver() {
+    if (!sel.size) { toast('Sélectionnez au moins un dossier.', 'err'); return; }
+    if (!motif.trim()) { toast("Indiquez le motif de l'archivage.", 'err'); return; }
+    if (!window.confirm(`Archiver ${sel.size} dossier(s) ?\n\nIls sortiront des files et des rapports.\nRien n'est supprimé — l'opération est réversible (désarchivage).`)) return;
+    setBusy(true);
+    try {
+      const r = await call<{ compte: O; erreurs: O[] }>('cargo.archiver', { ids: [...sel], motif: motif.trim() });
+      toast(`${Number(r.compte?.['archives'] ?? 0)} archivé(s)${r.erreurs?.length ? ` · ${r.erreurs.length} en erreur` : ''}.`, 'ok');
+      setSel(new Set()); setMotif(''); reload();
+    } catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(false); }
+  }
+  return <>
+    <div className="card">
+      <h2>Nettoyage — vieux dossiers (goulots)</h2>
+      <p className="help" style={{ marginTop: 0 }}>
+        Dossiers encore « en attente » (non sortis, non annulés) plus vieux que le seuil choisi.
+        Les <b>archiver</b> les sort des files et des rapports — <b>rien n'est supprimé</b>, c'est <b>réversible</b> et <b>tracé</b>.
+      </p>
+      <div className="row" style={{ alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <label className="help" style={{ margin: 0 }}>Plus vieux que</label>
+        <select value={jours} onChange={(e) => { setJours(Number(e.target.value)); setSel(new Set()); }} style={{ maxWidth: 160 }}>
+          <option value={0}>Tous (0 jour)</option><option value={30}>30 jours</option>
+          <option value={60}>60 jours</option><option value={90}>90 jours</option><option value={180}>180 jours</option>
+        </select>
+      </div>
+      {loading ? <Spinner /> : <>
+        <div className="stats" style={{ marginTop: 10 }}>
+          <StatCard n={Number(data?.['total'] ?? 0)} l="Dossiers en attente" tone="warn" />
+          {parAge.map((a) => <StatCard key={String(a['tranche'])} n={Number(a['n'])} l={String(a['tranche'])} />)}
+        </div>
+        <div className="row" style={{ gap: 16, flexWrap: 'wrap', marginTop: 6 }}>
+          <div style={{ flex: 1, minWidth: 220 }}>
+            <div className="help"><b>Par poste d'attente</b></div>
+            <Table cols={[['etapeLibelle', 'Poste'], ['n', 'Dossiers']]} rows={parEtape} />
+          </div>
+          <div style={{ flex: 1, minWidth: 220 }}>
+            <div className="help"><b>Par statut</b></div>
+            <Table cols={[['statut', 'Statut'], ['n', 'Dossiers']]} rows={parStatut} />
+          </div>
+        </div>
+      </>}
+    </div>
+
+    {!loading && <div className="card">
+      <div className="row" style={{ alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+        <h2 style={{ flex: 1, margin: 0 }}>Dossiers concernés ({rows.length})</h2>
+        {rows.length > 0 && <button className="ghost xs" onClick={() => setSel(tousCoches ? new Set() : new Set(rows.map((r) => String(r['id']))))}>
+          {tousCoches ? 'Tout décocher' : 'Tout cocher'}</button>}
+      </div>
+      {!admin && <p className="help">Lecture seule — seul un administrateur peut archiver.</p>}
+      {admin && <div className="row" style={{ alignItems: 'center', gap: 8, flexWrap: 'wrap', margin: '8px 0' }}>
+        <input value={motif} onChange={(e) => setMotif(e.target.value)} placeholder="Motif de l'archivage (obligatoire)" style={{ flex: 1, minWidth: 240 }} />
+        <button disabled={busy || !sel.size} onClick={archiver}>🗄 Archiver la sélection ({sel.size})</button>
+      </div>}
+      {rows.length === 0 ? <p className="help">Aucun dossier au-delà de ce seuil.</p>
+        : <div className="tbl"><table><thead><tr>
+          {admin && <th style={{ width: 28 }}></th>}<th>ID</th><th>Camion</th><th>Statut</th><th>En attente à</th><th>Âge (j)</th><th>Entré le</th>
+        </tr></thead><tbody>{rows.map((r) => <tr key={String(r['id'])} className="clk" onClick={() => nav.go('detail', r['id'])}>
+          {admin && <td onClick={(e) => e.stopPropagation()}><input type="checkbox" checked={sel.has(String(r['id']))} onChange={() => toggle(String(r['id']))} /></td>}
+          <td className="mono">{String(r['id'])}</td><td className="mono">{String(r['numeroCamion'] || '—')}</td>
+          <td>{String(r['statut'])}</td><td>{String(r['etapeLibelle'] || '—')}</td>
+          <td>{String(r['age'])}</td><td>{fmtDate(r['dateCreation'])}</td>
+        </tr>)}</tbody></table></div>}
+    </div>}
+
+    {admin && <BlocArchives />}
+  </>;
+};
+
 /**
  * Séries du graphique — même ordre et mêmes libellés que le serveur.
  *

@@ -888,6 +888,61 @@ export async function supprimerCargo(ctx: Ctx, p: Record<string, unknown>) {
   return { id, annule: true };
 }
 
+/* --------------------------- archivage goulots ------------------------- */
+/**
+ * ARCHIVAGE DES VIEUX DOSSIERS « GOULOTS » (ADMIN, 2026-08-19).
+ *
+ * DISTINCT de l'annulation (doublon) : un dossier archivé est un vieux dossier
+ * migré, jamais mené à la sortie, que l'on CLÔT administrativement pour qu'il
+ * cesse de gonfler les files et les rapports. RIEN N'EST SUPPRIMÉ — la ligne
+ * reste en base, tracée (qui / quand / motif), et l'opération est RÉVERSIBLE
+ * (désarchivage). On refuse d'archiver un camion SORTI (déjà terminé) ou ANNULÉ.
+ * Traitement en lot, tolérant : un id en erreur n'empêche pas les autres.
+ */
+export async function archiverGoulots(ctx: Ctx, p: Record<string, unknown>) {
+  const ids = (Array.isArray(p['ids']) ? (p['ids'] as unknown[]) : []).map((v) => String(v ?? '').trim()).filter(Boolean);
+  const motif = txt(p['motif'], 300);
+  if (!ids.length) throw new ErreurMetier('Aucun dossier sélectionné.');
+  if (!motif) throw new ErreurMetier("Indiquez le motif de l'archivage (ex. « vieux dossier migré jamais sorti »).");
+  const now = new Date().toISOString();
+  const archives: string[] = [];
+  const erreurs: Record<string, unknown>[] = [];
+  for (const id of ids) {
+    try {
+      const { data: row, error } = await ctx.db.from('cargaisons').select('id, statut, annule, archive').eq('id', id).maybeSingle();
+      if (error) throw new Error(error.message);
+      if (!row) throw new ErreurMetier('Introuvable.');
+      if (row['statut'] === STATUTS.SORTIE) throw new ErreurMetier('Déjà sorti : terminé, pas un goulot.');
+      if (row['annule'] === true) throw new ErreurMetier('Déjà annulé.');
+      if (row['archive'] === true) { archives.push(id); continue; } // idempotent
+      const { error: eUp } = await ctx.db.from('cargaisons').update({
+        archive: true, archive_le: now, archive_par: ctx.session.nomComplet,
+        archive_par_id: ctx.session.userId, archive_motif: motif,
+      }).eq('id', id);
+      if (eUp) throw new Error(eUp.message);
+      archives.push(id);
+    } catch (e) {
+      erreurs.push({ id, message: (e as Error).message });
+    }
+  }
+  await ctx.log('Archivage goulots', '',
+    `${archives.length} archivé(s)${erreurs.length ? ` · ${erreurs.length} en erreur` : ''} · motif : ${motif}`);
+  return { archives, erreurs, compte: { archives: archives.length, erreurs: erreurs.length } };
+}
+
+/** Désarchivage (ADMIN) : réactive des dossiers archivés — ils reviennent dans
+ *  les files et les rapports. Réversible symétrique de l'archivage. */
+export async function desarchiverGoulots(ctx: Ctx, p: Record<string, unknown>) {
+  const ids = (Array.isArray(p['ids']) ? (p['ids'] as unknown[]) : []).map((v) => String(v ?? '').trim()).filter(Boolean);
+  if (!ids.length) throw new ErreurMetier('Aucun dossier sélectionné.');
+  const { error } = await ctx.db.from('cargaisons').update({
+    archive: false, archive_le: null, archive_par: '', archive_par_id: null, archive_motif: '',
+  }).in('id', ids);
+  if (error) throw new Error(error.message);
+  await ctx.log('Désarchivage goulots', '', `${ids.length} dossier(s) réactivé(s)`);
+  return { desarchives: ids.length };
+}
+
 /* ------------------------------- edittype ------------------------------ */
 
 /**

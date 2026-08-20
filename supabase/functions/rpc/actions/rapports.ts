@@ -40,7 +40,9 @@ async function loadCargos(ctx: Ctx): Promise<Record<string, unknown>[]> {
   const data = await fetchAll(ctx, 'cargaisons', '*');
   // SEC-12 — une cargaison annulée (doublon écarté) reste en base pour l'audit
   // mais ne doit compter dans AUCUN rapport, sinon elle fausse tous les totaux.
-  return data.filter((r) => r['annule'] !== true).map((r) => versCamel(r));
+  // 2026-08-19 — de même pour les dossiers ARCHIVÉS (vieux goulots clôturés) :
+  // conservés en base, exclus de tous les rapports et de tous les compteurs.
+  return data.filter((r) => r['annule'] !== true && r['archive'] !== true).map((r) => versCamel(r));
 }
 const lc = (v: unknown) => String(v ?? '').toLowerCase();
 const inRange = (v: unknown, du?: string, au?: string): boolean => {
@@ -374,6 +376,65 @@ export async function rapportHorodatage(ctx: Ctx, p: Record<string, unknown>) {
     return fichier('Horodatage_cellules', 'xlsx', [{ nom: 'Plages activité', aoa }]);
   }
   return { du, au, rows };
+}
+
+/* ================= Goulots / vieux dossiers (archivage) =============== */
+/**
+ * ANALYSE DES GOULOTS — demande utilisateur 2026-08-19. Dossiers ENCORE en cours
+ * (non sortis, non annulés, non archivés) qui bloquent les files, ventilés par
+ * statut, par poste d'attente (fileAttente) et par tranche d'âge. Sert à repérer
+ * les vieux dossiers migrés jamais menés à la sortie, avant archivage.
+ * LECTURE SEULE — ne modifie rien.
+ */
+const LIB_ETAPE_GOULOT: Record<string, string> = {
+  CFS: 'CFS (chargement)', VALIDATION: 'Validation', T1: 'T1', BALISE: 'Balise', BS: 'Bon de sortie', PP: 'Sortie (PP)',
+};
+export async function rapportGoulots(ctx: Ctx, p: Record<string, unknown>) {
+  const joursMin = Math.max(0, Math.floor(Number(p['joursMin'] ?? 0)));
+  const cargos = await loadCargos(ctx); // exclut annulés + archivés
+  const now = Date.now();
+  const bornes: [string, number][] = [['0–7 j', 7], ['8–30 j', 30], ['31–90 j', 90], ['91–180 j', 180], ['+180 j', Infinity]];
+  const trancheDe = (j: number) => bornes.find(([, max]) => j <= max)![0];
+  const parStatut = new Map<string, number>();
+  const parEtape = new Map<string, number>();
+  const parAge: Record<string, number> = {}; bornes.forEach(([lib]) => (parAge[lib] = 0));
+  const rows: Record<string, unknown>[] = [];
+  for (const c of cargos) {
+    if (c['statut'] === STATUTS.SORTIE) continue; // sorti = terminé, pas un goulot
+    const dc = c['dateCreation'] ? new Date(String(c['dateCreation'])) : null;
+    if (!dc || isNaN(dc.getTime())) continue;
+    const age = Math.max(0, Math.floor((now - dc.getTime()) / 86400000));
+    if (age < joursMin) continue;
+    const etape = fileAttente(c as never) ?? '—';
+    parStatut.set(String(c['statut']), (parStatut.get(String(c['statut'])) ?? 0) + 1);
+    parEtape.set(etape, (parEtape.get(etape) ?? 0) + 1);
+    parAge[trancheDe(age)]++;
+    rows.push({
+      id: c['id'], numeroCamion: c['numeroCamion'], statut: c['statut'],
+      etape, etapeLibelle: LIB_ETAPE_GOULOT[etape] ?? etape, age,
+      dateCreation: c['dateCreation'], estVehicule: estOui(c['estVehicule']),
+    });
+  }
+  rows.sort((a, b) => Number(b['age']) - Number(a['age']));
+  return {
+    joursMin, total: rows.length,
+    parStatut: [...parStatut.entries()].map(([statut, n]) => ({ statut, n })).sort((a, b) => b.n - a.n),
+    parEtape: [...parEtape.entries()].map(([etape, n]) => ({ etape, etapeLibelle: LIB_ETAPE_GOULOT[etape] ?? etape, n })),
+    parAge: bornes.map(([lib]) => ({ tranche: lib, n: parAge[lib] })),
+    rows: rows.slice(0, 2000), // plafond d'affichage ; le total reste exact
+  };
+}
+
+/** Liste des dossiers ARCHIVÉS (pour contrôle / désarchivage). Lecture seule. */
+export async function rapportArchives(ctx: Ctx, _p: Record<string, unknown>) {
+  const data = await fetchAll(ctx, 'cargaisons', 'id, numero_camion, statut, date_creation, archive, archive_le, archive_par, archive_motif');
+  const rows = data.filter((r) => r['archive'] === true).map((r) => versCamel(r))
+    .map((o) => ({
+      id: o['id'], numeroCamion: o['numeroCamion'], statut: o['statut'], dateCreation: o['dateCreation'],
+      archiveLe: o['archiveLe'], archivePar: o['archivePar'], archiveMotif: o['archiveMotif'],
+    }))
+    .sort((a, b) => String(b['archiveLe'] ?? '').localeCompare(String(a['archiveLe'] ?? '')));
+  return { total: rows.length, rows: rows.slice(0, 2000) };
 }
 
 /* ==================== Fiche « tableau de bord » ======================== */

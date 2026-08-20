@@ -48,6 +48,8 @@ export const ACTIONS: Record<string, H> = {
   'cargo.editcamion': d(ecr.editcamion),
   'cargo.edittype': d(ecr.edittype),
   'cargo.delete': d(ecr.supprimerCargo),
+  'cargo.archiver': d(ecr.archiverGoulots), // v4.3 : archivage lot des vieux dossiers (goulots)
+  'cargo.desarchiver': d(ecr.desarchiverGoulots), // v4.3 : réactivation (réversible)
   'cargo.editconteneur': d(ecr.editconteneur), // v4 : correction / suppression d'un conteneur mal saisi
   'cargo.editdecl': d(ecr.editdecl), // v4 : correction des infos de déclaration
   'cargo.lotcamions': d(ecr.lotcamions), // v4 : plusieurs camions sur une même déclaration
@@ -106,6 +108,8 @@ export const ACTIONS: Record<string, H> = {
   'report.controles': d(rap.rapportControles), // v4.1 : hors gabarit / surcharge / transit national
   'report.temps': d(rap.rapportTemps), // v4.2 : temps de passage par poste
   'report.horodatage': d(rap.rapportHorodatage), // v4.3 : plage d'activité par cellule/agent/jour
+  'report.goulots': d(rap.rapportGoulots), // v4.3 : analyse des vieux dossiers en attente
+  'report.archives': d(rap.rapportArchives), // v4.3 : liste des dossiers archivés (désarchivage)
   'report.dwell': d(rap.rapportSejour),
   'report.dwelldetail': d(rap.rapportSejourDetail),
   'report.list': d(rap.rapportListe),
