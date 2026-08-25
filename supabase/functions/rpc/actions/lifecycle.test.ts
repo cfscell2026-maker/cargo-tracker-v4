@@ -7,7 +7,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { STATUTS, etapesEnAttente, groupesDeclaration } from '../../_shared/domaine/src/index.ts';
+import { STATUTS, etapesEnAttente, fileAttente, groupesDeclaration } from '../../_shared/domaine/src/index.ts';
 import { versCamel, type Ctx } from '../ctx.ts';
 import { FakeDB } from './fake-db.ts';
 import * as ecr from './ecriture.ts';
@@ -1392,6 +1392,47 @@ test('MAD : entrée à articles, sortie apure les colis, restant cohérent', asy
   assert.equal(g['sorties'], 30);
   assert.equal(g['restant'], 120);
   assert.equal(st.entrepots[0]!['restant'], 120);
+});
+
+test('MAD sortie : crée le camion dans le parcours selon le régime (2026-08-19)', async () => {
+  const db = new FakeDB();
+  const cfs = ctxAvec(db);
+  await entrepot.entrepotCreate(chef(db), { code: 'MAD-02', nom: 'MAGASIN 2', type: 'MAD' });
+  const e = (await entrepot.entrepotEntree(cfs, {
+    entrepotCode: 'MAD-02',
+    declaration: { numeroDeclaration: '600', anneeDeclaration: '2026', bureauDeclaration: 'TG120', typeDeclaration: 'C', declarant: 'ACME' },
+    articles: [{ designation: 'RIZ', nbColis: '100' }],
+  })) as { id: string };
+
+  // Sortie en TRANSIT (T) avec un camion : la cargaison créée doit prendre le
+  // T1 et la balise, mais attendre d'abord la validation du chef de brigade.
+  const st = (await entrepot.entrepotSortie(cfs, {
+    entreeId: e.id, numeroArticle: 1, nbColis: '10',
+    declarationApurement: { numeroDeclaration: '900', anneeDeclaration: '2026', bureauDeclaration: 'TG120', typeDeclaration: 'T' },
+    numeroCamion: 'MADT001', scelles: ['P1', 'P2'],
+  })) as { cargaisonId: string };
+  assert.ok(st.cargaisonId, 'une cargaison doit être créée pour le camion');
+  const cargoT = versCamel(db.store['cargaisons'].find((c) => c['id'] === st.cargaisonId)!);
+  assert.equal(cargoT['statut'], STATUTS.CREEE);          // attend la validation
+  assert.equal(cargoT['typeOperation'], 'Sortie Magasin / MAD');
+  assert.equal(cargoT['sauteT1'], false);                 // transit → prend le T1
+  assert.equal(cargoT['sauteBalise'], false);             // transit → prend la balise
+  // File d'attente unique : d'abord la VALIDATION.
+  assert.equal(fileAttente(cargoT as never), 'VALIDATION');
+  // Concordance : ce camion n'est PAS compté comme une entrée CFS.
+  const rc = (await rap.rapportCFS(cfs, {})) as { total: { camions: number } };
+  assert.equal(rc.total.camions, 0);
+
+  // Sortie en CONSO (C) sans balise : la cargaison saute T1 ET balise.
+  const sc = (await entrepot.entrepotSortie(cfs, {
+    entreeId: e.id, numeroArticle: 1, nbColis: '10',
+    declarationApurement: { numeroDeclaration: '901', anneeDeclaration: '2026', bureauDeclaration: 'TG120', typeDeclaration: 'C' },
+    numeroCamion: 'MADC001', scelles: ['P3'], baliseRequise: false,
+  })) as { cargaisonId: string };
+  const cargoC = versCamel(db.store['cargaisons'].find((c) => c['id'] === sc.cargaisonId)!);
+  assert.equal(cargoC['sauteT1'], true);
+  assert.equal(cargoC['sauteBalise'], true);
+  assert.equal(fileAttente(cargoC as never), 'VALIDATION'); // validation TOUJOURS requise
 });
 
 test('Entrepôt industriel : apurement au POIDS (kg)', async () => {

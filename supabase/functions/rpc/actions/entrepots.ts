@@ -14,8 +14,9 @@ import type { Ctx } from '../ctx.ts';
 import { versCamel } from '../ctx.ts';
 import {
   ENTREPOT_TYPES, ARTICLES_MAX, uniteApurement, cleDecl, maj, tcValide, estTypeSansT1,
+  STATUTS, OPERATIONS, sautsTypeC,
 } from '../../_shared/domaine/src/index.ts';
-import { fetchAll, nextRef } from './helpers.ts';
+import { fetchAll, nextRef, nextId, nextRapportId } from './helpers.ts';
 
 const normTC = (v: unknown) => String(v ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 const num = (v: unknown) => { const n = Number(String(v ?? '').replace(',', '.').replace(/[^0-9.]/g, '')); return isFinite(n) && n > 0 ? n : 0; };
@@ -186,10 +187,58 @@ export async function entrepotSortie(ctx: Ctx, p: Record<string, unknown>) {
   };
   const { error } = await ctx.db.from('entrepot_sorties').insert(row);
   if (error) throw new Error(error.message);
+
+  /* v4.3 — CRÉATION DU CAMION DANS LE PARCOURS (demande utilisateur 2026-08-19).
+   *
+   * La sortie MAD ne fait plus que solder le sommier : elle CRÉE aussi le camion
+   * qui emporte la marchandise, SANS passer par le CFS, comme une « Sortie
+   * Magasin / MAD ». Ce camion suit alors le circuit SELON LE RÉGIME de la
+   * déclaration de sortie (règle unique sautsTypeC) :
+   *   · transit (T) → validation chef brigade + T1 + Balise + Sortie ;
+   *   · conso (C/A/S) → validation chef brigade, puis saute T1 et (au choix) la
+   *     balise (baliseRequise coché ou non).
+   * La VALIDATION du chef de brigade est TOUJOURS requise (statut « Créée »).
+   *
+   * CONCORDANCE : type « Sortie Magasin / MAD » — ces cargaisons sont, par
+   * construction, exclues des rapports CFS / Balise / PP (qui ne comptent que
+   * Enlèvement/Dépotage), donc ce camion ne gonfle PAS les entrées CFS. Il
+   * apparaît normalement dans les FILES d'attente (validation puis suite du
+   * circuit). Le lien apurement → cargaison est conservé (best-effort).
+   */
+  let cargaisonId: string | null = null;
+  if (numeroCamion) {
+    const consoMode = baliseRequise === false ? 'sansbalise' : 'balise';
+    const { sauteT1, sauteBalise } = sautsTypeC(typeApu, consoMode);
+    cargaisonId = await nextId(ctx);
+    const rapportId = await nextRapportId(ctx);
+    const nowC = new Date().toISOString();
+    const declarant = maj(d['declarant'], 120) || String(entree['declarant'] ?? '');
+    const designation = maj(p['designation'], 200) || String(arts[numeroArticle - 1]?.['designation'] ?? '');
+    const { error: eCargo } = await ctx.db.from('cargaisons').insert({
+      id: cargaisonId, reference: cargaisonId, date_creation: nowC, numero_camion: numeroCamion,
+      type_operation: OPERATIONS.MAGASIN, twins: false,
+      declarant, contact_declarant: '', destination_marchandise: '',
+      bureau_declaration: row.bureau_declaration, type_declaration: typeApu,
+      numero_declaration: row.numero_declaration, annee_declaration: row.annee_declaration,
+      description_marchandise: designation,
+      observations_cfs: 'Sortie MAD ' + code + ' · entrée ' + entreeId + ' art.' + numeroArticle,
+      agent_cfs: ctx.session.nomComplet, agent_cfs_id: ctx.session.userId,
+      statut: STATUTS.CREEE, derniere_maj: nowC, rapport_id: rapportId,
+      conteneurs_details: { conteneurs: [], scellesCamion: scelles }, nb_conteneurs: 0,
+      saute_t1: sauteT1, saute_balise: sauteBalise, saute_bs: false,
+    });
+    if (eCargo) throw new Error(eCargo.message);
+    // Lien de concordance sortie → cargaison (best-effort : sans la colonne
+    // (migration 00160 non appliquée), la sortie reste valide, juste non liée).
+    const { error: eLink } = await ctx.db.from('entrepot_sorties').update({ cargaison_id: cargaisonId }).eq('id', id);
+    if (eLink) console.error('[MAD-SORTIE] lien cargaison non enregistré (' + id + ') : ' + eLink.message);
+  }
+
   const mentionBalise = baliseRequise === null ? '' : baliseRequise ? ' · à baliser' : ' · sans balise';
   await ctx.log('Sortie entrepôt ' + code, id,
-    'entrée ' + entreeId + ' art.' + numeroArticle + ' · ' + quantite + ' ' + unite + mentionBalise);
-  return { id, restantApres: restant - quantite, baliseRequise };
+    'entrée ' + entreeId + ' art.' + numeroArticle + ' · ' + quantite + ' ' + unite + mentionBalise
+      + (cargaisonId ? ' · camion ' + numeroCamion + ' (' + cargaisonId + ')' : ''));
+  return { id, restantApres: restant - quantite, baliseRequise, cargaisonId };
 }
 
 /**
@@ -212,6 +261,8 @@ export async function entrepotSortiesDetail(ctx: Ctx, opts: { entrepotCode?: str
       numeroCamion: s['numeroCamion'], scelles: s['scelles'], vehicules: s['vehicules'],
       // v4.2 — décision balise prise à l'apurement (null = sans objet / antérieure).
       baliseRequise: s['baliseRequise'],
+      // v4.3 — cargaison (camion) créée pour cette sortie, s'il y en a une.
+      cargaisonId: s['cargaisonId'],
     })),
   };
 }
