@@ -46,10 +46,32 @@ export function alphaNumMaj(v: unknown): string {
 /** Séparateur tracteur / remorque. */
 export const CAMION_SEPARATEUR = '/';
 
-/** true si le numéro associe bien deux plaques séparées par une barre oblique. */
+/**
+ * true si le numéro de camion est exploitable.
+ *
+ * LA BARRE OBLIQUE N'EST PLUS OBLIGATOIRE — 2026-09-12, décision utilisateur.
+ *
+ * Le format « TRACTEUR/REMORQUE » avait été imposé le 2026-09-10 pour que la
+ * remorque, qui porte la marchandise, ne se perde pas quand le tracteur change
+ * en route. L'exigence s'est révélée trop raide à l'usage : tous les véhicules
+ * qui se présentent ne sont pas des ensembles, et un agent bloqué devant un
+ * porteur unique ne peut plus rien enregistrer.
+ *
+ * On accepte donc les DEUX formes, et on continue d'écarter ce qui n'est
+ * manifestement pas une plaque :
+ *   · « TG2489BK/2725BP » — l'ensemble, deux parties d'au moins 2 caractères ;
+ *   · « TG2489BK »        — une plaque seule, au moins 4 caractères.
+ *
+ * Le seuil de 4 n'est pas décoratif : il refuse les saisies avortées (« AB »,
+ * « 12 ») sans rien préjuger de la longueur réelle des plaques de la région.
+ */
 export function camionValide(v: unknown): boolean {
-  const parts = alphaNumMaj(v).split(CAMION_SEPARATEUR);
-  return parts.length === 2 && parts[0]!.length >= 2 && parts[1]!.length >= 2;
+  const brut = alphaNumMaj(v);
+  if (brut.indexOf(CAMION_SEPARATEUR) > -1) {
+    const parts = brut.split(CAMION_SEPARATEUR);
+    return parts.length === 2 && parts[0]!.length >= 2 && parts[1]!.length >= 2;
+  }
+  return brut.length >= 4;
 }
 
 /**
@@ -61,9 +83,9 @@ export function camionValide(v: unknown): boolean {
  */
 export function messageCamionFormat(saisi: unknown, champ = 'N° de camion'): string {
   const v = String(saisi ?? '').trim();
-  return `N° de camion « ${v || '(vide)'} » incomplet : indiquez le TRACTEUR et la REMORQUE `
-    + `séparés par une barre oblique « / » — par exemple TG2489BK/2725BP. `
-    + `Corrigez la saisie dans le champ « ${champ} ».`;
+  return `N° de camion « ${v || '(vide)'} » non exploitable : saisissez la plaque `
+    + `(par exemple TG2489BK), ou l'ensemble TRACTEUR/REMORQUE séparé par « / » `
+    + `(TG2489BK/2725BP). Corrigez la saisie dans le champ « ${champ} ».`;
 }
 
 /** Normalisation « recherche » : MAJUSCULES, alphanumérique strict. */

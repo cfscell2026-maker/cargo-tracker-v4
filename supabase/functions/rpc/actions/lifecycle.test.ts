@@ -1363,13 +1363,36 @@ test('00180 — solder refusé sur une cargaison sans suivi d\'engagement', asyn
   await assert.rejects(() => ecr.engagementFait(chef, { id }), /pas sous suivi d'engagement/i);
 });
 
-test('00180 — suivi des engagements : la réponse est OBLIGATOIRE pour valider', async () => {
+/* 2026-09-12 — CE TEST DISAIT L'INVERSE, et il avait tort.
+ *
+ * La garde exigeait `suiviEngagement` côté serveur. Déployée avant l'écran qui
+ * sait l'envoyer, elle a bloqué TOUTE signature en production : le front alors
+ * en ligne ignorait ce champ. Un serveur ne peut pas exiger ce qu'un client
+ * déjà déployé n'a aucun moyen de fournir — entre deux déploiements, les deux
+ * versions coexistent toujours.
+ *
+ * L'exigence n'est pas abandonnée : elle vit dans l'écran, dont le bouton de
+ * signature reste inerte tant qu'on n'a pas répondu. Le serveur, lui, tolère
+ * l'absence et vérifie intégralement ce qui lui est fourni — c'est l'objet des
+ * deux tests suivants. */
+test('00180 — engagement ABSENT : la validation passe, sans rien enregistrer', async () => {
   const db = new FakeDB();
   const id = await depotageAValider(db, 'ENG002/RM01', 'MSKU9999002');
-  // La pesée est renseignée : seul le suivi manque. C'est bien LUI qui bloque.
+  await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'), { id, enSurcharge: false });
+  const c = db.store['cargaisons'].find((x) => x['id'] === id)!;
+  assert.ok(c['date_validation'], 'la signature doit aboutir');
+  assert.equal(c['suivi_engagement'] ?? null, null,
+    'rien ne doit être inventé : le champ reste vide, pas « non »');
+});
+
+test('00180 — engagement FOURNI mais incomplet : toujours refusé', async () => {
+  const db = new FakeDB();
+  const id = await depotageAValider(db, 'ENG004/RM01', 'MSKU9999004');
+  // OUI sans type : la vérification complète s'applique dès qu'on répond.
   await assert.rejects(
-    () => ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'), { id, enSurcharge: false }),
-    /suivi des engagements/i,
+    () => ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'),
+      { id, enSurcharge: false, suiviEngagement: true }),
+    /précisez l'engagement/i,
   );
 });
 
@@ -2114,12 +2137,24 @@ const sortieMagasin = (plaque: string, decl: Record<string, unknown> = DECL_MAG)
   declaration: decl, chargementTermine: true, scellesCamion: ['S1', 'S2'],
 });
 
-test('MAGASIN/MAD — le format tracteur/remorque est exigé (le flux sortait tôt du dispatch)', async () => {
+/* 2026-09-12 — la barre oblique n'est plus obligatoire (décision utilisateur).
+ * Ce qui reste vérifié ici : le flux MAGASIN/MAD passe bien par le contrôle de
+ * format — il en sortait trop tôt à une époque — et refuse toujours une saisie
+ * avortée. */
+test('MAGASIN/MAD — une plaque seule est désormais acceptée', async () => {
+  const db = new FakeDB();
+  const cfs = ctxAvec(db);
+  await spe.create(cfs, sortieMagasin('MAG900'));
+  const cree = db.store['cargaisons'].find((c) => String(c['numero_camion']) === 'MAG900');
+  assert.ok(cree, 'un porteur unique doit pouvoir être enregistré');
+});
+
+test('MAGASIN/MAD — une saisie avortée reste refusée', async () => {
   const db = new FakeDB();
   const cfs = ctxAvec(db);
   await assert.rejects(
-    () => spe.create(cfs, sortieMagasin('MAG900')),
-    /indiquez le TRACTEUR et la REMORQUE/i,
+    () => spe.create(cfs, sortieMagasin('AB')),
+    /non exploitable/i,
   );
 });
 

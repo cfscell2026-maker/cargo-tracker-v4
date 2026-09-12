@@ -449,23 +449,31 @@ test('engagements — état et libellé selon l’échéance', () => {
   assert.equal(engagementAlerte('2026-09-01', '2026-09-02T10:00:00Z', ref), false);
 });
 
-test('format camion — tracteur/remorque exigé (2026-09-10)', () => {
+test("format camion — la barre oblique n'est PLUS obligatoire (2026-09-12)", () => {
+  // L'ensemble reste accepté, sous toutes ses graphies.
   assert.equal(camionValide('TG2489BK/2725BP'), true);
   assert.equal(camionValide('tg2489bk / 2725bp'), true); // espaces et minuscules normalisés
-  // Refusés : une seule plaque, un séparateur vide, un séparateur en trop.
-  assert.equal(camionValide('TG2489BK'), false);
-  assert.equal(camionValide('TG2489BK/'), false);
+
+  // NOUVEAU : une plaque seule passe — tout ce qui se présente au port n'est
+  // pas un ensemble tracteur + remorque, et un agent bloqué devant un porteur
+  // unique ne pouvait plus rien enregistrer.
+  assert.equal(camionValide('TG2489BK'), true);
+  assert.equal(camionValide('tg 2489 bk'), true);
+
+  // Ce qui reste refusé : les saisies avortées, pas les formats légitimes.
+  assert.equal(camionValide('ABC'), false, 'moins de 4 caractères');
+  assert.equal(camionValide('TG2489BK/'), false, 'un côté vide');
   assert.equal(camionValide('/2725BP'), false);
-  assert.equal(camionValide('A/B'), false); // moins de 2 caractères de chaque côté
-  assert.equal(camionValide('AB/CD/EF'), false);
+  assert.equal(camionValide('A/B'), false, 'moins de 2 caractères de chaque côté');
+  assert.equal(camionValide('AB/CD/EF'), false, 'deux séparateurs');
   assert.equal(camionValide(''), false);
   assert.equal(camionValide(null), false);
 
-  // Le message dit QUOI faire et OÙ.
-  const m = messageCamionFormat('TG2489BK');
-  assert.match(m, /TRACTEUR/);
-  assert.match(m, /REMORQUE/);
-  assert.match(m, /TG2489BK\/2725BP/); // un exemple concret
+  // Le message ne réclame plus la barre oblique, mais la propose encore.
+  const m = messageCamionFormat('AB');
+  assert.doesNotMatch(m, /séparés par une barre oblique/, "ne doit plus l'exiger");
+  assert.match(m, /TG2489BK/); // un exemple de plaque seule
+  assert.match(m, /TG2489BK\/2725BP/); // et un exemple d'ensemble
   assert.match(m, /N° de camion/); // le champ à corriger
   assert.match(messageCamionFormat('X', 'Nouveau n° de camion'), /Nouveau n° de camion/);
 });

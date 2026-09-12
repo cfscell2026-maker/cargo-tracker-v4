@@ -473,8 +473,22 @@ function peseePatch(p: Record<string, unknown>, exige: boolean): Record<string, 
  */
 function engagementPatch(p: Record<string, unknown>): Record<string, unknown> {
   const brut = p['suiviEngagement'];
-  if (brut === undefined || brut === null || brut === '')
-    throw new ErreurMetier('Renseignez le suivi des engagements (OUI / NON) avant de valider.');
+  /* CHAMP ABSENT = ON N'EN TIENT PAS COMPTE — correctif du 2026-09-12.
+   *
+   * Cette garde refusait toute validation quand `suiviEngagement` manquait.
+   * Elle a bloqué la production : le serveur a été déployé avant le front, or
+   * l'écran alors en ligne — celui du 25 août — ignorait ce champ. Plus aucun
+   * chef de brigade ne pouvait signer.
+   *
+   * LA LEÇON, qui vaut au-delà de ce champ : un serveur ne peut pas EXIGER ce
+   * qu'un client déjà déployé n'a aucun moyen d'envoyer. Entre deux
+   * déploiements, les deux versions coexistent forcément ; le serveur doit
+   * tolérer l'absence, et c'est à l'écran d'exiger la réponse — ce qu'il fait
+   * déjà : le bouton de signature y reste inerte tant qu'on n'a pas répondu.
+   *
+   * L'exigence n'est donc pas perdue, elle est portée là où elle est tenable.
+   * Une valeur FOURNIE reste, elle, intégralement vérifiée ci-dessous. */
+  if (brut === undefined || brut === null || brut === '') return {};
   const suivi = brut === true || String(brut).toLowerCase() === 'oui' || String(brut).toLowerCase() === 'true';
   const type = txt(p['engagementType'], 120);
   const delai = String(p['engagementDelai'] ?? '').slice(0, 10);
