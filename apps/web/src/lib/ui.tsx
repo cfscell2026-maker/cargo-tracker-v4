@@ -875,15 +875,21 @@ export function ChampCamion({ value, onChange, label = 'N° de camion', style, a
       // Entrée dans un champ de plaque : on déclenche le contrôle plutôt que de
       // laisser le formulaire s'envoyer à moitié rempli.
       onKeyDown={(e) => { if (e.key === 'Enter' && onEnter) { e.preventDefault(); onEnter(); } }}
-      placeholder="TG2489BK/2725BP"
+      placeholder="TG2489BK ou TG2489BK/2725BP"
       style={{ ...style, borderColor: invalide ? 'var(--err)' : undefined }}
     />
+    {/* 2026-09-12 — la barre oblique n'est PLUS exigée (décision utilisateur).
+        Tout ce qui se présente au port n'est pas un ensemble : un porteur unique
+        doit pouvoir être enregistré. L'aide PROPOSE donc les deux formes au lieu
+        d'en imposer une, et l'alerte ne se déclenche plus que sur une saisie
+        manifestement avortée. */}
     {invalide
       ? <div className="help" style={{ color: 'var(--err)' }}>
-        Format incomplet : indiquez le <b>tracteur</b> et la <b>remorque</b> séparés
-        par une barre oblique « / » — par exemple <span className="mono">TG2489BK/2725BP</span>.
+        Saisie trop courte : indiquez la plaque complète — par exemple{' '}
+        <span className="mono">TG2489BK</span>, ou l'ensemble{' '}
+        <span className="mono">TG2489BK/2725BP</span>.
       </div>
-      : <div className="help">Tracteur / remorque, séparés par « / ».</div>}
+      : <div className="help">Plaque seule, ou tracteur et remorque séparés par « / ».</div>}
     {/* Antécédents du camion — s'affiche dès que la plaque est complète, sur
         TOUS les champs de saisie puisque le composant est unique. */}
     <PassagesAnterieurs numeroCamion={value} excludeId={excludeId} />

@@ -10,7 +10,7 @@
     "typecheck": "npm run typecheck -w web",
     "build": "npm run build -w web",
     "dev": "npm run dev -w web",
-    "verifier:serveur": "tsc --noEmit --target esnext --module esnext --moduleResolution bundler --allowImportingTsExtensions --skipLibCheck supabase/functions/rpc/**/*.ts supabase/functions/_shared/domaine/src/*.ts"
+    "verifier:serveur": "tsc --noEmit -p tsconfig.serveur.json"
   },
   "engines": {
     "node": ">=20"

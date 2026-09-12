@@ -206,6 +206,22 @@ export async function delierStock(ctx: Ctx, tc: string, cargaisonId: string, sta
 }
 
 /** Conteneur du stock UTILISABLE (présent, pas encore dépoté) → objet ou null. */
+/**
+ * La fiche de stock d'un conteneur, QUEL QUE SOIT son statut — 2026-09-12.
+ *
+ * `stockDisponible` masque volontairement les conteneurs déjà dépotés : ils ne
+ * sont plus « disponibles ». Mais un conteneur dépoté au port sec alimente
+ * souvent PLUSIEURS camions, et le deuxième doit pouvoir s'y rattacher. Il faut
+ * donc pouvoir constater son existence sans le déclarer disponible — les deux
+ * questions sont distinctes, elles méritent deux fonctions.
+ */
+export async function stockFiche(ctx: Ctx, numeroTC: string): Promise<Record<string, unknown> | null> {
+  const tc = String(numeroTC || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const { data, error } = await ctx.db.from('stock').select('*').eq('numero_tc', tc).maybeSingle();
+  if (error) throw new Error(error.message);
+  return data ? versCamel(data) : null;
+}
+
 export async function stockDisponible(ctx: Ctx, numeroTC: string): Promise<Record<string, unknown> | null> {
   const tc = String(numeroTC || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
   const { data, error } = await ctx.db.from('stock').select('*').eq('numero_tc', tc).maybeSingle();

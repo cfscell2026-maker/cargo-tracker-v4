@@ -2471,3 +2471,59 @@ test('conteneur : la correction tardive suit la même règle que la déclaration
   const dets = versCamel(db.store['cargaisons'][0]!)['conteneursDetails'] as { conteneurs: Record<string, unknown>[] };
   assert.equal(dets.conteneurs[0]!['plomb'], 'S9');
 });
+
+/* ===== CONTENEUR PARTAGÉ ENTRE PLUSIEURS CAMIONS — 2026-09-12 ============
+ *
+ * Signalé en production : un conteneur dépoté au port sec alimente souvent
+ * PLUSIEURS camions, sa marchandise étant répartie entre eux. Le premier le
+ * fait passer à « Dépoté » ; pour le deuxième, la règle de pointage réclamait
+ * alors un pointage sur un conteneur DÉJÀ pointé et DÉJÀ dépoté. Les agents
+ * contournaient par la « saisie manuelle », qui détache le conteneur de sa
+ * fiche de stock — précisément ce que cette règle devait empêcher.
+ */
+test('dépotage — un conteneur DÉJÀ DÉPOTÉ se rattache à un camion supplémentaire', async () => {
+  const db = new FakeDB();
+  // Le conteneur a déjà servi : il est sorti du parc, statut « Dépoté ».
+  db.store['stock'].push({ numero_tc: 'MSKU7770001', taille: "20'", statut: 'Dépoté' });
+  const { cfs, id } = await depotagePret(db, 'PART001/RM01');
+
+  await ecr.cfs(cfs, {
+    id, declaration: DECL_PNT,
+    conteneur: { num: 'MSKU7770001', taille: "20'", type: 'DRY' },
+  });
+
+  const c = db.store['cargaisons'].find((x) => x['id'] === id)!;
+  // JSON.stringify, et non String() : `conteneurs_details` est un objet, dont
+  // String() ne rend que « [object Object] » — le test passait à côté.
+  assert.match(JSON.stringify(c['conteneurs_details']), /MSKU7770001/,
+    'le conteneur partagé doit être rattaché au second camion');
+});
+
+test('dépotage — un conteneur partagé NE redevient PAS « positionné »', async () => {
+  const db = new FakeDB();
+  db.store['stock'].push({ numero_tc: 'MSKU7770002', taille: "20'", statut: 'Dépoté' });
+  const { cfs, id } = await depotagePret(db, 'PART002/RM01');
+
+  await ecr.cfs(cfs, {
+    id, declaration: DECL_PNT,
+    conteneur: { num: 'MSKU7770002', taille: "20'", type: 'DRY' },
+  });
+
+  const stk = db.store['stock'].find((x) => x['numero_tc'] === 'MSKU7770002')!;
+  assert.equal(stk['statut'], 'Dépoté',
+    'le re-pointage ferait réapparaître au parc un conteneur déjà parti');
+});
+
+test('dépotage — le conteneur NON dépoté garde sa règle de pointage', async () => {
+  const db = new FakeDB();
+  // « En stock » : le garde-fou d'origine doit rester intact.
+  db.store['stock'].push({ numero_tc: 'MSKU7770003', taille: "20'", statut: 'En stock' });
+  const { cfs, id } = await depotagePret(db, 'PART003/RM01');
+  await assert.rejects(
+    () => ecr.cfs(cfs, {
+      id, declaration: DECL_PNT,
+      conteneur: { num: 'MSKU7770003', taille: "20'", type: 'DRY' },
+    }),
+    /pas été pointé comme POSITIONNÉ/i,
+  );
+});

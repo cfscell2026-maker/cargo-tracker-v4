@@ -17,7 +17,7 @@ import {
 } from '../../_shared/domaine/src/index.ts';
 import {
   getCargo, patchCargo, nextId, nextRapportId, ajouterConteneurs, supprimerConteneursDe,
-  renommerCamionConteneurs, lierStock, delierStock, stockDisponible, lookupDeclaration, majApurement,
+  renommerCamionConteneurs, lierStock, delierStock, stockDisponible, stockFiche, lookupDeclaration, majApurement,
   majApurementSafe, majApurementDec, declCont, signature,
 } from './helpers.ts';
 
@@ -114,9 +114,25 @@ export async function cfs(ctx: Ctx, p: Record<string, unknown>) {
    * On lit donc TOUJOURS le stock. `manuel` ne dispense plus que du cas
    * « absent du parc », qui reste son usage légitime. */
   const stk = await stockDisponible(ctx, ct.num);
-  if (!manuel && !stk)
+  /* CONTENEUR PARTAGE - 2026-09-12.
+   *
+   * `stockDisponible` rend `null` pour un conteneur deja DEPOTE : il n'est plus
+   * disponible. Or un conteneur depote au port sec alimente souvent PLUSIEURS
+   * camions, sa marchandise etant repartie entre eux - le deuxieme tombait donc
+   * sur << introuvable dans le stock >>, et le message invitait lui-meme a
+   * cocher << saisie manuelle >>. C'est ainsi que la saisie manuelle, faite pour
+   * les conteneurs ABSENTS du parc, est devenue l'outil du partage - en
+   * detachant chaque fois le conteneur de sa fiche, ce que la regle voulait
+   * precisement empecher.
+   *
+   * On separe donc les deux questions : << est-il disponible ? >> et
+   * << existe-t-il ? >>. Un conteneur depote EXISTE, et cela suffit a l'attacher
+   * a un camion de plus, sans saisie manuelle et sans perdre le lien. */
+  const fiche = stk ? null : await stockFiche(ctx, ct.num);
+  if (!manuel && !stk && !fiche)
     throw new Error(
-      'Conteneur « ' + ct.num + ' » introuvable dans le stock (ou déjà dépoté). Importez / pointez-le d\'abord, ou cochez « saisie manuelle » s\'il est partagé.',
+      'Conteneur « ' + ct.num + ' » introuvable dans le stock. '
+      + "Importez-le par « Stock initial », ou pointez-le d'abord.",
     );
   if (manuel && stk)
     throw new ErreurMetier(
@@ -163,7 +179,12 @@ export async function cfs(ctx: Ctx, p: Record<string, unknown>) {
       + `est présent au parc et doit être pointé.\n\n`
       + `Si « ${ct.num} » est bien sur le site sans figurer au stock, faites-le entrer par `
       + `« Stock initial — import » ou « Pointage matinal ». S'il est au parc sans avoir été `
-      + `pointé, décochez « saisie manuelle » : il sera pointé au moment du dépotage.`,
+      + `pointé, décochez « saisie manuelle » : il sera pointé au moment du dépotage.
+
+`
+      + `CONTENEUR PARTAGÉ entre plusieurs camions ? Décochez aussi « saisie manuelle » : `
+      + `depuis le 12/09/2026, un conteneur déjà dépoté se rattache directement à un `
+      + `camion supplémentaire, sans re-pointage.`,
     );
 
   /* v4.2 — CONTENEUR AU PARC MAIS PAS POINTÉ « POSITIONNÉ ».
@@ -181,10 +202,28 @@ export async function cfs(ctx: Ctx, p: Record<string, unknown>) {
    * un pointage à part, distinct du pointage matinal.
    */
   let pointeALaVolee = false;
+
+  /* LE CAS PARTAGÉ, NOMMÉ PLUTÔT QUE SUBI — 2026-09-12.
+   *
+   * Un conteneur DÉJÀ DÉPOTÉ qu'on rattache à un camion supplémentaire est
+   * légitime : sa marchandise se répartit entre plusieurs camions. Il ne doit
+   * donc PAS repasser par la règle de pointage — celle-ci réclamait un pointage
+   * sur un conteneur déjà pointé et déjà sorti du parc, et la mise à jour qui
+   * suivait, portant un `.neq('statut', DEPOTE)`, ne touchait de toute façon
+   * aucune ligne. Le rendre « positionné » le ferait réapparaître au parc alors
+   * qu'il en est parti : ce serait fausser le stock pour satisfaire une règle.
+   *
+   * On le trace, parce qu'un partage doit rester lisible dans le journal. */
+  const estPartage = !estEnl && !!fiche && fiche['statut'] === STOCK_STATUTS.DEPOTE;
+  if (estPartage) {
+    await ctx.log('Conteneur partagé (dépotage)', ct.num,
+      'déjà dépoté : rattaché à un camion supplémentaire, sans re-pointage');
+  }
+
   // `manuel` n'apparaît plus dans cette condition : un conteneur présent au parc
   // ne peut plus être saisi manuellement (contrôle ci-dessus), donc `stk` est
   // renseigné dès qu'il existe, et la règle de pointage s'applique sans échappatoire.
-  if (!estEnl && stk && stk['statut'] !== STOCK_STATUTS.POSITIONNE) {
+  if (!estPartage && !estEnl && stk && stk['statut'] !== STOCK_STATUTS.POSITIONNE) {
     if (p['pointerSiNonPositionne'] !== true)
       throw new Error(
         'Dépotage : le conteneur « ' + ct.num + ' » est au parc (statut « ' + String(stk['statut']) +
