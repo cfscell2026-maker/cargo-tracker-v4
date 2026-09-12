@@ -801,6 +801,38 @@ export async function gps(ctx: Ctx, p: Record<string, unknown>) {
 
   const cargo = await getCargo(ctx, id);
   const c = cargo.o;
+
+  /* BALISE DÉJÀ POSÉE SUR UN AUTRE CAMION — 2026-09-12.
+   *
+   * La migration 00170 pose un index unique : deux cargaisons NON SORTIES ne
+   * peuvent plus porter la même balise. C'est la bonne règle — sinon plus
+   * personne ne sait quel camion est réellement suivi.
+   *
+   * Mais un refus venu de l'index arrive sous forme de « duplicate key value »,
+   * que `estMessageMetier` masque à juste titre (il cartographierait le schéma).
+   * L'agent verrait donc une erreur technique générique, sans savoir que c'est
+   * le NUMÉRO DE BALISE qui est en cause ni sur quel camion il est déjà posé.
+   *
+   * On vérifie donc AVANT d'écrire, et on nomme le camion fautif. L'index reste
+   * la garantie dure — lui seul résiste à deux agents qui saisissent en même
+   * temps ; ce contrôle-ci ne sert qu'à rendre le refus compréhensible. */
+  if (requise && numeroGPS) {
+    const { data: dejaPosee } = await ctx.db.from('cargaisons')
+      .select('id, numero_camion')
+      .eq('numero_gps', numeroGPS)
+      .neq('id', id)
+      .neq('statut', STATUTS.SORTIE)
+      .is('date_sortie', null)
+      .limit(1);
+    const autre = (dejaPosee ?? [])[0];
+    if (autre)
+      throw new ErreurMetier(
+        `La balise « ${numeroGPS} » est déjà posée sur le camion `
+        + `« ${String(autre['numero_camion'] ?? autre['id'])} », qui n'est pas encore sorti. `
+        + `Une balise ne peut suivre qu'un camion à la fois : vérifiez le numéro, `
+        + `ou enregistrez d'abord la sortie de l'autre camion.`,
+      );
+  }
   if (c['estVehicule'] === true || c['estVehicule'] === 'Oui') throw new Error('Les véhicules ne passent pas par la cellule Balise.');
   if (ctx.session.role !== ROLES.ADMIN && etapesEnAttente(c as never).indexOf('BALISE') < 0)
     throw new Error('Étape Balise impossible : chargement non terminé ou déjà balisée (statut « ' + c['statut'] + ' »).');

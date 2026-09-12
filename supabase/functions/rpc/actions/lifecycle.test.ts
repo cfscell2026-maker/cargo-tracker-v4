@@ -2527,3 +2527,46 @@ test('dépotage — le conteneur NON dépoté garde sa règle de pointage', asyn
     /pas été pointé comme POSITIONNÉ/i,
   );
 });
+
+/* ===== UNE BALISE NE SUIT QU'UN CAMION À LA FOIS — 2026-09-12 ============
+ *
+ * La migration 00170 pose un index unique qui l'impose. Ce test couvre le
+ * contrôle applicatif qui le PRÉCÈDE : sans lui, l'agent verrait un refus
+ * technique générique, sans savoir que c'est le numéro de balise qui est en
+ * cause ni sur quel camion il est déjà posé.
+ */
+test('balise — un numéro déjà posé sur un camion non sorti est refusé, en le nommant', async () => {
+  const db = new FakeDB();
+  db.store['cargaisons'].push({
+    id: 'CT-2026-900001', numero_camion: 'BAL001/RM01', statut: 'T1 Saisi',
+    numero_gps: 'GPS-777', date_creation: '2026-09-01T08:00:00Z',
+  });
+  const id = await depotageAValider(db, 'BAL002/RM02', 'MSKU8880001');
+  await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'), { id, enSurcharge: false });
+  await ecr.t1(ctxRole(db, 'T1', 'Agent T1'), { id, bureauDestination: 'TG120',
+    t1Numeros: [{ conteneur: 'MSKU8880001', numero: 'T1-9001' }] });
+
+  await assert.rejects(
+    () => ecr.gps(ctxRole(db, 'BALISE', 'Agent Balise'),
+      { id, baliseRequise: 'Oui', t1Correct: 'Oui', numeroGPS: 'GPS-777' }),
+    (e: Error) => /BAL001\/RM01/.test(e.message) && /d\u00e9j\u00e0 pos\u00e9e/i.test(e.message),
+  );
+});
+
+test('balise — le même numéro est libre une fois l\'autre camion SORTI', async () => {
+  const db = new FakeDB();
+  db.store['cargaisons'].push({
+    id: 'CT-2026-900002', numero_camion: 'BAL003/RM03', statut: 'Sortie Enregistrée',
+    numero_gps: 'GPS-778', date_sortie: '2026-09-02T10:00:00Z',
+    date_creation: '2026-09-01T08:00:00Z',
+  });
+  const id = await depotageAValider(db, 'BAL004/RM04', 'MSKU8880002');
+  await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'), { id, enSurcharge: false });
+  await ecr.t1(ctxRole(db, 'T1', 'Agent T1'), { id, bureauDestination: 'TG120',
+    t1Numeros: [{ conteneur: 'MSKU8880002', numero: 'T1-9002' }] });
+
+  await ecr.gps(ctxRole(db, 'BALISE', 'Agent Balise'),
+    { id, baliseRequise: 'Oui', t1Correct: 'Oui', numeroGPS: 'GPS-778' });
+  const c = db.store['cargaisons'].find((x) => x['id'] === id)!;
+  assert.equal(c['numero_gps'], 'GPS-778', 'une balise se repose sur un autre camion après la sortie');
+});
