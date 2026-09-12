@@ -163,7 +163,22 @@ test('une période ACHEVÉE se compare à sa jumelle entière', () => {
     { du: '2026-08-31', au: '2026-09-06' });
 });
 
-test('le jour même se compare à la veille', () => {
+test('en mode JOUR, lundi se compare au lundi d\'avant, pas au dimanche (2026-09-12)', () => {
+  // Lundi 14 : lundi 07, et non dimanche 13.
+  assert.deepEqual(
+    fenetreComparaison('2026-09-14', '2026-09-14', new Date(2026, 8, 14), 'jour'),
+    { du: '2026-09-07', au: '2026-09-07' });
+  // Samedi 12 : samedi 05.
+  assert.deepEqual(
+    fenetreComparaison('2026-09-12', '2026-09-12', new Date(2026, 8, 12), 'jour'),
+    { du: '2026-09-05', au: '2026-09-05' });
+  // Un 1er mars recule sur février sans se tromper de jour.
+  assert.deepEqual(
+    fenetreComparaison('2026-03-02', '2026-03-02', new Date(2026, 2, 2), 'jour'),
+    { du: '2026-02-23', au: '2026-02-23' });
+});
+
+test('une plage libre d\'un seul jour se compare à la veille', () => {
   assert.deepEqual(
     fenetreComparaison('2026-09-11', '2026-09-11', new Date(2026, 8, 11)),
     { du: '2026-09-10', au: '2026-09-10' });

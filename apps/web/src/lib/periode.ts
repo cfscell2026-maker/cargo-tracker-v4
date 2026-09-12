@@ -116,12 +116,15 @@ export function comparer(actuel: number, precedent: number): Variation | null {
  * sec ne pèse pas la même chose un dimanche et un lundi.
  *
  * Désormais, selon la période choisie :
+ *   · jour    : le MÊME JOUR de la semaine d'avant — lundi contre lundi
+ *               (décision utilisateur 2026-09-12). Contre la veille, un lundi se
+ *               mesurait à un dimanche calme et affichait une hausse factice ;
  *   · semaine : les mêmes jours de la semaine d'avant (lundi → même jour) ;
  *   · mois    : du 1er au même quantième du mois d'avant (plafonné à sa fin :
  *               le 30 mars se compare au 28 février) ; mois achevé → mois entier ;
  *   · année   : du 1er janvier au même jour de l'année d'avant (29 février plafonné) ;
- *   · jour et plage personnalisée : la plage de même longueur juste avant — pour
- *     une plage libre, il n'existe pas d'autre « période jumelle ».
+ *   · plage personnalisée : la plage de même longueur juste avant — pour une
+ *     plage libre, il n'existe pas d'autre « période jumelle ».
  *
  * Les chiffres AFFICHÉS sur les tuiles ne bougent pas : seule la fenêtre de
  * référence change.
@@ -137,7 +140,8 @@ export function fenetreComparaison(
   if (finReelle < du) return periodePrecedente(du, au);
   const jour = (iso: string) => new Date(iso + 'T00:00:00');
 
-  if (mode === 'semaine') {
+  // Jour et semaine reculent de sept jours : mêmes jours de la semaine.
+  if (mode === 'semaine' || mode === 'jour') {
     const recule = (iso: string) => { const d = jour(iso); d.setDate(d.getDate() - 7); return isoDate(d); };
     return { du: recule(du), au: recule(finReelle) };
   }
