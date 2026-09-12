@@ -103,12 +103,57 @@ test('une chute à zéro reste lisible', () => {
   assert.deepEqual(comparer(0, 50), { sens: 'baisse', pourcent: 100 });
 });
 
-test('une période EN COURS se compare à durée écoulée égale', () => {
-  // Vendredi 11, semaine du 07 au 13 : cinq jours écoulés, pas sept.
-  // On regarde donc les cinq jours d'avant le 07, soit du 02 au 06.
+test('une SEMAINE en cours se compare aux MÊMES jours de la semaine d\'avant (2026-09-12)', () => {
+  // Vendredi 11, semaine du lun 07 au dim 13 : lundi → vendredi contre
+  // lundi 31/08 → vendredi 04/09. L'ancienne version rendait mer 02 → dim 06,
+  // soit un week-end dans la référence.
   assert.deepEqual(
-    fenetreComparaison('2026-09-07', '2026-09-13', new Date(2026, 8, 11)),
-    { du: '2026-09-02', au: '2026-09-06' });
+    fenetreComparaison('2026-09-07', '2026-09-13', new Date(2026, 8, 11), 'semaine'),
+    { du: '2026-08-31', au: '2026-09-04' });
+  // Samedi 12 (le cas relevé à l'écran) : lun 31/08 → sam 05/09, pas mar 01 → dim 06.
+  assert.deepEqual(
+    fenetreComparaison('2026-09-07', '2026-09-13', new Date(2026, 8, 12), 'semaine'),
+    { du: '2026-08-31', au: '2026-09-05' });
+  // Semaine achevée : la semaine d'avant entière.
+  assert.deepEqual(
+    fenetreComparaison('2026-09-07', '2026-09-13', new Date(2026, 8, 20), 'semaine'),
+    { du: '2026-08-31', au: '2026-09-06' });
+});
+
+test('un MOIS en cours se compare du 1er au même quantième du mois d\'avant', () => {
+  // 12 septembre : 01 → 12 août, et non 20 → 31 août.
+  assert.deepEqual(
+    fenetreComparaison('2026-09-01', '2026-09-30', new Date(2026, 8, 12), 'mois'),
+    { du: '2026-08-01', au: '2026-08-12' });
+  // Le 30 mars n'a pas de jumeau en février : on plafonne au 28.
+  assert.deepEqual(
+    fenetreComparaison('2026-03-01', '2026-03-31', new Date(2026, 2, 30), 'mois'),
+    { du: '2026-02-01', au: '2026-02-28' });
+  // Mois achevé : le mois d'avant ENTIER (août consulté en septembre → juillet 1 → 31).
+  assert.deepEqual(
+    fenetreComparaison('2026-08-01', '2026-08-31', new Date(2026, 8, 12), 'mois'),
+    { du: '2026-07-01', au: '2026-07-31' });
+  // Janvier recule en décembre de l'année précédente.
+  assert.deepEqual(
+    fenetreComparaison('2026-01-01', '2026-01-31', new Date(2026, 0, 10), 'mois'),
+    { du: '2025-12-01', au: '2025-12-10' });
+});
+
+test('une ANNÉE en cours se compare au même jour de l\'année d\'avant', () => {
+  assert.deepEqual(
+    fenetreComparaison('2026-01-01', '2026-12-31', new Date(2026, 8, 12), 'annee'),
+    { du: '2025-01-01', au: '2025-09-12' });
+  // 29 février 2028 → 28 février 2027.
+  assert.deepEqual(
+    fenetreComparaison('2028-01-01', '2028-12-31', new Date(2028, 1, 29), 'annee'),
+    { du: '2027-01-01', au: '2027-02-28' });
+});
+
+test('une plage PERSONNALISÉE se compare à la plage de même longueur juste avant', () => {
+  // Du jeu 03 au ven 11 (9 jours), consultée le 11 : les 9 jours qui précèdent.
+  assert.deepEqual(
+    fenetreComparaison('2026-09-03', '2026-09-11', new Date(2026, 8, 11), 'perso'),
+    { du: '2026-08-25', au: '2026-09-02' });
 });
 
 test('une période ACHEVÉE se compare à sa jumelle entière', () => {

@@ -99,26 +99,61 @@ export function comparer(actuel: number, precedent: number): Variation | null {
 }
 
 /**
- * FENÊTRE DE COMPARAISON HONNÊTE — 2026-09-11.
+ * FENÊTRE DE COMPARAISON HONNÊTE — 2026-09-11, corrigée le 2026-09-12.
  *
  * Comparer une période EN COURS à une période ACHEVÉE fausse tout. Un vendredi,
  * la semaine du lundi au dimanche ne compte que cinq jours de travail ; la
  * comparer aux sept jours de la semaine précédente affiche une chute de 30 %
- * qui n'a jamais eu lieu. Le tableau de bord serait rouge tous les jours, et
- * l'indicateur perdrait tout crédit — c'est ainsi qu'on apprend à ignorer une
- * alerte.
+ * qui n'a jamais eu lieu. On compare donc à DURÉE ÉCOULÉE ÉGALE.
  *
- * On compare donc à DURÉE ÉCOULÉE ÉGALE : si cinq jours sont passés, on regarde
- * les cinq jours correspondants de la période précédente, pas les sept.
+ * DÉFAUT CORRIGÉ LE 2026-09-12. La première version prenait les N jours qui
+ * précèdent IMMÉDIATEMENT la période, et non les N MÊMES jours de la période
+ * précédente. Mesuré un samedi 12/09 :
+ *   · semaine lun 07 → sam 12 comparée à mar 01 → dim 06 (au lieu de lun 31/08 → sam 05/09) ;
+ *   · un jeudi, lundi-jeudi se mesurait à jeudi-DIMANCHE : un week-end dans la référence ;
+ *   · mois 01 → 12 sept. comparé à 20 → 31 août (au lieu de 01 → 12 août).
+ * La longueur était la bonne, les jours ne l'étaient pas — et le trafic d'un port
+ * sec ne pèse pas la même chose un dimanche et un lundi.
+ *
+ * Désormais, selon la période choisie :
+ *   · semaine : les mêmes jours de la semaine d'avant (lundi → même jour) ;
+ *   · mois    : du 1er au même quantième du mois d'avant (plafonné à sa fin :
+ *               le 30 mars se compare au 28 février) ; mois achevé → mois entier ;
+ *   · année   : du 1er janvier au même jour de l'année d'avant (29 février plafonné) ;
+ *   · jour et plage personnalisée : la plage de même longueur juste avant — pour
+ *     une plage libre, il n'existe pas d'autre « période jumelle ».
  *
  * Les chiffres AFFICHÉS sur les tuiles ne bougent pas : seule la fenêtre de
- * référence change. Les jours à venir ne portent aucune donnée de toute façon.
+ * référence change.
  */
-export function fenetreComparaison(du: string, au: string, aujourdhui: Date = new Date()): { du: string; au: string } {
+export function fenetreComparaison(
+  du: string, au: string, aujourdhui: Date = new Date(), mode: ModePeriode = 'perso',
+): { du: string; au: string } {
   const auJour = isoDate(aujourdhui);
   // La période déborde-t-elle sur l'avenir ? Si oui, on s'arrête à aujourd'hui.
   const finReelle = auJour < au ? auJour : au;
   // Une période entièrement à venir n'a rien à comparer : on retombe alors sur
   // la période précédente pleine, faute de mieux.
-  return finReelle < du ? periodePrecedente(du, au) : periodePrecedente(du, finReelle);
+  if (finReelle < du) return periodePrecedente(du, au);
+  const jour = (iso: string) => new Date(iso + 'T00:00:00');
+
+  if (mode === 'semaine') {
+    const recule = (iso: string) => { const d = jour(iso); d.setDate(d.getDate() - 7); return isoDate(d); };
+    return { du: recule(du), au: recule(finReelle) };
+  }
+  if (mode === 'mois' || mode === 'annee') {
+    const mois = mode === 'mois' ? 1 : 0;
+    const ans = mode === 'annee' ? 1 : 0;
+    const d = jour(du);
+    const f = jour(finReelle);
+    // `new Date(a, m, 1)` normalise seul un mois négatif : janvier recule en décembre.
+    const debutAvant = new Date(d.getFullYear() - ans, d.getMonth() - mois, d.getDate());
+    const a = f.getFullYear() - ans;
+    const m = f.getMonth() - mois;
+    const dernierJour = new Date(a, m + 1, 0).getDate();
+    // Période achevée : la jumelle entière. En cours : même quantième, plafonné.
+    const quantieme = finReelle === au ? dernierJour : Math.min(f.getDate(), dernierJour);
+    return { du: isoDate(debutAvant), au: isoDate(new Date(a, m, quantieme)) };
+  }
+  return periodePrecedente(du, finReelle);
 }

@@ -530,7 +530,7 @@ SCREENS.dash = (nav) => {
      Appel SÉPARÉ et non bloquant : s'il échoue ou tarde, les tuiles
      s'affichent quand même, sans flèche. Un tableau de bord doit apparaître ;
      la comparaison est un supplément. */
-  const av = fenetreComparaison(du, au);
+  const av = fenetreComparaison(du, au, new Date(), p.m);
   const { data: dataAvant } = useAsync<O>(() => call('dashboard.stats', { du: av.du, au: av.au }), [av.du, av.au]);
   const s = data ?? {};
   const sAvant = dataAvant;
