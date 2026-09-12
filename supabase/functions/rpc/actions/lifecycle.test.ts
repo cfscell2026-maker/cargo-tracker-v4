@@ -2241,26 +2241,43 @@ test('dépotage — la SAISIE MANUELLE ne peut plus masquer un conteneur présen
   assert.equal(s['statut'], 'En stock');
 });
 
-test('dépotage — la saisie manuelle est refusée MÊME pour un conteneur absent du parc', async () => {
+/* 2026-09-12 — CE TEST DISAIT L'INVERSE, et la production a tranché.
+ *
+ * La règle du 10 septembre posait que « tout conteneur dépoté au port sec figure
+ * au parc ». C'est faux : « CCLU7731903 », physiquement présent, n'existait dans
+ * aucune fiche — et l'agent n'avait alors AUCUNE issue. La saisie manuelle
+ * retrouve donc sa raison d'être d'origine, les conteneurs ABSENTS du parc, et
+ * elle crée la fiche au passage : le grief qui l'avait fait fermer était
+ * justement qu'elle laissait des conteneurs sans fiche. */
+test('dépotage — un conteneur ABSENT du stock passe en saisie manuelle, et sa fiche est créée', async () => {
   const db = new FakeDB();
   const { cfs, id } = await depotagePret(db, 'PNT003/RM01');
-  /* Décision utilisateur 2026-09-10 : tout conteneur dépoté au port sec a été
-   * acheminé sur le site de la PIA, donc il figure au parc et doit être pointé.
-   * La saisie manuelle n'était plus une exception — c'était le moyen de ne pas
-   * pointer. Le message doit orienter vers l'import ou le pointage. */
+  await ecr.cfs(cfs, {
+    id, declaration: DECL_PNT,
+    conteneur: { num: 'MSKU6660003', taille: "20'", type: 'DRY', manuel: true },
+  });
+  const c = db.store['cargaisons'].find((x) => x['id'] === id)!;
+  assert.match(JSON.stringify(c['conteneurs_details']), /MSKU6660003/, 'le conteneur est rattaché');
+
+  const fiche = db.store['stock'].find((x) => x['numero_tc'] === 'MSKU6660003');
+  assert.ok(fiche, 'LE POINT ESSENTIEL : une fiche de stock doit exister, sinon on recrée '
+    + 'le défaut qui avait fait fermer la saisie manuelle');
+  assert.equal(fiche!['statut'], 'Positionné');
+});
+
+test('dépotage — la saisie manuelle reste REFUSÉE si le conteneur est déjà fiché', async () => {
+  const db = new FakeDB();
+  // Présent au parc : c'est là que la saisie manuelle servait à éviter le pointage.
+  db.store['stock'].push({ numero_tc: 'MSKU6660004', taille: "20'", statut: 'En stock' });
+  const { cfs, id } = await depotagePret(db, 'PNT004/RM01');
   await assert.rejects(
     () => ecr.cfs(cfs, {
       id, declaration: DECL_PNT,
-      conteneur: { num: 'MSKU6660003', taille: "20'", type: 'DRY', manuel: true },
+      conteneur: { num: 'MSKU6660004', taille: "20'", type: 'DRY', manuel: true },
     }),
-    (e: Error) => /saisie manuelle n'est plus permise/i.test(e.message)
-      && /Pointage matinal|Stock initial/i.test(e.message),
+    /EST au parc/i,
   );
-  // Rien n'a été écrit sur le camion à la faveur du refus.
-  const c = versCamel(db.store['cargaisons'][0]!);
-  assert.equal(Number(c['nbConteneurs'] ?? 0), 0);
 });
-
 test("enlèvement — la saisie manuelle reste permise : le conteneur part scellé, hors parc", async () => {
   const db = new FakeDB();
   const cfs = ctxAvec(db);

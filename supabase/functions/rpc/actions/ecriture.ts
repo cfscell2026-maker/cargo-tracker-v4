@@ -173,7 +173,39 @@ export async function cfs(ctx: Ctx, p: Record<string, unknown>) {
    *
    * ⚠ L'ENLÈVEMENT n'est pas concerné : le conteneur y part scellé, et il peut
    * légitimement ne pas être passé par le parc. */
-  if (!estEnl && manuel)
+  /* CONTENEUR INCONNU DU STOCK — 2026-09-12.
+   *
+   * La règle du 2026-09-10 fermait la saisie manuelle en dépotage, en posant
+   * que « tout conteneur dépoté au port sec figure au parc ». CONSTATÉ EN
+   * PRODUCTION : c'est faux. « CCLU7731903 », présent physiquement, n'existait
+   * dans aucune fiche — et l'écran ne proposait alors AUCUNE issue : la case de
+   * régularisation ne s'affiche que pour un conteneur déjà fiché, et
+   * « Pointage matinal » refuse ce qu'il ne connaît pas. Seul restait l'import
+   * d'un fichier Excel — pour un conteneur. L'agent était bloqué.
+   *
+   * La saisie manuelle retrouve donc sa raison d'être D'ORIGINE, et elle seule :
+   * les conteneurs ABSENTS du parc. Elle reste refusée dès que le conteneur est
+   * fiché (contrôle juste au-dessus) — c'est là qu'elle servait à éviter le
+   * pointage, et c'est ce détournement que la règle visait.
+   *
+   * ET ON CRÉE LA FICHE. C'est ce qui rend la réouverture sûre : le grief contre
+   * la saisie manuelle était qu'elle laissait un conteneur SANS fiche, donc hors
+   * du parc et hors de l'apurement. En créant la fiche au passage, on obtient
+   * l'inverse de ce que la règle redoutait — un conteneur de plus rattaché,
+   * tracé, et compté. */
+  if (!estEnl && manuel && !stk && !fiche) {
+    const maintenant = new Date().toISOString();
+    const { error: eFiche } = await ctx.db.from('stock').insert({
+      numero_tc: ct.num, taille: ct.taille ?? '', type_conteneur: ct.type ?? '',
+      provenance: 'PORT SEC', date_entree: maintenant,
+      statut: STOCK_STATUTS.POSITIONNE, date_positionne: maintenant,
+      date_pointage: maintenant, pointe_par: ctx.session.nomComplet,
+      observations: 'Fiche créée au dépotage (conteneur absent du stock)',
+    });
+    if (eFiche) throw new Error(eFiche.message);
+    await ctx.log('Fiche de stock créée au dépotage', ct.num,
+      "conteneur absent du parc, déclaré présent par l'agent en saisie manuelle");
+  } else if (!estEnl && manuel)
     throw new ErreurMetier(
       `Dépotage : la saisie manuelle n'est plus permise. Tout conteneur dépoté au port sec `
       + `est présent au parc et doit être pointé.\n\n`
