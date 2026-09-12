@@ -2678,3 +2678,16 @@ test('véhicule : le même châssis ne peut pas être créé deux fois (732382 �
   await assert.rejects(() => creer('TCLU7654321', [{ chassis: '732382', destination: 'Transit' }]), /déjà dans le système/);
   assert.equal(db.store['cargaisons'].length, 1);
 });
+
+test('véhicule : un châssis égal à la plaque d\'un CAMION présent n\'est pas un doublon (2026-09-12)', async () => {
+  // Cas réels TG2944BI et TG6866BS/5821BE : le véhicule a été saisi avec la plaque
+  // du camion porteur. Ce n'est pas le même dossier : on ne refuse pas.
+  const db = new FakeDB();
+  db.store['stock'].push({ numero_tc: 'MSKU1234567', taille: "40'", statut: 'Positionné' });
+  const cfs = ctxAvec(db);
+  await ecr.createcamion(cfs, { numeroCamion: 'TG2944BI', routage: 'Dépotage' });
+  const decl = { declarant: 'A', contactDeclarant: '901234', destinationMarchandise: 'D', bureauDeclaration: 'TG120', typeDeclaration: 'T', numeroDeclaration: '13', anneeDeclaration: '2026', dateDeclaration: '2026-06-24', descriptionMarchandise: 'X', nombreConteneurs: 1 };
+  await spe.create(cfs, { typeOperation: 'Dépotage / Véhicule', declaration: decl, conteneurOrigine: 'MSKU1234567',
+    vehicules: [{ chassis: 'TG2944BI', destination: 'Transit' }] });
+  assert.equal(db.store['cargaisons'].filter((c) => c['numero_camion'] === 'TG2944BI').length, 2);
+});

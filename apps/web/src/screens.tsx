@@ -109,7 +109,9 @@ function Table({ cols, rows, onRow, icones, actions }: {
   icones?: Record<string, string>;
 }) {
   if (!rows.length) return <div className="empty">Aucune donnée.</div>;
-  return <div className="tbl"><table>
+  // `avec-actions` : sur téléphone, la colonne des boutons reste collée au bord
+  // droit pendant qu'on fait défiler le tableau (voir styles.css).
+  return <div className={`tbl ${actions ? 'avec-actions' : ''}`}><table>
     <thead><tr>{cols.map((c) => <th key={c[0]}>{c[1]}</th>)}{actions && <th>Actions</th>}</tr></thead>
     <tbody>{rows.map((r, i) => (
       <tr key={i} className={onRow ? 'clk' : ''} onClick={() => onRow?.(r)}>
@@ -144,11 +146,11 @@ function ActionsDossier({ r, admin, onFait }: { r: O; admin: boolean; onFait: ()
   const fermer = () => setOuvert('');
   const fait = () => { setOuvert(''); onFait(); };
   return <div className="acts-dossier">
-    <button className="ghost xs" title="Corriger le N° de camion / châssis" onClick={() => setOuvert('modifier')}>
-      ✎ Modifier
+    <button className="ghost xs" title="Corriger le N° de camion / châssis" aria-label="Modifier" onClick={() => setOuvert('modifier')}>
+      ✎<span className="acts-lib"> Modifier</span>
     </button>
-    {admin && <button className="ghost xs acts-suppr" title="Supprimer ce dossier (doublon)" onClick={() => setOuvert('supprimer')}>
-      ✕ Supprimer
+    {admin && <button className="ghost xs acts-suppr" title="Supprimer ce dossier (doublon)" aria-label="Supprimer" onClick={() => setOuvert('supprimer')}>
+      ✕<span className="acts-lib"> Supprimer</span>
     </button>}
     {ouvert === 'modifier' && <ModaleCorrigerNumero r={r} onClose={fermer} onFait={fait} />}
     {ouvert === 'supprimer' && <ModaleSupprimerDossier r={r} onClose={fermer} onFait={fait} />}

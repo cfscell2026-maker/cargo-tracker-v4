@@ -111,6 +111,25 @@ export async function create(ctx: Ctx, p: Record<string, unknown>) {
   return { rapportId, camions: cree, apurementRestant: restant };
 }
 
+/**
+ * Un VÉHICULE déjà présent (non sorti, non annulé) portant ce châssis — 2026-09-12.
+ * Pendant de `camionActif`, restreint aux dossiers véhicule : un camion porteur
+ * dont la plaque a servi de « châssis » n'est pas le même dossier.
+ */
+async function vehiculeActif(ctx: Ctx, chassisNorm: string): Promise<Record<string, unknown> | null> {
+  if (!chassisNorm) return null;
+  const { data, error } = await ctx.db
+    .from('cargaisons')
+    .select('id, statut, numero_camion')
+    .eq('numero_camion_norm', chassisNorm)
+    .eq('est_vehicule', true)
+    .neq('statut', STATUTS.SORTIE)
+    .neq('annule', true)
+    .limit(1);
+  if (error) throw new Error(error.message);
+  return data && data[0] ? (data[0] as Record<string, unknown>) : null;
+}
+
 /** Magasin / MAD temps 2 — sortie de marchandise en VRAC (aucun conteneur). */
 async function creerRapportMagasin(ctx: Ctx, p: Record<string, unknown>) {
   const numeroCamion = alphaNumMaj(p['numeroCamion']);
@@ -239,18 +258,27 @@ async function creerRapportVehicule(ctx: Ctx, p: Record<string, unknown>) {
    *
    * Mêmes deux contrôles que les camions, AVANT toute écriture :
    *  1. dans la saisie elle-même (même châssis ou même plaque deux fois) ;
-   *  2. contre la base (déjà présent et pas encore sorti). */
+   *  2. contre la base (déjà présent et pas encore sorti).
+   *
+   * UN VÉHICULE NE SE COMPARE QU'AUX VÉHICULES (mesure du 2026-09-12 sur 90 jours
+   * de production). Contre TOUS les dossiers, le contrôle aurait refusé 17
+   * créations : 15 vrais doublons (la même saisie renvoyée 2 à 9 s plus tard),
+   * mais 2 faux refus — un véhicule saisi avec, pour châssis, la plaque d'un
+   * camion encore présent (TG2944BI, TG6866BS/5821BE). Ce n'est pas le même
+   * dossier : un camion porteur n'est pas le véhicule qu'il transporte. Les
+   * camions d'effets divers gardent le contrôle complet (0 refus en 90 jours). */
   const vus = new Set<string>();
   const numeros = [
-    ...vehicules.map((v) => ({ n: v.chassis, quoi: 'véhicule (châssis)' })),
-    ...camions.map((c) => ({ n: String(c.numeroCamion ?? '').trim(), quoi: 'camion' })),
+    ...vehicules.map((v) => ({ n: v.chassis, quoi: 'véhicule (châssis)', veh: true })),
+    ...camions.map((c) => ({ n: String(c.numeroCamion ?? '').trim(), quoi: 'camion', veh: false })),
   ];
-  for (const { n, quoi } of numeros) {
+  for (const { n, quoi, veh } of numeros) {
     const norm = n.toUpperCase().replace(/[^A-Z0-9]/g, '');
     if (!norm) continue;
-    if (vus.has(norm)) throw new ErreurMetier(`Le ${quoi} « ${n} » figure deux fois dans cette saisie.`);
-    vus.add(norm);
-    const actif = await camionActif(ctx, n);
+    const cle = (veh ? 'V:' : 'C:') + norm;
+    if (vus.has(cle)) throw new ErreurMetier(`Le ${quoi} « ${n} » figure deux fois dans cette saisie.`);
+    vus.add(cle);
+    const actif = veh ? await vehiculeActif(ctx, norm) : await camionActif(ctx, n);
     if (actif)
       throw new ErreurMetier(
         `Le ${quoi} « ${n} » est déjà dans le système (statut « ${String(actif['statut'])} », `
