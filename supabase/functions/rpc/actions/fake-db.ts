@@ -4,12 +4,33 @@
  */
 type Row = Record<string, unknown>;
 
+/**
+ * Colonnes GÉNÉRÉES par PostgreSQL, reproduites ici.
+ *
+ * `cargaisons.numero_camion_norm` est un `generated always as (...) stored` :
+ * le code applicatif ne l'écrit jamais, la base la calcule. Ce magasin en
+ * mémoire l'ignorait, si bien que toute recherche par plaque normalisée — dont
+ * l'anti-doublon `camionActif` — ne trouvait rien dans les tests alors qu'elle
+ * fonctionne en base. Un garde-fou peut ainsi passer pour actif sans l'être.
+ */
+function colonnesGenerees(table: string, row: Row): Row {
+  if (table === 'cargaisons' && row['numero_camion'] !== undefined) {
+    row['numero_camion_norm'] = String(row['numero_camion'] ?? '')
+      .toUpperCase().replace(/[^A-Z0-9]/g, '');
+  }
+  return row;
+}
+
 function match(row: Row, filters: [string, string, unknown][]): boolean {
   return filters.every(([col, op, val]) => {
     const v = row[col];
     if (op === 'eq') return v === val;
     if (op === 'neq') return v !== val;
-    if (op === 'is') return v === val; // is(null)
+    // `is(null)` : en PostgreSQL, une colonne jamais renseignée EST nulle. Dans
+    // ce magasin en mémoire, elle est simplement absente de l'objet, donc
+    // `undefined`. Les traiter différemment faisait échouer des filtres qui
+    // passent en base — le double doit imiter Postgres, pas JavaScript.
+    if (op === 'is') return val === null ? (v === null || v === undefined) : v === val;
     if (op === 'in') return Array.isArray(val) && (val as unknown[]).includes(v);
     if (op === 'gte') return String(v) >= String(val);
     if (op === 'lte') return String(v) <= String(val);
@@ -56,12 +77,12 @@ class Query {
     const rows = this.rows();
     if (this.opType === 'insert') {
       const items = Array.isArray(this.payload) ? this.payload : [this.payload!];
-      for (const it of items) rows.push(structuredClone(it));
+      for (const it of items) rows.push(colonnesGenerees(this.table, structuredClone(it)));
       return { data: this.wantSelect ? items.map((r) => structuredClone(r)) : null, error: null };
     }
     if (this.opType === 'update') {
       const matched = rows.filter((r) => match(r, this.filters));
-      for (const r of matched) Object.assign(r, structuredClone(this.payload));
+      for (const r of matched) colonnesGenerees(this.table, Object.assign(r, structuredClone(this.payload)));
       return { data: this.wantSelect ? matched.map((r) => structuredClone(r)) : null, error: null };
     }
     if (this.opType === 'delete') {
@@ -114,6 +135,13 @@ export class FakeDB {
       const d = this.store['declarations'].find((x) => x['cle'] === args['p_cle']);
       if (d) {
         d['conteneurs_apures'] = Number(d['conteneurs_apures'] || 0) + Number(args['p_nb']);
+        data = Math.max(0, Number(d['nombre_conteneurs'] || 0) - Number(d['conteneurs_apures']));
+      } else data = 0;
+    } else if (name === 'fn_apurer_dec') {
+      // 00170 — miroir de fn_apurer_inc : retire p_nb, borné à zéro.
+      const d = this.store['declarations'].find((x) => x['cle'] === args['p_cle']);
+      if (d) {
+        d['conteneurs_apures'] = Math.max(0, Number(d['conteneurs_apures'] || 0) - Number(args['p_nb']));
         data = Math.max(0, Number(d['nombre_conteneurs'] || 0) - Number(d['conteneurs_apures']));
       } else data = 0;
     } else if (name === 'fn_lier_stock') {

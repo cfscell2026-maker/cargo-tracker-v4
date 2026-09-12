@@ -5,9 +5,11 @@
  * ============================================================================
  */
 import type { Ctx } from '../ctx.ts';
+import { ErreurMetier } from '../ctx.ts';
+import { camionActif } from './ecriture.ts';
 import {
   ROLES, STATUTS, OPERATIONS, sautsTypeC,
-  alphaNumMaj, maj, txt, tcValide, parseDateImport,
+  alphaNumMaj, maj, txt, tcValide, camionValide, messageCamionFormat, parseDateImport,
   normaliserDeclaration, construireCamion, construireCamionEffets, construireVehicule, type CamionConstruit,
 } from '../../_shared/domaine/src/index.ts';
 import {
@@ -56,6 +58,41 @@ export async function create(ctx: Ctx, p: Record<string, unknown>) {
   const lignes = camions.map((cam) => construireCamion(cam as never, type, chargementTermine));
   const nbTotal = lignes.reduce((n, cam) => n + cam.conteneurs.length, 0);
 
+  /* ANTI-DOUBLON — I-4 de l'audit, corrigé le 2026-09-10.
+   *
+   * `createcamion` (flux principal) refusait déjà un camion déjà présent et non
+   * sorti. Les flux SPÉCIAUX — Véhicule, Conso, Magasin/MAD, et la saisie en lot
+   * ci-dessous — ne faisaient AUCUN contrôle : seul un avertissement côté écran
+   * (`cargo.checkdup`) prévenait l'agent, et rien n'empêchait de passer outre ni
+   * d'appeler l'API directement.
+   *
+   * Deux contrôles, dans cet ordre :
+   *  1. DANS LE LOT lui-même — deux fois la même plaque dans une seule saisie ;
+   *  2. CONTRE LA BASE — une plaque déjà active, donc déjà dans l'enceinte.
+   *
+   * On vérifie AVANT d'écrire quoi que ce soit : un lot refusé ne doit laisser
+   * aucune ligne derrière lui.
+   */
+  const vues = new Set<string>();
+  for (const cam of lignes) {
+    const plaque = String(cam.numeroCamion ?? '').trim();
+    if (!plaque) continue;
+    // Format tracteur/remorque (2026-09-10) — contrôlé aussi sur les flux
+    // spéciaux, qui échappaient jusqu'ici à tout contrôle de saisie.
+    if (!camionValide(plaque)) throw new ErreurMetier(messageCamionFormat(plaque));
+    const norm = plaque.toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (vues.has(norm))
+      throw new ErreurMetier(`Le camion « ${plaque} » figure deux fois dans cette saisie.`);
+    vues.add(norm);
+
+    const actif = await camionActif(ctx, plaque);
+    if (actif)
+      throw new ErreurMetier(
+        `Le camion « ${plaque} » est déjà dans le système (statut « ${String(actif['statut'])} », `
+        + `${String(actif['id'])}). Il ne pourra être recréé qu'après sa sortie.`,
+      );
+  }
+
   // v4 — nb de conteneurs déclarés et date en douane devenus facultatifs (décision user).
 
   const rapportId = await nextRapportId(ctx);
@@ -78,6 +115,34 @@ export async function create(ctx: Ctx, p: Record<string, unknown>) {
 async function creerRapportMagasin(ctx: Ctx, p: Record<string, unknown>) {
   const numeroCamion = alphaNumMaj(p['numeroCamion']);
   if (!numeroCamion) throw new Error('N° camion requis pour la sortie magasin.');
+
+  /* MAGASIN / MAD — format et anti-doublon (2026-09-10).
+   *
+   * Ce flux RETOURNE TÔT depuis `create` (dispatch par type d'opération) : ni le
+   * contrôle de format ni l'anti-doublon posés plus bas ne le voyaient. Une
+   * sortie magasin pouvait donc créer un SECOND dossier pour un camion déjà dans
+   * l'enceinte — deux fiches pour un seul camion physique, deux apurements, deux
+   * passages à la Porte Principale.
+   *
+   * Le message ne se contente pas de refuser : il NOMME la cargaison existante
+   * et indique la voie à suivre. Un même camion qui emporte de la marchandise
+   * relevant de plusieurs déclarations n'est pas un doublon — c'est un
+   * CHARGEMENT MIXTE, et il se saisit sur la fiche déjà ouverte. Sans cette
+   * indication, l'agent bloqué invente une plaque pour passer outre.
+   */
+  if (!camionValide(numeroCamion)) throw new ErreurMetier(messageCamionFormat(p['numeroCamion']));
+
+  const actif = await camionActif(ctx, numeroCamion);
+  if (actif)
+    throw new ErreurMetier(
+      `Le camion « ${numeroCamion} » est déjà dans le système : ${String(actif['id'])}, `
+      + `statut « ${String(actif['statut'])} ».\n\n`
+      + `S'il emporte AUSSI cette marchandise, ce n'est pas un nouveau dossier mais un `
+      + `CHARGEMENT MIXTE : ouvrez la fiche ${String(actif['id'])} et utilisez « Chargement mixte » `
+      + `pour y ajouter cette déclaration.\n\n`
+      + `S'il s'agit d'un autre camion, vérifiez la plaque.`,
+    );
+
   const decl = normaliserDeclaration(p['declaration'] as never, OPERATIONS.MAGASIN);
   const obsCFS = maj(p['observationsCFS'], 1000);
   // v4 — comme en dépotage : type T → T1 + Balise ; type C → saute le T1,
@@ -150,6 +215,19 @@ async function creerRapportVehicule(ctx: Ctx, p: Record<string, unknown>) {
   const camions = estOuillage
     ? []
     : (Array.isArray(p['camions']) ? (p['camions'] as Record<string, unknown>[]) : []).map((src) => construireCamionEffets(src));
+
+  /* Format tracteur/remorque sur les camions d'effets divers (2026-09-10).
+   *
+   * Ce flux RETOURNE TÔT depuis `create` (dispatch par type d'opération) : le
+   * contrôle posé plus bas ne le voyait donc jamais. Ces camions portent pourtant
+   * de vraies plaques et entrent dans le même parcours que les autres.
+   *
+   * Le châssis du VÉHICULE, lui, n'est pas concerné — un VIN ne comporte pas de
+   * barre oblique. Seules les plaques sont contrôlées. */
+  for (const cam of camions) {
+    const plaque = String(cam.numeroCamion ?? '').trim();
+    if (plaque && !camionValide(plaque)) throw new ErreurMetier(messageCamionFormat(plaque));
+  }
 
   const rapportId = await nextRapportId(ctx);
   const now = new Date().toISOString();

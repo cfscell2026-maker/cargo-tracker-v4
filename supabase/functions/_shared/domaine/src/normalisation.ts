@@ -27,6 +27,45 @@ export function alphaNumMaj(v: unknown): string {
   return txt(v).toUpperCase().replace(/[^A-Z0-9/-]/g, '');
 }
 
+/* ============ FORMAT DU N° DE CAMION — imposé le 2026-09-10 ==============
+ *
+ * Au port sec, un « camion » est un ENSEMBLE : un tracteur et sa remorque, qui
+ * portent chacun leur plaque. Le numéro les associe, séparés par une barre
+ * oblique — « TG2489BK/2725BP ».
+ *
+ * Ce n'était jusqu'ici qu'un usage : rien n'empêchait de n'entrer qu'une seule
+ * plaque. Or les deux servent à des choses différentes — la remorque porte la
+ * marchandise, le tracteur change en cours de route — et une saisie incomplète
+ * rend le camion introuvable pour qui cherche l'autre moitié.
+ *
+ * La règle vaut pour la SAISIE. Elle ne juge pas l'historique : les cargaisons
+ * enregistrées avant cette date gardent leur numéro tel quel, et la recherche
+ * continue de fonctionner puisqu'elle ignore les séparateurs (normAlphaNum).
+ * ======================================================================== */
+
+/** Séparateur tracteur / remorque. */
+export const CAMION_SEPARATEUR = '/';
+
+/** true si le numéro associe bien deux plaques séparées par une barre oblique. */
+export function camionValide(v: unknown): boolean {
+  const parts = alphaNumMaj(v).split(CAMION_SEPARATEUR);
+  return parts.length === 2 && parts[0]!.length >= 2 && parts[1]!.length >= 2;
+}
+
+/**
+ * Message d'erreur du format camion.
+ *
+ * Il dit QUOI faire et OÙ : un « format invalide » laisse l'agent devant son
+ * écran sans savoir quoi corriger. On rappelle donc la structure attendue, on
+ * donne un exemple, et on nomme le champ concerné.
+ */
+export function messageCamionFormat(saisi: unknown, champ = 'N° de camion'): string {
+  const v = String(saisi ?? '').trim();
+  return `N° de camion « ${v || '(vide)'} » incomplet : indiquez le TRACTEUR et la REMORQUE `
+    + `séparés par une barre oblique « / » — par exemple TG2489BK/2725BP. `
+    + `Corrigez la saisie dans le champ « ${champ} ».`;
+}
+
 /** Normalisation « recherche » : MAJUSCULES, alphanumérique strict. */
 export function normAlphaNum(v: unknown): string {
   return String(v ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');

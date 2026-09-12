@@ -5,7 +5,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { bornesDe, isoDate, normaliserPlage } from './periode.ts';
+import { bornesDe, comparer, fenetreComparaison, isoDate, normaliserPlage, periodePrecedente } from './periode.ts';
 
 /** Date LOCALE (le module raisonne en local, pas en UTC). */
 const jour = (a: number, m: number, j: number) => new Date(a, m - 1, j);
@@ -65,4 +65,68 @@ test('plage à l\'endroit ou incomplète : laissée telle quelle', () => {
   // Bornes vides (« toute la période » de l'historique) : aucune contrainte.
   assert.deepEqual(normaliserPlage('', ''), { du: '', au: '', inversee: false });
   assert.deepEqual(normaliserPlage('2026-07-03', ''), { du: '2026-07-03', au: '', inversee: false });
+});
+
+/* ---- 2026-09-11 : comparaison avec la période précédente ---------------- */
+
+test('la période précédente a la même longueur et finit la veille', () => {
+  // Une semaine (7 jours) → les 7 jours d'avant.
+  assert.deepEqual(periodePrecedente('2026-09-07', '2026-09-13'), { du: '2026-08-31', au: '2026-09-06' });
+  // Un seul jour → la veille.
+  assert.deepEqual(periodePrecedente('2026-09-11', '2026-09-11'), { du: '2026-09-10', au: '2026-09-10' });
+  // Une plage libre de 9 jours → les 9 jours d'avant.
+  assert.deepEqual(periodePrecedente('2026-09-03', '2026-09-11'), { du: '2026-08-25', au: '2026-09-02' });
+});
+
+test('la période précédente franchit les mois et les années', () => {
+  assert.deepEqual(periodePrecedente('2026-03-01', '2026-03-31'), { du: '2026-01-29', au: '2026-02-28' });
+  // Janvier compte 31 jours : les 31 précédents couvrent tout décembre.
+  assert.deepEqual(periodePrecedente('2026-01-01', '2026-01-31'), { du: '2025-12-01', au: '2025-12-31' });
+});
+
+test('une comparaison à partir de zéro ne produit PAS un pourcentage', () => {
+  // On ne divise pas par zéro, et « +∞ % » n'informe personne.
+  assert.equal(comparer(40, 0), null);
+  assert.equal(comparer(0, 0), null);
+  assert.equal(comparer(5, -3), null);
+});
+
+test('hausse, baisse et stabilité', () => {
+  assert.deepEqual(comparer(120, 100), { sens: 'hausse', pourcent: 20 });
+  assert.deepEqual(comparer(80, 100), { sens: 'baisse', pourcent: 20 });
+  assert.deepEqual(comparer(100, 100), { sens: 'stable', pourcent: 0 });
+  // Un écart infime est une stabilité, pas un mouvement.
+  assert.deepEqual(comparer(1000, 1003), { sens: 'stable', pourcent: 0 });
+});
+
+test('une chute à zéro reste lisible', () => {
+  assert.deepEqual(comparer(0, 50), { sens: 'baisse', pourcent: 100 });
+});
+
+test('une période EN COURS se compare à durée écoulée égale', () => {
+  // Vendredi 11, semaine du 07 au 13 : cinq jours écoulés, pas sept.
+  // On regarde donc les cinq jours d'avant le 07, soit du 02 au 06.
+  assert.deepEqual(
+    fenetreComparaison('2026-09-07', '2026-09-13', new Date(2026, 8, 11)),
+    { du: '2026-09-02', au: '2026-09-06' });
+});
+
+test('une période ACHEVÉE se compare à sa jumelle entière', () => {
+  // La semaine est finie : sept jours contre sept jours.
+  assert.deepEqual(
+    fenetreComparaison('2026-09-07', '2026-09-13', new Date(2026, 8, 20)),
+    { du: '2026-08-31', au: '2026-09-06' });
+});
+
+test('le jour même se compare à la veille', () => {
+  assert.deepEqual(
+    fenetreComparaison('2026-09-11', '2026-09-11', new Date(2026, 8, 11)),
+    { du: '2026-09-10', au: '2026-09-10' });
+});
+
+test('une période entièrement à venir retombe sur la période pleine', () => {
+  // Rien n'est écoulé : aucune fenêtre partielle n'a de sens.
+  assert.deepEqual(
+    fenetreComparaison('2026-10-01', '2026-10-07', new Date(2026, 8, 11)),
+    { du: '2026-09-24', au: '2026-09-30' });
 });

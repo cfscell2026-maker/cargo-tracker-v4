@@ -40,11 +40,24 @@ export async function fetchAll(
   table: string,
   select = '*',
   order?: { colonne: string; ascendant?: boolean },
+  // 2026-09-11 — FILTRE SQL OPTIONNEL. Certains rapports chargeaient la table
+  // ENTIÈRE pour n'en garder qu'une poignée de lignes, ce qui faisait tuer le
+  // worker par l'hébergeur (HTTP 546, « WORKER_RESOURCE_LIMIT »). Quand le tri
+  // se laisse traduire en SQL, autant ne pas rapatrier le reste.
+  //
+  // ⚠ Un filtre passé ici doit être ÉQUIVALENT au tri JS qu'il précède, jamais
+  // plus restrictif — sinon il fait disparaître des dossiers en silence, ce qui
+  // est bien pire qu'une lenteur. Un filtre plus LARGE reste sans danger : le
+  // tri JS qui suit tranche.
+  // deno-lint-ignore no-explicit-any
+  affiner?: (q: any) => any,
 ): Promise<Record<string, unknown>[]> {
   const BLOC = 1000;
   const out: Record<string, unknown>[] = [];
   for (let debut = 0; ; debut += BLOC) {
-    let q = ctx.db.from(table).select(select);
+    // deno-lint-ignore no-explicit-any
+    let q: any = ctx.db.from(table).select(select);
+    if (affiner) q = affiner(q);
     if (order) q = q.order(order.colonne, { ascending: order.ascendant !== false });
     const { data, error } = await q.range(debut, debut + BLOC - 1);
     if (error) throw new Error(error.message);
@@ -105,6 +118,40 @@ export async function ajouterConteneurs(
   ordreDepart = 1,
 ): Promise<void> {
   if (!conteneurs.length) return;
+
+  /* ANTI-DOUBLON DE CONTENEUR — DAT-05, garde applicative posée le 2026-09-10.
+   *
+   * Le diagnostic du 2026-09-09 a compté 19 couples (cargaison, conteneur)
+   * dupliqués en base : un même conteneur enregistré deux fois sur un camion
+   * fausse le nombre de conteneurs, l'apurement et tous les rapports.
+   *
+   * La contrainte SQL `unique (cargaison_id, conteneur)` serait la vraie
+   * réponse, mais un index unique NE PEUT PAS être créé tant que ces 19 lignes
+   * existent — et les arbitrer est une décision métier, pas un déploiement.
+   * Ce contrôle-ci ferme la porte AUX NOUVEAUX doublons sans toucher à
+   * l'historique : la contrainte pourra être posée une fois la base nettoyée.
+   *
+   * Deux passes, car les deux cas se produisent :
+   *  · le même numéro deux fois dans la MÊME saisie ;
+   *  · un numéro déjà rattaché à cette cargaison par une saisie précédente.
+   */
+  const vus = new Set<string>();
+  for (const ct of conteneurs) {
+    const n = String(ct.num ?? '').toUpperCase().trim();
+    if (!n) continue;
+    if (vus.has(n))
+      throw new Error(`Le conteneur « ${n} » figure deux fois dans cette saisie.`);
+    vus.add(n);
+  }
+  const { data: deja, error: eDeja } = await ctx.db
+    .from('conteneurs').select('conteneur').eq('cargaison_id', cargaisonId);
+  if (eDeja) throw new Error(eDeja.message);
+  const presents = new Set((deja ?? []).map((r) => String((r as { conteneur?: unknown }).conteneur ?? '').toUpperCase()));
+  for (const n of vus) {
+    if (presents.has(n))
+      throw new Error(`Le conteneur « ${n} » est déjà enregistré sur ce camion.`);
+  }
+
   const now = new Date().toISOString();
   const rows = conteneurs.map((ct, i) => ({
     rapport_id: rapportId,
@@ -238,6 +285,35 @@ export async function majApurementSafe(ctx: Ctx, declLike: Partial<Declaration>,
     const found = await lookupDeclaration(ctx, declLike);
     if (found.exists) await majApurement(ctx, declLike, undefined, nbAjout);
     else await majApurement(ctx, declLike, nbAjout, nbAjout);
+  } catch {
+    /* best-effort */
+  }
+}
+
+/**
+ * Retire des conteneurs de l'apurement d'une déclaration (migration 00170).
+ *
+ * LE MANQUE QUE ÇA COMBLE. Jusqu'ici le compteur ne pouvait que MONTER :
+ * `majApurement` n'est appelé que sur l'AJOUT d'un conteneur, et `fn_apurer_inc`
+ * refuse tout décrément (garde-fou anti-fraude, migration 00090). Un conteneur
+ * supprimé, remplacé ou réaffecté laissait donc son +1 collé à sa déclaration
+ * d'origine. Mesuré en production le 2026-09-09 : 34 des 121 déclarations
+ * portant un nombre déclaré étaient sur-apurées, jusqu'à +8 conteneurs.
+ *
+ * BEST-EFFORT, comme `majApurementSafe` : une correction de conteneur ne doit
+ * jamais échouer parce que le rattrapage d'un compteur a échoué. Le décrément
+ * est borné à zéro côté SQL (`fn_apurer_dec`).
+ */
+export async function majApurementDec(
+  ctx: Ctx,
+  declLike: Partial<Declaration>,
+  nbRetrait: number,
+): Promise<void> {
+  try {
+    if (!declLike || !declLike.numeroDeclaration || nbRetrait <= 0) return;
+    const found = await lookupDeclaration(ctx, declLike);
+    if (!found.exists) return; // rien à décrémenter : la déclaration n'existe pas
+    await ctx.db.rpc('fn_apurer_dec', { p_cle: declKey(declLike), p_nb: nbRetrait });
   } catch {
     /* best-effort */
   }

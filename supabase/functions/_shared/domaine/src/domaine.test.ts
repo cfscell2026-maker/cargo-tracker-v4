@@ -13,6 +13,8 @@ import {
   groupesDeclaration, estChargementMixte, libelleDeclaration,
   sautsTypeC, estTypeSansT1, DESTINATION_CODES, estDispenseBalise, codeDestination,
   distanceOSA, similariteNum, numeroQuasiDoublon,
+  dateDansNJours, etatEngagement, libelleEngagement, engagementAlerte,
+  camionValide, messageCamionFormat,
 } from './index.ts';
 
 /* ------------------------------ Moteur workflow ------------------------ */
@@ -411,4 +413,59 @@ test('verrou PP : la sortie attend T1 ET Balise (transit)', () => {
   assert.equal(etapesEnAttente({ ...base, dateT1: '2026-07-27', datePoseGps: '2026-07-27' }).includes('PP'), true);
   // Type C qui saute le T1 + balise posée → PP ouverte (le saut vaut « fait »).
   assert.equal(etapesEnAttente({ ...base, sauteT1: true, datePoseGps: '2026-07-27' }).includes('PP'), true);
+});
+
+test('engagements — le délai en jours devient une date, à compter du jour de saisie', () => {
+  const ref = new Date(2026, 8, 10); // 10 septembre 2026, heure locale
+  assert.equal(dateDansNJours(1, ref), '2026-09-11');
+  assert.equal(dateDansNJours(5, ref), '2026-09-15');
+  // Franchit une fin de mois sans qu'on ait à s'en occuper.
+  assert.equal(dateDansNJours(21, ref), '2026-10-01');
+  // Entrées qui n'ont pas de sens pour un envoi de pièces.
+  assert.equal(dateDansNJours(0, ref), '');
+  assert.equal(dateDansNJours(-3, ref), '');
+  assert.equal(dateDansNJours('', ref), '');
+  assert.equal(dateDansNJours('abc', ref), '');
+  assert.equal(dateDansNJours(2.5, ref), '');
+});
+
+test('engagements — état et libellé selon l’échéance', () => {
+  const ref = new Date(2026, 8, 10);
+  assert.equal(etatEngagement('2026-09-11', null, ref).etat, 'demain');
+  assert.equal(etatEngagement('2026-09-10', null, ref).etat, 'aujourdhui');
+  assert.equal(etatEngagement('2026-09-07', null, ref).etat, 'retard');
+  assert.equal(etatEngagement('2026-09-07', null, ref).joursRestants, -3);
+  assert.equal(etatEngagement('2026-09-20', null, ref).etat, 'a_venir');
+  // Soldé : plus aucune alerte, quelle que soit l'échéance passée.
+  assert.equal(etatEngagement('2026-09-01', '2026-09-02T10:00:00Z', ref).etat, 'solde');
+
+  assert.equal(libelleEngagement('2026-09-07', null, ref), 'En retard de 3 jours');
+  assert.equal(libelleEngagement('2026-09-09', null, ref), 'En retard de 1 jour');
+  assert.equal(libelleEngagement('2026-09-11', null, ref), 'À envoyer demain');
+
+  // Seules les échéances à J-1 et au-delà remontent au tableau de bord.
+  assert.equal(engagementAlerte('2026-09-11', null, ref), true);
+  assert.equal(engagementAlerte('2026-09-20', null, ref), false);
+  assert.equal(engagementAlerte('2026-09-01', '2026-09-02T10:00:00Z', ref), false);
+});
+
+test('format camion — tracteur/remorque exigé (2026-09-10)', () => {
+  assert.equal(camionValide('TG2489BK/2725BP'), true);
+  assert.equal(camionValide('tg2489bk / 2725bp'), true); // espaces et minuscules normalisés
+  // Refusés : une seule plaque, un séparateur vide, un séparateur en trop.
+  assert.equal(camionValide('TG2489BK'), false);
+  assert.equal(camionValide('TG2489BK/'), false);
+  assert.equal(camionValide('/2725BP'), false);
+  assert.equal(camionValide('A/B'), false); // moins de 2 caractères de chaque côté
+  assert.equal(camionValide('AB/CD/EF'), false);
+  assert.equal(camionValide(''), false);
+  assert.equal(camionValide(null), false);
+
+  // Le message dit QUOI faire et OÙ.
+  const m = messageCamionFormat('TG2489BK');
+  assert.match(m, /TRACTEUR/);
+  assert.match(m, /REMORQUE/);
+  assert.match(m, /TG2489BK\/2725BP/); // un exemple concret
+  assert.match(m, /N° de camion/); // le champ à corriger
+  assert.match(messageCamionFormat('X', 'Nouveau n° de camion'), /Nouveau n° de camion/);
 });

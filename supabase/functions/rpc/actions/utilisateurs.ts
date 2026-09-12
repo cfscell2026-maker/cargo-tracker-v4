@@ -265,3 +265,62 @@ export async function accountSignin(ctx: Ctx) {
   await ctx.log('Connexion', '', ctx.session.role + agent);
   return { ok: true };
 }
+
+/* ============ SUPPRESSION D'UN COMPTE — 2026-09-11 ======================
+ *
+ * Demande utilisateur : une corbeille dans la liste des comptes.
+ *
+ * ⚠ ELLE NE SERT QU'AUX COMPTES JAMAIS UTILISÉS. Un compte qui a déjà agi —
+ * signé une validation, saisi un T1, posé une balise — reste en base, désactivé.
+ * La raison n'est pas technique : le journal d'audit conserve le nom en TEXTE,
+ * la trace survivrait donc à la suppression. Elle est pratique. Six mois plus
+ * tard, devant une signature contestée, on demande « qui était cet agent, quel
+ * rôle, quelle cellule ? » — et si le compte a disparu de la liste, plus
+ * personne ne peut répondre. Désactiver garde la réponse ; supprimer l'efface.
+ *
+ * Trois refus, dans cet ordre :
+ *   1. soi-même — on ne se retire pas l'accès en un clic ;
+ *   2. le DERNIER administrateur actif — sinon plus personne ne peut
+ *      administrer la plateforme, et il faudrait repasser par la base ;
+ *   3. un compte AYANT AGI — on propose alors la désactivation.
+ */
+export async function userSupprimer(ctx: Ctx, p: Record<string, unknown>) {
+  const username = String(p['username'] ?? '').toLowerCase();
+  const motif = String(p['motif'] ?? '').trim().slice(0, 200);
+  if (!motif) throw new ErreurMetier('Indiquez le motif de la suppression du compte.');
+
+  const { data: u, error } = await ctx.db.from('profils')
+    .select('id, username, nom_complet, role, actif').eq('username', username).maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!u) throw new ErreurMetier('Utilisateur introuvable.');
+
+  if (u.username.toLowerCase() === ctx.session.username.toLowerCase())
+    throw new ErreurMetier('Vous ne pouvez pas supprimer votre propre compte.');
+
+  if (String(u.role) === ROLES.ADMIN) {
+    const { data: admins } = await ctx.db.from('profils')
+      .select('id').eq('role', ROLES.ADMIN).eq('actif', true);
+    if ((admins ?? []).length <= 1)
+      throw new ErreurMetier(
+        'Suppression refusée : c'est le dernier administrateur actif. '
+        + 'Nommez d'abord un autre administrateur.');
+  }
+
+  // A-t-il agi ? Une seule ligne d'audit suffit à l'établir.
+  const { data: traces } = await ctx.db.from('audit_log')
+    .select('id').eq('username', u.username).limit(1);
+  if ((traces ?? []).length > 0) {
+    throw new ErreurMetier(
+      'Ce compte a déjà travaillé sur la plateforme : il ne peut pas être supprimé, '
+      + 'sinon son nom deviendrait introuvable devant une signature contestée. '
+      + 'Désactivez-le — il perdra l'accès et restera consultable.');
+  }
+
+  // `profils.id` référence `auth.users` en CASCADE : retirer le compte
+  // d'authentification emporte le profil, sans ligne orpheline.
+  const { error: eAuth } = await ctx.db.auth.admin.deleteUser(String(u.id));
+  if (eAuth) throw new Error(eAuth.message);
+
+  await ctx.log('Suppression compte', '', u.username + ' (' + u.role + ') · motif : ' + motif);
+  return { username: u.username };
+}

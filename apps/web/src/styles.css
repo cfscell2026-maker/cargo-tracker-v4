@@ -3,9 +3,33 @@
   --accent:#0e5a8a; --accent-soft:#e3eef5; --ok:#1f7a5c; --ok-soft:#e4f1eb;
   --warn:#b4531f; --warn-soft:#f7eae1; --err:#b00020;
   --mono:ui-monospace,Consolas,Menlo,monospace; --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  /* TITRES — 2026-09-11.
+     Une serif de lecture, distincte de la sans de l'interface : un en-tête de
+     plateforme douanière gagne à ne pas ressembler à un bouton. Toutes les
+     familles citées sont INSTALLÉES SUR LE POSTE — Cambria et Constantia sous
+     Windows, Noto Serif sous Android. Aucune police distante n'est possible
+     ici : la CSP de `netlify.toml` n'autorise que `font-src 'self' data:`,
+     et une police chargée d'un CDN serait bloquée en production sans erreur
+     visible. La solution, si tu veux une police précise, est de déposer le
+     fichier dans `public/` — pas d'appeler Google Fonts. */
+  --titre:Cambria,Constantia,"Noto Serif",Georgia,"Times New Roman",serif;
 }
 *{box-sizing:border-box}
-body{margin:0;font-family:var(--sans);background:var(--bg);color:var(--ink);font-size:15px}
+/* Le fond de l'application porte un lavis très dilué (2026-09-11).
+   RAISON TECHNIQUE, pas décorative : un verre dépoli ne montre que ce qu'il a
+   derrière. Sur un gris uni, le flou de la barre supérieure ne révélait rien —
+   du gris flouté reste du gris. Avec ce lavis, la barre a enfin de la couleur à
+   diffuser. `fixed` le fige : le lavis ne défile pas, seul le contenu passe
+   dessous, ce qui rend le verre lisible en permanence. */
+body{
+  margin:0;font-family:var(--sans);color:var(--ink);font-size:15px;
+  background:
+    radial-gradient(1200px 460px at 6% -8%, rgba(14,90,138,.13), transparent 62%),
+    radial-gradient(1000px 420px at 104% 2%, rgba(31,122,92,.10), transparent 62%),
+    radial-gradient(900px 500px at 50% 108%, rgba(180,83,31,.07), transparent 64%),
+    var(--bg);
+  background-attachment:fixed;
+}
 button{font-family:inherit;font-size:14px;cursor:pointer;border:1px solid var(--accent);background:var(--accent);color:#fff;padding:8px 14px;border-radius:6px}
 button.ghost{background:#fff;color:var(--accent)}
 button.xs{padding:3px 8px;font-size:12px;border-radius:4px}
@@ -18,18 +42,131 @@ a{color:var(--accent)}
 
 /* Layout */
 .shell{display:grid;grid-template-columns:230px 1fr;min-height:100vh}
-.side{background:#12222f;color:#dce4eb;padding:14px 0;position:sticky;top:0;height:100vh;overflow:auto}
-.side .brand{font-weight:700;padding:6px 18px 14px;font-size:16px;border-bottom:1px solid #24384a;margin-bottom:8px}
-.side a{display:flex;gap:9px;align-items:center;color:#c3d0db;text-decoration:none;padding:9px 18px;font-size:13.5px;cursor:pointer}
-.side a:hover{background:#1b2f40}
-.side a.active{background:var(--accent);color:#fff}
-.side .ic{width:18px;text-align:center;opacity:.9}
+/* Fond et ancrage. Le reste de la barre latérale (marque, pilules, carte
+   utilisateur) est défini dans le bloc « refonte 2026-09-10 » en fin de fichier. */
+.side{background:#12222f;color:#dce4eb;position:sticky;top:0;height:100vh}
 .main{display:flex;flex-direction:column;min-width:0}
-.top{display:flex;align-items:center;gap:12px;padding:12px 20px;background:var(--panel);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5}
-.top h1{font-size:18px;margin:0;flex:1}
-.who{text-align:right;font-size:13px}
-.who .role{display:block;color:var(--muted);font-size:11px}
-.content{padding:20px;max-width:1100px;width:100%}
+/* ============ BARRE SUPÉRIEURE — refonte 2026-09-11 =====================
+ *
+ * Une barre POSÉE sur la page plutôt que collée en haut : marges sur les trois
+ * côtés, coins arrondis, ombre portée. Le dégradé va du BLANC (à gauche, où se
+ * lisent le nom de la plateforme et celui du volet, en texte sombre) vers le
+ * BLEU DÉJÀ EN USAGE (`--accent`, à droite, sous la carte de l'agent). Le sens
+ * du dégradé n'est pas décoratif : il suit la lecture, du titre vers l'identité.
+ *
+ * L'effet de verre a ici de quoi se voir — la page défile DERRIÈRE la barre, et
+ * c'est ce contenu en mouvement que le flou saisit.
+ * ====================================================================== */
+.top{
+  display:flex;align-items:center;gap:14px;
+  padding:10px 16px;margin:10px 12px 4px;
+  position:sticky;top:10px;z-index:5;
+  /* 30 px (2026-09-11) : la barre mesure une soixantaine de pixels de haut, et
+     un rayon vaut au plus la MOITIÉ de la hauteur — au-delà, la forme n'arrondit
+     plus, elle devient une pilule et le rayon cesse d'avoir un effet. 30 est
+     donc tout près du maximum utile, en gardant un soupçon de côté droit. */
+  border-radius:30px;
+  /* Opacités ABAISSÉES (2026-09-11) : à .92 la surface était presque opaque et
+     le flou ne montrait rien. Le verre ne se voit que si l'on voit au travers —
+     ici, le contenu de la page qui défile dessous. */
+  background:linear-gradient(100deg,
+    rgba(255,255,255,.42) 0%,
+    rgba(255,255,255,.28) 46%,
+    rgba(14,90,138,.20) 82%,
+    rgba(14,90,138,.34) 100%);
+  backdrop-filter:blur(34px) saturate(200%);
+  -webkit-backdrop-filter:blur(34px) saturate(200%);
+  border:1px solid rgba(255,255,255,.6);
+  /* DEUX arêtes, pas une : la lumière frise le haut d'une plaque de verre, et
+     une seconde ligne, plus faible, marque son épaisseur en bas. C'est ce
+     couple qui donne au panneau l'air d'avoir une tranche. */
+  box-shadow:
+    0 12px 34px rgba(15,35,55,.18),
+    inset 0 1px 0 rgba(255,255,255,.85),
+    inset 0 -1px 0 rgba(255,255,255,.32);
+}
+
+/* ---- Icône du volet + identité de la plateforme ---- */
+.top-titre{display:flex;align-items:center;gap:12px;flex:1;min-width:0}
+/* Fond blanc et contour bleu CLIGNOTANT : c'est le repère qui dit « vous êtes
+   ici », et le battement le fait remarquer sans clignoter au sens pénible du
+   terme — deux secondes de cycle, une pulsation lente. */
+.top-icone{
+  flex:0 0 auto;width:40px;height:40px;border-radius:50%;
+  background:#fff;color:var(--accent);
+  display:grid;place-items:center;
+  border:2px solid rgba(14,90,138,.30);
+  animation:top-pulse 2.4s ease-in-out infinite;
+}
+@keyframes top-pulse{
+  0%,100%{border-color:rgba(14,90,138,.28);box-shadow:0 0 0 0 rgba(14,90,138,.22)}
+  50%{border-color:rgba(14,90,138,.95);box-shadow:0 0 0 5px rgba(14,90,138,.12)}
+}
+.top-textes{min-width:0}
+/* LE NOM DE LA PLATEFORME DOMINE (2026-09-11, demande utilisateur) : 17 px
+   contre 13,5 pour le volet. La hiérarchie était inversée — l'écran courant
+   criait plus fort que l'application elle-même.
+
+   Il reprend la SERIF des titres, en capitales espacées : c'est l'écriture
+   d'un en-tête institutionnel, et elle relie la barre à l'écran de connexion,
+   qui porte déjà cette même police. */
+.top-plateforme{
+  font-family:var(--titre);
+  font-size:17px;font-weight:800;letter-spacing:.055em;text-transform:uppercase;
+  color:var(--accent);line-height:1.18;
+}
+/* Le nom du volet : plus petit, en GRAISSE LÉGÈRE, et dans la sans de
+   l'interface. C'est une précision sous le nom de la plateforme — une légende,
+   pas un titre qui lui dispute la place. Le contraste serif/sans sépare les
+   deux d'un coup d'œil, sans qu'aucune ligne n'ait besoin d'être en gras. */
+.top-volet{
+  font-family:var(--sans);
+  font-size:13.5px;font-weight:300;letter-spacing:.012em;
+  margin:2px 0 0;color:var(--muted);
+  line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+
+/* ---- Carte de l'agent, posée sur la barre ---- */
+.carte-agent{
+  display:flex;align-items:center;gap:10px;flex:0 0 auto;
+  background:rgba(255,255,255,.82);
+  backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
+  border:1px solid rgba(255,255,255,.85);
+  border-radius:14px;padding:6px 12px 6px 8px;
+  box-shadow:0 4px 14px rgba(15,35,55,.14);
+}
+.agent-avatar{
+  width:32px;height:32px;border-radius:50%;flex:0 0 auto;
+  background:var(--accent);color:#fff;display:grid;place-items:center;
+}
+.agent-textes{min-width:0}
+.agent-nom{
+  font-size:13px;font-weight:600;color:var(--ink);line-height:1.25;
+  max-width:190px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.agent-mot{font-size:11.5px;color:var(--muted);line-height:1.25}
+
+@media (prefers-reduced-motion:reduce){
+  .top-icone{animation:none;border-color:rgba(14,90,138,.6)}
+}
+/* LARGEUR DE LA ZONE DE TRAVAIL — revu le 2026-09-11.
+ *
+ * Elle était plafonnée à 1100 px. L'intention était bonne — une ligne de texte
+ * trop longue se lit mal, l'œil perd le début de la ligne suivante — mais le
+ * réglage était mal calibré POUR CETTE APPLICATION : on n'y lit presque pas de
+ * texte suivi, on y lit des TABLEAUX et des grilles de tuiles, qui eux gagnent
+ * à s'étaler. Sur un écran de 1920, près de 600 px restaient vides à droite.
+ *
+ * Le plafond passe donc à 1720 px — un 1920 est rempli, un écran très large
+ * reste borné — et la contrainte de lecture est reportée là où elle a un sens :
+ * sur les PARAGRAPHES eux-mêmes (voir la règle suivante), pas sur les tableaux.
+ */
+.content{padding:20px 24px;max-width:1720px;width:100%}
+
+/* Le texte suivi, lui, reste borné à une longueur de ligne confortable. `ch`
+   compte en largeurs de caractère : la mesure suit la police, ce qu'un réglage
+   en pixels ne ferait pas. */
+.content .card > p{max-width:92ch}
 .burger{display:none}
 
 .card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:16px 18px;margin-bottom:16px}
@@ -54,6 +191,7 @@ tr:last-child td{border-bottom:0}
 tr.clk{cursor:pointer} tr.clk:hover{background:var(--accent-soft)}
 .mono{font-family:var(--mono)}
 
+
 /* Status tags */
 .tag{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11.5px;font-weight:600;white-space:nowrap}
 .st-camion{background:#eae3f7;color:#5b3fa0} .st-charge{background:#fef3e0;color:#a5670f}
@@ -73,7 +211,7 @@ tr.clk{cursor:pointer} tr.clk:hover{background:var(--accent-soft)}
 .tl .body .d{color:var(--muted);font-size:12.5px}
 
 /* Modal */
-.overlay{position:fixed;inset:0;background:rgba(15,25,35,.45);display:flex;align-items:flex-start;justify-content:center;padding:6vh 16px;z-index:20}
+.overlay{position:fixed;inset:0;background:rgba(15,25,35,.45);display:flex;align-items:center;justify-content:center;padding:5vh 16px;z-index:20;overflow-y:auto}
 .modal{background:var(--panel);border-radius:10px;max-width:760px;width:100%;max-height:86vh;overflow:auto;padding:20px}
 .modal h2{margin-top:0}
 
@@ -85,6 +223,16 @@ tr.clk{cursor:pointer} tr.clk:hover{background:var(--accent-soft)}
 .spin{width:22px;height:22px;border:3px solid var(--accent-soft);border-top-color:var(--accent);border-radius:50%;animation:sp .7s linear infinite}
 @keyframes sp{to{transform:rotate(360deg)}}
 .err-msg{color:var(--err);font-size:13px;margin-top:6px}
+
+/* AVIS « signature faite, affichage en échec » — 2026-09-11.
+   Volontairement PAS rouge : la signature a bien été enregistrée, seul le
+   rafraîchissement de la liste a échoué. Un rouge d'erreur à cet endroit est ce
+   qui poussait le chef à resigner. Encadré ambre, donc : quelque chose demande
+   son attention, rien n'a échoué. */
+.avis-signature{border:1px solid var(--warn);background:var(--warn-soft);color:var(--warn);
+  border-radius:8px;padding:10px 12px;margin-top:8px;font-size:13px;line-height:1.5}
+.avis-signature b{color:var(--warn)}
+.avis-signature .detail{color:var(--muted);font-size:12.5px;display:block;margin-top:4px}
 .section-title{font-weight:700;margin:14px 0 6px;font-size:13px;color:var(--accent);text-transform:uppercase;letter-spacing:.04em}
 .kv{display:flex;gap:8px;margin:3px 0;font-size:13.5px} .kv b{min-width:150px;color:var(--muted);font-weight:500}
 
@@ -111,10 +259,95 @@ tr.clk{cursor:pointer} tr.clk:hover{background:var(--accent-soft)}
 .fval{font-size:22px;font-weight:700;text-align:center;padding:10px 6px;font-variant-numeric:tabular-nums}
 
 /* Hub d'onglets regroupés : gros boutons cliquables en grille. */
-.hubgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-top:6px}
-.hubitem{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:18px 10px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--ink);cursor:pointer;font-size:13.5px;font-weight:600;text-align:center;min-height:96px}
-.hubitem:hover{border-color:var(--accent);background:var(--accent-soft)}
-.hubic{font-size:26px;line-height:1;color:var(--accent)}
+/* ---- L'EN-TETE ILLUSTRE DES HUBS - 2026-09-12 -------------------------
+ * Meme construction que l'ecran de creation : le logo au centre, un anneau
+ * en pointilles qui tourne lentement, une onde de relevé, et l'icone DU
+ * MODULE en orbite. L'icone change d'un hub a l'autre - c'est elle qui dit
+ * de quoi la page parle avant meme qu'on lise le titre.
+ */
+.hub-entete{
+  display:flex;flex-direction:column;align-items:center;text-align:center;
+  gap:10px;margin-bottom:6px;
+}
+.hub-entete h2{margin:0;font-size:18px}
+.hub-entete .help{margin:0;font-size:13px;line-height:1.55;color:#546373;max-width:52ch}
+.hub-logo{position:relative;width:104px;height:104px;flex:0 0 auto;display:grid;place-items:center}
+.hub-logo .logo-rond{position:relative;z-index:1;width:76px;height:76px}
+.hub-piste{
+  position:absolute;inset:4px;border-radius:50%;
+  border:2px dashed rgba(14,90,138,.32);
+  animation:suivi-tourne 24s linear infinite;
+}
+.hub-onde{
+  position:absolute;inset:4px;border-radius:50%;
+  border:2px solid rgba(14,90,138,.42);
+  animation:suivi-onde 3.6s ease-out infinite;
+}
+/* L'icone tourne avec l'anneau ; la pastille se redresse en sens inverse pour
+   que le dessin reste droit - sans quoi le conteneur finit la tete en bas. */
+.hub-orbite{position:absolute;inset:4px;animation:suivi-tourne 13s linear infinite}
+.hub-mobile{
+  position:absolute;top:-12px;left:50%;
+  width:26px;height:26px;border-radius:50%;
+  background:linear-gradient(160deg,var(--accent),#0b4870);color:#fff;
+  display:grid;place-items:center;
+  border:1px solid rgba(255,255,255,.6);
+  box-shadow:0 3px 9px rgba(14,90,138,.34);
+  animation:hub-redresse 13s linear infinite;
+}
+@keyframes hub-redresse{
+  from{transform:translateX(-50%) rotate(0)}
+  to{transform:translateX(-50%) rotate(-360deg)}
+}
+@media (prefers-reduced-motion:reduce){
+  .hub-piste,.hub-onde,.hub-orbite,.hub-mobile{animation:none}
+  .hub-onde{opacity:.3}
+}
+
+.hubgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;margin-top:10px}
+/* LES TUILES DE HUB - refondues le 2026-09-12.
+ * La regle generale des boutons les repeignait en bleu plein ; le texte, lui,
+ * restait en encre sombre : on ne lisait plus rien. Elles sont maintenant
+ * exclues de cette regle (`:not(.hubitem)`) et portent leur propre traitement,
+ * celui du reste de l'application : verre depoli, bord arrondi, pastille
+ * d'icone. Au survol, c'est la pastille qui se remplit - la tuile, elle,
+ * s'eclaircit au lieu de s'assombrir. */
+.hubitem{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:10px;padding:18px 12px;min-height:104px;cursor:pointer;text-align:center;
+  font-size:13.5px;font-weight:600;line-height:1.35;
+  color:var(--ink);
+  border:1px solid rgba(255,255,255,.75);
+  border-radius:16px;
+  background:linear-gradient(158deg,rgba(255,255,255,.94),rgba(240,246,250,.82));
+  backdrop-filter:blur(14px) saturate(160%);
+  -webkit-backdrop-filter:blur(14px) saturate(160%);
+  box-shadow:0 6px 18px rgba(15,35,55,.08),inset 0 1px 0 rgba(255,255,255,.95);
+  transition:transform .16s ease,box-shadow .2s ease,border-color .2s ease,background .2s ease;
+}
+.hubitem:hover{
+  transform:translateY(-2px);
+  border-color:rgba(14,90,138,.35);
+  background:linear-gradient(158deg,#fff,rgba(232,242,249,.92));
+  box-shadow:0 12px 26px rgba(15,35,55,.14),inset 0 1px 0 #fff;
+}
+.hubitem:active{transform:translateY(0)}
+.hubitem:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+/* La pastille : le meme jeton rond que les bandeaux de module. */
+.hubic{
+  display:inline-flex;align-items:center;justify-content:center;
+  width:40px;height:40px;border-radius:999px;line-height:1;
+  color:var(--accent);
+  background:radial-gradient(120% 120% at 30% 22%,#fff,rgba(226,238,247,.9));
+  border:1px solid rgba(14,90,138,.18);
+  box-shadow:0 3px 10px rgba(14,90,138,.14),inset 0 1px 0 #fff;
+  transition:background .2s ease,color .2s ease,box-shadow .2s ease,transform .2s ease;
+}
+.hubitem:hover .hubic{
+  color:#fff;transform:scale(1.06);
+  background:linear-gradient(160deg,var(--accent),#0b4870);
+  box-shadow:0 6px 16px rgba(14,90,138,.34),inset 0 1px 0 rgba(255,255,255,.45);
+}
 
 @media(max-width:820px){
   .fligne{grid-template-columns:repeat(2,1fr)}
@@ -122,5 +355,2358 @@ tr.clk{cursor:pointer} tr.clk:hover{background:var(--accent-soft)}
   .shell{grid-template-columns:1fr}
   .side{position:fixed;left:-240px;width:230px;transition:left .2s;z-index:30}
   .side.open{left:0}
-  .burger{display:inline-block;background:none;border:1px solid var(--line);color:var(--ink)}
+  /* LES TROIS TRAITS SEULS (2026-09-11) : aucun cadre, aucun fond. Le survol
+     se marque par un disque très clair — jamais un rectangle, qui redessinerait
+     la boîte qu'on vient d'enlever. */
+  .burger{
+    display:grid;place-items:center;
+    width:38px;height:38px;padding:0;
+    background:none;border:0;border-radius:50%;
+    color:var(--accent);
+    transition:background .18s ease,color .18s ease;
+  }
+  .burger:hover{background:rgba(14,90,138,.10)}
+  .burger:active{background:rgba(14,90,138,.18)}
+  .burger:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  /* Barre supérieure : sur 375 px, le dégradé bleu passerait sous la carte de
+     l'agent et la rendrait illisible. On garde le blanc, on resserre, et le
+     nom de l'agent cède la place — il reste dans la barre latérale. */
+  /* Mêmes opacités basses qu'en grand écran : le verre doit se voir partout.
+     Le bleu est seulement adouci, car sur 375 px il passerait sous la carte de
+     l'agent et la rendrait illisible. */
+  /* Écran étroit : la barre est plus basse, le rayon suit — sinon les coins
+     mordraient sur le contenu. */
+  .top{margin:8px;padding:8px 10px;gap:10px;border-radius:22px;
+    background:linear-gradient(100deg,rgba(255,255,255,.54),rgba(255,255,255,.42) 70%,rgba(14,90,138,.22) 100%)}
+  .top-plateforme{font-size:14.5px}
+  .top-volet{font-size:12.5px}
+  .top-icone{width:34px;height:34px}
+  .carte-agent{padding:4px 8px 4px 6px;gap:7px}
+  .agent-nom{max-width:104px;font-size:12px}
+  .agent-mot{display:none}
+}
+
+/* ============ MON COMPTE - 2026-09-12 ===================================
+ *
+ * Une seule colonne, donc CENTREE : rien ne justifiait qu'elle se colle au
+ * bord gauche d'un ecran large. Le logo reprend la construction de l'ecran de
+ * connexion, avec deux jetons au lieu d'un : le COMPTE, et le CRAYON de la
+ * modification - l'ecran ne sert qu'a cela, autant que le dessin le dise.
+ *
+ * Les deux jetons tournent sur le meme anneau, a 180 degres l'un de l'autre :
+ * un seul jeu d'animations (`compte-tourne`), deux retards differents.
+ */
+.ecran-compte{display:flex;justify-content:center}
+.ecran-compte .card{width:100%;max-width:480px}
+
+.compte-entete{
+  display:flex;flex-direction:column;align-items:center;text-align:center;
+  gap:10px;margin-bottom:16px;
+}
+.compte-entete h2{margin:0;font-size:19px}
+.compte-entete .help{
+  margin:0;font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--accent);
+}
+.compte-logo{position:relative;width:112px;height:112px;display:grid;place-items:center}
+.compte-logo .logo-rond{position:relative;z-index:1;width:82px;height:82px}
+.compte-piste{
+  position:absolute;inset:2px;border-radius:50%;
+  border:2px dashed rgba(14,90,138,.32);
+  animation:suivi-tourne 26s linear infinite;
+}
+.compte-onde{
+  position:absolute;inset:2px;border-radius:50%;
+  border:2px solid rgba(14,90,138,.4);
+  animation:suivi-onde 3.8s ease-out infinite;
+}
+/* Les deux jetons : meme orbite, opposes. Le second part avec la moitie du
+   cycle d'avance (`animation-delay` negatif), ce qui les place face a face
+   sans qu'il faille une seconde animation. */
+.compte-jeton{
+  position:absolute;top:50%;left:50%;
+  width:30px;height:30px;margin:-15px;border-radius:50%;
+  display:grid;place-items:center;
+  background:linear-gradient(160deg,var(--accent),#0b4870);color:#fff;
+  border:1px solid rgba(255,255,255,.6);
+  box-shadow:0 3px 10px rgba(14,90,138,.36);
+  animation:compte-orbite 14s linear infinite;
+}
+.cj-crayon{
+  background:linear-gradient(160deg,#1f7a5c,#155c45);
+  animation-delay:-7s;
+}
+/* L'orbite : le jeton tourne autour du logo ET se redresse, sinon il finirait
+   la tete en bas a mi-parcours. Le rayon (52px) suit celui de l'anneau. */
+@keyframes compte-orbite{
+  from{transform:rotate(0) translateX(52px) rotate(0)}
+  to{transform:rotate(360deg) translateX(52px) rotate(-360deg)}
+}
+@media (prefers-reduced-motion:reduce){
+  .compte-piste,.compte-onde,.compte-jeton{animation:none}
+  .compte-onde{opacity:.3}
+  .cj-compte{transform:translateX(52px)}
+  .cj-crayon{transform:translateX(-52px)}
+}
+
+/* ============ BARRE DE NAVIGATION BASSE - telephones, 2026-09-12 ========
+ *
+ * Elle N'EXISTE PAS au-dessus de 820 px : la barre laterale y est deja
+ * visible en permanence, une seconde navigation ne ferait que doubler.
+ *
+ * Verre depoli, comme la barre superieure. Le volet courant se marque par sa
+ * pastille remplie - pas par une couleur de texte seule, qui se perd sur un
+ * ecran au soleil.
+ *
+ * `env(safe-area-inset-bottom)` : sur un iPhone recent, la barre gestuelle
+ * mange le bas de l'ecran. Sans ce retrait, le dernier onglet passe dessous.
+ */
+.nav-mobile{display:none}
+
+@media(max-width:820px){
+  .nav-mobile{
+    display:grid;grid-auto-flow:column;grid-auto-columns:1fr;
+    position:fixed;left:8px;right:8px;bottom:8px;z-index:25;
+    gap:2px;padding:6px 6px calc(6px + env(safe-area-inset-bottom,0px));
+    border-radius:22px;
+    background:linear-gradient(100deg,rgba(255,255,255,.72),rgba(255,255,255,.6) 70%,rgba(14,90,138,.26) 100%);
+    border:1px solid rgba(255,255,255,.7);
+    backdrop-filter:blur(20px) saturate(170%);
+    -webkit-backdrop-filter:blur(20px) saturate(170%);
+    box-shadow:0 -2px 28px rgba(15,35,55,.16),inset 0 1px 0 rgba(255,255,255,.9);
+  }
+  .nm-onglet{
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;
+    padding:7px 2px;min-width:0;
+    background:none;border:0;border-radius:16px;
+    color:#54616e;font-size:10.5px;font-weight:600;line-height:1.1;
+    cursor:pointer;
+    transition:color .16s ease,background .16s ease;
+  }
+  .nm-onglet span{
+    max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  }
+  .nm-onglet svg{
+    flex:0 0 auto;padding:5px;border-radius:50%;width:30px;height:30px;
+    transition:background .18s ease,color .18s ease,transform .18s ease;
+  }
+  .nm-onglet:active svg{transform:scale(.92)}
+  .nm-onglet.actif{color:var(--accent)}
+  .nm-onglet.actif svg{
+    background:linear-gradient(160deg,var(--accent),#0b4870);color:#fff;
+    box-shadow:0 4px 12px rgba(14,90,138,.34);
+  }
+  .nm-onglet:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+  /* Le contenu doit pouvoir defiler JUSQU'EN BAS : sans ce retrait, la barre
+     recouvre la derniere ligne de chaque ecran. */
+  .content{padding-bottom:92px}
+  /* Et le message d'action remonte au-dessus d'elle. */
+  .toast{bottom:96px}
+}
+@media(max-width:820px) and (prefers-reduced-motion:reduce){
+  .nm-onglet,.nm-onglet svg{transition:none}
+}
+
+/* ================= LOGO PIA_Suivi_Cargo — 2026-09-10 =====================
+ *
+ * Cadre ROND, logo ENTIER. Les deux ensemble supposent `object-fit: contain`,
+ * jamais `cover` : `cover` remplit le cercle en RECADRANT, ce qui couperait le
+ * navire, l'épingle et le bandeau du logo. `contain` inscrit l'image entière
+ * dans le cercle et laisse le fond apparaître autour.
+ *
+ * Le fond est blanc parce que le logo l'est : la jointure ne se voit pas, et le
+ * cercle reste net sur la barre latérale sombre comme sur l'écran de connexion
+ * clair.
+ * ======================================================================== */
+.logo-rond{
+  border-radius:50%;
+  object-fit:contain;
+  background:#fff;
+  display:block;
+  flex:0 0 auto;
+  /* Léger retrait : sans lui, les angles du logo carré frôlent le bord du
+     cercle et paraissent rognés alors qu'ils ne le sont pas. */
+  padding:4px;
+  box-shadow:0 1px 3px rgba(0,0,0,.25);
+}
+/* Barre latérale : logo + nom sur une ligne. */
+/* (La mise en forme du bloc de marque vit désormais dans la refonte ci-dessous.) */
+/* Écran de connexion : logo centré, plus grand. */
+.brand-login{display:flex;flex-direction:column;align-items:center;gap:10px;margin-bottom:6px}
+.brand-login .logo-rond{width:96px;height:96px}
+
+
+/* ============ BARRE LATÉRALE — refonte 2026-09-10 ========================
+ *
+ * Reprise de la disposition de la plateforme LA TERMITIÈRE : bloc de marque en
+ * carte arrondie, éléments de menu en PILULES, et carte utilisateur ancrée en
+ * bas avec avatar rond et bouton de déconnexion.
+ *
+ * La teinte, elle, reste celle de Cargo Tracker (bleu marine + accent `--accent`)
+ * : c'est la disposition qu'on reprend, pas la couleur d'une autre application.
+ *
+ * La barre devient une COLONNE FLEX en trois parties — marque figée en haut,
+ * menu qui défile au milieu, compte ancré en bas (`margin-top:auto`). Sans ça, un
+ * menu long comme celui de l'ADMIN (30 entrées) repoussait le bouton de
+ * déconnexion hors de l'écran.
+ * ====================================================================== */
+.side{
+  display:flex; flex-direction:column;
+  padding:12px 10px;
+  gap:10px;
+  overflow:hidden; /* c'est le menu qui défile, pas la barre entière */
+
+  /* FOND TEXTURÉ — indispensable au verre dépoli.
+   * `backdrop-filter` FLOUTE CE QU'IL Y A DERRIÈRE : sur un aplat uni, il n'a
+   * rien à flouter et l'effet ne se voit pas. Ces deux halos donnent au fond la
+   * matière que le verre vient diffuser ; c'est ce qui rend la carte lisible
+   * comme une plaque translucide et non comme un simple rectangle plus clair. */
+  /* FOND TEXTURÉ, OPAQUE — décision utilisateur du 2026-09-11 : le panneau
+     translucide essayé le même jour a été retiré. La barre latérale reste donc
+     un aplat sombre franc.
+     Les deux halos ne sont PAS décoratifs : ils donnent au panneau la matière
+     que le verre des cartes intérieures — marque, compte, pilule active — vient
+     diffuser. Les retirer ferait disparaître l'effet de verre de ces cartes,
+     qui n'auraient plus rien à flouter. */
+  background:
+    radial-gradient(700px 260px at 15% 0%, #1d4a6e66 0%, transparent 70%),
+    radial-gradient(520px 320px at 90% 100%, #0e5a8a4d 0%, transparent 65%),
+    #12222f;
+}
+
+/* --- Bloc de marque : carte arrondie, logo rond + nom + accroche --------- */
+.side .brand{
+  display:flex; align-items:center; gap:11px;
+  border-radius:14px;
+  padding:11px;
+  margin:0;
+  flex:0 0 auto;
+
+  /* VERRE DÉPOLI. Quatre ingrédients, chacun nécessaire :
+   *  · le dégradé translucide donne l'épaisseur (plus clair en haut, comme une
+   *    plaque prise en lumière rasante) ;
+   *  · `backdrop-filter` floute et sature le fond texturé défini sur `.side` —
+   *    c'est LUI qui fait le dépoli ;
+   *  · la bordure claire dessine l'arête de la plaque ;
+   *  · l'ombre portée la décolle du fond, et le liseré interne (`inset`) simule
+   *    la lumière qui court sur le bord supérieur. */
+  background:linear-gradient(160deg,#ffffff26 0%,#ffffff0d 55%,#ffffff05 100%);
+  -webkit-backdrop-filter:blur(14px) saturate(150%);
+  backdrop-filter:blur(14px) saturate(150%);
+  border:1px solid #ffffff33;
+  box-shadow:0 8px 22px #00000059, inset 0 1px 0 #ffffff40;
+}
+/* La marque de la barre latérale reprend la même serif que la barre supérieure
+   et que l'écran de connexion : une seule écriture porte le nom de la
+   plateforme, où qu'il apparaisse. */
+.brand-nom{
+  font-family:var(--titre);
+  font-weight:700;font-size:15px;letter-spacing:.05em;color:#fff;line-height:1.16;
+  text-transform:uppercase;
+}
+.brand-sous{font-size:10.5px;letter-spacing:.14em;color:#9fb6c8;text-transform:uppercase;margin-top:3px}
+
+/* --- Logo : anneau lumineux en rotation --------------------------------- */
+.logo-halo{position:relative;width:46px;height:46px;flex:0 0 auto;display:grid;place-items:center}
+/* L'anneau : un dégradé conique tournant. Le pseudo-élément `::after` en masque
+   le centre, ne laissant qu'un filet de 2 px — sans lui on aurait un disque. */
+.logo-halo::before{
+  content:'';position:absolute;inset:0;border-radius:50%;
+  background:conic-gradient(from 0turn,transparent 0 52%,#4aa3d8 72%,#8fd3ff 82%,transparent 95%);
+  animation:halo-tourne 3.6s linear infinite;
+}
+.logo-halo::after{
+  content:'';position:absolute;inset:2px;border-radius:50%;
+  background:#16293a;
+}
+.logo-halo .logo-rond{position:relative;z-index:1;width:40px;height:40px;padding:2px}
+@keyframes halo-tourne{to{transform:rotate(1turn)}}
+/* Une animation perpétuelle gêne certaines personnes, et l'application se
+   consulte toute la journée : on la coupe si le système le demande. */
+@media (prefers-reduced-motion:reduce){
+  .logo-halo::before{animation:none;background:#4aa3d8}
+}
+
+/* --- Menu : pilules arrondies ------------------------------------------- */
+.side .nav{flex:1 1 auto;overflow-y:auto;display:flex;flex-direction:column;gap:2px;padding-right:2px}
+.nav-titre{
+  font-size:10px;letter-spacing:.12em;text-transform:uppercase;
+  color:#7b93a6;padding:10px 12px 4px;
+}
+.side .nav a{
+  display:flex;gap:10px;align-items:center;
+  color:#c3d0db;text-decoration:none;
+  padding:9px 12px;font-size:13.5px;cursor:pointer;
+  border-radius:10px;              /* la pilule */
+  transition:background .12s,color .12s;
+}
+.side .nav a:hover{background:#ffffff14;color:#fff}
+/* Pilule active — verre TEINTÉ, plus léger que la carte de marque.
+ * L'accent reste dominant (c'est un repère de navigation, il doit trancher),
+ * mais le voile clair en diagonale et le liseré supérieur lui donnent la même
+ * matière qu'au bloc du haut : l'ensemble se lit comme un seul matériau. */
+.side .nav a.active{
+  color:#fff;font-weight:600;
+  background:linear-gradient(160deg,#ffffff2b 0%,#ffffff0f 45%,transparent 100%),var(--accent);
+  -webkit-backdrop-filter:blur(6px) saturate(130%);
+  backdrop-filter:blur(6px) saturate(130%);
+  border:1px solid #ffffff26;
+  box-shadow:0 4px 12px #0e5a8a59, inset 0 1px 0 #ffffff3d;
+}
+/* (Le dimensionnement des icônes est repris plus bas, pour des SVG.) */
+
+/* --- Carte utilisateur, ancrée en bas ----------------------------------- */
+.side .compte{
+  flex:0 0 auto;
+  border-radius:14px;
+  padding:10px;
+  display:flex;flex-direction:column;gap:8px;
+  /* Même verre que la carte de marque : les deux extrémités de la barre se
+     répondent, et le menu qui court entre elles paraît posé sur le fond. */
+  background:linear-gradient(160deg,#ffffff21 0%,#ffffff0a 55%,#ffffff05 100%);
+  -webkit-backdrop-filter:blur(14px) saturate(150%);
+  backdrop-filter:blur(14px) saturate(150%);
+  border:1px solid #ffffff2b;
+  box-shadow:0 8px 22px #00000059, inset 0 1px 0 #ffffff3d;
+}
+.compte-ligne{display:flex;align-items:center;gap:9px;min-width:0}
+.compte-avatar{
+  width:34px;height:34px;border-radius:50%;
+  background:var(--accent);color:#fff;
+  display:flex;align-items:center;justify-content:center;
+  font-weight:700;font-size:14px;flex:0 0 auto;
+}
+.compte-nom{
+  font-size:13px;font-weight:600;color:#fff;
+  /* Un nom complet long ne doit pas élargir la barre ni déborder. */
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.compte-role{font-size:11px;color:#8fa6b8;margin-top:1px}
+.side .compte button{
+  width:100%;
+  display:flex;align-items:center;justify-content:center;gap:8px;
+  background:#ffffff14;border:1px solid #ffffff26;color:#e6eef5;
+  border-radius:10px;padding:8px 10px;font-size:13px;
+  transition:background .12s;
+}
+.side .compte button:hover{background:#ffffff24}
+
+/* Séparateur entre le bloc général et les écrans métier. Un simple filet :
+   le regroupement se voit, sans qu'un second intertitre alourdisse la barre. */
+.nav-sep{height:1px;background:#ffffff1f;margin:8px 12px 4px}
+
+/* Icônes SVG du menu (voir lib/icones.tsx). L'ancienne règle dimensionnait un
+   caractère ; celle-ci cale un SVG : taille fixe, jamais comprimé par le
+   libellé, et légèrement adouci hors sélection pour que le texte prime. */
+.side .ic{width:18px;height:18px;flex:0 0 auto;opacity:.85}
+.side .nav a:hover .ic,.side .nav a.active .ic{opacity:1}
+
+
+/* ============ ÉCRAN DE CONNEXION — 2026-09-11 ===========================
+ *
+ * LE TITRE. Serif, corps généreux, interlettrage resserré : l'écriture d'un
+ * en-tête institutionnel, non celle d'un formulaire.
+ *
+ * L'ANIMATION. Le logo est entouré de ce que la plateforme fait réellement :
+ *   · une ROUTE en pointillés qui tourne lentement — l'itinéraire ;
+ *   · un CAMION qui la parcourt, maintenu droit par une contre-rotation
+ *     (sans elle, il roulerait sur le toit à mi-parcours) ;
+ *   · une ONDE qui se propage — le relevé de position qui remonte.
+ *
+ * Trois signes lents et discrets. Un écran de connexion se regarde plusieurs
+ * fois par jour : ce qui s'agite y devient vite fatigant.
+ * ====================================================================== */
+.titre-hero{
+  font-family:var(--titre);
+  font-size:30px; font-weight:600; letter-spacing:-.01em;
+  margin:0; color:var(--ink); text-align:center; line-height:1.15;
+}
+.hero-sous{
+  /* Même serif que le titre : le bloc d'en-tête se lit d'un seul tenant, au
+     lieu de mélanger deux écritures sur trois lignes. Corps un peu plus grand
+     et interligne aéré — c'est une phrase de présentation, pas une étiquette. */
+  font-family:var(--titre);
+  font-size:16px;line-height:1.6;letter-spacing:.005em;
+  color:var(--muted);text-align:center;max-width:30rem;margin:14px auto 20px;
+}
+
+.suivi-logo{position:relative;width:132px;height:132px;display:grid;place-items:center;margin:0 auto}
+.suivi-logo .logo-rond{position:relative;z-index:2;width:96px;height:96px}
+
+/* L'itinéraire : des pointillés qui défilent le long du cercle. */
+.suivi-piste{
+  position:absolute;inset:6px;border-radius:50%;
+  border:2px dashed rgba(14,90,138,.35);
+  animation:suivi-tourne 26s linear infinite;
+}
+/* Le relevé de position : une onde qui s'éloigne puis s'efface. */
+.suivi-onde{
+  position:absolute;inset:6px;border-radius:50%;
+  border:2px solid rgba(14,90,138,.5);
+  animation:suivi-onde 3.2s ease-out infinite;
+}
+@keyframes suivi-onde{
+  0%{transform:scale(.9);opacity:.5}
+  70%{opacity:0}
+  100%{transform:scale(1.28);opacity:0}
+}
+/* Le véhicule suivi : le conteneur tourne, la pastille se redresse. */
+.suivi-orbite{position:absolute;inset:6px;animation:suivi-tourne 11s linear infinite}
+.suivi-mobile{
+  position:absolute;top:-13px;left:50%;
+  width:26px;height:26px;border-radius:50%;
+  background:var(--accent);color:#fff;
+  display:grid;place-items:center;
+  box-shadow:0 2px 6px rgba(0,0,0,.28);
+  animation:suivi-redresse 11s linear infinite;
+}
+@keyframes suivi-tourne{from{transform:rotate(0)}to{transform:rotate(360deg)}}
+@keyframes suivi-redresse{
+  from{transform:translateX(-50%) rotate(0)}
+  to{transform:translateX(-50%) rotate(-360deg)}
+}
+
+/* Mouvement réduit : on garde les repères, on retire le mouvement. Certaines
+   personnes souffrent réellement des animations — ce n'est pas une préférence
+   esthétique. */
+@media (prefers-reduced-motion:reduce){
+  .suivi-piste,.suivi-onde,.suivi-orbite,.suivi-mobile{animation:none}
+  .suivi-onde{opacity:.35}
+}
+
+
+/* ============ VERRE DÉPOLI DE L'ÉCRAN DE CONNEXION — 2026-09-11 ==========
+ *
+ * ⚠ LE POINT QUI DÉCIDE DE TOUT : un `backdrop-filter` ne montre QUE ce qu'il
+ * a derrière lui. Posé sur un aplat blanc, il ne produit rien — du blanc flouté
+ * reste du blanc. Trois couches sont donc nécessaires, et dans cet ordre :
+ *
+ *   1. un FOND TRAVAILLÉ (dégradés radiaux) — la matière à flouter ;
+ *   2. une CARTE translucide — elle laisse passer ce fond ;
+ *   3. le BOUTON translucide — il floute la carte, donc le fond au travers.
+ *
+ * Traiter le bouton seul aurait donné un effet déclaré mais invisible.
+ * ====================================================================== */
+.ecran-connexion{position:relative;z-index:0}
+
+/* 1. La matière. Trois halos dans les couleurs de l'application, très dilués :
+      assez pour que le verre ait quelque chose à montrer, pas assez pour
+      concurrencer le formulaire. */
+.ecran-connexion::before{
+  content:'';position:fixed;inset:0;z-index:-1;
+  /* Blanc en haut, la teinte de l'application en bas (2026-09-11, demande
+     utilisateur). La lumière vient donc du haut, là où se trouve le logo, et
+     le regard descend naturellement vers le formulaire puis vers le quai.
+     Le point à 55 % évite le dégradé « plat » d'une simple interpolation en
+     deux temps : la transition se fait haut, la moitié basse reste stable. */
+  background:linear-gradient(180deg,#ffffff 0%,#f8fafc 32%,#f1f5f8 55%,var(--bg) 100%);
+}
+
+/* 2. La carte. Translucide, mais pas au point de gêner la lecture : les champs
+      de saisie, eux, restent parfaitement opaques (règle `input` globale). */
+.ecran-connexion .card{
+  background:rgba(255,255,255,.70);
+  backdrop-filter:blur(16px) saturate(135%);
+  -webkit-backdrop-filter:blur(16px) saturate(135%);
+  border:1px solid rgba(255,255,255,.78);
+  border-radius:16px;
+  box-shadow:0 14px 36px rgba(15,35,55,.14);
+}
+
+/* 3. Les boutons. La règle porte sur TOUS ceux de l'écran, pas seulement sur
+      ceux des formulaires : « Retour à la connexion » vit en dehors du
+      formulaire, et il échappait donc à la mise en forme — d'où un bouton
+      d'angle carré isolé sous une carte entièrement arrondie.
+
+      Deux rôles, une seule famille :
+        · l'ACTION PRINCIPALE (Se connecter, Valider) est pleine et colorée ;
+        · l'ACTION SECONDAIRE (`.ghost`) est de verre clair, et se REMPLIT DE
+          BLANC au survol — c'est le retour visuel qui manquait. */
+.ecran-connexion button{
+  border-radius:999px;
+  padding:11px 18px;
+  font-weight:600;letter-spacing:.01em;
+  transition:transform .15s ease,box-shadow .2s ease,background .2s ease,border-color .2s ease;
+}
+.ecran-connexion button:active:not(:disabled){transform:translateY(0)}
+
+/* Action principale : filet clair en haut, la lumière qui frise le bord
+   supérieur d'une plaque de verre. */
+.ecran-connexion button:not(.ghost){
+  background:linear-gradient(180deg,rgba(14,90,138,.90),rgba(14,90,138,.76));
+  border:1px solid rgba(255,255,255,.45);
+  backdrop-filter:blur(8px) saturate(150%);
+  -webkit-backdrop-filter:blur(8px) saturate(150%);
+  box-shadow:0 6px 18px rgba(14,90,138,.28),inset 0 1px 0 rgba(255,255,255,.48);
+}
+.ecran-connexion button:not(.ghost):not(.burger):not(.repli):not(.bm-action):not(.btn-export):not(.acte):hover:not(:disabled){
+  transform:translateY(-1px);
+  background:linear-gradient(180deg,rgba(14,90,138,.96),rgba(14,90,138,.84));
+  box-shadow:0 10px 26px rgba(14,90,138,.34),inset 0 1px 0 rgba(255,255,255,.55);
+}
+
+/* Action secondaire : verre clair au repos, BLANC PLEIN au survol. */
+.ecran-connexion button.ghost{
+  background:rgba(255,255,255,.55);
+  backdrop-filter:blur(8px) saturate(140%);
+  -webkit-backdrop-filter:blur(8px) saturate(140%);
+  border:1px solid rgba(14,90,138,.32);
+  color:var(--accent);
+  box-shadow:0 3px 10px rgba(15,35,55,.08);
+}
+.ecran-connexion button.ghost:hover:not(:disabled){
+  background:#fff;
+  border-color:var(--accent);
+  transform:translateY(-1px);
+  box-shadow:0 9px 22px rgba(15,35,55,.15);
+}
+
+/* Navigateur sans `backdrop-filter` (ou effet coupé par le système) : on rend
+   les surfaces opaques. Un verre qui ne floute pas doit rester lisible, pas
+   devenir un voile laiteux. */
+@supports not ((backdrop-filter:blur(2px)) or (-webkit-backdrop-filter:blur(2px))){
+  .top{background:linear-gradient(100deg,#fff 0%,#f4f8fb 46%,rgba(14,90,138,.55) 100%)}
+  .ecran-connexion .card{background:rgba(255,255,255,.94)}
+  .ecran-connexion button:not(.ghost){background:var(--accent)}
+  .ecran-connexion button.ghost{background:#fff}
+}
+
+/* ---- Le cadre de connexion dans le détail --------------------------------
+ *
+ * Tout ce qui suit est CANTONNÉ à `.ecran-connexion` : le reste de
+ * l'application garde ses champs et ses boutons tels quels. Un écran de
+ * connexion est vu par tout le monde, plusieurs fois par jour, et il est le
+ * seul endroit où l'on peut soigner sans risquer de gêner une saisie de
+ * production.
+ */
+
+/* Respiration : une carte de formulaire serrée paraît bon marché. */
+.ecran-connexion .card{padding:22px 22px 24px}
+
+/* Les libellés deviennent de vraies étiquettes : petites capitales espacées,
+   nettement plus discrètes que la valeur saisie, qui doit primer. */
+.ecran-connexion label.help{
+  font-size:11.5px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--muted);margin:0 0 7px;
+}
+
+/* Les champs : bords arrondis, creux léger, et un halo net à la prise de focus.
+   Le creux (`inset`) fait lire le champ comme une surface en retrait — c'est ce
+   qui distingue une zone où l'on écrit d'une zone qui affiche. */
+.ecran-connexion input{
+  border-radius:12px;
+  padding:12px 14px;
+  font-size:15px;
+  background:rgba(255,255,255,.86);
+  border:1px solid rgba(15,45,70,.14);
+  box-shadow:inset 0 1px 2px rgba(15,35,55,.06);
+  transition:border-color .15s ease,box-shadow .2s ease,background .2s ease;
+}
+.ecran-connexion input:hover{background:rgba(255,255,255,.96)}
+.ecran-connexion input:focus{
+  outline:none;
+  background:#fff;
+  border-color:var(--accent);
+  box-shadow:0 0 0 3px rgba(14,90,138,.18),inset 0 1px 2px rgba(15,35,55,.05);
+}
+.ecran-connexion input::placeholder{color:#9aa8b5}
+
+/* Le focus du bouton reste VISIBLE : on navigue au clavier sur cet écran, et
+   un contour supprimé sans remplacement rend la page inutilisable sans souris. */
+.ecran-connexion button:focus-visible{
+  outline:none;
+  box-shadow:0 0 0 3px rgba(14,90,138,.28),0 6px 18px rgba(14,90,138,.28),inset 0 1px 0 rgba(255,255,255,.48);
+}
+
+/* Le message d'erreur de connexion, au ton de la carte. */
+.ecran-connexion .err-msg{
+  background:rgba(176,0,32,.07);border:1px solid rgba(176,0,32,.22);
+  border-radius:10px;padding:9px 12px;margin-top:2px;
+}
+
+
+/* ============ LE PARC A CONTENEURS - refait le 2026-09-12 ===============
+ *
+ * La scene montrait une escale de navire. La PIA est un port SEC : il n'y a ni
+ * mer ni navire a Adetikope. Elle montre desormais le va-et-vient reel du parc,
+ * celui-la meme que l'application enregistre.
+ *
+ * UNE SEULE HORLOGE, `--parc-cycle`, et tout s'y accroche. C'est la condition
+ * pour que la grue saisisse quand il y a quelque chose a saisir : deux horloges
+ * finiraient par deriver, et on verrait le spreader descendre sur une place
+ * vide. Le cycle se lit comme une partition - a chaque instant, ce que fait
+ * chacun :
+ *
+ *    0 ->  5 %   le camion A arrive CHARGE et se presente au poste d'entree
+ *    5 ->  8 %   controle a l'arret ; la barriere se leve
+ *    8 -> 13 %   il franchit la porte et se range sous le portique
+ *   14 -> 19 %   le spreader descend, saisit son conteneur, remonte
+ *   19 -> 36 %   A repart a vide et SORT DU CADRE par la droite
+ *   19 -> 30 %   le chariot porte le conteneur sur le parc et l'y depose
+ *   30 -> 45 %   le camion B se presente A VIDE - il croise A qui s'en va
+ *   56 -> 62 %   le spreader reprend le conteneur sur le parc
+ *   62 -> 73 %   le chariot revient et le pose sur B
+ *   76 -> 92 %   B sort du cadre, CHARGE
+ *   92 -> 100 %  la voie est libre ; le cycle recommence
+ *
+ * Les camions sortent a +2200 unites. La valeur parait excessive sur un viewBox
+ * de 1200 - elle ne l'est pas : cadree en `meet`, la bande montre bien au-dela
+ * du viewBox sur un large ecran, et un deplacement plus court laisserait le
+ * camion arrete au bord au lieu d'etre parti.
+ *
+ * Decoratif de bout en bout : insensible a la souris, pose derriere le
+ * formulaire, qui reste le seul objet d'attention.
+ * ====================================================================== */
+.quai{
+  --parc-cycle:26s;
+  position:fixed;left:0;right:0;bottom:0;
+  /* Une BANDE BASSE, pas un decor. En `meet`, le dessin se reduit pour tenir
+     dans la hauteur donnee : baisser cette hauteur rapetisse portique et
+     camions, tandis que le terre-plein - qui deborde du cadre - continue
+     d'aller d'un bord a l'autre. */
+  /* Relevee de 78 a 92 px le 2026-09-12 : la grue leve le conteneur de 50
+     unites sur 190, soit un quart de la bande. Sous 78 px, ce quart tombait a
+     19 px et on ne voyait plus le conteneur DECOLLER du plateau. */
+  height:clamp(92px,12.5vh,132px);
+  z-index:-1;pointer-events:none;opacity:.7;
+  -webkit-mask-image:linear-gradient(180deg,transparent 0%,#000 34%);
+  mask-image:linear-gradient(180deg,transparent 0%,#000 34%);
+}
+.quai svg{display:block;width:100%;height:100%}
+
+/* ---- Le chariot : l'axe horizontal, et lui seul --------------------- */
+/* Le groupe est pose a x=560, au-dessus de la VOIE : c'est la que les camions
+   s'arretent (arret a 500, conteneur centre sur 560). +236 l'amene au-dessus
+   de la pile du parc, centree sur 796. */
+.parc-chariot{animation:parc-chariot var(--parc-cycle) ease-in-out infinite}
+@keyframes parc-chariot{
+  0%,19%{transform:translateX(0)}        /* au-dessus du camion A */
+  25%,62%{transform:translateX(236px)}   /* au-dessus du parc */
+  68%,100%{transform:translateX(0)}      /* revenu au-dessus du camion B */
+}
+/* ---- Le palan : l'axe vertical, et lui seul -------------------------- */
+/* Hauteurs comptees depuis le chariot (pose a y=38) : +6 = en haut sous la
+   poutre ; +56 = pose sur un plateau de camion (dessus a y=94) ; +80 = pose au
+   sol, sur le parc (dessus a y=118). Le parc est plus bas qu'un plateau : la
+   grue descend donc plus pour y deposer. */
+.parc-palan{animation:parc-palan var(--parc-cycle) ease-in-out infinite}
+@keyframes parc-palan{
+  0%,10%{transform:translateY(6px)}
+  14%,15%{transform:translateY(56px)}   /* descend sur le camion A */
+  19%,25%{transform:translateY(6px)}    /* remonte, puis voyage */
+  29%,30%{transform:translateY(80px)}   /* descend deposer sur le parc */
+  34%,52%{transform:translateY(6px)}    /* remonte et attend le camion B */
+  56%,57%{transform:translateY(80px)}   /* redescend reprendre au parc */
+  62%,68%{transform:translateY(6px)}    /* remonte, puis voyage */
+  72%,73%{transform:translateY(56px)}   /* descend poser sur le camion B */
+  77%,100%{transform:translateY(6px)}
+}
+/* ---- Les trois conteneurs : un seul existe a la fois ------------------
+ * Le conteneur suspendu, celui du parc et celui des camions sont trois dessins
+ * distincts qui se relaient. `steps(1,end)` : ils n'ont pas a apparaitre en
+ * fondu, ils changent de main a un instant precis - celui ou le spreader
+ * verrouille. */
+.parc-colis{animation:parc-colis var(--parc-cycle) steps(1,end) infinite;opacity:0}
+@keyframes parc-colis{
+  0%,14%{opacity:0}15%,29%{opacity:1}   /* pris sur A, porte jusqu'au parc */
+  30%,56%{opacity:0}57%,72%{opacity:1}  /* repris au parc, porte jusqu'a B */
+  73%,100%{opacity:0}
+}
+.parc-pile{animation:parc-pile var(--parc-cycle) steps(1,end) infinite}
+@keyframes parc-pile{
+  0%,29%{opacity:0}30%,56%{opacity:1}57%,100%{opacity:0}
+}
+
+/* ---- Le poste d'entree : une levee par camion ------------------------- */
+/* La barre pivote sur son pied. `view-box` : le repere est celui du dessin -
+   sans quoi elle tournerait autour du centre de sa propre boite et decollerait
+   du pied. */
+.parc-barriere{
+  transform-box:view-box;transform-origin:152px 109.5px;
+  animation:parc-barriere var(--parc-cycle) infinite;
+}
+@keyframes parc-barriere{
+  0%,5%{transform:rotate(0deg);animation-timing-function:cubic-bezier(.34,1.15,.5,1)}
+  8%,13%{transform:rotate(-74deg);animation-timing-function:ease-in}
+  16%,37%{transform:rotate(0deg);animation-timing-function:cubic-bezier(.34,1.15,.5,1)}
+  40%,45%{transform:rotate(-74deg);animation-timing-function:ease-in}
+  48%,100%{transform:rotate(0deg)}
+}
+/* Le temoin ne clignote que pendant les deux controles. */
+.parc-temoin{animation:parc-temoin var(--parc-cycle) steps(1,end) infinite}
+@keyframes parc-temoin{
+  0%,4%{opacity:.22}5%,6%{opacity:1}6.5%,7.5%{opacity:.22}
+  8%,36%{opacity:.22}37%,38%{opacity:1}38.5%,39.5%{opacity:.22}
+  40%,100%{opacity:.22}
+}
+
+/* ---- Le camion A : il apporte, on le decharge, il repart a vide ------- */
+.parc-camion-a{animation:parc-camion-a var(--parc-cycle) infinite}
+@keyframes parc-camion-a{
+  0%{transform:translateX(-780px);animation-timing-function:cubic-bezier(.3,0,.35,1)}
+  5%,8%{transform:translateX(-15px);animation-timing-function:cubic-bezier(.4,0,.4,1)}
+  13%,19%{transform:translateX(500px);animation-timing-function:cubic-bezier(.45,0,.6,1)}
+  /* SORTI. Le retour hors champ tient en 0,1 % - soit 26 ms, une image. Sur
+     1 %, le navigateur INTERPOLAIT les 2 980 unites du retour : on voyait le
+     camion traverser l'ecran a reculons. */
+  36%,49.4%{transform:translateX(2200px)}
+  49.5%,100%{transform:translateX(-780px)}
+}
+.parc-charge-a{animation:parc-charge-a var(--parc-cycle) steps(1,end) infinite}
+@keyframes parc-charge-a{
+  0%,14%{opacity:1}15%,49%{opacity:0}    /* la grue lui prend sa charge */
+  50%,100%{opacity:1}                    /* rechargee hors champ, pour le tour suivant */
+}
+
+/* ---- Le camion B : il vient a vide, on le charge, il repart ----------- */
+.parc-camion-b{animation:parc-camion-b var(--parc-cycle) infinite}
+@keyframes parc-camion-b{
+  0%,30%{transform:translateX(-780px);animation-timing-function:cubic-bezier(.3,0,.35,1)}
+  37%,40%{transform:translateX(-15px);animation-timing-function:cubic-bezier(.4,0,.4,1)}
+  45%,76%{transform:translateX(500px);animation-timing-function:cubic-bezier(.45,0,.6,1)}
+  /* Il sort par la droite ; le retour hors champ est le saut de fin de cycle,
+     instantane par construction. */
+  92%,100%{transform:translateX(2200px)}
+}
+.parc-charge-b{animation:parc-charge-b var(--parc-cycle) steps(1,end) infinite;opacity:0}
+@keyframes parc-charge-b{
+  0%,72%{opacity:0}73%,97%{opacity:1}98%,100%{opacity:0}
+}
+
+/* Mouvement reduit : la scene reste, figee sur un parc a l'arret - le portique
+   en place, un conteneur sur le parc, un camion charge sous la grue. Rien ne
+   bouge, tout se lit. */
+@media (prefers-reduced-motion:reduce){
+  .parc-chariot,.parc-palan,.parc-colis,.parc-pile,.parc-barriere,.parc-temoin,
+  .parc-camion-a,.parc-charge-a,.parc-camion-b,.parc-charge-b{animation:none}
+  .parc-camion-a{transform:translateX(500px)}
+  .parc-camion-b{transform:translateX(-780px)}
+  .parc-palan{transform:translateY(6px)}
+  .parc-colis,.parc-charge-b{opacity:0}
+}
+
+/* ---- Mot d'accueil -----------------------------------------------------
+ *
+ * Une ligne, en italique de la serif des titres, encadrée de deux filets qui
+ * s'effacent vers l'extérieur. Le procédé est ancien — c'est la mise en page
+ * d'une dédicace — et c'est précisément ce qui le rend élégant sans bruit :
+ * aucun cadre, aucune couleur, rien qui dispute l'attention au formulaire.
+ */
+.mot-accueil{
+  display:flex;align-items:center;justify-content:center;gap:14px;
+  font-family:var(--titre);font-style:italic;
+  font-size:14px;letter-spacing:.03em;
+  color:var(--muted);margin:0 0 18px;
+}
+.mot-accueil::before,.mot-accueil::after{
+  content:'';height:1px;width:38px;flex:0 0 auto;
+  background:linear-gradient(90deg,transparent,rgba(14,90,138,.38));
+}
+.mot-accueil::after{background:linear-gradient(90deg,rgba(14,90,138,.38),transparent)}
+
+
+/* ============ TABLEAU DE BORD — bento + verre — 2026-09-11 ==============
+ *
+ * CANTONNÉ à `.bento`, c'est-à-dire au seul tableau de bord. Les tuiles
+ * `.stats` des autres écrans (rapports, entrepôts) gardent leur mise en forme :
+ * on ne refond pas une application entière par un effet de style.
+ *
+ * BENTO. Toutes les tuiles n'ont pas le même poids. Les cinq compteurs
+ * d'ÉVÉNEMENTS et « Attente validation » occupent deux colonnes ; les autres
+ * une seule. Le relief qui en résulte est le propos du bento : la hiérarchie se
+ * lit avant même qu'on ait lu un chiffre.
+ *
+ * VERRE. Le lavis coloré du fond de page (voir `body`) passe sous les tuiles et
+ * les traverse. C'est lui qui rend l'effet visible — sur un fond uni il n'y
+ * aurait rien à diffuser.
+ * ====================================================================== */
+/* ============ TABLEAU DE BORD — 2026-09-11 ==============================
+ *
+ * Le fond bleu profond essayé plus tôt a été RETIRÉ (décision utilisateur) :
+ * l'écran retrouve le fond clair de l'application. Le bento et le verre, eux,
+ * restent — c'est le cadre coloré sous la grille (`.bento-cadre`) qui donne
+ * alors au verre la matière qu'il lui faut pour se voir.
+ */
+
+/* ---- PALETTE DES ÉTAPES ----------------------------------------------
+ *
+ * Une couleur par poste du parcours, et la même partout : la tuile, sa flèche
+ * d'évolution et son chevron de clic. Toutes SOMBRES ET PEU SATURÉES — sur un
+ * outil de service, la couleur sert à identifier un poste, pas à décorer. Deux
+ * d'entre elles existaient déjà (`--accent` pour le CFS, `--ok` pour la sortie).
+ */
+:root{
+  --etape-cfs:#0e5a8a;        /* bleu PIA — l'entrée */
+  --etape-validation:#8a4b1c; /* ocre brûlé — la signature du chef */
+  --etape-t1:#2f6f6b;         /* sarcelle profond — le transit */
+  --etape-balise:#5c4a92;     /* indigo — la pose de balise */
+  --etape-bs:#8a6a14;         /* ambre foncé — le bon de sortie */
+  --etape-pp:#1f7a5c;         /* vert — la sortie effective */
+  --etape-vehicule:#46586b;   /* ardoise — les véhicules */
+}
+.et-cfs{--teinte:var(--etape-cfs)}
+.et-validation{--teinte:var(--etape-validation)}
+.et-t1{--teinte:var(--etape-t1)}
+.et-balise{--teinte:var(--etape-balise)}
+.et-bs{--teinte:var(--etape-bs)}
+.et-pp{--teinte:var(--etape-pp)}
+.et-vehicule{--teinte:var(--etape-vehicule)}
+
+/* ---- Les cartes de l'écran deviennent des plaques de verre claires ---- */
+/* ---- Les autres rectangles de l'écran ---------------------------------
+ *
+ * Mêmes coins, même verre et même profondeur d'ombre que les tuiles : tout
+ * l'écran se tient, au lieu d'opposer des tuiles soignées à des cartes restées
+ * en l'état.
+ */
+.ecran-dash .card{
+  border-radius:18px;
+  border:1px solid rgba(255,255,255,.75);
+  background:rgba(255,255,255,.82);
+  backdrop-filter:blur(18px) saturate(160%);
+  -webkit-backdrop-filter:blur(18px) saturate(160%);
+  box-shadow:0 8px 26px rgba(15,35,55,.10),inset 0 1px 0 rgba(255,255,255,.9);
+}
+.ecran-dash .card h2{font-size:15px;letter-spacing:.01em}
+
+/* ---- La note d'explication --------------------------------------------
+ *
+ * Elle s'affichait dans la graisse et la taille du texte courant (15 px, encre
+ * pleine) : elle pesait autant que les données qu'elle commente. Réduite,
+ * grisée, posée sur un fond très pâle et marquée d'un filet franc, elle se lit
+ * pour ce qu'elle est — une note de lecture — sans disparaître.
+ */
+.ecran-dash .card > .help{
+  border-left:3px solid rgba(14,90,138,.45);
+  background:rgba(14,90,138,.045);
+  border-radius:0 12px 12px 0;
+  padding:11px 14px;margin-top:12px;
+  font-size:13.5px;line-height:1.62;color:#48586a;
+}
+.ecran-dash .card > .help b{color:var(--ink)}
+
+/* ---- Le sélecteur de période ------------------------------------------
+ *
+ * `appearance:none` retire la flèche native — il FAUT donc en fournir une, sans
+ * quoi le champ n'annoncerait plus qu'il se déroule. Elle est dessinée en SVG
+ * dans une `data:` URI : la CSP autorise `img-src 'self' data:`, une icône
+ * distante serait bloquée.
+ */
+.ecran-dash select,
+.ecran-dash input[type="date"]{
+  appearance:none;-webkit-appearance:none;
+  border-radius:12px;
+  padding:9px 12px;
+  font-weight:500;
+  background-color:rgba(255,255,255,.74);
+  backdrop-filter:blur(12px) saturate(155%);
+  -webkit-backdrop-filter:blur(12px) saturate(155%);
+  border:1px solid rgba(14,90,138,.22);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.92),0 2px 8px rgba(15,35,55,.06);
+  transition:background-color .18s ease,border-color .18s ease,box-shadow .2s ease;
+}
+.ecran-dash select{
+  padding-right:34px;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%230e5a8a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;
+  background-position:right 11px center;
+  background-size:15px;
+}
+.ecran-dash select:hover,
+.ecran-dash input[type="date"]:hover{
+  background-color:rgba(255,255,255,.92);border-color:rgba(14,90,138,.42);
+}
+.ecran-dash select:focus,
+.ecran-dash input[type="date"]:focus{
+  outline:none;border-color:var(--accent);
+  background-color:#fff;
+  box-shadow:0 0 0 3px rgba(14,90,138,.17),inset 0 1px 0 rgba(255,255,255,.95);
+}
+/* Le mot « Période » devient une étiquette, comme les libellés des tuiles. */
+.ecran-dash .card > .row > label.help{
+  font-size:10.5px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;
+  color:#64737f;
+}
+
+@media (prefers-reduced-motion:reduce){
+  .ecran-dash select,.ecran-dash input[type="date"]{transition:none}
+}
+
+/* ---- Classement des files ---- */
+.barres .barre{border-radius:10px;padding:7px 9px;margin:0 -9px;transition:background .16s ease}
+.barres .barre.cliquable:hover{background:rgba(14,90,138,.07)}
+.barres .barre.cliquable:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.barre-piste{
+  background:rgba(15,45,70,.09);border-radius:999px;height:10px;overflow:hidden;margin-top:5px;
+}
+.barre-jauge{height:100%;border-radius:999px;transition:width .45s ease}
+
+/* ---- Repli de la fiche de synthèse ---- */
+.repli{
+  display:flex;align-items:center;gap:10px;width:100%;
+  background:none;border:0;padding:2px 0;
+  color:var(--accent);font-weight:700;font-size:14px;text-align:left;
+}
+.repli svg{transition:transform .2s ease;flex:0 0 auto}
+.repli.ouvert svg{transform:rotate(90deg)}
+.repli:hover{color:#0b4870}
+.repli:focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:8px}
+
+@media (prefers-reduced-motion:reduce){
+  .barre-jauge,.repli svg,.barres .barre{transition:none}
+}
+
+/* ---- Le cadre qui donne sa matière au verre ----------------------------
+ *
+ * Un `backdrop-filter` ne révèle QUE ce qu'il a derrière. Posées sur le gris
+ * clair de la page, les tuiles n'avaient rien à dépolir : l'effet était déclaré
+ * et invisible. Ce cadre porte trois halos aux couleurs de l'application, assez
+ * francs pour que chaque tuile en diffuse une teinte différente selon l'endroit
+ * où elle se trouve — c'est cette VARIATION d'une tuile à l'autre qui fait
+ * reconnaître du verre, bien plus que la transparence elle-même.
+ */
+/* Le cadre coloré : c'est lui qui donne au verre des tuiles quelque chose à
+   dépolir. Sans lui, les tuiles reposeraient sur un gris uni et l'effet
+   redeviendrait invisible. */
+.bento-cadre{
+  position:relative;
+  border-radius:24px;
+  padding:16px;
+  margin-bottom:16px;
+  overflow:hidden;
+  background:
+    radial-gradient(620px 320px at 8% -10%, rgba(14,90,138,.34), transparent 62%),
+    radial-gradient(560px 320px at 96% 110%, rgba(31,122,92,.26), transparent 62%),
+    radial-gradient(460px 280px at 58% 46%, rgba(138,106,20,.16), transparent 66%),
+    linear-gradient(135deg,#dde8f2 0%,#eef3f7 55%,#e3ecf3 100%);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.7),0 8px 26px rgba(15,35,55,.07);
+}
+.bento{
+  display:grid;
+  /* TOUTES LES TUILES À LA MÊME TAILLE (demande utilisateur 2026-09-11). Les
+     formats doubles essayés plus tôt sont retirés : un tableau de bord se
+     balaie du regard, et des tuiles inégales font hésiter sur ce qu'il faut
+     lire en premier. 244 px : depuis que la mention d'évolution se réduit à la
+     flèche et au pourcentage, la tuile n'a plus besoin d'être aussi large — on
+     en loge davantage par rangée sans rien serrer. */
+  grid-template-columns:repeat(auto-fill,minmax(244px,1fr));
+  gap:14px;
+  align-items:stretch;
+}
+
+/* ---- LA TUILE, calquée sur le modèle fourni ---------------------------
+ *
+ * Trois colonnes : la PASTILLE d'étape, les TEXTES, le CHEVRON. La grille les
+ * pose sans toucher à l'ordre du HTML — le chiffre reste écrit avant son
+ * libellé dans le code, ce qui garde `StatCard` compatible avec les autres
+ * écrans, tandis qu'ici le libellé s'affiche AU-DESSUS, comme sur le modèle.
+ */
+.bento .stat{
+  position:relative;
+  display:grid;
+  grid-template-columns:auto 1fr auto;
+  grid-template-areas:
+    "pastille libelle chevron"
+    "pastille nombre  chevron"
+    "pastille evo     chevron";
+  align-items:center;
+  column-gap:12px;
+  /* Hauteur commune : les tuiles d'ÉVÉNEMENTS portent une ligne d'évolution que
+     les tuiles d'ATTENTE n'ont pas, et l'écart de 15 px se voyait d'un rang à
+     l'autre. On réserve la place pour toutes — la grille reste régulière. */
+  min-height:90px;
+  border:1px solid rgba(255,255,255,.72);
+  /* LA COULEUR DU BORD RESTE : c'est elle qui identifie l'étape d'un coup d'œil. */
+  border-left:4px solid var(--teinte,var(--accent));
+  border-radius:18px;
+  padding:14px 16px;
+  background:rgba(255,255,255,.72);
+  backdrop-filter:blur(20px) saturate(175%);
+  -webkit-backdrop-filter:blur(20px) saturate(175%);
+  box-shadow:0 8px 26px rgba(15,35,55,.12),inset 0 1px 0 rgba(255,255,255,.95);
+  transition:transform .16s ease,box-shadow .2s ease,background .2s ease;
+}
+
+/* La pastille : fond très dilué de la couleur d'étape, dessin plein. */
+.stat-icone{
+  grid-area:pastille;
+  display:grid;place-items:center;
+  /* 38 px au lieu de 46 : la pastille situe l'étape, elle ne doit pas peser
+     autant que le chiffre. */
+  width:38px;height:38px;border-radius:12px;
+  color:var(--teinte,var(--accent));
+  background:color-mix(in srgb,var(--teinte,var(--accent)) 13%,#fff);
+}
+
+/* Libellé en petites capitales grises AU-DESSUS du nombre, comme sur le
+   modèle : on lit d'abord de quoi il s'agit, puis combien. */
+.bento .stat .l{
+  grid-area:libelle;
+  margin:0;font-size:10.5px;font-weight:600;letter-spacing:.07em;
+  text-transform:uppercase;color:#64737f;
+}
+.bento .stat .n{
+  grid-area:nombre;
+  /* LE CHIFFRE RESTE IMPOSANT : c'est la seule information qu'on lit de loin. */
+  font-size:28px;line-height:1.12;color:#0f1a24;font-weight:700;
+}
+/* L'évolution devient une LIGNE DE TEXTE, non une pastille : le modèle place
+   là une phrase, et une pastille de couleur de plus concurrencerait celle de
+   l'étape. */
+.bento .evo{
+  grid-area:evo;
+  position:static;margin:1px 0 0;padding:0;background:none;border-radius:0;
+  /* Réduite à la flèche et au pourcentage, la mention peut être un peu plus
+     appuyée : elle ne concurrence plus le chiffre, elle le qualifie. */
+  font-size:12px;font-weight:600;white-space:nowrap;
+}
+
+/* ---- Indicateur de CLIC ---- */
+/* Rien ne distinguait une tuile qui ouvre un écran d'une tuile inerte. Le
+   curseur ne suffit pas : sur un poste tactile, il n'existe pas. */
+.bento .stat.cliquable{cursor:pointer}
+/* À DROITE, CENTRÉ EN HAUTEUR — la place qu'il occupe sur le modèle fourni.
+   Discret au repos : il indique qu'on peut ouvrir, il ne réclame pas le regard. */
+.stat-clic{
+  grid-area:chevron;
+  display:grid;place-items:center;width:22px;height:22px;
+  color:#93a3b2;
+  opacity:.85;transition:color .18s ease,transform .18s ease,opacity .18s ease;
+}
+.bento .stat.cliquable:hover{
+  transform:translateY(-2px);
+  background:rgba(255,255,255,.86);
+  box-shadow:0 16px 36px rgba(15,35,55,.18),inset 0 1px 0 rgba(255,255,255,1);
+}
+.bento .stat.cliquable:hover .stat-clic{opacity:1;color:var(--teinte,var(--accent));transform:translateX(3px)}
+.bento .stat.cliquable:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+
+/* ---- Indicateur de CROISSANCE ---- */
+.evo{
+  display:inline-flex;align-items:center;gap:5px;align-self:flex-start;
+  margin-top:9px;padding:2px 9px 2px 6px;border-radius:999px;
+  font-size:11.5px;font-weight:600;letter-spacing:.01em;
+}
+/* (Règle retirée le 2026-09-11 : elle sortait l'évolution du flux en
+   `position:absolute` et la ligne débordait SOUS la tuile, la grille ne lui
+   réservant plus de hauteur. L'évolution occupe désormais sa propre rangée,
+   définie plus haut par `grid-area:evo`.) */
+.evo-hausse{color:var(--ok);background:var(--ok-soft)}
+.evo-baisse{color:var(--warn);background:var(--warn-soft)}
+.evo-stable{color:var(--muted);background:rgba(92,107,122,.12)}
+/* Dans le bento, pas de fond : seule la couleur du texte porte le sens. */
+.bento .evo-hausse{color:#1f7a5c;background:none}
+.bento .evo-baisse{color:#8a4b1c;background:none}
+.bento .evo-stable,.bento .evo-neuf{color:#6b7a89;background:none}
+/* La PART de la file : gris sobre, sans flèche — ce n'est pas un mouvement,
+   c'est un poids. La confondre avec une évolution serait pire que rien. */
+.evo-part{color:#6b7a89;background:none;font-weight:500}
+.bento .evo-part svg{opacity:.7}
+/* « nouveau » : la période précédente était à zéro, aucun pourcentage n'est
+   calculable. Dire « nouveau » vaut mieux qu'afficher « +∞ % ». */
+.evo-neuf{color:var(--accent);background:var(--accent-soft);padding:2px 9px}
+
+@media (prefers-reduced-motion:reduce){
+  .bento .stat,.stat-clic{transition:none}
+  .bento .stat.cliquable:hover{transform:none}
+}
+@supports not ((backdrop-filter:blur(2px)) or (-webkit-backdrop-filter:blur(2px))){
+  .bento .stat{background:rgba(255,255,255,.95)}
+}
+
+
+/* ============ CRÉER UN CAMION — 2026-09-11 ==============================
+ *
+ * Mêmes matériaux que le tableau de bord : carte de verre, coins arrondis,
+ * champs translucides. Et un EN-TÊTE ILLUSTRÉ qui raconte le geste — là où
+ * l'écran de connexion montre un suivi (un camion qui tourne), celui-ci montre
+ * une CRÉATION : le camion entre dans le cercle, puis un « + » apparaît.
+ *
+ * Un cycle de 5 s, volontairement lent : cet écran s'ouvre plusieurs fois par
+ * heure, une animation vive y deviendrait vite agaçante.
+ * ====================================================================== */
+.ecran-creer{
+  --creer-cycle:5s;
+  margin:-20px -24px;padding:22px 24px 28px;
+  background:
+    radial-gradient(760px 380px at 6% -6%, rgba(14,90,138,.14), transparent 62%),
+    radial-gradient(620px 360px at 98% 96%, rgba(31,122,92,.10), transparent 62%),
+    var(--bg);
+  min-height:calc(100vh - 96px);
+}
+.ecran-creer .card{
+  border-radius:20px;
+  border:1px solid rgba(255,255,255,.8);
+  background:rgba(255,255,255,.80);
+  backdrop-filter:blur(20px) saturate(165%);
+  -webkit-backdrop-filter:blur(20px) saturate(165%);
+  box-shadow:0 12px 34px rgba(15,35,55,.12),inset 0 1px 0 rgba(255,255,255,.95);
+  padding:20px 22px 22px;
+}
+
+/* La carte est CENTRÉE dans l'écran (demande utilisateur) : un formulaire court
+   n'a pas de raison de se coller à gauche d'une page large. */
+.ecran-creer .card{margin-left:auto;margin-right:auto}
+
+/* ---- L'en-tête illustré : logo EN HAUT, tout centré ---- */
+.creer-entete{
+  display:flex;flex-direction:column;align-items:center;text-align:center;
+  gap:12px;margin-bottom:14px;
+}
+.creer-entete h2{margin:0;font-size:18px}
+.creer-entete .help{margin:0;font-size:13px;line-height:1.55;color:#546373;max-width:40ch}
+
+/* Agrandi le 2026-09-11 : 86 → 108 px. L'anneau garde le même retrait, les
+   deux pastilles restent accrochées à ses bords. */
+.creer-logo{position:relative;width:108px;height:108px;flex:0 0 auto;display:grid;place-items:center}
+.creer-logo .logo-rond{position:relative;z-index:1;width:80px;height:80px}
+
+/* L'anneau d'accueil, en pointillés : la place qui attend le camion. */
+.creer-piste{
+  position:absolute;inset:4px;border-radius:50%;
+  border:2px dashed rgba(14,90,138,.34);
+  animation:creer-tourne 22s linear infinite;
+}
+@keyframes creer-tourne{to{transform:rotate(360deg)}}
+/* L'onde de confirmation, qui part au moment où le « + » paraît. */
+.creer-onde{
+  position:absolute;inset:4px;border-radius:50%;
+  border:2px solid rgba(31,122,92,.55);
+  opacity:0;
+  animation:creer-onde var(--creer-cycle) ease-out infinite;
+}
+@keyframes creer-onde{
+  0%,48%{transform:scale(.9);opacity:0}
+  56%{opacity:.6}
+  100%{transform:scale(1.3);opacity:0}
+}
+
+/* LE CAMION ENTRE : il arrive par la gauche et se range au bord du cercle. */
+.creer-camion{
+  position:absolute;left:-6px;top:50%;z-index:2;
+  width:28px;height:28px;border-radius:50%;
+  background:var(--accent);color:#fff;
+  display:grid;place-items:center;
+  box-shadow:0 2px 7px rgba(0,0,0,.25);
+  animation:creer-arrivee var(--creer-cycle) ease-out infinite;
+}
+@keyframes creer-arrivee{
+  0%{transform:translate(-70px,-50%);opacity:0}
+  14%{opacity:1}
+  38%,86%{transform:translate(0,-50%);opacity:1}
+  100%{transform:translate(0,-50%);opacity:0}
+}
+/* PUIS LE « + » : la création est actée. */
+.creer-plus{
+  position:absolute;right:-2px;bottom:2px;z-index:2;
+  width:24px;height:24px;border-radius:50%;
+  background:var(--ok);color:#fff;
+  display:grid;place-items:center;
+  box-shadow:0 2px 7px rgba(0,0,0,.25);
+  animation:creer-plus var(--creer-cycle) cubic-bezier(.3,1.5,.5,1) infinite;
+}
+@keyframes creer-plus{
+  0%,46%{transform:scale(0);opacity:0}
+  58%,86%{transform:scale(1);opacity:1}
+  100%{transform:scale(.7);opacity:0}
+}
+
+/* ---- Champs et libellés ---- */
+.ecran-creer label.help{
+  font-size:10.5px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;
+  color:#64737f;margin-top:14px;
+}
+.ecran-creer input,
+.ecran-creer select{
+  border-radius:12px;padding:11px 13px;font-size:14.5px;
+  background:rgba(255,255,255,.86);
+  border:1px solid rgba(15,45,70,.16);
+  box-shadow:inset 0 1px 2px rgba(15,35,55,.05);
+  transition:border-color .16s ease,box-shadow .2s ease,background .2s ease;
+}
+.ecran-creer select{
+  appearance:none;-webkit-appearance:none;padding-right:34px;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%230e5a8a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right 11px center;background-size:15px;
+}
+.ecran-creer input:focus,
+.ecran-creer select:focus{
+  outline:none;background:#fff;border-color:var(--accent);
+  box-shadow:0 0 0 3px rgba(14,90,138,.17);
+}
+/* L'aide sous le champ : une précision, pas une consigne — d'où le gris. */
+.ecran-creer .card > div > .help,
+.ecran-creer div > div.help{font-size:12px;color:#6b7a89;margin-top:5px}
+
+/* ---- Le mot d'accueil, en pied de carte ---- */
+.creer-mot{margin:20px 0 0;padding-top:4px}
+
+/* ---- Le bouton : BLANC AU SURVOL (demande utilisateur) ---- */
+.ecran-creer button{
+  border-radius:999px;padding:11px 22px;font-weight:600;letter-spacing:.01em;
+  background:linear-gradient(180deg,var(--accent),#0b4870);
+  border:1px solid rgba(255,255,255,.35);
+  box-shadow:0 6px 18px rgba(14,90,138,.26),inset 0 1px 0 rgba(255,255,255,.4);
+  transition:background .2s ease,color .2s ease,border-color .2s ease,transform .15s ease,box-shadow .2s ease;
+}
+.ecran-creer button:hover:not(:disabled){
+  background:#fff;color:var(--accent);border-color:var(--accent);
+  transform:translateY(-1px);
+  box-shadow:0 10px 26px rgba(15,35,55,.18);
+}
+.ecran-creer button:active:not(:disabled){transform:translateY(0)}
+.ecran-creer button:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+
+/* ---- LA SCENE D'ARRIVEE, sous la carte (2026-09-12) -------------------
+ *
+ * Une BANDE BASSE, pas un decor : le cadrage `meet` fait tenir la scene dans
+ * la largeur de la carte, et les 120 px de hauteur laissent au-dessus du
+ * dessin le creux ou la barriere levee vient se loger - sans quoi elle
+ * debordait de 13 px sur la carte.
+ *
+ * UN SEUL cycle (`--pia-cycle`) commande le camion ET la barriere : c'est ce
+ * qui les tient synchronises. Les pourcentages ci-dessous se lisent ensemble.
+ *   0 -> 24 %   le camion remonte la route et s'arrete au poste
+ *  24 -> 34 %   controle a l'arret ; la barriere se leve a partir de 27 %
+ *  34 -> 74 %   il franchit le portail et SORT DU CADRE par la droite
+ *  74 -> 100 %  barriere refermee, voie libre avant le camion suivant
+ */
+.entree-pia{
+  --pia-cycle:11s;
+  max-width:520px;margin:14px auto 0;height:120px;
+  pointer-events:none;
+}
+/* `hidden` et non `visible` : le camion doit SORTIR DU CADRE, pas flotter sur
+   la page une fois passe le bord. C'est ce debordement qui donnait l'impression
+   qu'il s'arretait puis disparaissait. */
+.entree-pia svg{display:block;width:100%;height:100%;overflow:hidden}
+
+.pia-camion{animation:pia-camion var(--pia-cycle) infinite}
+@keyframes pia-camion{
+  0%{transform:translateX(-190px);animation-timing-function:cubic-bezier(.3,0,.35,1)}
+  24%,34%{transform:translateX(215px);animation-timing-function:cubic-bezier(.45,0,.55,1)}
+  74%,100%{transform:translateX(700px)}
+}
+
+/* La barriere pivote sur son pied. `view-box` : le repere est celui du dessin,
+   pas la boite de la barre - sans quoi elle tournerait autour de son centre. */
+.pia-barriere{
+  transform-box:view-box;transform-origin:336px 73.5px;
+  animation:pia-barriere var(--pia-cycle) infinite;
+}
+@keyframes pia-barriere{
+  0%,27%{transform:rotate(0deg);animation-timing-function:cubic-bezier(.34,1.2,.5,1)}
+  33%,58%{transform:rotate(-74deg);animation-timing-function:ease-in}
+  64%,100%{transform:rotate(0deg)}
+}
+
+/* Le temoin du poste : il ne clignote que pendant le controle. */
+.pia-temoin{animation:pia-temoin var(--pia-cycle) steps(1,end) infinite}
+@keyframes pia-temoin{
+  0%,23%{opacity:.25}
+  24%,26%{opacity:1}27%,29%{opacity:.25}30%,32%{opacity:1}
+  33%,100%{opacity:.25}
+}
+
+@media (prefers-reduced-motion:reduce){
+  .pia-camion,.pia-barriere,.pia-temoin{animation:none}
+  .pia-camion{transform:translateX(215px)}
+  .pia-barriere{transform:rotate(-74deg)}
+}
+
+@media (prefers-reduced-motion:reduce){
+  .creer-piste,.creer-onde,.creer-camion,.creer-plus{animation:none}
+  .creer-camion,.creer-plus{opacity:1;transform:translate(0,-50%)}
+  .creer-plus{transform:none}
+  .ecran-creer button,.ecran-creer input,.ecran-creer select{transition:none}
+}
+
+
+/* ============ FINITIONS GÉNÉRALES — 2026-09-11 ==========================
+ *
+ * Le traitement mis au point sur le tableau de bord, étendu à TOUS les écrans
+ * (demande utilisateur). Deux principes ont guidé le dosage :
+ *
+ *  1. LA DENSITÉ RESTE. Ces écrans servent à saisir vite : on arrondit, on
+ *     soigne les états, on ne gonfle pas les espacements. Un formulaire de
+ *     douane n'est pas une page d'accueil.
+ *  2. LE FLOU COÛTE CHER. `backdrop-filter` est calculé par le processeur
+ *     graphique à chaque image ; multiplié par les dizaines de surfaces d'un
+ *     écran de rapport, il se sent sur un poste modeste — et les postes du port
+ *     ne sont pas des stations de travail. Il est donc réservé aux CARTES et
+ *     aux TABLEAUX, jamais posé sur chaque champ.
+ * ====================================================================== */
+
+/* ---- Cartes ---- */
+.card{
+  border-radius:16px;
+  border:1px solid rgba(255,255,255,.7);
+  background:rgba(255,255,255,.88);
+  backdrop-filter:blur(14px) saturate(150%);
+  -webkit-backdrop-filter:blur(14px) saturate(150%);
+  box-shadow:0 6px 22px rgba(15,35,55,.09),inset 0 1px 0 rgba(255,255,255,.9);
+}
+.card h2{font-size:15.5px;letter-spacing:.005em}
+
+/* ---- Champs de saisie ----
+   Pas de flou ici : un champ se lit et se remplit, il n'a pas à être une
+   plaque de verre — et c'est autant de calcul épargné. */
+input,select,textarea{
+  border-radius:10px;
+  padding:9px 12px;
+  border:1px solid rgba(15,45,70,.16);
+  box-shadow:inset 0 1px 2px rgba(15,35,55,.04);
+  transition:border-color .15s ease,box-shadow .18s ease,background .18s ease;
+}
+input:hover:not(:disabled),select:hover:not(:disabled),textarea:hover:not(:disabled){
+  border-color:rgba(15,45,70,.3);
+}
+input:focus,select:focus,textarea:focus{
+  outline:none;border-color:var(--accent);
+  box-shadow:0 0 0 3px rgba(14,90,138,.16),inset 0 1px 2px rgba(15,35,55,.04);
+}
+select{
+  appearance:none;-webkit-appearance:none;padding-right:32px;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%230e5a8a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right 10px center;background-size:14px;
+}
+/* Les libellés deviennent des étiquettes, comme sur le tableau de bord. */
+label.help{
+  font-size:10.5px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;
+  color:#64737f;
+}
+
+/* ---- Boutons ---- */
+button{
+  border-radius:999px;
+  padding:9px 18px;
+  font-weight:600;letter-spacing:.01em;
+  transition:background .18s ease,color .18s ease,border-color .18s ease,box-shadow .2s ease,transform .14s ease;
+}
+/* ⚠ `.burger` et `.repli` portent leur PROPRE fond (trois traits nus, chevron
+   de repli). Sans ces exclusions, la règle générale — écrite plus bas dans le
+   fichier — les repeignait en pastille bleue pleine. C'est le piège classique
+   d'un style global ajouté après coup : il rattrape les exceptions déjà
+   réglées. */
+button:not(.ghost):not(.burger):not(.repli):not(.bm-action):not(.bm-retour):not(.btn-export):not(.acte):not(.hubitem):not(.nm-onglet):not(.seg-choix):not(:disabled){
+  background:linear-gradient(180deg,var(--accent),#0b4870);
+  border-color:transparent;
+  box-shadow:0 4px 14px rgba(14,90,138,.24),inset 0 1px 0 rgba(255,255,255,.35);
+}
+/* BLANC AU SURVOL, comme sur l'écran de création : la même règle partout. */
+button:not(.ghost):not(.hubitem):not(.nm-onglet):not(.bm-retour):not(.seg-choix):hover:not(:disabled){
+  background:#fff;color:var(--accent);border-color:var(--accent);
+  transform:translateY(-1px);
+  box-shadow:0 8px 22px rgba(15,35,55,.16);
+}
+button.ghost:hover:not(:disabled){
+  background:#fff;border-color:var(--accent);
+  transform:translateY(-1px);box-shadow:0 6px 18px rgba(15,35,55,.12);
+}
+button:active:not(:disabled){transform:translateY(0)}
+/* Une icone posee dans un bouton retombait sur la ligne de base du texte et
+   pendait de 3 px. On la recale sans passer les boutons en flex (ce qui
+   casserait les boutons deja en place). */
+button > .ic{vertical-align:-3px;margin-right:4px}
+button.acte > .ic,button.burger > .ic{vertical-align:middle;margin-right:0}
+button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+/* `button.xs` fixait son propre rayon de 4 px, et sa spécificité l'emportait
+   sur la règle générale quel que soit l'ordre du fichier. On le redéclare ici. */
+button.xs{padding:4px 11px;font-size:12px;border-radius:999px}
+.burger,.repli{padding:0;box-shadow:none}
+.burger{border-radius:50%}
+.repli{border-radius:8px}
+
+/* ---- Tableaux ---- */
+.tbl{
+  border-radius:14px;
+  border:1px solid rgba(15,45,70,.10);
+  background:rgba(255,255,255,.9);
+  backdrop-filter:blur(12px) saturate(140%);
+  -webkit-backdrop-filter:blur(12px) saturate(140%);
+  box-shadow:0 6px 20px rgba(15,35,55,.08);
+}
+th{background:rgba(243,246,248,.85);letter-spacing:.06em}
+tr.clk:hover{background:rgba(14,90,138,.06)}
+
+/* ---- Bandeaux et messages ---- */
+.bandeau{border-radius:12px}
+.modal{border-radius:18px}
+.toast{border-radius:12px}
+.stat{border-radius:14px}
+
+@media (prefers-reduced-motion:reduce){
+  input,select,textarea,button{transition:none}
+  button:hover:not(:disabled){transform:none}
+}
+
+/* Repli sans `backdrop-filter` : surfaces opaques plutôt qu'un voile laiteux. */
+@supports not ((backdrop-filter:blur(2px)) or (-webkit-backdrop-filter:blur(2px))){
+  .card{background:#fff}
+  .tbl{background:#fff}
+}
+
+/* ---- Les textes d'aide ------------------------------------------------
+ *
+ * `.help` sert 250 fois dans l'application — explications d'écran, précisions
+ * sous un champ, notes de bas de carte — et SEULE la variante `label.help`
+ * était stylée. Partout ailleurs, ces textes héritaient du corps : 15 px, encre
+ * pleine, c'est-à-dire exactement le poids des données qu'ils commentent.
+ *
+ * Ils passent en 12,5 px gris. Rien d'autre : pas d'encadré, pas de fond. Ces
+ * blocs sont de natures trop différentes — une note de trois lignes et une
+ * précision de quatre mots sous un champ — pour recevoir le même traitement
+ * décoratif. Seul le tableau de bord, où la note d'en-tête est longue et
+ * isolée, garde son encadré (règle plus spécifique, définie plus haut).
+ *
+ * `label.help` conserve sa propre mise en forme : sa spécificité l'emporte.
+ */
+.help{font-size:12.5px;line-height:1.55;color:var(--muted)}
+.help b{color:var(--ink);font-weight:600}
+
+
+/* ============ FICHE CARGAISON — 2026-09-11 ==============================
+ *
+ * Trois ajouts : une pastille d'identité en tête, un PARCOURS illustré où
+ * chaque poste porte son icône et sa couleur, et un bouton de retour court.
+ * ====================================================================== */
+
+/* ---- Pastille d'en-tête : camion ou véhicule ---- */
+.tete-pastille{
+  flex:0 0 auto;display:grid;place-items:center;
+  width:48px;height:48px;border-radius:15px;
+  color:var(--accent);
+  background:linear-gradient(160deg,rgba(14,90,138,.16),rgba(14,90,138,.07));
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.8);
+}
+
+/* ---- Bouton de retour, court ---- */
+.btn-retour{
+  display:inline-flex;align-items:center;gap:7px;
+  padding:8px 16px 8px 13px;
+}
+.btn-retour svg{transition:transform .16s ease}
+/* SIGNAL LUMINEUX BLEU au survol (2026-09-11) : un halo diffus, doublé d'un
+   anneau net. Le halo se voit de loin, l'anneau dit précisément où s'arrête le
+   bouton — seul, le halo rendrait le contour flou et la cible imprécise. */
+.btn-retour:hover:not(:disabled){
+  box-shadow:0 0 0 4px rgba(14,90,138,.16),
+             0 0 20px rgba(14,90,138,.42),
+             0 6px 18px rgba(15,35,55,.14);
+  border-color:var(--accent);
+}
+.btn-retour:hover svg{transform:translateX(-3px)}
+
+/* ---- Le parcours ------------------------------------------------------
+ *
+ * La pastille porte l'ICÔNE du poste, plus un numéro : on reconnaît l'étape
+ * avant de lire son nom. Une étape FAITE s'allume de sa couleur avec un halo ;
+ * l'étape COURANTE respire lentement ; une étape non faite sur un dossier déjà
+ * sorti reste grise et barrée d'un tiret — elle ne se fera plus.
+ *
+ * Un seul élément bat à la fois. Un parcours où tout clignote ne désigne rien.
+ */
+.timeline .tl .dot{
+  width:34px;height:34px;border-radius:50%;
+  border:2px solid rgba(15,45,70,.16);
+  background:#fff;color:#94a3b0;
+  display:grid;place-items:center;
+  transition:box-shadow .25s ease,border-color .25s ease,color .25s ease,background .25s ease;
+}
+/* ÉTAPE FAITE : couleur du poste + halo lumineux. */
+.timeline .tl.done .dot{
+  background:var(--teinte,var(--accent));
+  border-color:var(--teinte,var(--accent));
+  color:#fff;
+  box-shadow:0 0 0 5px color-mix(in srgb,var(--teinte,var(--accent)) 14%,transparent),
+             0 5px 16px color-mix(in srgb,var(--teinte,var(--accent)) 45%,transparent);
+}
+/* ÉTAPE COURANTE : contour de la couleur du poste, et une respiration. */
+.timeline .tl.courante .dot{
+  border-color:var(--teinte,var(--accent));
+  color:var(--teinte,var(--accent));
+  animation:tl-respire 2.4s ease-in-out infinite;
+}
+@keyframes tl-respire{
+  0%,100%{box-shadow:0 0 0 0 color-mix(in srgb,var(--teinte,var(--accent)) 30%,transparent)}
+  50%{box-shadow:0 0 0 7px color-mix(in srgb,var(--teinte,var(--accent)) 6%,transparent)}
+}
+/* ÉTAPE MANQUÉE sur dossier clos : elle ne se fera plus, on ne l'allume pas. */
+.timeline .tl.manque .dot{border-style:dashed;color:var(--warn);border-color:rgba(180,83,31,.5)}
+
+.timeline .tl .bar{width:2px;background:rgba(15,45,70,.13);margin:3px auto;flex:1;border-radius:2px}
+/* Le trait qui suit une étape faite prend sa couleur : le chemin parcouru se
+   lit d'un coup d'œil, sans compter les pastilles. */
+.timeline .tl.done .bar{background:color-mix(in srgb,var(--teinte,var(--accent)) 55%,transparent)}
+.timeline .tl .body{padding-bottom:16px}
+.timeline .tl .body .t{font-weight:600;font-size:14px}
+.timeline .tl.done .body .t{color:var(--ink)}
+.timeline .tl.wait .body .t{color:#5c6b7a}
+
+@media (prefers-reduced-motion:reduce){
+  .timeline .tl.courante .dot{animation:none;box-shadow:0 0 0 4px color-mix(in srgb,var(--teinte,var(--accent)) 14%,transparent)}
+  .timeline .tl .dot,.btn-retour svg{transition:none}
+}
+
+
+/* ---- Titres de panneau avec pastille ----------------------------------- */
+.titre-panneau{
+  display:flex;align-items:center;gap:11px;
+  margin:0 0 12px;font-size:15.5px;
+}
+.tp-pastille{
+  flex:0 0 auto;display:grid;place-items:center;
+  width:34px;height:34px;border-radius:11px;
+  color:var(--teinte,var(--accent));
+  background:color-mix(in srgb,var(--teinte,var(--accent)) 13%,#fff);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.85);
+}
+
+/* ---- CORRECTIF : libellés de cases à cocher et de boutons radio ---------
+ *
+ * La règle générale met `label.help` en PETITES CAPITALES — juste pour un
+ * libellé de champ posé au-dessus d'une zone de saisie. Mais la même classe
+ * sert aussi à envelopper une case à cocher, et « NUMÉRO T1 CORRECT » en
+ * capitales grises de 10,5 px se lisait mal et sonnait comme un en-tête, alors
+ * que c'est une QUESTION à laquelle l'agent répond.
+ *
+ * `:has()` distingue les deux cas sans toucher au code : un libellé qui
+ * CONTIENT un champ reste en casse normale, lisible, avec sa case alignée.
+ */
+label.help:has(input[type="checkbox"]),
+label.help:has(input[type="radio"]){
+  display:inline-flex;align-items:center;gap:8px;
+  text-transform:none;letter-spacing:0;
+  font-size:13.5px;font-weight:500;color:var(--ink);
+  margin:0;cursor:pointer;
+}
+label.help:has(input[type="checkbox"]):hover,
+label.help:has(input[type="radio"]):hover{color:var(--accent)}
+/* Les cases prennent la couleur de l'application plutôt que le bleu système. */
+input[type="checkbox"],input[type="radio"]{
+  accent-color:var(--accent);
+  width:17px;height:17px;flex:0 0 auto;
+  box-shadow:none;border:0;padding:0;
+}
+
+
+/* ---- En-tête d'écran illustré ------------------------------------------
+ *
+ * Pastille de l'étape + titre + compteur. Reprise sur les écrans de liste et
+ * sur « À valider » : la pastille y porte l'icône de l'écran — celle du menu —
+ * et la teinte du poste filtré, s'il y en a un.
+ *
+ * Le COMPTEUR n'est pas décoratif : « À compléter (CFS) » ne disait pas s'il
+ * restait trois dossiers ou trois cents, et c'est la première chose qu'un agent
+ * veut savoir en ouvrant l'écran.
+ */
+/* L'en-tête se REPLIE plutôt que de comprimer ses éléments : sur écran étroit,
+   le bouton d'extraction et le compteur se chevauchaient avec le titre — un
+   `flex` sans repli réduit jusqu'au recouvrement au lieu de passer à la ligne. */
+.ecran-tete{
+  display:flex;align-items:center;gap:13px;flex-wrap:wrap;
+  margin:0 0 14px;
+}
+.ecran-tete h2{flex:1 1 160px}
+.ecran-tete h2{font-size:16px}
+.tete-compteur{
+  flex:0 0 auto;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  min-width:62px;padding:6px 12px;border-radius:13px;
+  font-size:19px;font-weight:700;line-height:1.1;
+  color:var(--teinte,var(--accent));
+  background:color-mix(in srgb,var(--teinte,var(--accent)) 11%,#fff);
+  border:1px solid color-mix(in srgb,var(--teinte,var(--accent)) 22%,transparent);
+}
+.tete-compteur small{
+  display:block;font-size:9.5px;font-weight:600;letter-spacing:.06em;
+  text-transform:uppercase;color:var(--muted);margin-top:2px;
+}
+
+/* Libellé de champ portant une icône : elle dit la NATURE de ce qu'on attend —
+   un camion, un conteneur — là où deux champs voisins se ressemblent. Les
+   petites capitales du libellé sont conservées ; seule l'icône s'aligne. */
+label.help.lbl-icone{display:inline-flex;align-items:center;gap:6px}
+label.help.lbl-icone svg{color:var(--accent);flex:0 0 auto}
+
+/* Référence de camion ou de conteneur dans un tableau. Deux teintes, parce que
+   deux natures : le BLEU de l'application pour un conteneur, l'ardoise pour une
+   plaque. La distinction se perçoit même sans lire, en balayant la colonne. */
+.num-mobile{display:inline-flex;align-items:center;gap:7px;white-space:nowrap}
+.num-mobile svg{flex:0 0 auto}
+.num-mobile.est-conteneur svg{color:var(--accent)}
+.num-mobile.est-camion svg{color:#6b7a89}
+/* Le vehicule depote : ni camion ni conteneur, d'ou sa couleur propre. */
+.num-mobile.est-vehicule svg{color:#1f7a5c}
+
+/* ---- Rapports de cellule ----------------------------------------------
+ *
+ * Les tuiles d'un rapport reprennent la teinte du poste, et celles qui ouvrent
+ * un détail portent le chevron déjà utilisé sur le tableau de bord. Les
+ * boutons d'export retrouvent une icône plutôt que le caractère « ⤓ », dont le
+ * dessin variait d'un poste à l'autre.
+ */
+.stat{position:relative}
+.et-cfs .stat.et-cfs,.et-t1 .stat.et-t1,.et-balise .stat.et-balise,
+.et-bs .stat.et-bs,.et-pp .stat.et-pp{border-left-color:var(--teinte)}
+.stat.cliquable{cursor:pointer;transition:transform .15s ease,box-shadow .2s ease,background .2s ease}
+.stat.cliquable:hover{transform:translateY(-2px);box-shadow:0 12px 28px rgba(15,35,55,.14)}
+.stat.cliquable:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.stat .stat-clic{position:absolute;top:11px;right:11px;left:auto;bottom:auto;transform:none}
+.stat.cliquable:hover .stat-clic{opacity:1;color:var(--teinte,var(--accent));transform:translateX(2px)}
+
+/* Le bouton d'extraction, en tête de liste : contour plutôt que plein — c'est
+   un geste secondaire, il ne doit pas peser autant que le contenu de l'écran. */
+.btn-export{
+  display:inline-flex;align-items:center;gap:7px;flex:0 0 auto;
+  padding:8px 15px;font-size:13px;
+  background:rgba(255,255,255,.8);color:var(--accent);
+  border:1px solid rgba(14,90,138,.32);
+  box-shadow:0 2px 8px rgba(15,35,55,.07);
+  transition:background .18s ease,border-color .18s ease,transform .14s ease,box-shadow .2s ease;
+}
+.btn-export:hover:not(:disabled){
+  background:#fff;border-color:var(--accent);
+  transform:translateY(-1px);
+  box-shadow:0 0 0 3px rgba(14,90,138,.14),0 0 16px rgba(14,90,138,.30),0 6px 16px rgba(15,35,55,.12);
+}
+.btn-export svg{flex:0 0 auto}
+@media (prefers-reduced-motion:reduce){ .btn-export{transition:none} .btn-export:hover{transform:none} }
+
+@media (prefers-reduced-motion:reduce){
+  .stat.cliquable{transition:none}
+  .stat.cliquable:hover{transform:none}
+}
+
+
+/* ============ GRAPHIQUES — verre — 2026-09-11 ===========================
+ *
+ * La zone de tracé devient une plaque translucide posée sur la carte. C'est
+ * l'un des rares endroits où le verre SERT à quelque chose : il détache l'aire
+ * du graphique du reste de la carte sans tracer de cadre — un cadre autour d'un
+ * graphique ajoute une ligne qui n'est pas de la donnée.
+ *
+ * ⚠ Le verre s'arrête à l'ENVELOPPE. Les barres, les courbes et les points
+ * gardent leur opacité pleine : rendre les marques translucides fausserait leur
+ * couleur là où elles se croisent, et la palette a justement été validée sur
+ * ses valeurs exactes.
+ */
+.graphique{
+  border-radius:16px;
+  padding:10px 6px 4px;
+  background:linear-gradient(160deg,rgba(255,255,255,.62),rgba(255,255,255,.34));
+  backdrop-filter:blur(16px) saturate(150%);
+  -webkit-backdrop-filter:blur(16px) saturate(150%);
+  border:1px solid rgba(255,255,255,.75);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.9),0 6px 20px rgba(15,35,55,.07);
+}
+.graphique svg{display:block;overflow:visible}
+
+/* Légende : des pilules de verre, et la série isolée s'allume de sa couleur. */
+.graphique .ghost.xs{
+  border-radius:999px;
+  background:rgba(255,255,255,.72);
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
+  box-shadow:0 2px 8px rgba(15,35,55,.07);
+  transition:transform .15s ease,box-shadow .2s ease,opacity .2s ease,border-color .2s ease;
+}
+.graphique .ghost.xs:hover:not(:disabled){
+  transform:translateY(-1px);
+  box-shadow:0 6px 16px rgba(15,35,55,.14);
+}
+.graphique .ghost.xs[aria-pressed="true"]{
+  background:#fff;
+  box-shadow:0 4px 14px rgba(15,35,55,.16);
+}
+
+@media (prefers-reduced-motion:reduce){
+  .graphique .ghost.xs{transition:none}
+  .graphique .ghost.xs:hover{transform:none}
+}
+@supports not ((backdrop-filter:blur(2px)) or (-webkit-backdrop-filter:blur(2px))){
+  .graphique{background:rgba(255,255,255,.72)}
+}
+
+
+/* ============ CHOIX SEGMENTE - 2026-09-12 ==============================
+ *
+ * Deux boutons accoles, et un VOYANT sur chacun. Le choix se lit deux fois :
+ * par le remplissage du bouton, et par le voyant qui s'allume. C'est ce
+ * doublon qui le rend lisible sur un ecran au soleil, ou un simple aplat de
+ * couleur se devine mal - et le poste de balise travaille dehors.
+ */
+.segmente{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0}
+/* Une valeur precedee de son dessin, dans un tableau : l'icone ne pousse pas
+   la colonne, elle se pose devant la valeur et ne se coupe jamais. */
+.val-illustree{display:inline-flex;align-items:center;gap:8px;min-width:0}
+.val-illustree svg{flex:0 0 auto;color:var(--accent);opacity:.8}
+.val-illustree > span{overflow:hidden;text-overflow:ellipsis}
+.seg-choix{
+  display:inline-flex;align-items:center;gap:9px;
+  padding:9px 16px;border-radius:999px;cursor:pointer;
+  font-size:13.5px;font-weight:600;
+  color:var(--muted);
+  background:rgba(255,255,255,.86);
+  border:1px solid rgba(15,45,70,.16);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.9);
+  transition:color .18s ease,background .18s ease,border-color .18s ease,
+    box-shadow .22s ease,transform .15s ease;
+}
+.seg-choix:hover{background:#fff;border-color:rgba(14,90,138,.4);color:var(--accent)}
+.seg-choix:active{transform:translateY(1px)}
+.seg-choix:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+/* LE VOYANT. Eteint : un point gris mat, sans halo - il doit se lire comme
+   eteint, pas comme une couleur pale. Allume : il s'eclaire et diffuse. */
+.seg-voyant{
+  flex:0 0 auto;width:10px;height:10px;border-radius:50%;
+  background:#c3cdd6;
+  box-shadow:inset 0 1px 1px rgba(0,0,0,.18);
+  transition:background .2s ease,box-shadow .3s ease;
+}
+.seg-choix.actif{
+  color:#fff;
+  background:linear-gradient(160deg,var(--accent),#0b4870);
+  border-color:transparent;
+  box-shadow:0 6px 18px rgba(14,90,138,.3),inset 0 1px 0 rgba(255,255,255,.35);
+}
+.seg-choix.actif .seg-voyant{
+  background:#8fe3ff;
+  box-shadow:0 0 0 3px rgba(143,227,255,.3),0 0 10px 2px rgba(143,227,255,.9);
+}
+.seg-choix.actif:hover{
+  background:#fff;color:var(--accent);border-color:var(--accent);
+}
+.seg-choix.actif:hover .seg-voyant{
+  background:var(--accent);
+  box-shadow:0 0 0 3px rgba(14,90,138,.18),0 0 10px 2px rgba(14,90,138,.6);
+}
+@media (prefers-reduced-motion:reduce){
+  .seg-choix,.seg-voyant{transition:none}
+  .seg-choix:active{transform:none}
+}
+
+/* ---- L'ACTE DE SIGNATURE ----------------------------------------------
+ * Le geste le plus lourd de l'application - il debloque trois cellules d'un
+ * coup et laisse une signature nominative dans le journal. Il porte donc un
+ * bouton plus grand et plus franc que les autres, et un halo qui respire tant
+ * qu'il est disponible : on ne signe pas par megarde, mais on ne doit pas non
+ * plus chercher ou signer. */
+.acte-signer{
+  display:inline-flex;align-items:center;gap:10px;
+  padding:13px 22px;border-radius:999px;
+  font-size:14.5px;font-weight:700;letter-spacing:.01em;
+}
+.acte-signer:not(:disabled){animation:acte-respire 2.8s ease-in-out infinite}
+@keyframes acte-respire{
+  0%,100%{box-shadow:0 6px 18px rgba(14,90,138,.26),inset 0 1px 0 rgba(255,255,255,.4)}
+  50%{box-shadow:0 6px 22px rgba(14,90,138,.34),0 0 0 5px rgba(14,90,138,.10),inset 0 1px 0 rgba(255,255,255,.4)}
+}
+@media (prefers-reduced-motion:reduce){ .acte-signer{animation:none} }
+
+/* ---- L'engagement et son delai, sur une ligne ---- */
+.ligne-engagement{align-items:flex-start;gap:12px;flex-wrap:wrap}
+/* Le menu ne prend plus toute la largeur : ses libelles font vingt caracteres,
+   pas cent. Le delai se pose a cote, au lieu d'etre repousse plus bas. */
+.ch-engagement{flex:1 1 260px;min-width:0;max-width:420px}
+.ch-delai{flex:0 0 auto}
+
+/* ============ FENÊTRES MODALES — verre — 2026-09-11 =====================
+ *
+ * TOUTES les fenêtres qui s'ouvrent par-dessus l'écran : détail d'un rapport,
+ * anti-doublon, nouveau compte, avertissements. Elles partagent `.modal`, donc
+ * une seule règle les couvre.
+ *
+ * Le voile de fond est lui aussi flouté : on garde le contexte — la liste qu'on
+ * vient de quitter reste devinée derrière — sans qu'il concurrence la fenêtre.
+ */
+.overlay{
+  background:rgba(10,24,38,.52);
+  backdrop-filter:blur(7px) saturate(120%);
+  -webkit-backdrop-filter:blur(7px) saturate(120%);
+}
+.modal{
+  border-radius:20px;
+  /* CENTREE, ET LISIBLE - 2026-09-12.
+   *
+   * Deux corrections d'un meme defaut signale a l'usage :
+   *   · la fenetre etait ANCREE EN HAUT (`align-items:flex-start`) et venait se
+   *     serrer contre la barre superieure, avec un grand vide dessous ; elle est
+   *     desormais centree, le voile restant defilable pour les fenetres hautes.
+   *   · son verre etait trop transparent (.88) : pose sur un fond SOMBRE et
+   *     FLOUTE, il laissait remonter le gris du voile et le texte perdait son
+   *     contraste. A .97, la fenetre reste du verre - on devine encore le
+   *     mouvement derriere - mais le texte se lit comme sur du papier.
+   *   Un `backdrop-filter` ne montre QUE ce qu'il a derriere : plus la fenetre
+   *   est transparente, plus elle emprunte la couleur du voile. */
+  /* `margin:auto` AVEC le centrage flex : quand une fenetre depasse la hauteur
+     de l'ecran, `align-items:center` seul la deborde des DEUX cotes et son haut
+     devient inatteignable - on ne peut plus remonter au titre ni au premier
+     champ. Avec `margin:auto`, le navigateur respecte le bord haut et ne
+     deborde que vers le bas, ou le voile defile. */
+  margin:auto;
+  /* LE VERRE, DOSE POUR RESTER LISIBLE.
+     Un degrade plutot qu'un aplat : la lumiere entre par le haut a gauche et
+     la fenetre cesse d'etre un rectangle blanc pose sur du bleu. Les valeurs
+     (.96 -> .90) sont un COMPROMIS MESURE : en dessous, le voile sombre
+     remonte a travers et le texte perd son contraste - un `backdrop-filter`
+     ne montre QUE ce qu'il a derriere. */
+  background:
+    linear-gradient(152deg,rgba(255,255,255,.96) 0%,rgba(247,251,254,.93) 55%,rgba(232,242,249,.90) 100%);
+  backdrop-filter:blur(30px) saturate(180%);
+  -webkit-backdrop-filter:blur(30px) saturate(180%);
+  border:1px solid rgba(255,255,255,.9);
+  box-shadow:
+    0 28px 70px rgba(6,22,36,.40),
+    0 0 0 1px rgba(14,90,138,.08),
+    inset 0 1px 0 #fff,
+    inset 0 -1px 0 rgba(14,90,138,.06);
+  padding:24px 26px;
+}
+/* Le titre de la fenetre : la meme serif que les bandeaux, et un filet dessous
+   qui separe l'annonce du formulaire. */
+.modal h2,.modal .fen-titre{color:#0b3f5f}
+.modal .fen-tete{border-bottom:1px solid rgba(14,90,138,.14);padding-bottom:12px}
+/* EN-TETE CENTRE - 2026-09-12. Une fenetre modale n'a ni colonne de gauche ni
+   fil de lecture : son titre se pose au milieu, la pastille au-dessus, et un
+   filet le separe du formulaire. */
+.modal h2{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:10px;text-align:center;
+  font-size:17px;margin:0 0 16px;padding-bottom:14px;
+  border-bottom:1px solid rgba(14,90,138,.13);
+}
+/* La pastille de titre d'une fenêtre, même famille que celles des panneaux. */
+/* La pastille passe au-dessus du titre et s'arrondit : centree, un carre
+   arrondi de 34 px paraissait pose de travers. */
+.modal .tp-pastille{
+  width:46px;height:46px;border-radius:50%;
+  box-shadow:0 6px 16px rgba(14,90,138,.18),inset 0 1px 0 #fff;
+}
+/* Les fenetres a en-tete SOMBRE (`.fen-tete`) gardent leur mise en page a
+   elles : la regle ci-dessus ne vaut que pour les titres ordinaires. */
+.modal:has(.fen-tete) h2{display:block;text-align:left;border-bottom:0;padding-bottom:0}
+.modal .tbl{background:rgba(255,255,255,.72)}
+
+@supports not ((backdrop-filter:blur(2px)) or (-webkit-backdrop-filter:blur(2px))){
+  .overlay{background:rgba(12,28,42,.6)}
+  .modal{background:#fff}
+}
+
+
+/* ---- Onglets du module magasin ----------------------------------------
+ *
+ * L'onglet ACTIF est bleu plein ; au survol il passe au BLANC, contour bleu —
+ * la même inversion que partout ailleurs dans l'application. L'effet ne se
+ * sentait pas ici parce que ces boutons héritaient de la règle générale sans
+ * transition ni relief propres : c'est le mouvement et l'ombre qui font
+ * percevoir le changement, pas seulement la couleur.
+ */
+.onglet-mag{
+  display:inline-flex;align-items:center;gap:7px;
+  transition:background .18s ease,color .18s ease,border-color .18s ease,
+             transform .15s ease,box-shadow .22s ease;
+}
+.onglet-mag:hover:not(:disabled){
+  background:#fff;color:var(--accent);border-color:var(--accent);
+  transform:translateY(-2px);
+  /* Halo bleu — le même signal que sur le bouton de retour. */
+  box-shadow:0 0 0 3px rgba(14,90,138,.15),
+             0 0 18px rgba(14,90,138,.35),
+             0 8px 20px rgba(15,35,55,.14);
+}
+.onglet-mag:active:not(:disabled){transform:translateY(0)}
+.onglet-mag svg{flex:0 0 auto}
+
+@media (prefers-reduced-motion:reduce){
+  .onglet-mag{transition:none}
+  .onglet-mag:hover{transform:none}
+}
+
+
+/* ---- Bandeau de module (Utilisateurs) ---------------------------------- */
+.bandeau-module{
+  position:relative;overflow:hidden;
+  display:flex;align-items:center;gap:15px;
+  padding:16px 18px;margin-bottom:16px;border-radius:20px;
+  color:#fff;
+  background:linear-gradient(110deg,#0e5a8a 0%,#0b4870 55%,#123c58 100%);
+  box-shadow:0 12px 32px rgba(14,90,138,.30),inset 0 1px 0 rgba(255,255,255,.22);
+}
+/* Deux cercles très pâles en fond : ils donnent de la profondeur au bandeau
+   sans image — et sans un pixel de plus à télécharger. */
+.bandeau-module::after{
+  content:'';position:absolute;right:-40px;top:-70px;width:230px;height:230px;
+  border-radius:50%;background:rgba(255,255,255,.07);pointer-events:none;
+}
+.bm-pastille{
+  flex:0 0 auto;display:grid;place-items:center;
+  width:50px;height:50px;border-radius:50%;
+  background:rgba(255,255,255,.16);color:#fff;
+  border:1px solid rgba(255,255,255,.35);
+}
+.bm-titre{font-family:var(--titre);font-size:19px;font-weight:700;line-height:1.2}
+.bm-sous{font-size:12.5px;color:rgba(255,255,255,.82);margin-top:3px}
+/* Le sous-titre accueille parfois un composant tout fait - le rappel de periode
+   d'un rapport, par exemple - qui porte sa propre classe `.help`. Celle-ci
+   reimposait son gris d'ecran clair : la ligne de dates devenait invisible sur
+   le bleu. Tout ce qui vit dans le sous-titre herite donc de sa couleur. */
+.bm-sous .help,.bm-sous div,.bm-sous b{color:inherit}
+/* L'avertissement du bandeau : `--warn` est calibre pour du texte sombre sur
+   fond clair et vire au brun illisible sur le bleu. Un ambre clair tient le
+   contraste sans crier. */
+.bm-alerte{color:#ffd27a;font-weight:600}
+/* Une note de lecture longue (tableau de bord) reste lisible : on borne la
+   colonne, comme pour tout paragraphe. */
+.bm-sous{max-width:96ch}
+/* ⚠ Exclu de la règle générale des boutons (voir `:not(.bm-action)`) : celle-ci
+   est plus spécifique que cette classe et repeignait le bouton en bleu — donc
+   bleu sur bleu, illisible sur le bandeau. */
+.bm-action{
+  flex:0 0 auto;display:inline-flex;align-items:center;gap:7px;
+  background:#fff;color:var(--accent);border:1px solid #fff;
+  box-shadow:0 4px 14px rgba(6,22,36,.22);
+}
+.bm-action:hover:not(:disabled){
+  background:rgba(255,255,255,.9);color:#0b4870;
+  transform:translateY(-1px);box-shadow:0 8px 22px rgba(6,22,36,.3);
+}
+
+/* ---- LE RETOUR, dans l'angle du bandeau - 2026-09-12 ------------------
+ *
+ * Place AVANT les outils : on quitte l'ecran plus souvent qu'on n'en change le
+ * tri, et l'angle est l'endroit ou la main va. Contour clair sur le bleu, il se
+ * remplit de blanc au survol - avec un halo, le meme signal lumineux que sur les
+ * ecrans clairs, transpose sur fond sombre.
+ *
+ * Exclu de la regle generale des boutons (`:not(.bm-retour)`), qui l'aurait
+ * repeint en bleu : bleu sur bleu, invisible sur le bandeau.
+ */
+.bm-retour{
+  position:relative;z-index:1;
+  flex:0 0 auto;display:inline-flex;align-items:center;gap:7px;
+  padding:9px 15px;border-radius:999px;
+  font-size:13.5px;font-weight:600;cursor:pointer;
+  color:#fff;background:rgba(255,255,255,.14);
+  border:1px solid rgba(255,255,255,.42);
+  backdrop-filter:blur(10px) saturate(140%);
+  -webkit-backdrop-filter:blur(10px) saturate(140%);
+  transition:background .18s ease,color .18s ease,box-shadow .22s ease,transform .15s ease;
+}
+.bm-retour svg{flex:0 0 auto}
+.bm-retour:hover{
+  background:#fff;color:var(--accent);border-color:#fff;
+  transform:translateY(-1px);
+  box-shadow:0 0 0 4px rgba(255,255,255,.22),0 8px 22px rgba(6,22,36,.3);
+}
+.bm-retour:active{transform:translateY(0)}
+.bm-retour:focus-visible{outline:2px solid #fff;outline-offset:3px}
+@media (prefers-reduced-motion:reduce){
+  .bm-retour{transition:none}
+  .bm-retour:hover{transform:none}
+}
+
+/* ---- LE BANDEAU DE SECOURS S'EFFACE DEVANT CELUI DE L'ECRAN ------------
+ *
+ * `App` pose un bandeau pour TOUT ecran. Si l'ecran en fournit un lui-meme -
+ * avec son sous-titre, ses commandes -, c'est le sien qui doit rester : la
+ * regle ci-dessous masque l'automatique des qu'un autre existe dans la page.
+ *
+ * `:has()` fait ici exactement ce pour quoi il est fait : appliquer un style a
+ * un PARENT selon ce qu'il CONTIENT. La solution en JavaScript aurait suppose
+ * que l'application sache, avant de rendre, ce que chaque ecran va rendre -
+ * ce qu'elle ne peut pas savoir.
+ */
+.content:has(.bandeau-module:not(.bm-auto)) .bm-auto{display:none}
+/* Sans `:has()` (navigateur ancien), on prefere DEUX bandeaux a AUCUN : le
+   doublon est disgracieux, l'absence est un ecran sans titre. */
+
+/* ---- TOUS LES BOUTONS DU BANDEAU SUR LA MEME LIGNE ---------------------
+ *
+ * Retour, actions et outils venaient chacun avec sa hauteur : 9 px de marge
+ * ici, 8 px la, la hauteur libre des boutons ordinaires ailleurs. Accoles dans
+ * l'angle, ils formaient un escalier. Une hauteur COMMUNE, posee une fois,
+ * les aligne tous - y compris les menus deroulants et les champs, qui sont
+ * des commandes au meme titre.
+ */
+.bandeau-module{--bm-h:38px}
+.bm-retour,
+.bm-action,
+.bm-outils button,
+.bm-outils select,
+.bm-outils input,
+.bm-outils .btn-export{
+  height:var(--bm-h);
+  padding-top:0;padding-bottom:0;
+  line-height:1;
+  display:inline-flex;align-items:center;justify-content:center;
+  box-sizing:border-box;
+}
+/* Le compteur de dossiers suit la meme hauteur : c'est un jeton, pas un texte
+   qui flotte au milieu des boutons. */
+.bm-outils .tete-compteur{height:var(--bm-h);display:inline-flex;align-items:center}
+.bandeau-module{align-items:center}
+/* LE GROUPE DE DROITE : retour et outils dans UN SEUL flux de repli.
+   `display:contents` sur `.bm-outils` fait remonter ses enfants au niveau de
+   `.bm-droite` : tous les boutons deviennent alors des elements d'UNE meme
+   ligne flexible et se replient ensemble, alignes. Sans lui, `.bm-outils`
+   restait un bloc, et le bouton Retour se centrait sur SA hauteur totale -
+   d'ou le decalage des que les outils passaient sur deux lignes. */
+.bm-droite{
+  position:relative;z-index:1;
+  /* UNE SEULE LIGNE, jamais une colonne (demande utilisateur, 2026-09-12).
+     `flex:0 0 auto` : le groupe ne cede PAS de largeur - c'est le bloc de
+     titre qui se resserre, et du texte se remet sur deux lignes sans dommage
+     la ou un bouton renvoye a la ligne casse l'alignement.
+     `flex-wrap:nowrap` : meme a l'etroit, les boutons restent cote a cote.
+     En dessous de 700 px, la regle du bas de feuille rend le repli - la, c'est
+     tout le groupe qui passe sous le titre, d'un bloc. */
+  flex:0 0 auto;min-width:0;
+  display:flex;flex-wrap:nowrap;align-items:center;
+  justify-content:flex-end;gap:8px;
+}
+.bm-droite > .bm-outils{display:contents}
+/* Le bloc de titre CEDE la place aux commandes. Avec `flex:1` et une base
+   automatique, sa largeur naturelle - titre plus sous-titre - entrait dans le
+   calcul du repli et poussait le dernier bouton a la ligne alors que la place
+   existait. Une base courte le fait plier en premier ; il a de quoi, le texte
+   se remet sur deux lignes, un bouton non. */
+.bm-textes{flex:1 1 220px;min-width:0}
+/* Repli si `display:contents` manque : les outils restent un bloc, mais le
+   retour s'aligne au moins sur leur premiere ligne. */
+@supports not (display:contents){
+  .bm-droite{align-items:flex-start}
+  .bm-droite > .bm-retour{align-self:flex-start}
+}
+/* Les menus deroulants du bandeau : bornes ici plutot qu'en style en ligne,
+   ou chaque ecran fixait sa propre largeur. Ils sont larges dans leur liste
+   deroulee, etroits au repos - c'est le libelle choisi qui s'y lit, pas le
+   plus long de la liste. */
+.bm-outils select{max-width:168px}
+.bm-outils{align-items:center}
+
+/* ---- LES OUTILS DU BANDEAU, dans l'angle droit - 2026-09-12 -----------
+ *
+ * Periode, filtres, exports : tout ce qui COMMANDE l'ecran se range ici, a
+ * droite du titre, au lieu de flotter sur une ligne a part sous la carte.
+ *
+ * Les champs sont repris en verre clair : un `select` laisse a son style
+ * normal serait blanc sur bleu fonce, avec sa fleche bleue invisible. La
+ * fleche est donc redessinee en blanc (data: URI - la CSP interdit toute
+ * ressource tierce), et les `option` reprennent l'encre sombre sur blanc,
+ * sans quoi la liste deroulee serait blanche sur blanc.
+ */
+.bm-outils{
+  position:relative;z-index:1;
+  flex:0 0 auto;display:flex;align-items:center;justify-content:flex-end;
+  gap:8px;flex-wrap:wrap;
+}
+.bm-outils select,
+.bm-outils input{
+  background:rgba(255,255,255,.15);
+  border:1px solid rgba(255,255,255,.36);
+  color:#fff;
+  border-radius:12px;padding:8px 12px;font-size:13px;
+  backdrop-filter:blur(10px) saturate(140%);
+  -webkit-backdrop-filter:blur(10px) saturate(140%);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.18);
+}
+.bm-outils select{
+  appearance:none;-webkit-appearance:none;padding-right:32px;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ffffff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right 10px center;background-size:14px;
+}
+.bm-outils select option{color:#1b2733;background:#fff}
+.bm-outils input[type=date]::-webkit-calendar-picker-indicator{filter:invert(1);opacity:.75}
+.bm-outils select:focus,
+.bm-outils input:focus{
+  outline:none;background:rgba(255,255,255,.24);border-color:#fff;
+  box-shadow:0 0 0 3px rgba(255,255,255,.22);
+}
+.bm-outils .help,
+.bm-outils label{color:rgba(255,255,255,.82);margin:0}
+/* Les boutons d'export du bandeau : contour clair, remplissage au survol. */
+.bm-outils button{
+  background:rgba(255,255,255,.14);color:#fff;
+  border:1px solid rgba(255,255,255,.36);border-radius:12px;
+  padding:8px 12px;font-size:13px;font-weight:600;
+}
+.bm-outils button:hover:not(:disabled){
+  background:#fff;color:var(--accent);border-color:#fff;
+  transform:translateY(-1px);
+}
+/* Desactive : le bouton doit rester LISIBLE tout en se lisant comme inactif.
+   Sans cette regle il retombait sur le style clair des boutons ordinaires et
+   devenait un rectangle delave sur le bleu. */
+.bm-outils button:disabled{
+  background:rgba(255,255,255,.07);color:rgba(255,255,255,.45);
+  border-color:rgba(255,255,255,.2);cursor:not-allowed;
+}
+/* Les indications des champs, sur verre : assez claires pour se lire, assez
+   discretes pour ne pas passer pour une valeur saisie. */
+.bm-outils input::placeholder{color:rgba(255,255,255,.6)}
+/* Le compteur de dossiers, repris sur fond sombre. */
+.bm-outils .tete-compteur{
+  background:rgba(255,255,255,.14);border-color:rgba(255,255,255,.3);color:#fff;
+}
+.bm-outils .tete-compteur small{color:rgba(255,255,255,.78)}
+/* `.btn-export` porte son propre fond clair et l'emporte sur `.bm-outils
+   button` a specificite egale (il vient plus loin dans le fichier) : on le
+   rattrape explicitement, sinon il reste pale sur le bandeau sombre. */
+.bm-outils .btn-export{
+  background:rgba(255,255,255,.14);color:#fff;border-color:rgba(255,255,255,.36);
+}
+.bm-outils .btn-export:hover:not(:disabled){background:#fff;color:var(--accent);border-color:#fff}
+
+/* ---- Liste des comptes ---- */
+.compte-ligne-u{display:flex;align-items:center;gap:11px;min-width:0}
+/* AVATAR EN RELIEF — 2026-09-11.
+ *
+ * Une sphère, pas une pastille. Quatre couches, chacune nécessaire :
+ *   · un REFLET en haut à gauche (dégradé radial) — la source de lumière ;
+ *   · une OMBRE INTERNE en bas — le volume qui fuit dans l'ombre ;
+ *   · un LISERÉ clair sur l'arête haute — le bord éclairé de la sphère ;
+ *   · une OMBRE PORTÉE sous le cercle — il repose sur la ligne, il n'y flotte pas.
+ *
+ * ⚠ La couleur arrive par `backgroundColor` en ligne, jamais par `background` :
+ * la forme courte effacerait le dégradé du reflet posé ici.
+ */
+.avatar-u{
+  flex:0 0 auto;display:grid;place-items:center;
+  width:36px;height:36px;border-radius:50%;
+  color:#fff;font-weight:700;font-size:14.5px;
+  background-image:
+    radial-gradient(circle at 32% 26%, rgba(255,255,255,.55), rgba(255,255,255,.10) 46%, rgba(255,255,255,0) 62%),
+    radial-gradient(circle at 50% 118%, rgba(0,0,0,.30), rgba(0,0,0,0) 52%);
+  box-shadow:
+    inset 0 1.5px 1px rgba(255,255,255,.55),
+    inset 0 -3px 6px rgba(0,0,0,.30),
+    0 3px 7px rgba(15,35,55,.30);
+  text-shadow:0 1px 2px rgba(0,0,0,.38);
+  transition:transform .16s ease,box-shadow .2s ease;
+}
+tr:hover .avatar-u{
+  transform:translateY(-1px) scale(1.04);
+  box-shadow:
+    inset 0 1.5px 1px rgba(255,255,255,.6),
+    inset 0 -3px 6px rgba(0,0,0,.28),
+    0 6px 14px rgba(15,35,55,.34);
+}
+@media (prefers-reduced-motion:reduce){
+  .avatar-u{transition:none}
+  tr:hover .avatar-u{transform:none}
+}
+.nom-u{display:block;font-weight:600;font-size:13.5px;color:var(--ink)}
+.role-u{display:block;font-size:11.5px;color:var(--muted);margin-top:1px}
+.ident-u{font-size:12px;background:rgba(15,45,70,.07);padding:2px 8px;border-radius:7px}
+.pastille-role{
+  display:inline-block;padding:3px 10px;border-radius:999px;
+  font-size:11.5px;font-weight:600;
+  color:var(--accent);background:var(--accent-soft);
+}
+.badge-inactif{
+  display:inline-block;margin-left:7px;padding:1px 7px;border-radius:999px;
+  font-size:10px;font-weight:600;color:var(--warn);background:var(--warn-soft);
+}
+
+/* Sous 700 px, le bandeau se met en COLONNE : à l'horizontale, le bouton
+   d'action passait par-dessus le titre — un `flex` sans repli réduit les
+   éléments jusqu'à ce qu'ils se chevauchent au lieu de passer à la ligne. */
+@media(max-width:700px){
+  .bandeau-module{flex-wrap:wrap;gap:12px;padding:14px}
+  .bandeau-module > div{flex:1 1 100%;order:2}
+  .bm-pastille{order:1;width:42px;height:42px}
+  .bm-action{order:3;width:100%;justify-content:center}
+  /* `.bandeau-module > div` ci-dessus vise TOUS les div enfants - `.bm-droite`
+     compris - et l'emporte en specificite sur `.bm-droite` seul : d'ou ce
+     selecteur enfant, sans quoi le groupe reprendrait l'ordre 2 et passerait
+     AVANT le titre. */
+  .bandeau-module > .bm-droite{order:3;width:100%;justify-content:flex-start;flex-wrap:wrap}
+  .bm-outils select,.bm-outils input{flex:1 1 auto;min-width:0}
+  .bm-titre{font-size:17px}
+}
+
+
+/* ============ ÉCRAN D'ATTENTE — 2026-09-11 ==============================
+ *
+ * Le logo, un anneau, et un conteneur qui en fait le tour. Le mouvement reste
+ * dans le sujet de l'application : on attend qu'une cargaison arrive, pas
+ * qu'un disque abstrait finisse de tourner.
+ *
+ * Un tour en 1,4 s. Assez vif pour dire « ça travaille », assez lent pour ne
+ * pas fatiguer un écran qu'on voit des dizaines de fois par jour.
+ */
+.attente{
+  display:flex;flex-direction:column;align-items:center;gap:12px;
+  padding:34px 20px;color:var(--muted);
+}
+.att-logo{position:relative;width:76px;height:76px;display:grid;place-items:center}
+.att-logo .logo-rond{
+  width:56px;height:56px;position:relative;z-index:1;
+  animation:att-respire 2.6s ease-in-out infinite;
+}
+@keyframes att-respire{50%{transform:scale(1.05)}}
+
+/* L'anneau : une piste claire, et un arc bleu qui la parcourt. */
+.att-anneau{
+  position:absolute;inset:0;border-radius:50%;
+  border:3px solid rgba(14,90,138,.14);
+  border-top-color:var(--accent);
+  animation:att-tourne 1.4s linear infinite;
+}
+/* Le conteneur qui suit la piste, maintenu droit par une contre-rotation. */
+.att-orbite{position:absolute;inset:0;animation:att-tourne 1.4s linear infinite}
+.att-colis{
+  position:absolute;top:-7px;left:50%;
+  width:14px;height:11px;border-radius:3px;
+  background:var(--accent);
+  box-shadow:0 1px 4px rgba(14,90,138,.45),inset 0 1px 0 rgba(255,255,255,.4);
+  animation:att-redresse 1.4s linear infinite;
+}
+@keyframes att-tourne{from{transform:rotate(0)}to{transform:rotate(360deg)}}
+@keyframes att-redresse{
+  from{transform:translateX(-50%) rotate(0)}
+  to{transform:translateX(-50%) rotate(-360deg)}
+}
+.att-mot{font-size:12.5px;letter-spacing:.04em}
+
+/* Mouvement réduit : l'anneau se fige, le mot reste — l'information « ça
+   charge » ne doit pas dépendre de l'animation. */
+@media (prefers-reduced-motion:reduce){
+  .att-anneau,.att-orbite,.att-colis,.att-logo .logo-rond{animation:none}
+  .att-anneau{border-top-color:rgba(14,90,138,.45)}
+}
+
+/* ---- Colonne d'actions de la liste des comptes -------------------------- */
+.actions-u{display:inline-flex;gap:4px;justify-content:flex-end;width:100%}
+.acte{
+  display:grid;place-items:center;width:32px;height:32px;padding:0;
+  border-radius:9px;background:none;border:1px solid transparent;
+  color:#6b7a89;box-shadow:none;
+  transition:background .15s ease,color .15s ease,border-color .15s ease,transform .14s ease;
+}
+.acte:hover:not(:disabled){background:rgba(14,90,138,.10);color:var(--accent);border-color:rgba(14,90,138,.28);transform:translateY(-1px)}
+.acte-warn:hover:not(:disabled){background:var(--warn-soft);color:var(--warn);border-color:rgba(180,83,31,.35)}
+.acte-ok:hover:not(:disabled){background:var(--ok-soft);color:var(--ok);border-color:rgba(31,122,92,.35)}
+.acte-err{color:#b0707a}
+.acte-err:hover:not(:disabled){background:rgba(176,0,32,.09);color:var(--err);border-color:rgba(176,0,32,.35)}
+.acte:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+.pastille-statut{display:inline-block;padding:3px 10px;border-radius:999px;font-size:11.5px;font-weight:600}
+.pastille-statut.ok{color:var(--ok);background:var(--ok-soft)}
+.pastille-statut.ko{color:var(--warn);background:var(--warn-soft)}
+
+/* Les volets accessibles, dans la fenêtre de l'œil. */
+.grille-acces{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:8px;margin-top:12px}
+.acces-item{
+  display:flex;align-items:center;gap:9px;
+  padding:9px 12px;border-radius:11px;font-size:13px;
+  background:rgba(14,90,138,.06);border:1px solid rgba(14,90,138,.14);
+}
+.acces-item svg{color:var(--accent);flex:0 0 auto}
+
+@media (prefers-reduced-motion:reduce){ .acte{transition:none} .acte:hover{transform:none} }
+
+
+/* ---- Fenêtre d'ajout : bandeau + colonne centrée ----------------------- */
+.modal:has(.fen-tete){max-width:520px}
+.fen-tete{
+  position:relative;overflow:hidden;
+  display:flex;align-items:center;gap:15px;
+  margin:-22px -24px 18px;padding:20px 24px;
+  color:#fff;
+  background:linear-gradient(110deg,#0e5a8a 0%,#0b4870 58%,#123c58 100%);
+  box-shadow:inset 0 -1px 0 rgba(255,255,255,.12);
+}
+.fen-tete::after{
+  content:'';position:absolute;right:-50px;top:-80px;width:220px;height:220px;
+  border-radius:50%;background:rgba(255,255,255,.07);pointer-events:none;
+}
+.fen-pastille{
+  flex:0 0 auto;display:grid;place-items:center;
+  width:52px;height:52px;border-radius:50%;
+  background:rgba(255,255,255,.16);color:#fff;
+  border:2px solid rgba(255,255,255,.42);
+  box-shadow:inset 0 2px 4px rgba(255,255,255,.22),0 4px 12px rgba(0,0,0,.22);
+}
+.fen-titre{font-family:var(--titre);font-size:19px;font-weight:700;line-height:1.2}
+/* Le rôle suit la liste déroulante EN DIRECT : on voit ce qu'on crée pendant
+   qu'on le choisit, au lieu de le découvrir après validation. */
+.fen-sous{font-size:12.5px;color:rgba(255,255,255,.84);margin-top:3px}
+
+/* Une seule colonne : quatre champs courts n'ont pas besoin de deux, qui
+   obligent l'œil à des allers-retours à chaque ligne. */
+.fen-corps{display:grid;gap:12px}
+.fen-pied{display:flex;justify-content:flex-end;gap:10px;margin-top:18px}
+
+@supports not (selector(:has(*))){ .modal{max-width:560px} }
+
+/* ---- LA SCÈNETTE D'ATTENTE — 2026-09-12 -------------------------------
+ *
+ * Un trajet complet en 6 s, répété. Le camion arrive À VIDE, la barrière du
+ * poste se lève, il se range sous le portique PIA, un conteneur descend sur son
+ * plateau, il repart CHARGÉ et sort du cadre.
+ *
+ * UN SEUL cycle pour les cinq pièces — c'est lui qui garantit que le conteneur
+ * descend quand le camion est dessous, et pas dans le vide.
+ *
+ * LA PASSE DE MAIN. Le conteneur porté par le portique (`as-colis`) et celui
+ * posé sur le camion (`as-charge`) sont DEUX dessins distincts qui se relaient
+ * à l'instant exact de la pose : à 45 %, l'un s'éteint, l'autre s'allume, tous
+ * deux à la même hauteur et à la même abscisse. Un seul élément n'aurait pas pu
+ * à la fois descendre du portique ET repartir avec le camion.
+ *
+ * Discrète par construction : elle emprunte la couleur du texte d'attente
+ * (`currentColor`) et ne dépasse pas 48 px de haut. Une animation qui amuse ne
+ * doit pas devenir un second sujet.
+ */
+.att-scene{
+  display:block;margin:2px auto 0;color:var(--accent);opacity:.5;
+  overflow:hidden;
+}
+
+/* Le camion : entre à vide, s'arrête sous le portique, repart chargé.
+   L'arrêt (38 % → 58 %) encadre la pose du conteneur (45 %). */
+.as-camion{animation:as-camion 6s cubic-bezier(.4,0,.45,1) infinite}
+@keyframes as-camion{
+  0%{transform:translateX(-60px)}
+  38%,58%{transform:translateX(134px)}
+  100%{transform:translateX(260px)}
+}
+
+/* La barrière pivote sur son pied, comme celle du poste d'entrée. Elle se lève
+   AVANT que le camion n'arrive à sa hauteur, et se referme derrière lui. */
+.as-barriere{
+  transform-box:view-box;transform-origin:61px 30.3px;
+  animation:as-barriere 6s ease-in-out infinite;
+}
+@keyframes as-barriere{
+  0%,10%{transform:rotate(0)}
+  18%,58%{transform:rotate(-72deg)}
+  66%,100%{transform:rotate(0)}
+}
+
+/* Le conteneur du portique : invisible, puis il descend et s'éteint à la pose. */
+.as-colis{animation:as-colis 6s ease-in-out infinite;opacity:0}
+@keyframes as-colis{
+  0%,37%{transform:translateY(0);opacity:0}
+  38%{transform:translateY(0);opacity:1}
+  45%{transform:translateY(12px);opacity:1}   /* posé sur le plateau */
+  46%,100%{transform:translateY(12px);opacity:0}
+}
+
+/* La charge du camion : absente à l'arrivée, allumée à l'instant de la pose,
+   éteinte hors champ pour que le camion suivant revienne à vide. */
+.as-charge{animation:as-charge 6s steps(1,end) infinite;opacity:0}
+@keyframes as-charge{
+  0%,45%{opacity:0}
+  46%,97%{opacity:1}
+  98%,100%{opacity:0}
+}
+
+.as-bitume{animation:as-bitume 1.6s linear infinite}
+@keyframes as-bitume{to{stroke-dashoffset:-16}}
+
+@media (prefers-reduced-motion:reduce){
+  .as-camion,.as-barriere,.as-colis,.as-charge,.as-bitume{animation:none}
+  .att-scene{opacity:.35}
 }

@@ -12,7 +12,7 @@
  * ============================================================================
  */
 
-import { ROLES, TOUS_ROLES, type Role } from './constantes.ts';
+import { ROLES, TOUS_ROLES, SUIVENT_ENGAGEMENTS, VOIENT_HORSGABARIT, type Role } from './constantes.ts';
 
 /**
  * CBPI (chef brigade par intérim, 2026-08-19) : profil VOLONTAIREMENT ÉTROIT. Il
@@ -69,6 +69,50 @@ export const PERMISSIONS: Record<string, Role[]> = {
   'cargo.valider': [ROLES.CHEF_BRIGADE, ROLES.CBPI, ROLES.ADMIN],
   'cargo.validerlot': [ROLES.CHEF_BRIGADE, ROLES.CBPI, ROLES.ADMIN], // v4 : signature de toute une déclaration
   'cargo.horsgabarit': [ROLES.CHEF_BRIGADE, ROLES.CHEF_BRIGADE_ADJOINT, ROLES.CHEF_VISITE, ROLES.CHEF_DIVISION, ROLES.ADMIN],
+  // Suivi des engagements (2026-09-10) — l'échéancier et son solde appartiennent
+  // à qui a pris l'engagement en signant : le chef de brigade et son encadrement.
+  // Les cellules d'exécution n'ont pas à porter cette relance.
+  'cargo.engagementfait': SUIVENT_ENGAGEMENTS,
+  'report.engagements': SUIVENT_ENGAGEMENTS,
+  'cargo.engagementedit': SUIVENT_ENGAGEMENTS, // correction après signature (tracée)
+
+  /* Historique d'UNE cargaison — RGPD-03 : le journal d'audit est aussi un
+   * relevé d'activité des agents (« qui a travaillé, quand, à quelle cadence »).
+   * Ouvert au CFS et à l'encadrement, pas à toutes les cellules, qui voient déjà
+   * leur propre passage sur la fiche. */
+  'cargo.historique': VOIENT_HORSGABARIT,
+
+  /* ARCHIVE PAR ANCIENNETÉ (2026-09-10).
+   *
+   * `report.archive` — consultation des dossiers de plus d'un an : ADMIN, comme
+   * demandé. C'est un écran de fond d'archive, pas un outil d'exploitation.
+   *
+   * `cargo.passages` — « ce camion est-il déjà venu ? » : TOUS LES RÔLES. C'est
+   * une information d'exploitation, utile au moment même où l'on saisit une
+   * plaque, et la fiche de chaque passage leur est déjà accessible. La réserver
+   * à l'ADMIN la rendrait inutile : personne ne la consulterait au bon moment. */
+  'report.archive': [ROLES.ADMIN],
+  'cargo.passages': TOUS_ROLES,
+
+  /* Corrections de cellules déjà remplies (2026-09-10) — chaque cellule corrige
+   * la sienne, l'ADMIN corrige partout. Même logique que `cargo.gpsedit`, qui
+   * existait déjà pour la Balise : celui qui a saisi est celui qui rectifie. */
+  'cargo.t1edit': [ROLES.T1, ROLES.ADMIN],
+  'cargo.bsedit': [ROLES.BON_SORTIE, ROLES.ADMIN],
+
+  /* APUREMENT — deux droits distincts (décision utilisateur 2026-09-10).
+   *
+   * CORRIGER : ouvert au CFS, comme `decl.lookup` avec lequel il fait paire.
+   * C'est le CFS qui saisit les déclarations et constate les écarts ; l'obliger
+   * à passer par l'ADMIN pour rectifier un compteur qu'il est seul à voir revient
+   * à ce que l'écart ne soit jamais corrigé. Le motif reste obligatoire et
+   * l'opération est journalisée avec l'avant/après.
+   *
+   * SUPPRIMER : ADMIN seul, et seulement une ligne à ZÉRO apuré (garde dans
+   * `apurementSupprimer`). Retirer une ligne qui a servi effacerait la trace de
+   * ce qui a été dédouané. */
+  'decl.apurementedit': [ROLES.CFS, ROLES.ADMIN],
+  'decl.apurementdelete': [ROLES.ADMIN],
   'cargo.t1': [ROLES.T1, ROLES.ADMIN],
   'cargo.gps': [ROLES.BALISE, ROLES.ADMIN],
   // Remplacement d'une balise déjà posée. L'Apps Script le réservait à l'ADMIN
@@ -113,6 +157,11 @@ export const PERMISSIONS: Record<string, Role[]> = {
   'entrepot.sorties': [ROLES.CFS, ROLES.CHEF_BRIGADE, ROLES.CHEF_VISITE, ROLES.CHEF_DIVISION, ROLES.ADMIN],
   // Création d'entrepôt : ADMIN + chefs brigade/division (décision utilisateur 2026-07-27).
   'entrepot.create': [ROLES.ADMIN, ROLES.CHEF_BRIGADE, ROLES.CHEF_DIVISION],
+  // 2026-09-11 (décision utilisateur) — MODIFIER revient à qui peut CRÉER : les
+  // mêmes personnes corrigent leur propre saisie. SUPPRIMER reste à l'ADMIN
+  // seul, comme partout ailleurs dans l'application.
+  'entrepot.edit': [ROLES.ADMIN, ROLES.CHEF_BRIGADE, ROLES.CHEF_DIVISION],
+  'entrepot.delete': [ROLES.ADMIN],
   // Saisie des entrées / sorties : opérationnel = CFS (+ ADMIN).
   'entrepot.entree': [ROLES.CFS, ROLES.ADMIN],
   'entrepot.sortie': [ROLES.CFS, ROLES.ADMIN],
@@ -178,6 +227,10 @@ export const PERMISSIONS: Record<string, Role[]> = {
   'user.toggle': [ROLES.ADMIN],
   'user.resetpwd': [ROLES.ADMIN],
   'user.resetmfa': [ROLES.ADMIN], // v4 : réinitialisation du 2FA d'un agent
+  // 2026-09-11 — SUPPRESSION d'un compte : ADMIN seul, et le serveur la refuse
+  // pour soi-même, pour le dernier administrateur actif, et pour tout compte
+  // ayant déjà agi (celui-là se DÉSACTIVE).
+  'user.delete': [ROLES.ADMIN],
   // Compte courant — + CBPI (sinon il ne pourrait pas entrer dans l'appli).
   'account.me': [...TOUS_ROLES, ...VALIDE_ET_COMPTE], // v4 : profil de la session (username, nomComplet, role)
   'account.changepwd': [...TOUS_ROLES, ...VALIDE_ET_COMPTE],
