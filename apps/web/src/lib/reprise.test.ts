@@ -92,3 +92,38 @@ test('un corps sans message exploitable le dit, plutôt que de rester muet', () 
   assert.match(m, /500/);
   assert.match(m, /sans message exploitable/);
 });
+
+/* ---- Le message d'une extraction trop vaste — 2026-09-12 ---------------
+ *
+ * Mesuré en production : `report.cargaisons` passe avec un critère et échoue
+ * sans. Le message doit donc distinguer les deux, sans quoi il envoie l'agent
+ * recliquer indéfiniment sur une demande qui ne passera jamais.
+ */
+test('extraction SANS critère : le message dit de restreindre, pas d\'attendre', () => {
+  const m = messageTechnique(546, {}, true, { action: 'report.cargaisons', data: { format: 'xlsx' } });
+  assert.match(m, /Restreignez/);
+  assert.doesNotMatch(m, /patientez/i, 'réessayer ne changera rien : ne pas le suggérer');
+});
+
+test('extraction AVEC un critère : on retombe sur le message de saturation', () => {
+  for (const critere of [{ du: '2026-09-01' }, { statut: 'Créée' }, { etape: 'T1' }, { search: 'TG' }]) {
+    const m = messageTechnique(546, {}, true, {
+      action: 'report.cargaisons', data: { format: 'xlsx', ...critere },
+    });
+    assert.match(m, /patientez/i, `un critère (${Object.keys(critere)[0]}) rend la demande légitime`);
+  }
+});
+
+test('une lecture ordinaire garde le message de saturation', () => {
+  const m = messageTechnique(546, {}, true, { action: 'cargo.list', data: {} });
+  assert.match(m, /patientez/i);
+});
+
+test('sans origine connue, le comportement d\'avant est conservé', () => {
+  assert.match(messageTechnique(546, {}, true), /patientez/i);
+});
+
+test('une ÉCRITURE interrompue avertit toujours du doute sur l\'enregistrement', () => {
+  const m = messageTechnique(546, {}, false, { action: 'cargo.valider', data: {} });
+  assert.match(m, /PEUT-ÊTRE/);
+});

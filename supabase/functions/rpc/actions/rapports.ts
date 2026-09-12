@@ -925,10 +925,31 @@ export async function rapportControles(ctx: Ctx, p: Record<string, unknown>) {
  * Répond au capitaine qui « n'a pas la main » pour sortir ces listes.
  */
 export async function rapportCargaisons(ctx: Ctx, p: Record<string, unknown>) {
-  const cargos = await loadCargos(ctx);
   const du = p['du'] as string | undefined, au = p['au'] as string | undefined;
   const statut = String(p['statut'] ?? '').trim();  // valeur exacte de statut ('' = tous)
   const etape = String(p['etape'] ?? '').trim();     // étape en attente (VALIDATION/T1/BALISE/BS/PP/CFS)
+  /* PRE-FILTRE SQL - 2026-09-12, apres un echec MESURE en production : cet
+     export renvoyait HTTP 546 (worker tue) parce qu'il chargeait les 14 450
+     dossiers avec le detail de leurs conteneurs. Les trois criteres que la
+     fenetre d'extraction propose se traduisent en SQL ; le tri JS qui suit
+     reste en place et tranche.
+       . periode  -> `inRange` ne filtre rien quand les bornes sont vides ;
+                     `SQL_PERIODE` non plus. Equivalent.
+       . statut   -> comparaison exacte, des deux cotes. Equivalent.
+       . etape    -> `fileAttente` rend null des qu'un dossier est sorti (voir
+                     `workflow.ts`), donc une etape implique EXACTEMENT
+                     `statut <> SORTIE` et `date_sortie IS NULL`.
+     Il reste un cas que rien ne peut alleger : extraire TOUTE la base sans
+     aucun critere. La demande est alors legitimement enorme. */
+  // deno-lint-ignore no-explicit-any
+  const affinages: ((q: any) => any)[] = [];
+  if (du || au) affinages.push(SQL_PERIODE('date_creation', du, au));
+  if (statut) affinages.push((q) => q.eq('statut', statut));
+  if (etape) affinages.push((q) => q.neq('statut', STATUTS.SORTIE).is('date_sortie', null));
+  const cargos = await loadCargos(
+    ctx,
+    affinages.length ? (q) => affinages.reduce((acc, f) => f(acc), q) : undefined,
+  );
   const sansVeh = p['vehicules'] === false;
   // v4.2 — 2026-08-19 : l'extraction reçoit désormais AUSSI le texte recherché
   // dans la liste, pour que « extraire » sorte EXACTEMENT ce qui est affiché

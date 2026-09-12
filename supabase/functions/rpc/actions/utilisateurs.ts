@@ -302,8 +302,8 @@ export async function userSupprimer(ctx: Ctx, p: Record<string, unknown>) {
       .select('id').eq('role', ROLES.ADMIN).eq('actif', true);
     if ((admins ?? []).length <= 1)
       throw new ErreurMetier(
-        'Suppression refusée : c'est le dernier administrateur actif. '
-        + 'Nommez d'abord un autre administrateur.');
+        "Suppression refusée : c'est le dernier administrateur actif. "
+        + "Nommez d'abord un autre administrateur.");
   }
 
   // A-t-il agi ? Une seule ligne d'audit suffit à l'établir.
@@ -313,7 +313,7 @@ export async function userSupprimer(ctx: Ctx, p: Record<string, unknown>) {
     throw new ErreurMetier(
       'Ce compte a déjà travaillé sur la plateforme : il ne peut pas être supprimé, '
       + 'sinon son nom deviendrait introuvable devant une signature contestée. '
-      + 'Désactivez-le — il perdra l'accès et restera consultable.');
+      + "Désactivez-le — il perdra l'accès et restera consultable.");
   }
 
   // `profils.id` référence `auth.users` en CASCADE : retirer le compte

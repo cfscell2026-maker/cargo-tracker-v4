@@ -157,7 +157,7 @@ async function appelComplet<T>(action: string, data: Record<string, unknown>, sa
       continue;
     }
 
-    const err = new Error(messageTechnique(statut, corps as never, sansEffet)) as RpcErreur;
+    const err = new Error(messageTechnique(statut, corps as never, sansEffet, { action, data })) as RpcErreur;
     err.statut = statut;
     throw err;
   }

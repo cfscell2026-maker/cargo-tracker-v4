@@ -112,7 +112,36 @@ function texteDuCorps(corps: CorpsTechnique): string {
  * s'applique — sans quoi l'agent recommence toujours, et se trompe une fois sur
  * deux.
  */
-export function messageTechnique(statut: number, corps: CorpsTechnique, sansEffet: boolean): string {
+/**
+ * EXTRACTION SANS AUCUN CRITERE - 2026-09-12.
+ *
+ * MESURÉ en production le jour du déploiement : `report.cargaisons` repond en
+ * 1,1 s avec un statut, 1,3 s avec une étape, 3,3 s sur une période — et échoue
+ * en 546 quand on lui demande TOUTE la base. Ce n'est pas une saturation
+ * passagère : sortir 14 450 dossiers avec le détail de leurs conteneurs dépasse
+ * la mémoire du worker, et réessayer échouera toujours.
+ *
+ * Dire « patientez quelques secondes puis relancez » dans ce cas est FAUX, et
+ * c'est le genre de message qui fait recliquer un agent dix fois avant qu'il
+ * n'appelle à l'aide. On nomme donc la vraie cause et le geste qui débloque.
+ */
+const EXPORTS_VOLUMINEUX = new Set(['report.cargaisons', 'report.conteneurs']);
+
+function extractionSansCritere(action: string, data: Record<string, unknown>): boolean {
+  if (!EXPORTS_VOLUMINEUX.has(action)) return false;
+  // Un seul critère suffit à ramener la demande dans les clous.
+  return !['du', 'au', 'statut', 'etape', 'search'].some(
+    (c) => String(data?.[c] ?? '').trim() !== '',
+  );
+}
+
+export function messageTechnique(
+  statut: number,
+  corps: CorpsTechnique,
+  sansEffet: boolean,
+  /** L'appel qui a échoué — sert à distinguer une saturation d'une demande trop vaste. */
+  origine?: { action: string; data: Record<string, unknown> },
+): string {
   if (statut === 0) {
     return sansEffet
       ? 'Connexion au serveur impossible. Vérifiez le réseau du site, puis relancez l\'écran.'
@@ -122,6 +151,13 @@ export function messageTechnique(statut: number, corps: CorpsTechnique, sansEffe
 
   const sature = statut === 546 || String((corps || {}).code ?? '').includes('WORKER');
   if (sature) {
+    // La demande est-elle trop vaste PAR NATURE ? Alors patienter ne sert à rien.
+    if (origine && extractionSansCritere(origine.action, origine.data)) {
+      return "Extraction trop volumineuse pour le serveur : vous avez demandé TOUTE "
+        + "la base en une fois. Réessayer ne changera rien. Restreignez l'extraction "
+        + "— cochez « Limiter à une période », ou choisissez un statut ou une étape "
+        + "— puis relancez.";
+    }
     return sansEffet
       ? 'Le serveur est momentanément saturé (erreur 546). Les tentatives automatiques '
         + 'n\'ont pas suffi : patientez quelques secondes, puis relancez l\'écran.'
