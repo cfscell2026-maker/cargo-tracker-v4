@@ -34,6 +34,14 @@ function match(row: Row, filters: [string, string, unknown][]): boolean {
     if (op === 'in') return Array.isArray(val) && (val as unknown[]).includes(v);
     if (op === 'gte') return String(v) >= String(val);
     if (op === 'lte') return String(v) <= String(val);
+    /* `lt` / `gt` ajoutes le 2026-09-12. Ils MANQUAIENT, et leur absence ne se
+       voyait pas : le double levait `q.lt is not a function` seulement quand un
+       test empruntait enfin ce chemin. Un double qui ne sait pas exprimer ce que
+       le code fait donne une confiance fausse — les bornes de periode
+       (`SQL_PERIODE`) n'etaient couvertes par aucun test.
+       Une colonne NULL est ecartee, comme en SQL : `null < x` n'est pas vrai. */
+    if (op === 'lt') return v !== null && v !== undefined && String(v) < String(val);
+    if (op === 'gt') return v !== null && v !== undefined && String(v) > String(val);
     return true;
   });
 }
@@ -65,6 +73,8 @@ class Query {
   in(c: string, v: unknown[]) { this.filters.push([c, 'in', v]); return this; }
   gte(c: string, v: unknown) { this.filters.push([c, 'gte', v]); return this; }
   lte(c: string, v: unknown) { this.filters.push([c, 'lte', v]); return this; }
+  lt(c: string, v: unknown) { this.filters.push([c, 'lt', v]); return this; }
+  gt(c: string, v: unknown) { this.filters.push([c, 'gt', v]); return this; }
   order(c: string, o?: { ascending?: boolean }) { this.orderCol = c; this.orderAsc = o?.ascending !== false; return this; }
   limit(n: number) { this.limitN = n; return this; }
   range() { return this; }

@@ -495,10 +495,13 @@ function cfgActivite(kind: string) {
   // plus de la Balise (pose) et de la PP (sortie). « 30 balises aujourd'hui » =
   // 30 poses datées aujourd'hui, quelle que soit la date de création du camion.
   switch (kind) {
-    case 'pp': return { dateCol: 'dateSortie', agentCol: 'agentPp', role: ROLES.PP };
-    case 't1': return { dateCol: 'dateT1', agentCol: 'agentT1', role: ROLES.T1 };
-    case 'bonsortie': return { dateCol: 'dateBonSortie', agentCol: 'agentBonSortie', role: ROLES.BON_SORTIE };
-    default: return { dateCol: 'datePoseGps', agentCol: 'agentBalise', role: ROLES.BALISE };
+    // `colSql` : LA MEME date, en nom de colonne SQL. Elle sert au pre-filtre par
+    // periode. Sans elle, `SQL_PERIODE` filtrait sur une colonne `undefined` et
+    // les rapports rendaient ZERO — un test l'a rattrape avant la production.
+    case 'pp': return { dateCol: 'dateSortie', colSql: 'date_sortie', agentCol: 'agentPp', role: ROLES.PP };
+    case 't1': return { dateCol: 'dateT1', colSql: 'date_t1', agentCol: 'agentT1', role: ROLES.T1 };
+    case 'bonsortie': return { dateCol: 'dateBonSortie', colSql: 'date_bon_sortie', agentCol: 'agentBonSortie', role: ROLES.BON_SORTIE };
+    default: return { dateCol: 'datePoseGps', colSql: 'date_pose_gps', agentCol: 'agentBalise', role: ROLES.BALISE };
   }
 }
 function collecteActivite(cargos: Record<string, unknown>[], dateCol: string, agentCol: string, du?: string, au?: string, agentLc?: string) {
@@ -554,7 +557,13 @@ function collecteActivite(cargos: Record<string, unknown>[], dateCol: string, ag
 export async function rapportActivite(ctx: Ctx, p: Record<string, unknown>) {
   const cfg = cfgActivite(String(p['kind']));
   const agentLc = agentForce(ctx, cfg.role, p['agent']);
-  const r = collecteActivite(await loadCargos(ctx), cfg.dateCol, cfg.agentCol, p['du'] as string, p['au'] as string, agentLc || undefined);
+  /* Pre-filtre par periode, sur LA date de la cellule concernee - la meme que
+     le tri JS applique ensuite (`inRange(c[dateCol], ...)`). Equivalent : une
+     ligne sans cette date est ecartee des deux cotes. Sans lui, ces rapports
+     chargeaient toute la table et le worker etait tue (mesure : rapport
+     Balise, 546 en 6,6 s). */
+  const r = collecteActivite(await loadCargos(ctx, SQL_PERIODE(cfg.colSql, p['du'], p['au'])),
+    cfg.dateCol, cfg.agentCol, p['du'] as string, p['au'] as string, agentLc || undefined);
   if (p['format'] === 'xlsx' || p['format'] === 'pdf') {
     // v4.1 — détail par taille ajouté à l'export (comme le rapport CFS).
     const recap: unknown[][] = [['Opération', 'Camions', 'Twins', 'Sans balise', "20'", "40'", "45'", 'Autres', 'Conteneurs', 'EVP']];
@@ -571,7 +580,13 @@ export async function rapportActivite(ctx: Ctx, p: Record<string, unknown>) {
 export async function rapportActiviteDetail(ctx: Ctx, p: Record<string, unknown>) {
   const cfg = cfgActivite(String(p['kind']));
   const agentLc = agentForce(ctx, cfg.role, p['agent']);
-  const r = collecteActivite(await loadCargos(ctx), cfg.dateCol, cfg.agentCol, p['du'] as string, p['au'] as string, agentLc || undefined);
+  /* Pre-filtre par periode, sur LA date de la cellule concernee - la meme que
+     le tri JS applique ensuite (`inRange(c[dateCol], ...)`). Equivalent : une
+     ligne sans cette date est ecartee des deux cotes. Sans lui, ces rapports
+     chargeaient toute la table et le worker etait tue (mesure : rapport
+     Balise, 546 en 6,6 s). */
+  const r = collecteActivite(await loadCargos(ctx, SQL_PERIODE(cfg.colSql, p['du'], p['au'])),
+    cfg.dateCol, cfg.agentCol, p['du'] as string, p['au'] as string, agentLc || undefined);
   const op = String(p['operation'] ?? '');
   const metric = String(p['metric'] ?? 'camions');
   const filtreOp = (x: Record<string, unknown>) => !op || x['typeOperation'] === op;
