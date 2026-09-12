@@ -51,7 +51,11 @@ export const PERMISSIONS: Record<string, Role[]> = {
   // La correction reste possible là où elle a un sens : le CFS qui a saisi, le
   // chef de brigade qui contrôle, l'ADMIN qui dépanne. Un motif est désormais
   // exigé, et l'action est fermée après la validation (sauf ADMIN).
-  'cargo.editcamion': [ROLES.CFS, ROLES.CHEF_BRIGADE, ROLES.ADMIN],
+  // 2026-09-12 — décision utilisateur : la correction redevient ouverte à TOUS
+  // les rôles (doublons et coquilles repérés à n'importe quel poste). Ce qui
+  // rendait SEC-11 acceptable reste en place côté action : motif obligatoire et
+  // tracé, fermeture après la sortie, et après la validation sauf ADMIN.
+  'cargo.editcamion': TOUS_ROLES,
   'cargo.edittype': [ROLES.CFS, ROLES.ADMIN], // correction du type d'opération (phase CFS ; ADMIN partout)
   'cargo.delete': [ROLES.ADMIN], // suppression d'un doublon de cargaison (ADMIN uniquement)
   // v4.3 (2026-08-19) — Archivage des vieux dossiers « goulots » (ADMIN) :

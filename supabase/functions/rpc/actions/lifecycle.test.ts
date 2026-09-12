@@ -2632,3 +2632,49 @@ test('douanier 3 — ABSENT du parc : saisie manuelle autorisée, fiche créée'
   assert.ok(db.store['stock'].find((x) => x['numero_tc'] === 'MSKU5550003'),
     'la fiche doit être créée, sinon le conteneur échappe au parc et à l\'apurement');
 });
+
+test('tableau de bord : un camion QUITTE une file et ENTRE dans la suivante (2026-09-12)', async () => {
+  // Demande utilisateur : quand le camion passe du CFS à la validation puis au
+  // T1, la tuile qu'il quitte doit décompter et la suivante s'incrémenter.
+  // La file CFS n'était comptée nulle part : le camion en chargement était invisible.
+  const db = new FakeDB();
+  db.store['stock'].push({ numero_tc: 'MSKU1234567', taille: "40'", statut: 'En stock' });
+  const cfs = ctxAvec(db);
+  const files = async () => {
+    const s = (await lec.dashboardStats(cfs, {})) as Record<string, number>;
+    return [s['attCFS'], s['attValidation'], s['attT1'], s['attBalise'], s['attBs'], s['attPP']];
+  };
+  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'TG1111AA', routage: 'Enlèvement' })) as { id: string };
+  assert.deepEqual(await files(), [1, 0, 0, 0, 0, 0]);
+  const decl = {
+    declarant: 'STE X', contactDeclarant: '90123456', destinationMarchandise: 'LOME',
+    bureauDeclaration: 'TG120', typeDeclaration: 'T', numeroDeclaration: '4242', anneeDeclaration: '2026',
+    dateDeclaration: '2026-06-24', descriptionMarchandise: 'RIZ', nombreConteneurs: 1,
+  };
+  await ecr.cfs(cfs, { id, conteneur: { num: 'MSKU1234567', taille: "40'", type: 'DRY', plomb: 'SEAL1' }, declaration: decl });
+  assert.deepEqual(await files(), [0, 1, 0, 0, 0, 0], 'CFS → validation');
+  await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'), { id, enSurcharge: false, suiviEngagement: false });
+  assert.deepEqual(await files(), [0, 0, 1, 0, 0, 0], 'validation → T1');
+  await ecr.t1(ctxRole(db, 'T1', 'Agent T1'), { id, bureauDestination: 'TG120', t1Numeros: [{ conteneur: 'MSKU1234567', numero: 'T1-X' }] });
+  const [c, v, t] = await files();
+  assert.deepEqual([c, v, t], [0, 0, 0], 'T1 → étape suivante');
+  // Invariant : un dossier actif est dans UNE file et une seule.
+  assert.equal((await files()).reduce((a, b) => a + b, 0), 1);
+});
+
+test('véhicule : le même châssis ne peut pas être créé deux fois (732382 ×3, 2026-09-12)', async () => {
+  const db = new FakeDB();
+  db.store['stock'].push({ numero_tc: 'MSKU1234567', taille: "40'", statut: 'Positionné' },
+    { numero_tc: 'TCLU7654321', taille: "40'", statut: 'Positionné' });
+  const cfs = ctxAvec(db);
+  const decl = { declarant: 'A', contactDeclarant: '901234', destinationMarchandise: 'D', bureauDeclaration: 'TG120', typeDeclaration: 'T', numeroDeclaration: '12', anneeDeclaration: '2026', dateDeclaration: '2026-06-24', descriptionMarchandise: 'X', nombreConteneurs: 2 };
+  const creer = (tc: string, vehicules: unknown[]) => spe.create(cfs, { typeOperation: 'Dépotage / Véhicule', declaration: decl, conteneurOrigine: tc, vehicules });
+  // Deux fois dans la même saisie : refusé, rien d'écrit.
+  await assert.rejects(() => creer('MSKU1234567', [{ chassis: '732382', destination: 'Transit' }, { chassis: '732382', destination: 'Transit' }]),
+    /figure deux fois/);
+  assert.equal(db.store['cargaisons'].length, 0);
+  // Le premier passe ; le second clic est refusé et nomme le dossier existant.
+  await creer('MSKU1234567', [{ chassis: '732382', destination: 'Transit' }]);
+  await assert.rejects(() => creer('TCLU7654321', [{ chassis: '732382', destination: 'Transit' }]), /déjà dans le système/);
+  assert.equal(db.store['cargaisons'].length, 1);
+});

@@ -2726,3 +2726,8 @@ tr:hover .avatar-u{
 .eng-cours{background:var(--accent-soft);color:var(--accent);border-color:rgba(14,90,138,.22)}
 .eng-retard{background:var(--warn-soft);color:var(--warn);border-color:rgba(180,83,31,.3)}
 .eng-ok{background:var(--ok-soft);color:var(--ok);border-color:rgba(31,122,92,.28)}
+
+/* Modifier / Supprimer en bout de ligne (2026-09-12). */
+.acts-dossier{display:flex;gap:6px;flex-wrap:nowrap;white-space:nowrap}
+.acts-dossier .acts-suppr{color:var(--err);border-color:currentColor}
+button.acts-suppr-plein{background:var(--err);color:#fff}

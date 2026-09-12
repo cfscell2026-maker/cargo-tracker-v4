@@ -300,17 +300,14 @@ test('CBPI (chef brigade par intérim) : UNIQUEMENT valider + compte (2026-08-19
     assert.throws(() => verifierPermission(ROLES.CBPI, a), /Accès refusé/, `CBPI ne devrait pas pouvoir ${a}`);
 });
 
-test('correction de plaque : réservée au CFS, au chef de brigade et à l\'ADMIN (SEC-11)', () => {
-  // Le N° d'immatriculation identifie le camion sur le bon de sortie et sur
-  // l'ordre d'exécution. L'action était ouverte à TOUS_ROLES, à tout statut :
-  // sur les données de production, 638 corrections (un mouvement sur huit),
-  // dont 442 par la BALISE et 143 par la PP, 7 après la sortie du camion.
-  // Elle reste ouverte à ceux qui ont une légitimité métier sur la plaque.
-  for (const r of [ROLES.CFS, ROLES.CHEF_BRIGADE, ROLES.ADMIN])
+test('correction de plaque : ouverte à tous les rôles, suppression ADMIN seul (2026-09-12)', () => {
+  // Décision utilisateur : tout poste qui repère une coquille ou un doublon doit
+  // pouvoir corriger (motif tracé). Retirer un dossier reste l'affaire de l'ADMIN.
+  for (const r of [ROLES.CFS, ROLES.CHEF_BRIGADE, ROLES.ADMIN, ROLES.BALISE, ROLES.PP, ROLES.T1, ROLES.BON_SORTIE])
     assert.doesNotThrow(() => verifierPermission(r, 'cargo.editcamion'));
-  // Les cellules en aval signalent l'erreur, elles ne réécrivent plus la plaque.
-  for (const r of [ROLES.BALISE, ROLES.PP, ROLES.T1, ROLES.BON_SORTIE])
-    assert.throws(() => verifierPermission(r, 'cargo.editcamion'), /Accès refusé/);
+  for (const r of [ROLES.CFS, ROLES.CHEF_BRIGADE, ROLES.BALISE, ROLES.PP, ROLES.T1, ROLES.BON_SORTIE])
+    assert.throws(() => verifierPermission(r, 'cargo.delete'), /Accès refusé/);
+  assert.doesNotThrow(() => verifierPermission(ROLES.ADMIN, 'cargo.delete'));
 });
 
 test('trace de connexion : ouverte à tous les rôles (SEC-05)', () => {

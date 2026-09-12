@@ -21,7 +21,7 @@ export const TITLES: Record<string, string> = {
   creercamion: 'Créer un camion (entrée)',
   completer: 'Saisir / compléter les camions', stockjour: 'Stock CFS journalier',
   depotstats: 'Statistiques de dépotage',
-  wait_valid: 'À valider — chef brigade', etatcfs: 'Pointage des camions à la sortie', t1: 'Cellule T1', wait_t1: 'En attente T1',
+  wait_valid: 'À valider — chef brigade', etatcfs: 'Pointage des camions à la sortie', t1: 'Cellule T1', wait_cfs: 'En cours au CFS', wait_t1: 'En attente T1',
   chargement: 'Bon de chargement — par déclaration',
   gps: 'Cellule Balise', wait_gps: 'En attente Balise', bonsortie: 'Cellule Bon de Sortie', wait_bs: 'En attente Bon de Sortie',
   sortie: 'Sortie (checklist PP)', wait_sortie: 'En attente de sortie', history: 'Historique', users: 'Utilisateurs',

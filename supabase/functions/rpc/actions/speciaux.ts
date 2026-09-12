@@ -229,6 +229,35 @@ async function creerRapportVehicule(ctx: Ctx, p: Record<string, unknown>) {
     if (plaque && !camionValide(plaque)) throw new ErreurMetier(messageCamionFormat(plaque));
   }
 
+  /* ANTI-DOUBLON DES VÉHICULES — 2026-09-12.
+   *
+   * Constaté en production : le châssis 732382 créé TROIS FOIS à 12:23, trois
+   * dossiers « Créée » en attente du chef de brigade. Le flux véhicule était le
+   * dernier à n'avoir AUCUN contrôle serveur : `create` refuse une plaque déjà
+   * active, mais ce parcours retourne avant ce contrôle, et l'écran ne vérifiait
+   * que le premier châssis — sans empêcher un second clic sur « Créer ».
+   *
+   * Mêmes deux contrôles que les camions, AVANT toute écriture :
+   *  1. dans la saisie elle-même (même châssis ou même plaque deux fois) ;
+   *  2. contre la base (déjà présent et pas encore sorti). */
+  const vus = new Set<string>();
+  const numeros = [
+    ...vehicules.map((v) => ({ n: v.chassis, quoi: 'véhicule (châssis)' })),
+    ...camions.map((c) => ({ n: String(c.numeroCamion ?? '').trim(), quoi: 'camion' })),
+  ];
+  for (const { n, quoi } of numeros) {
+    const norm = n.toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (!norm) continue;
+    if (vus.has(norm)) throw new ErreurMetier(`Le ${quoi} « ${n} » figure deux fois dans cette saisie.`);
+    vus.add(norm);
+    const actif = await camionActif(ctx, n);
+    if (actif)
+      throw new ErreurMetier(
+        `Le ${quoi} « ${n} » est déjà dans le système (statut « ${String(actif['statut'])} », `
+        + `${String(actif['id'])}). Ouvrez ce dossier pour le compléter ou le corriger, au lieu d'en créer un second.`,
+      );
+  }
+
   const rapportId = await nextRapportId(ctx);
   const now = new Date().toISOString();
   const creeV: { id: string; chassis: string }[] = [];

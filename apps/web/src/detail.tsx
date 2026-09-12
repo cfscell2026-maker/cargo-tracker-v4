@@ -104,14 +104,9 @@ export function Detail({ user, arg, go, retour, ecranPrecedent }: Nav) {
       {/* v4 — Éditer : le CFS a la main JUSQU'À la fin de chargement ; l'ADMIN toujours. */}
       {peutTtEditer
         ? <PanneauEditer c={c} dets={dets} action={action} apresSuppression={quitter} admin={role === A} />
-        /* SEC-11 (2026-08-10) — La correction de plaque n'est plus ouverte à
-           toutes les cellules. Seul le chef de brigade la conserve ici ; la
-           Balise, la PP, le T1 et le Bon de sortie signalent l'erreur au CFS.
-           Sans ce filtrage, ces cellules verraient un bouton qui échouerait
-           systématiquement sur « Accès refusé » — pire que pas de bouton. */
-        : role === ROLES.CHEF_BRIGADE
-          ? <CorrigerCamion c={c} action={action} estVeh={estVeh} />
-          : <SignalerPlaque estVeh={estVeh} />}
+        /* 2026-09-12 — décision utilisateur : la correction de plaque est de
+           nouveau ouverte à TOUS les rôles (permission serveur alignée). */
+        : <CorrigerCamion c={c} action={action} estVeh={estVeh} />}
     </div>
   );
 }
@@ -964,26 +959,6 @@ function CorrigerCamion({ c, action, estVeh }: { c: O; action: ActionFn; estVeh:
       Corriger
     </button>
   </details>;
-}
-
-/**
- * SEC-11 — Ce que voient les cellules qui n'ont plus la main sur la plaque
- * (Balise, PP, T1, Bon de sortie). Elles restent les mieux placées pour REPÉRER
- * l'erreur au passage du camion : on leur dit quoi en faire, plutôt que de leur
- * laisser un bouton qui échouerait.
- */
-function SignalerPlaque({ estVeh }: { estVeh: boolean }) {
-  const libelle = estVeh ? 'N° de châssis' : 'N° de camion';
-  return <div className="card">
-    <TitrePanneau icone="crayon">{libelle} erroné ?</TitrePanneau>
-    <p className="help" style={{ marginTop: 0 }}>
-      La correction de la plaque appartient désormais au <b>CFS</b> (qui l'a saisie) et
-      au <b>chef de brigade</b>. Si le numéro affiché ne correspond pas au camion que vous
-      avez devant vous, <b>ne laissez pas passer</b> : signalez-le au CFS avant de valider
-      votre étape. Le N° de camion est l'élément qui identifie ce chargement sur le bon
-      de sortie et sur l'ordre d'exécution.
-    </p>
-  </div>;
 }
 
 function PanneauEtatCFS({ c, action }: { c: O; action: ActionFn }) {

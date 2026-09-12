@@ -1,7 +1,7 @@
 /**
  * Registre de tous les écrans (reproduction de SCREENS v3.6).
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import * as XLSX from 'xlsx';
 import { call } from './lib/rpc.ts';
 import { useAsync } from './lib/hooks.ts';
@@ -13,7 +13,7 @@ import { Detail, TitrePanneau } from './detail.tsx';
 import type { ReactNode } from 'react';
 import type { Nav } from './App.tsx';
 import { useNav } from './lib/contexte-nav.ts';
-import { OPERATIONS, VEHICULE_DESTINATIONS, TYPES_DECLARATION, STATUTS, SUIVENT_ENGAGEMENTS, tcValide, fileAttente, estTypeSansT1, libelleTypeSansT1, exigeControlePoids, dureeLisible } from '../../../supabase/functions/_shared/domaine/src/index.ts';
+import { ROLES, OPERATIONS, VEHICULE_DESTINATIONS, TYPES_DECLARATION, STATUTS, SUIVENT_ENGAGEMENTS, tcValide, fileAttente, estTypeSansT1, libelleTypeSansT1, exigeControlePoids, dureeLisible } from '../../../supabase/functions/_shared/domaine/src/index.ts';
 
 const STATUT_OPTIONS = Object.values(STATUTS);
 
@@ -101,14 +101,16 @@ function ValeurIllustree({ icone, valeur }: { icone: string; valeur: unknown }) 
   return <span className="val-illustree"><Icone nom={icone} taille={15} /><span>{v}</span></span>;
 }
 
-function Table({ cols, rows, onRow, icones }: {
+function Table({ cols, rows, onRow, icones, actions }: {
   cols: [string, string][]; rows: O[]; onRow?: (r: O) => void;
+  /** Boutons de fin de ligne (Modifier / Supprimer). Leur clic n'ouvre pas la fiche. */
+  actions?: (r: O) => ReactNode;
   /** Colonne -> nom d'icone, posee devant la valeur. */
   icones?: Record<string, string>;
 }) {
   if (!rows.length) return <div className="empty">Aucune donnée.</div>;
   return <div className="tbl"><table>
-    <thead><tr>{cols.map((c) => <th key={c[0]}>{c[1]}</th>)}</tr></thead>
+    <thead><tr>{cols.map((c) => <th key={c[0]}>{c[1]}</th>)}{actions && <th>Actions</th>}</tr></thead>
     <tbody>{rows.map((r, i) => (
       <tr key={i} className={onRow ? 'clk' : ''} onClick={() => onRow?.(r)}>
         {cols.map((c) => <td key={c[0]}>{
@@ -119,9 +121,113 @@ function Table({ cols, rows, onRow, icones }: {
                 : COLONNES_VEHICULE.has(c[0]) ? <ChassisVehicule valeur={r[c[0]]} />
                   : icones?.[c[0]] ? <ValeurIllustree icone={icones[c[0]]!} valeur={r[c[0]]} />
                     : String(r[c[0]] ?? '—')}</td>)}
+        {actions && <td onClick={(e) => e.stopPropagation()}>{actions(r)}</td>}
       </tr>
     ))}</tbody>
   </table></div>;
+}
+
+/* ------------------ Modifier / supprimer un dossier --------------------- */
+/**
+ * 2026-09-12 — DEMANDE UTILISATEUR : des agents créent le même camion plusieurs
+ * fois (le châssis 732382 trois fois à 12:23). La correction et l'annulation
+ * existaient, mais enfouies au fond de la fiche, dans un bloc replié : personne
+ * ne les trouvait. Elles sont maintenant AU BOUT DE CHAQUE LIGNE.
+ *
+ *   · « Modifier » — visible pour TOUS les rôles. Motif obligatoire et tracé ;
+ *     le serveur garde ses deux verrous (camion sorti ; dossier signé, sauf ADMIN).
+ *   · « Supprimer » — visible pour l'ADMIN SEUL. Annulation logique : le dossier
+ *     sort des listes et des compteurs mais reste en base, au journal d'audit.
+ */
+function ActionsDossier({ r, admin, onFait }: { r: O; admin: boolean; onFait: () => void }) {
+  const [ouvert, setOuvert] = useState<'' | 'modifier' | 'supprimer'>('');
+  const fermer = () => setOuvert('');
+  const fait = () => { setOuvert(''); onFait(); };
+  return <div className="acts-dossier">
+    <button className="ghost xs" title="Corriger le N° de camion / châssis" onClick={() => setOuvert('modifier')}>
+      ✎ Modifier
+    </button>
+    {admin && <button className="ghost xs acts-suppr" title="Supprimer ce dossier (doublon)" onClick={() => setOuvert('supprimer')}>
+      ✕ Supprimer
+    </button>}
+    {ouvert === 'modifier' && <ModaleCorrigerNumero r={r} onClose={fermer} onFait={fait} />}
+    {ouvert === 'supprimer' && <ModaleSupprimerDossier r={r} onClose={fermer} onFait={fait} />}
+  </div>;
+}
+
+const estLigneVehicule = (r: O) => r['typeOperation'] === OPERATIONS.VEHICULE || r['estVehicule'] === true;
+
+function ModaleCorrigerNumero({ r, onClose, onFait }: { r: O; onClose: () => void; onFait: () => void }) {
+  const libelle = estLigneVehicule(r) ? 'N° de châssis' : 'N° de camion';
+  const ancien = String(r['numeroCamion'] ?? '');
+  const [num, setNum] = useState(ancien);
+  const [motif, setMotif] = useState('');
+  const { busy, envoyer } = useEnvoiUnique();
+  const inchange = !num.trim() || num.trim() === ancien.trim();
+  const valider = () => envoyer(async () => {
+    try {
+      await call('cargo.editcamion', { id: r['id'], numeroCamion: num, motif });
+      toast(`${libelle} corrigé.`, 'ok'); onFait();
+    } catch (e) { toast((e as Error).message, 'err'); }
+  });
+  return <Modal onClose={onClose}>
+    <h2>Modifier le {libelle}</h2>
+    <p className="help">Dossier <b className="mono">{String(r['id'])}</b> — actuellement <b className="mono">{ancien || '—'}</b>.
+      La correction suit le camion sur toute la fiche et ses conteneurs. Le motif part à l'historique.</p>
+    <ChampCamion value={num} onChange={setNum} label={libelle} />
+    <label className="help">Motif (obligatoire)</label>
+    <input value={motif} onChange={(e) => setMotif(e.target.value)} placeholder="Erreur de frappe, plaque illisible…" />
+    <div className="row" style={{ marginTop: 12, justifyContent: 'flex-end' }}>
+      <button className="ghost" onClick={onClose}>Annuler</button>
+      <button disabled={busy || inchange || !motif.trim()} onClick={valider}>{busy ? 'Enregistrement…' : 'Corriger'}</button>
+    </div>
+  </Modal>;
+}
+
+function ModaleSupprimerDossier({ r, onClose, onFait }: { r: O; onClose: () => void; onFait: () => void }) {
+  const [motif, setMotif] = useState('');
+  const { busy, envoyer } = useEnvoiUnique();
+  const valider = () => envoyer(async () => {
+    try {
+      await call('cargo.delete', { id: r['id'], motif });
+      toast('Dossier supprimé des listes et des compteurs.', 'ok'); onFait();
+    } catch (e) { toast((e as Error).message, 'err'); }
+  });
+  return <Modal onClose={onClose}>
+    <h2>Supprimer ce dossier ?</h2>
+    <p className="help">
+      <b className="mono">{String(r['numeroCamion'] ?? '—')}</b> · {String(r['typeOperation'] ?? '')} · dossier <b className="mono">{String(r['id'])}</b>
+      {' '}— statut « {String(r['statut'] ?? '')} ».
+    </p>
+    <p className="help">
+      Le dossier disparaît des listes, de la recherche, des rapports et de tous les compteurs ; ses conteneurs
+      repassent « En stock » et l'apurement de sa déclaration est rendu. Il reste <b>conservé en base</b> et
+      l'opération est inscrite au journal d'audit.
+    </p>
+    <label className="help">Motif (obligatoire)</label>
+    <input value={motif} onChange={(e) => setMotif(e.target.value)} placeholder="ex. doublon : créé trois fois à 12:23" autoFocus />
+    <div className="row" style={{ marginTop: 12, justifyContent: 'flex-end' }}>
+      <button className="ghost" onClick={onClose}>Annuler</button>
+      <button className="acts-suppr-plein" disabled={busy || !motif.trim()} onClick={valider}>{busy ? 'Suppression…' : 'Supprimer le dossier'}</button>
+    </div>
+  </Modal>;
+}
+
+/**
+ * UN SEUL ENVOI À LA FOIS — 2026-09-12.
+ * Un `useState` ne suffit pas contre le double clic : deux clics dans la même
+ * image lisent tous deux « pas occupé » avant que React n'ait rendu. Le verrou
+ * est donc tenu dans une référence, lue et posée de façon synchrone.
+ */
+function useEnvoiUnique() {
+  const enCours = useRef(false);
+  const [busy, setBusy] = useState(false);
+  const envoyer = async (fn: () => Promise<void>) => {
+    if (enCours.current) return;
+    enCours.current = true; setBusy(true);
+    try { await fn(); } finally { enCours.current = false; setBusy(false); }
+  };
+  return { busy, envoyer };
 }
 
 /* --------------------------- Liste de cargaisons ----------------------- */
@@ -149,7 +255,7 @@ function CargoList({ go, screen, user, filtre, titre, barre }: Nav & { filtre: O
   // Écrit APRÈS le rendu (jamais pendant : le rendu doit rester sans effet de bord).
   useEffect(() => { if (barre) etatListe[screen] = { statut, search, page }; }, [barre, screen, statut, search, page]);
   const eff = barre ? { ...filtre, statut, search, engagement } : filtre;
-  const { data, loading, error } = useAsync<{ rows: O[]; total: number; pages: number }>(
+  const { data, loading, error, reload } = useAsync<{ rows: O[]; total: number; pages: number }>(
     () => call('cargo.list', { ...eff, page }), [JSON.stringify(filtre), statut, search, engagement, page]);
   /* En-tête illustré (2026-09-11). L'icône vient de `iconeDeLEcran`, la MÊME
      table que le menu et que la barre supérieure : la liste affiche donc le
@@ -184,7 +290,8 @@ function CargoList({ go, screen, user, filtre, titre, barre }: Nav & { filtre: O
     <div className={`card ${teinte ? 'et-' + teinte : ''}`}>
     {loading ? <Spinner /> : error ? <div className="err-msg">{error}</div> : <>
       <Table cols={[['id', 'ID'], ['dateCreation', 'Date'], ['numeroCamion', 'Camion'], ['typeOperation', 'Opération'], ['statut', 'Statut'], ['suiviEngagement', 'Engagement'], ['numeroGps', 'GPS']]}
-        rows={data?.rows ?? []} onRow={(r) => go('detail', r['id'])} />
+        rows={data?.rows ?? []} onRow={(r) => go('detail', r['id'])}
+        actions={(r) => <ActionsDossier r={r} admin={user.role === ROLES.ADMIN} onFait={reload} />} />
       {(data?.pages ?? 1) > 1 && <div className="row" style={{ marginTop: 10, justifyContent: 'center' }}>
         <button className="ghost xs" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>‹</button>
         <span>Page {page} / {data?.pages}</span>
@@ -405,7 +512,14 @@ SCREENS.dash = (nav) => {
   // Même sélecteur de période que les rapports, plage personnalisée comprise.
   const p = useReportRange();
   const { du, au } = p;
-  const { data, loading } = useAsync<O>(() => call('dashboard.stats', { du, au }), [du, au]);
+  /* ACTUALISATION AUTOMATIQUE (2026-09-12) : un camion qui passe du CFS au T1
+     doit se voir quitter une tuile et rejoindre la suivante sans que le chef
+     recharge la page. Toutes les 60 s — le cache de lecture (15 s) est alors
+     périmé, la requête repart donc bien au serveur. Les tuiles restent affichées
+     pendant la mise à jour : pas de clignotement. */
+  const [tic, setTic] = useState(0);
+  useEffect(() => { const t = window.setInterval(() => setTic((x) => x + 1), 60000); return () => window.clearInterval(t); }, []);
+  const { data, loading } = useAsync<O>(() => call('dashboard.stats', { du, au }), [du, au, tic]);
   /* COMPARAISON (2026-09-11) : un second appel sur la fenêtre précédente, pour
      les flèches de hausse et de baisse.
      `fenetreComparaison` compare À DURÉE ÉCOULÉE ÉGALE : un vendredi, la
@@ -423,12 +537,12 @@ SCREENS.dash = (nav) => {
   /** Variation d'un compteur de PÉRIODE. `undefined` tant que la comparaison n'est pas là. */
   const evo = (cle: string): Variation | null | undefined =>
     sAvant ? comparer(Number(s[cle] ?? 0), Number(sAvant[cle] ?? 0)) : undefined;
-  /* PART DE LA FILE pour les compteurs d'attente. Les files sont PARALLÈLES —
-     un camion peut attendre à plusieurs postes —, donc le total dépasse le
-     nombre de dossiers et les parts ne font pas 100 %. Elles se lisent poste
-     par poste, exactement comme le classement plus bas dans l'écran, qui
-     s'appuie sur la même base. */
-  const fileTotale = ['attValidation', 'attT1', 'attBalise', 'attBs', 'attPP']
+  /* PART DE LA FILE pour les compteurs d'attente. FILE UNIQUE (serveur,
+     2026-08-19) : chaque dossier actif est dans UNE file, celle de sa prochaine
+     étape. Quand il avance, il quitte une tuile et rejoint la suivante ; la
+     somme des tuiles égale donc le nombre de dossiers en cours, et les parts
+     font 100 %. La file CFS (chargement non terminé) y entre le 2026-09-12. */
+  const fileTotale = ['attCFS', 'attValidation', 'attT1', 'attBalise', 'attBs', 'attPP']
     .reduce((t, k) => t + Number(s[k] ?? 0), 0);
   const part = (cle: string): number | null =>
     fileTotale > 0 ? Math.round((Number(s[cle] ?? 0) / fileTotale) * 100) : null;
@@ -462,7 +576,7 @@ SCREENS.dash = (nav) => {
         sans lui, les tuiles en verre reposaient sur un fond presque uni et
         n'avaient RIEN à dépolir — elles ressemblaient à de simples cartes
         blanches. Les halos qu'il porte sont ce que le verre diffuse. */}
-    {loading ? <Spinner /> : <div className="bento-cadre"><div className="stats bento">
+    {loading && !data ? <Spinner /> : <div className="bento-cadre"><div className="stats bento">
       {/* Événements datés sur la période — le travail EFFECTIF de chaque cellule
           sur la période, compté à la date de la cellule (pas à la création). */}
       <StatCard n={Number(s['creesPeriode'] ?? 0)} l="Entrées CFS (période)" onClick={() => nav.go('cfsreport')}
@@ -476,6 +590,7 @@ SCREENS.dash = (nav) => {
       <StatCard n={Number(s['sortiePeriode'] ?? 0)} l="Sortis (période)" onClick={() => nav.go('pprep')}
         etape="pp" comparable variation={evo('sortiePeriode')} />
       {/* En attente — état instantané (hors période). */}
+      <StatCard n={Number(s['attCFS'] ?? 0)} l="En cours au CFS" onClick={() => nav.go('wait_cfs')} etape="cfs" part={part('attCFS')} />
       <StatCard n={Number(s['attValidation'] ?? 0)} l="Attente validation" onClick={() => nav.go('wait_valid')} etape="validation" part={part('attValidation')} />
       <StatCard n={Number(s['attT1'] ?? 0)} l="Attente T1" onClick={() => nav.go('wait_t1')} etape="t1" part={part('attT1')} />
       <StatCard n={Number(s['attBalise'] ?? 0)} l="Attente Balise" onClick={() => nav.go('wait_gps')} etape="balise" part={part('attBalise')} />
@@ -486,9 +601,10 @@ SCREENS.dash = (nav) => {
     {/* Neuf tuiles disent COMBIEN, aucune ne dit OÙ ÇA BLOQUE : c'est pourtant
         la première question d'un chef le matin. Le classement des files répond
         d'un coup d'œil, et chaque barre ouvre la file concernée. */}
-    {!loading && <div className="card"><h2>Où sont les dossiers en attente</h2>
+    {!!data && <div className="card"><h2>Où sont les dossiers en attente</h2>
       <BarresClassees
         lignes={[
+          { nom: 'Chargement au CFS', valeur: Number(s['attCFS'] ?? 0) },
           { nom: 'Validation chef de brigade', valeur: Number(s['attValidation'] ?? 0) },
           { nom: 'Cellule T1', valeur: Number(s['attT1'] ?? 0) },
           { nom: 'Cellule Balise', valeur: Number(s['attBalise'] ?? 0) },
@@ -496,19 +612,21 @@ SCREENS.dash = (nav) => {
           { nom: 'Sortie (Porte Principale)', valeur: Number(s['attPP'] ?? 0) },
         ]}
         teintes={{
+          'Chargement au CFS': 'var(--etape-cfs)',
           'Validation chef de brigade': 'var(--etape-validation)',
           'Cellule T1': 'var(--etape-t1)',
           'Cellule Balise': 'var(--etape-balise)',
           'Bon de sortie': 'var(--etape-bs)',
           'Sortie (Porte Principale)': 'var(--etape-pp)',
         }}
-        onClic={(nom) => nav.go(nom.startsWith('Validation') ? 'wait_valid'
+        onClic={(nom) => nav.go(nom.startsWith('Chargement') ? 'wait_cfs' : nom.startsWith('Validation') ? 'wait_valid'
           : nom.startsWith('Cellule T1') ? 'wait_t1'
             : nom.startsWith('Cellule Balise') ? 'wait_gps'
               : nom.startsWith('Bon') ? 'wait_bs' : 'wait_sortie')} />
       <p className="help" style={{ marginBottom: 0 }}>
-        Les files sont <b>parallèles</b> : un même camion peut attendre à plusieurs postes à la fois.
-        Le total dépasse donc le nombre de dossiers — les parts se lisent poste par poste.
+        Chaque dossier en cours est dans <b>une seule file</b>, celle de sa prochaine étape : quand un camion
+        avance (CFS → validation → T1 → Balise → Bon de sortie → sortie), il quitte une file et rejoint la
+        suivante. Mise à jour automatique chaque minute.
       </p>
     </div>}
     <FicheBord p={p} />
@@ -1215,6 +1333,7 @@ function AvisApresSignature({ error, signee }: { error: string; signee: number }
 
 SCREENS.completer = (nav) => <CargoList {...nav} filtre={{ etape: 'CFS' }} titre="À compléter (CFS)" />;
 SCREENS.wait_valid = (nav) => <ValidationDeclaration {...nav} />;
+SCREENS.wait_cfs = (nav) => <CargoList {...nav} filtre={{ etape: 'CFS' }} titre="En cours au CFS" />;
 SCREENS.wait_t1 = (nav) => <CargoList {...nav} filtre={{ etape: 'T1' }} titre="En attente T1" />;
 SCREENS.wait_gps = (nav) => <CargoList {...nav} filtre={{ etape: 'BALISE' }} titre="En attente Balise" />;
 SCREENS.wait_bs = (nav) => <CargoList {...nav} filtre={{ etape: 'BS' }} titre="En attente Bon de Sortie" />;
@@ -1381,14 +1500,17 @@ SCREENS.creercamion = ({ go }) => {
   const [num, setNum] = useState('');
   const [routage, setRoutage] = useState(OPERATIONS.ENLEVEMENT as string);
   const [busy, setBusy] = useState(false);
+  const verrou = useRef(false); // double clic : cf. useEnvoiUnique
   const [match, setMatch] = useState<O | null>(null);
   const [simil, setSimil] = useState<O[] | null>(null);
   async function faireCreer() {
+    if (verrou.current) return;
+    verrou.current = true;
     setBusy(true);
     try {
       const r = await call<{ id: string }>('cargo.createcamion', { numeroCamion: num, routage });
       toast('Camion créé.', 'ok'); go('detail', r.id);
-    } catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(false); }
+    } catch (e) { toast((e as Error).message, 'err'); } finally { verrou.current = false; setBusy(false); }
   }
   async function creer() {
     if (!num) { toast('N° camion requis.', 'err'); return; }
@@ -1556,10 +1678,10 @@ SCREENS.lotcamions = ({ go }) => {
  * il est où ? » — et non une consultation de l'historique, qui reste l'écran
  * « Cargaisons ». Camions ET véhicules sont cherchés ensemble.
  */
-SCREENS.search = ({ go }) => {
+SCREENS.search = ({ go, user }) => {
   const [q, setQ] = useState('');
   const cherche = q.trim().length >= 2;
-  const { data, loading } = useAsync<{ rows: O[]; total: number }>(
+  const { data, loading, reload } = useAsync<{ rows: O[]; total: number }>(
     () => (cherche ? call('cargo.list', { categorie: 'tous', actifs: true, search: q.trim(), pageSize: 100 })
       : call('cargo.list', { categorie: 'tous', actifs: true, pageSize: 100 })), [q]);
   const rows = data?.rows ?? [];
@@ -1584,7 +1706,8 @@ SCREENS.search = ({ go }) => {
       {loading ? <Spinner /> : <Table
         cols={[['numeroCamion', 'Camion / Châssis'], ['conteneur1', 'Conteneur'], ['typeOperation', 'Opération'],
           ['statut', 'Statut'], ['etapeEnCours', 'Attendu à'], ['dateCreation', 'Entré le']]}
-        rows={rows.map(avecEtape)} onRow={(r) => go('detail', r['id'])} />}
+        rows={rows.map(avecEtape)} onRow={(r) => go('detail', r['id'])}
+        actions={(r) => <ActionsDossier r={r} admin={user.role === ROLES.ADMIN} onFait={reload} />} />}
     </div>
   </div></>;
 };
@@ -1647,6 +1770,8 @@ function FormVehicule({ go }: { go: Nav['go'] }) {
   const majCam = (i: number, patch: Partial<CamEffets>) => setCams((a) => a.map((c, j) => (j === i ? { ...c, ...patch } : c)));
   const [match, setMatch] = useState<O | null>(null); // v4.1 : véhicule déjà présent → mixte ?
   const [simil, setSimil] = useState<O[] | null>(null); // 2026-08-19 : châssis ressemblant → avertir
+  // 2026-09-12 — le bouton n'avait AUCUNE garde : 732382 créé trois fois à 12:23.
+  const { busy, envoyer } = useEnvoiUnique();
 
   async function faireCreer() {
     try {
@@ -1732,14 +1857,14 @@ function FormVehicule({ go }: { go: Nav['go'] }) {
       </div>}
     </div>)}
 
-    <div style={{ marginTop: 12 }}><button onClick={creer}>Créer le véhicule</button></div>
+    <div style={{ marginTop: 12 }}><button disabled={busy} onClick={() => envoyer(creer)}>{busy ? 'Enregistrement…' : 'Créer le véhicule'}</button></div>
     {match && <ModaleMixte match={match} quoi="véhicule"
       onOuvrir={() => { setMatch(null); go('detail', match['id']); }}
-      onCreer={() => { setMatch(null); faireCreer(); }}
+      onCreer={() => { setMatch(null); envoyer(faireCreer); }}
       onAnnuler={() => setMatch(null)} />}
     {simil && <ModaleSimilaires similaires={simil} quoi="véhicule"
       onOuvrir={(id) => { setSimil(null); go('detail', id); }}
-      onCreer={() => { setSimil(null); faireCreer(); }}
+      onCreer={() => { setSimil(null); envoyer(faireCreer); }}
       onAnnuler={() => setSimil(null)} />}
   </div>;
 }
@@ -1814,6 +1939,7 @@ function FormMagasin({ go }: { go: Nav['go'] }) {
       toast('Sortie magasin créée.', 'ok'); go('detail', r.camions[0]?.id);
     } catch (e) { toast((e as Error).message, 'err'); }
   }
+  const { busy, envoyer } = useEnvoiUnique();
   return <div style={{ marginTop: 12 }}>
     <div className="section-title">Déclaration</div>
     <InfoTypeDecl d={d} mode={mode} setMode={setMode} />
@@ -1847,7 +1973,7 @@ function FormMagasin({ go }: { go: Nav['go'] }) {
       {[0, 1, 2].map((k) => <div key={k}><label className="help">Scellé camion {k + 1}{k < 2 ? ' *' : ''}</label>
         <input value={scelles[k] ?? ''} onChange={(e) => setScelles((a) => a.map((x, j) => j === k ? masks.upper(e.target.value) : x))} /></div>)}
     </div>}
-    <div style={{ marginTop: 12 }}><button onClick={creer}>Créer</button></div>
+    <div style={{ marginTop: 12 }}><button disabled={busy} onClick={() => envoyer(creer)}>{busy ? 'Enregistrement…' : 'Créer'}</button></div>
   </div>;
 }
 
@@ -1868,6 +1994,7 @@ function FormConso({ go }: { go: Nav['go'] }) {
       toast('Conso créée.', 'ok'); go('detail', r.camions[0]?.id);
     } catch (e) { toast((e as Error).message, 'err'); }
   }
+  const { busy, envoyer } = useEnvoiUnique();
   return <div style={{ marginTop: 12 }}>
     <div className="section-title">Déclaration</div>
     <InfoTypeDecl d={d} mode={mode} setMode={setMode} />
@@ -1880,7 +2007,7 @@ function FormConso({ go }: { go: Nav['go'] }) {
       <div><label className="help">Type</label><input value={String(ct['type'])} onChange={(e) => setC('type', masks.upper(e.target.value))} /></div>
       <div><label className="help">Scellé</label><input value={String(ct['plomb'])} onChange={(e) => setC('plomb', masks.upper(e.target.value))} /></div>
     </div>
-    <div style={{ marginTop: 12 }}><button onClick={creer}>Créer</button></div>
+    <div style={{ marginTop: 12 }}><button disabled={busy} onClick={() => envoyer(creer)}>{busy ? 'Enregistrement…' : 'Créer'}</button></div>
   </div>;
 }
 

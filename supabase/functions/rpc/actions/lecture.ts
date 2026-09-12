@@ -391,7 +391,7 @@ export async function dashboardStats(ctx: Ctx, opts: { du?: string; au?: string 
     creesPeriode: 0, t1Periode: 0, balisesPeriode: 0, bonsPeriode: 0, sortiePeriode: 0,
     vehiculesSortisPeriode: 0,
     // En attente — état instantané, hors période.
-    attValidation: 0, attT1: 0, attBalise: 0, attBs: 0, attPP: 0,
+    attCFS: 0, attValidation: 0, attT1: 0, attBalise: 0, attBs: 0, attPP: 0,
     camion: 0, chargement: 0, vehiculesAttente: 0,
     // Divers / compat.
     total: 0, sortie: 0, aujourdHui: 0,
@@ -439,6 +439,10 @@ export async function dashboardStats(ctx: Ctx, opts: { du?: string; au?: string 
     // étape. Les files ne se chevauchent plus → la somme des tuiles « en attente »
     // égale le nombre de dossiers réellement en cours (fin des totaux gonflés).
     switch (fileAttente(r as never)) {
+      // 2026-09-12 — la file CFS n'était comptée nulle part : un camion encore
+      // en chargement n'apparaissait dans AUCUNE tuile, et le passage CFS → validation
+      // ne se voyait que d'un côté. Chaque dossier actif est maintenant dans une file.
+      case 'CFS': stats.attCFS++; break;
       case 'VALIDATION': stats.attValidation++; break;
       case 'T1': stats.attT1++; break;
       case 'BALISE': stats.attBalise++; break;
