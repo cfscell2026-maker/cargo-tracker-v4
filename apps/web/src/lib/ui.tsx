@@ -99,7 +99,9 @@ export function Tag({ statut, o }: { statut: string; o?: Record<string, unknown>
 /* --------------------------- Masques de saisie ------------------------- */
 export const masks = {
   upper: (v: string) => v.toUpperCase(),
-  alnum: (v: string) => v.toUpperCase().replace(/[^A-Z0-9/-]/g, ''),
+  // 2026-09-12 : même jeu de caractères que `alphaNumMaj` côté serveur — les
+  // séparateurs usuels d'une plaque sont conservés, les espaces absorbés.
+  alnum: (v: string) => v.toUpperCase().replace(/[^A-Z0-9/\\._-]/g, ''),
   tc: (v: string) => {
     const s = v.toUpperCase().replace(/[^A-Z0-9]/g, '');
     return (s.slice(0, 4).replace(/[^A-Z]/g, '') + s.slice(4).replace(/[^0-9]/g, '')).slice(0, 11);

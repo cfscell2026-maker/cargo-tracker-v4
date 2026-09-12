@@ -149,7 +149,12 @@ export async function cargoSearch(ctx: Ctx, data: { valeur?: string }) {
 
 export async function cargoList(
   ctx: Ctx,
-  opts: { statut?: string; etape?: string; categorie?: string; page?: number; pageSize?: number; search?: string; actifs?: boolean },
+  opts: {
+    statut?: string; etape?: string; categorie?: string; page?: number; pageSize?: number;
+    search?: string; actifs?: boolean;
+    /** '' = indifferent | 'avec' = sous suivi d'engagement | 'sans' = hors suivi. */
+    engagement?: string;
+  },
 ) {
   const statut = opts.statut || 'tous';
   const etape = opts.etape || '';
@@ -158,6 +163,7 @@ export async function cargoList(
   const page = Math.max(1, Number(opts.page || 1));
   const pageSize = Math.min(200, Number(opts.pageSize || APP.PAGE_SIZE));
   const search = String(opts.search ?? '').trim().toLowerCase();
+  const engagement = String(opts.engagement ?? '').trim();
 
   /* Le pré-filtre est composé ICI, à partir des seuls critères traduisibles.
      Il est passé à SQL ; le tri JS qui suit reste en place, inchangé, et
@@ -191,6 +197,20 @@ export async function cargoList(
   }
   // ACTIFS = encore dans l'enceinte : tout ce qui n'est pas sorti par la PP.
   if (actifs) all = all.filter((r) => r['statut'] !== STATUTS.SORTIE);
+
+  /* SUIVI DES ENGAGEMENTS — filtre 2026-09-12.
+   *
+   * Trie en JAVASCRIPT, et non en SQL, DÉLIBÉRÉMENT : la colonne n'apparaît
+   * dans la vue qu'avec la migration 00190. Un filtre SQL ferait ÉCHOUER toute
+   * la liste tant qu'elle n'est pas appliquée — un écran blanc parce qu'une
+   * migration manque est le pire des deux maux. En JS, la colonne absente vaut
+   * `undefined` : « avec engagement » ne rend alors rien, « sans » rend tout,
+   * et la liste continue de fonctionner.
+   *
+   * Le volume n'est pas en jeu ici : ce filtre s'applique après les pré-filtres
+   * SQL, sur ce qui est déjà en mémoire. */
+  if (engagement === 'avec') all = all.filter((r) => r['suiviEngagement'] === true);
+  else if (engagement === 'sans') all = all.filter((r) => r['suiviEngagement'] !== true);
   if (statut !== 'tous') all = all.filter((r) => r['statut'] === statut);
   if (search) {
     // Recherche tolérante : on compare AUSSI en alphanumérique pur, pour que

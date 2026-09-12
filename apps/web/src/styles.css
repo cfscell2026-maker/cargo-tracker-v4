@@ -2710,3 +2710,19 @@ tr:hover .avatar-u{
   .as-camion,.as-barriere,.as-colis,.as-charge,.as-bitume{animation:none}
   .att-scene{opacity:.35}
 }
+
+/* ---- MARQUE D'ENGAGEMENT dans les listes — 2026-09-12 ------------------
+ * Trois états, trois couleurs : soldé, en retard, en cours. La couleur ne
+ * porte JAMAIS l'information seule — chaque pastille dit aussi son état en
+ * toutes lettres, et son infobulle donne l'échéance. Un tableau douanier se
+ * lit parfois en noir et blanc, ou par quelqu'un qui distingue mal le rouge
+ * du vert. */
+.eng-marque{
+  display:inline-flex;align-items:center;gap:6px;white-space:nowrap;
+  padding:3px 9px;border-radius:999px;
+  font-size:12px;font-weight:600;border:1px solid transparent;
+}
+.eng-marque svg{flex:0 0 auto}
+.eng-cours{background:var(--accent-soft);color:var(--accent);border-color:rgba(14,90,138,.22)}
+.eng-retard{background:var(--warn-soft);color:var(--warn);border-color:rgba(180,83,31,.3)}
+.eng-ok{background:var(--ok-soft);color:var(--ok);border-color:rgba(31,122,92,.28)}

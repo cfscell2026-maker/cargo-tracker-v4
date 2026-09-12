@@ -60,6 +60,32 @@ function ChassisVehicule({ valeur }: { valeur: unknown }) {
     <Icone nom="voiture" taille={14} /><span className="mono">{v}</span>
   </span>;
 }
+/**
+ * MARQUE D'ENGAGEMENT — 2026-09-12.
+ *
+ * Un engagement qu'il faut ouvrir dossier par dossier pour découvrir n'est pas
+ * suivi, il est archivé. La liste doit donc le dire d'un coup d'œil, et dire
+ * aussi ce qui compte vraiment : l'échéance est-elle passée ?
+ *
+ * Trois états, trois couleurs : soldé (vert), en retard (ambre), en cours
+ * (bleu). Rien du tout si le dossier n'est pas sous suivi — la majorité des
+ * lignes, qu'il ne faut pas charger de bruit.
+ */
+function MarqueEngagement({ c }: { c: O }) {
+  if (c['suiviEngagement'] !== true) return <span className="help">—</span>;
+  const solde = !!c['engagementEffectueLe'];
+  const delai = String(c['engagementDelai'] ?? '');
+  const enRetard = !solde && delai !== '' && delai < new Date().toISOString().slice(0, 10);
+  const ton = solde ? 'ok' : enRetard ? 'retard' : 'cours';
+  const titre = solde ? 'Engagement soldé'
+    : enRetard ? `En retard — échéance du ${fmtJour(delai)}`
+      : delai ? `Échéance le ${fmtJour(delai)}` : "Sous suivi d'engagement";
+  return <span className={`eng-marque eng-${ton}`} title={titre}>
+    <Icone nom={solde ? 'valider' : enRetard ? 'drapeau' : 'sablier'} taille={13} />
+    {solde ? 'Soldé' : enRetard ? 'En retard' : 'Engagé'}
+  </span>;
+}
+
 /** Colonnes qui désignent un véhicule par son châssis. */
 const COLONNES_VEHICULE = new Set(['chassis', 'numeroChassis']);
 
@@ -88,7 +114,8 @@ function Table({ cols, rows, onRow, icones }: {
         {cols.map((c) => <td key={c[0]}>{
           c[0] === 'statut' ? <Tag statut={String(r['statut'])} o={r} />
             : c[0].startsWith('date') ? fmtDate(r[c[0]])
-              : COLONNES_MOBILES.has(c[0]) ? <NumeroMobile valeur={r[c[0]]} />
+              : c[0] === 'suiviEngagement' ? <MarqueEngagement c={r} />
+        : COLONNES_MOBILES.has(c[0]) ? <NumeroMobile valeur={r[c[0]]} />
                 : COLONNES_VEHICULE.has(c[0]) ? <ChassisVehicule valeur={r[c[0]]} />
                   : icones?.[c[0]] ? <ValeurIllustree icone={icones[c[0]]!} valeur={r[c[0]]} />
                     : String(r[c[0]] ?? '—')}</td>)}
@@ -116,12 +143,14 @@ function CargoList({ go, screen, user, filtre, titre, barre }: Nav & { filtre: O
   const [page, setPage] = useState(reprise?.page ?? 1);
   const [statut, setStatut] = useState(impose ?? reprise?.statut ?? 'tous');
   const [search, setSearch] = useState(reprise?.search ?? '');
+  // Suivi des engagements (2026-09-12) : '' | 'avec' | 'sans'.
+  const [engagement, setEngagement] = useState('');
   const reset = () => setPage(1);
   // Écrit APRÈS le rendu (jamais pendant : le rendu doit rester sans effet de bord).
   useEffect(() => { if (barre) etatListe[screen] = { statut, search, page }; }, [barre, screen, statut, search, page]);
-  const eff = barre ? { ...filtre, statut, search } : filtre;
+  const eff = barre ? { ...filtre, statut, search, engagement } : filtre;
   const { data, loading, error } = useAsync<{ rows: O[]; total: number; pages: number }>(
-    () => call('cargo.list', { ...eff, page }), [JSON.stringify(filtre), statut, search, page]);
+    () => call('cargo.list', { ...eff, page }), [JSON.stringify(filtre), statut, search, engagement, page]);
   /* En-tête illustré (2026-09-11). L'icône vient de `iconeDeLEcran`, la MÊME
      table que le menu et que la barre supérieure : la liste affiche donc le
      dessin de la pilule qu'on vient de cliquer, sans qu'on ait à le redire ici.
@@ -141,12 +170,20 @@ function CargoList({ go, screen, user, filtre, titre, barre }: Nav & { filtre: O
             <option value="tous">Tous les statuts</option>
             {STATUT_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
+          {/* Suivi des engagements (2026-09-12) : un chef doit pouvoir ne
+              demander que les camions engages, sans ouvrir chaque dossier. */}
+          <select value={engagement} onChange={(e) => { setEngagement(e.target.value); reset(); }}
+            style={{ maxWidth: 190 }} aria-label="Suivi des engagements">
+            <option value="">Engagement : indifferent</option>
+            <option value="avec">Avec engagement</option>
+            <option value="sans">Sans engagement</option>
+          </select>
           <ExportCargaisons statutListe={statut} searchListe={search} />
         </>}
       </div>} />}
     <div className={`card ${teinte ? 'et-' + teinte : ''}`}>
     {loading ? <Spinner /> : error ? <div className="err-msg">{error}</div> : <>
-      <Table cols={[['id', 'ID'], ['dateCreation', 'Date'], ['numeroCamion', 'Camion'], ['typeOperation', 'Opération'], ['statut', 'Statut'], ['numeroGps', 'GPS']]}
+      <Table cols={[['id', 'ID'], ['dateCreation', 'Date'], ['numeroCamion', 'Camion'], ['typeOperation', 'Opération'], ['statut', 'Statut'], ['suiviEngagement', 'Engagement'], ['numeroGps', 'GPS']]}
         rows={data?.rows ?? []} onRow={(r) => go('detail', r['id'])} />
       {(data?.pages ?? 1) > 1 && <div className="row" style={{ marginTop: 10, justifyContent: 'center' }}>
         <button className="ghost xs" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>‹</button>

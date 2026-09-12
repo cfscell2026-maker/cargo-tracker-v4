@@ -23,8 +23,24 @@ export function maj(v: unknown, max?: number): string {
 }
 
 /** _alphaNumMaj_ : alphanumérique MAJUSCULES (tolère / et -). */
+/**
+ * Normalisation d'un N° DE CAMION — élargie le 2026-09-12.
+ *
+ * Ne servait qu'aux plaques, et n'en gardait que `A-Z 0-9 / -`. Tout le reste
+ * était silencieusement effacé : un agent qui tapait « TG.2489 » ou
+ * « TG\2489 » voyait ses caractères disparaître sans explication.
+ *
+ * On accepte désormais les séparateurs usuels d'une plaque : `/ \ - . _`.
+ * La barre oblique garde son sens (tracteur/remorque) sans être obligatoire.
+ *
+ * LES ESPACES RESTENT SUPPRIMÉS, et c'est délibéré : « TG2489BK » et
+ * « TG 2489 BK » désignent le MÊME camion. Les conserver créerait deux dossiers
+ * distincts pour un seul véhicule — exactement le genre de doublon qu'on passe
+ * ensuite des semaines à démêler. L'agent peut donc les taper : ils sont
+ * absorbés, pas refusés.
+ */
 export function alphaNumMaj(v: unknown): string {
-  return txt(v).toUpperCase().replace(/[^A-Z0-9/-]/g, '');
+  return txt(v).toUpperCase().replace(/[^A-Z0-9/\\._-]/g, '');
 }
 
 /* ============ FORMAT DU N° DE CAMION — imposé le 2026-09-10 ==============

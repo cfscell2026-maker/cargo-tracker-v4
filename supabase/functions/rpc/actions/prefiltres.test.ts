@@ -161,3 +161,42 @@ test('le pré-filtre agit : la base ne renvoie plus que les lignes utiles', asyn
     + 'les 2 sortis ne franchissent plus le fil');
   assert.ok(avecFiltre < sansFiltre, 'le filtre doit réduire ce qui transite');
 });
+
+/* ===== FILTRE « SUIVI DES ENGAGEMENTS » — 2026-09-12 =====================
+ *
+ * Demandé pour qu'un chef puisse ne demander que les camions engagés. Le point
+ * délicat n'est pas le tri lui-même : c'est qu'il doit RESTER SANS EFFET tant
+ * que la migration 00190 n'expose pas la colonne. Une liste vide parce qu'une
+ * migration manque serait prise pour « aucun dossier », et c'est bien pire
+ * qu'un filtre qui ne filtre pas encore.
+ */
+test('engagement « avec » ne rend que les dossiers engagés', async () => {
+  const db = baseDeTest();
+  db.store['cargaisons'][0]!['suivi_engagement'] = true;
+  const ids = idsDe(await lec.cargoList(ctx(db), { categorie: 'tous', engagement: 'avec' }));
+  assert.deepEqual(ids, ['A-T1']);
+});
+
+test('engagement « sans » rend tout le reste', async () => {
+  const db = baseDeTest();
+  db.store['cargaisons'][0]!['suivi_engagement'] = true;
+  const ids = idsDe(await lec.cargoList(ctx(db), { categorie: 'tous', engagement: 'sans' }));
+  assert.equal(ids.includes('A-T1'), false);
+  assert.equal(ids.length, 3);
+});
+
+test('sans filtre, les dossiers engagés restent dans la liste', async () => {
+  const db = baseDeTest();
+  db.store['cargaisons'][0]!['suivi_engagement'] = true;
+  assert.equal((await lec.cargoList(ctx(db), { categorie: 'tous' }) as { total: number }).total, 4);
+});
+
+test('COLONNE ABSENTE : la liste ne casse pas, elle rend tout', async () => {
+  // Aucune cargaison ne porte `suivi_engagement` — l'état exact de la base
+  // tant que la 00190 n'est pas appliquée.
+  const db = baseDeTest();
+  const sans = idsDe(await lec.cargoList(ctx(db), { categorie: 'tous', engagement: 'sans' }));
+  assert.equal(sans.length, 4, 'sans engagement connu, tout est « sans »');
+  const avec = idsDe(await lec.cargoList(ctx(db), { categorie: 'tous', engagement: 'avec' }));
+  assert.deepEqual(avec, [], 'et « avec » rend une liste vide, pas une erreur');
+});
