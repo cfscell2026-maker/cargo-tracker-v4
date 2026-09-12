@@ -1689,13 +1689,13 @@ button{
    fichier — les repeignait en pastille bleue pleine. C'est le piège classique
    d'un style global ajouté après coup : il rattrape les exceptions déjà
    réglées. */
-button:not(.ghost):not(.burger):not(.repli):not(.bm-action):not(.bm-retour):not(.btn-export):not(.acte):not(.hubitem):not(.nm-onglet):not(.seg-choix):not(:disabled){
+button:not(.ghost):not(.burger):not(.repli):not(.bm-action):not(.bm-retour):not(.btn-export):not(.acte):not(.hubitem):not(.nm-onglet):not(.seg-choix):not(.modal-fermer):not(:disabled){
   background:linear-gradient(180deg,var(--accent),#0b4870);
   border-color:transparent;
   box-shadow:0 4px 14px rgba(14,90,138,.24),inset 0 1px 0 rgba(255,255,255,.35);
 }
 /* BLANC AU SURVOL, comme sur l'écran de création : la même règle partout. */
-button:not(.ghost):not(.hubitem):not(.nm-onglet):not(.bm-retour):not(.seg-choix):hover:not(:disabled){
+button:not(.ghost):not(.hubitem):not(.nm-onglet):not(.bm-retour):not(.seg-choix):not(.modal-fermer):hover:not(:disabled){
   background:#fff;color:var(--accent);border-color:var(--accent);
   transform:translateY(-1px);
   box-shadow:0 8px 22px rgba(15,35,55,.16);
@@ -2731,3 +2731,18 @@ tr:hover .avatar-u{
 .acts-dossier{display:flex;gap:6px;flex-wrap:nowrap;white-space:nowrap}
 .acts-dossier .acts-suppr{color:var(--err);border-color:currentColor}
 button.acts-suppr-plein{background:var(--err);color:#fff}
+
+/* Croix de fermeture des fenetres (2026-09-12). */
+.modal-fermer-rail{position:sticky;top:0;height:0;z-index:5;display:flex;justify-content:flex-end}
+button.modal-fermer{
+  width:34px;height:34px;border-radius:50%;padding:0;margin:0;
+  transform:translate(12px,-14px);
+  display:inline-flex;align-items:center;justify-content:center;
+  font-size:16px;line-height:1;font-weight:700;cursor:pointer;
+  color:#0b3f5f;background:rgba(255,255,255,.92);
+  border:1px solid rgba(14,90,138,.18);
+  box-shadow:0 4px 12px rgba(6,22,36,.16);
+  transition:background .15s,color .15s,transform .15s;
+}
+button.modal-fermer:hover{background:#c0392b;color:#fff;border-color:#c0392b;transform:translate(12px,-14px) scale(1.06)}
+button.modal-fermer:focus-visible{outline:2px solid #0e5a8a;outline-offset:2px}

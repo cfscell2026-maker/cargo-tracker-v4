@@ -289,7 +289,16 @@ export function Modal({ children, onClose }: { children: ReactNode; onClose: () 
    * comme avant. */
   return createPortal(
     <div className="overlay" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>{children}</div>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        {/* CROIX DE FERMETURE - 2026-09-12 (demande utilisateur). Posee ICI, dans
+            la fenetre commune, elle vaut pour toutes les fenetres d'un coup.
+            Rail `sticky` de hauteur nulle : la croix reste visible quand on fait
+            defiler une longue liste, sans decaler le titre centre. */}
+        <div className="modal-fermer-rail">
+          <button type="button" className="modal-fermer" aria-label="Fermer" title="Fermer (Échap)" onClick={onClose}>✕</button>
+        </div>
+        {children}
+      </div>
     </div>,
     document.body,
   );
