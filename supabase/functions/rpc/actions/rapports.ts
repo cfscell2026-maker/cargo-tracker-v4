@@ -502,6 +502,9 @@ function cfgActivite(kind: string) {
   }
 }
 function collecteActivite(cargos: Record<string, unknown>[], dateCol: string, agentCol: string, du?: string, au?: string, agentLc?: string) {
+  // N° déjà comptés : un conteneur partagé entre plusieurs camions ne doit
+  // peser qu'une fois dans les totaux (voir la note dans la boucle).
+  const vus = new Set<string>();
   const parOp: Record<string, AggCFS & { twins: number; sansBalise: number }> = {
     [OPERATIONS.ENLEVEMENT]: { ...aggVide(), twins: 0, sansBalise: 0 },
     [OPERATIONS.DEPOTAGE]: { ...aggVide(), twins: 0, sansBalise: 0 },
@@ -522,9 +525,26 @@ function collecteActivite(cargos: Record<string, unknown>[], dateCol: string, ag
     if (String(c['baliseRequise']) === 'Non' || c['baliseRequise'] === false) { a.sansBalise++; total.sansBalise++; }
     camions.push({ id: c['id'], numeroCamion: c['numeroCamion'], typeOperation: op, statut: c['statut'], date: c[dateCol], numeroGps: c['numeroGps'], nbConteneurs: dets.length, twins: c['twins'] });
     for (const ct of dets) {
+      /* CONTENEUR PARTAGÉ : COMPTÉ UNE SEULE FOIS — 2026-09-12, règle dictée
+       * par le douanier. Un conteneur dont la marchandise se répartit sur
+       * plusieurs camions apparaît sur chacun d'eux. Le compter à chaque fois
+       * gonflerait les totaux et les EVP — on facturerait, ou on déclarerait,
+       * plusieurs fois la même boîte.
+       *
+       * `collecteCFS` dédoublonnait déjà ; ces rapports-ci (Balise, PP, T1, Bon
+       * de sortie) ne le faisaient PAS. Le camion, lui, reste compté à chaque
+       * fois : ce sont bien deux passages distincts au poste.
+       *
+       * La LISTE détaillée conserve toutes les lignes : elle sert à retrouver
+       * quel camion a emporté quoi, et masquer le second passage y serait une
+       * perte d'information. Seuls les COMPTEURS sont dédoublonnés. */
+      const dejaCompte = !!ct.num && vus.has(ct.num);
+      if (ct.num) vus.add(ct.num);
       const bk = tailleBucket(ct.taille); const ev = evpDeTaille(bk);
-      (a as Record<string, number>)[bk]++; a.conteneurs++; a.evp += ev;
-      (total as Record<string, number>)[bk]++; total.conteneurs++; total.evp += ev;
+      if (!dejaCompte) {
+        (a as Record<string, number>)[bk]++; a.conteneurs++; a.evp += ev;
+        (total as Record<string, number>)[bk]++; total.conteneurs++; total.evp += ev;
+      }
       conteneurs.push({ id: c['id'], cargaisonId: c['id'], numeroCamion: c['numeroCamion'], typeOperation: op, conteneur: ct.num, taille: ct.taille, type: ct.type, scelle: ct.plomb, bucket: bk, numeroGps: c['numeroGps'], date: c[dateCol] });
     }
   }

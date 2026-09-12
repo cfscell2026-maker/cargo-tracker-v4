@@ -193,7 +193,24 @@ export async function cfs(ctx: Ctx, p: Record<string, unknown>) {
    * du parc et hors de l'apurement. En créant la fiche au passage, on obtient
    * l'inverse de ce que la règle redoutait — un conteneur de plus rattaché,
    * tracé, et compté. */
-  if (!estEnl && manuel && !stk && !fiche) {
+  /* RÈGLES DU DOUANIER — 2026-09-12, dictées après trois blocages successifs.
+   *
+   *   · conteneur AU PARC mais NON POINTÉ  → pas de saisie manuelle. Il faut
+   *     pointer : c'est exactement l'abus que la règle du 10 septembre visait.
+   *   · conteneur DÉJÀ RATTACHÉ à un camion → saisie manuelle AUTORISÉE. Sa
+   *     marchandise se répartit sur plusieurs camions ; il est déjà pointé et
+   *     déjà sorti du parc, il n'y a plus rien à pointer.
+   *   · conteneur ABSENT du parc → saisie manuelle autorisée, et sa fiche est
+   *     créée au passage.
+   *
+   * Le cas « déjà rattaché » ne crée AUCUNE fiche — elle existe déjà — et ne
+   * touche pas au stock : le repasser à « positionné » ferait réapparaître au
+   * parc un conteneur qui en est parti. */
+  const dejaRattache = !estEnl && !!fiche && fiche['statut'] === STOCK_STATUTS.DEPOTE;
+  if (dejaRattache && manuel) {
+    await ctx.log('Saisie manuelle — conteneur déjà rattaché', ct.num,
+      'partagé entre plusieurs camions : compté UNE SEULE FOIS dans les statistiques');
+  } else if (!estEnl && manuel && !stk && !fiche) {
     const maintenant = new Date().toISOString();
     const { error: eFiche } = await ctx.db.from('stock').insert({
       numero_tc: ct.num, taille: ct.taille ?? '', type_conteneur: ct.type ?? '',

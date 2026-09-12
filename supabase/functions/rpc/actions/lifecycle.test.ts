@@ -2587,3 +2587,48 @@ test('balise — le même numéro est libre une fois l\'autre camion SORTI', asy
   const c = db.store['cargaisons'].find((x) => x['id'] === id)!;
   assert.equal(c['numero_gps'], 'GPS-778', 'une balise se repose sur un autre camion après la sortie');
 });
+
+/* ===== LES TROIS RÈGLES DU DOUANIER — 2026-09-12 =========================
+ *
+ * Dictées après trois blocages successifs en production. Elles ne se déduisent
+ * pas du code : c'est une décision métier, et c'est à ce titre qu'elles sont
+ * verrouillées ici.
+ */
+test('douanier 1 — AU PARC mais NON POINTÉ : saisie manuelle INTERDITE', async () => {
+  const db = new FakeDB();
+  db.store['stock'].push({ numero_tc: 'MSKU5550001', taille: "20'", statut: 'En stock' });
+  const { cfs, id } = await depotagePret(db, 'DOU001/RM01');
+  await assert.rejects(
+    () => ecr.cfs(cfs, {
+      id, declaration: DECL_PNT,
+      conteneur: { num: 'MSKU5550001', taille: "20'", type: 'DRY', manuel: true },
+    }),
+    /EST au parc/i,
+  );
+});
+
+test('douanier 2 — DÉJÀ RATTACHÉ à un camion : saisie manuelle AUTORISÉE', async () => {
+  const db = new FakeDB();
+  db.store['stock'].push({ numero_tc: 'MSKU5550002', taille: "20'", statut: 'Dépoté' });
+  const { cfs, id } = await depotagePret(db, 'DOU002/RM01');
+  await ecr.cfs(cfs, {
+    id, declaration: DECL_PNT,
+    conteneur: { num: 'MSKU5550002', taille: "20'", type: 'DRY', manuel: true },
+  });
+  const c = db.store['cargaisons'].find((x) => x['id'] === id)!;
+  assert.match(JSON.stringify(c['conteneurs_details']), /MSKU5550002/);
+  // Et le stock n'est PAS ramené au parc : le conteneur en est parti.
+  const stk = db.store['stock'].find((x) => x['numero_tc'] === 'MSKU5550002')!;
+  assert.equal(stk['statut'], 'Dépoté');
+});
+
+test('douanier 3 — ABSENT du parc : saisie manuelle autorisée, fiche créée', async () => {
+  const db = new FakeDB();
+  const { cfs, id } = await depotagePret(db, 'DOU003/RM01');
+  await ecr.cfs(cfs, {
+    id, declaration: DECL_PNT,
+    conteneur: { num: 'MSKU5550003', taille: "20'", type: 'DRY', manuel: true },
+  });
+  assert.ok(db.store['stock'].find((x) => x['numero_tc'] === 'MSKU5550003'),
+    'la fiche doit être créée, sinon le conteneur échappe au parc et à l\'apurement');
+});

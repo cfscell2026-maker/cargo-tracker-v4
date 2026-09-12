@@ -200,3 +200,39 @@ test('COLONNE ABSENTE : la liste ne casse pas, elle rend tout', async () => {
   const avec = idsDe(await lec.cargoList(ctx(db), { categorie: 'tous', engagement: 'avec' }));
   assert.deepEqual(avec, [], 'et « avec » rend une liste vide, pas une erreur');
 });
+
+/* ===== UN CONTENEUR PARTAGÉ NE COMPTE QU'UNE FOIS — 2026-09-12 ===========
+ *
+ * Règle dictée par le douanier. Un conteneur dont la marchandise se répartit
+ * sur plusieurs camions apparaît sur chacun d'eux ; le compter à chaque fois
+ * gonflerait les totaux et les EVP — on déclarerait plusieurs fois la même
+ * boîte. Le CAMION, lui, reste compté à chaque passage : ce sont bien deux
+ * passages distincts au poste.
+ */
+import * as rap from './rapports.ts';
+
+function deuxCamionsUnConteneur(): FakeDB {
+  const db = new FakeDB();
+  const details = JSON.stringify({
+    conteneurs: [{ num: 'MSKU4440001', taille: "20'", type: 'DRY', plomb: '' }],
+    scellesCamion: [],
+  });
+  for (const [id, plaque] of [['CT-2026-700001', 'PAR001/RM01'], ['CT-2026-700002', 'PAR002/RM02']]) {
+    db.store['cargaisons'].push({
+      id, numero_camion: plaque, statut: 'Balisée', type_operation: 'Dépotage',
+      date_creation: '2026-09-10T08:00:00Z', date_pose_gps: '2026-09-10T09:00:00Z',
+      agent_balise: 'Agent Balise', conteneurs_details: JSON.parse(details),
+    });
+  }
+  return db;
+}
+
+test('rapport Balise — le conteneur partagé compte UNE fois, les camions DEUX', async () => {
+  const db = deuxCamionsUnConteneur();
+  const r = await rap.rapportActivite(ctx(db), {
+    kind: 'balise', du: '2026-09-01', au: '2026-09-30',
+  }) as { total: { camions: number; conteneurs: number; evp: number } };
+  assert.equal(r.total.camions, 2, 'deux passages au poste Balise : deux camions');
+  assert.equal(r.total.conteneurs, 1, 'une seule boîte physique');
+  assert.equal(r.total.evp, 1, "et un seul EVP — sinon on déclare deux fois le même conteneur");
+});

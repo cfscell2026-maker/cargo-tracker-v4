@@ -424,7 +424,21 @@ function EtatConteneurParc({
   fiche: O | null; cherche: boolean; estEnl: boolean; manuel: boolean;
   regulariser: boolean; setRegulariser: (v: boolean) => void; activerManuel: () => void;
 }) {
-  if (manuel) return <p className="help" style={{ marginTop: 6 }}>Saisie manuelle : le conteneur ne sera pas rattaché à une fiche du parc.</p>;
+  /* INDICATION DE LA SAISIE MANUELLE — 2026-09-12, règles du douanier.
+   *
+   * L'ancien texte « le conteneur ne sera pas rattaché à une fiche du parc »
+   * n'est plus vrai : en dépotage, une fiche est désormais créée pour un
+   * conteneur absent. Il disait aussi à l'agent ce que le logiciel NE FAIT PAS,
+   * au lieu de lui dire QUAND s'en servir — d'où trois blocages en une journée. */
+  if (manuel) return <div className="help" style={{ marginTop: 6 }}>
+    <b>Saisie manuelle</b> — à réserver à deux cas :
+    <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>
+      <li>le conteneur est <b>absent du parc</b> — sa fiche sera créée et pointée à votre nom ;</li>
+      <li>il est <b>déjà rattaché</b> à un autre camion (marchandise partagée) — il ne sera
+        compté qu'une fois dans les statistiques.</li>
+    </ul>
+    S'il est <b>au parc sans avoir été pointé</b>, décochez : il faut le pointer.
+  </div>;
   if (cherche) return <p className="help" style={{ marginTop: 6 }}>Recherche dans le parc…</p>;
   if (!fiche) return null;
 
