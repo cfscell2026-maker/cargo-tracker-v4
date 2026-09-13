@@ -236,8 +236,9 @@ export function StatCard({ n, l, tone, onClick, variation, comparable, etape, pa
   part?: number | null;
   /**
    * RÉPARTITION des mouvements de l'étape (2026-09-13, demande utilisateur) :
-   * part des arrivées (↑ vert) et part des départs (↓ rouge), qui font 100 %.
-   * Affichée JUSTE APRÈS la flèche du mouvement net, sans aucun mot.
+   * deux indicateurs du même dessin que l'évolution, sans aucun mot —
+   * ↗ vert suivi de la part des ARRIVÉES, ↘ rouge suivi de la part des DÉPARTS.
+   * Les deux font 100 %. Fournie, elle REMPLACE l'indicateur d'évolution.
    */
   repartition?: { arrivees: number; departs: number } | null;
 }) {
@@ -260,7 +261,14 @@ export function StatCard({ n, l, tone, onClick, variation, comparable, etape, pa
     </div>}
     {/* Une ligne pour les trois indicateurs : ils partagent la zone `evo` de la
         grille, où trois éléments posés à nu se superposeraient. */}
-    {comparable && <div className="evo-ligne">{(variation
+    {comparable && <div className="evo-ligne">{repartition ? <>
+        <span className="evo evo-hausse" title={`Arrivées : ${repartition.arrivees} % des mouvements`}>
+          <Icone nom="hausse" taille={13} />{repartition.arrivees} %
+        </span>
+        <span className="evo evo-baisse" title={`Départs : ${repartition.departs} % des mouvements`}>
+          <Icone nom="baisse" taille={13} />{repartition.departs} %
+        </span>
+      </> : (variation
       ? <div className={`evo evo-${variation.sens}`}>
         <Icone nom={variation.sens} taille={13} />
         {/* La flèche et le pourcentage, RIEN DE PLUS (2026-09-11) : la mention
@@ -273,14 +281,6 @@ export function StatCard({ n, l, tone, onClick, variation, comparable, etape, pa
         {variation.sens === 'stable' ? '0 %' : variation.pourcent === 0 ? '< 1 %' : `${variation.pourcent} %`}
       </div>
       : <div className="evo evo-neuf">nouveau</div>)}
-      {repartition && <>
-        <span className="evo evo-hausse evo-rep" title={`Arrivées : ${repartition.arrivees} % des mouvements`}>
-          <Icone nom="monte" taille={13} />{repartition.arrivees} %
-        </span>
-        <span className="evo evo-baisse evo-rep" title={`Départs : ${repartition.departs} % des mouvements`}>
-          <Icone nom="descend" taille={13} />{repartition.departs} %
-        </span>
-      </>}
     </div>}
     {cliquable && <span className="stat-clic" aria-hidden="true"><Icone nom="chevron" taille={15} /></span>}
   </div>;

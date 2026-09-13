@@ -2763,12 +2763,16 @@ button.modal-fermer:focus-visible{outline:2px solid #0e5a8a;outline-offset:2px}
 }
 
 
-/* ---- MOUVEMENT NET + RÉPARTITION, SUR UNE LIGNE (2026-09-13) ----
-   La flèche du mouvement net, puis la part des arrivées (↑ vert) et celle des
-   départs (↓ rouge). Enveloppe commune dans la zone `evo` de la grille. */
+/* ---- ARRIVÉES ET DÉPARTS, SUR UNE LIGNE (2026-09-13) ----
+   La part des arrivées (↗ vert), puis celle des départs (↘ rouge).
+   Enveloppe commune dans la zone `evo` de la grille : deux éléments posés à nu
+   dans la même zone se superposeraient. */
 .evo-ligne{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px;margin-top:9px}
 .bento .evo-ligne{grid-area:evo;margin:1px 0 0}
 .evo-ligne .evo{margin-top:0}
 .bento .evo-ligne .evo{grid-area:auto}
-/* Un filet sépare le mouvement net de sa répartition : ce sont deux lectures. */
-.evo-ligne .evo-rep:first-of-type{border-left:1px solid rgba(92,107,122,.28);padding-left:10px;border-radius:0}
+
+/* Légende des flèches dans le bandeau bleu du tableau de bord (2026-09-13) :
+   vert et rouge ÉCLAIRCIS, sans quoi ils se perdraient sur le fond sombre. */
+.leg-arrivee{color:#9ff0c4;font-weight:700;white-space:nowrap}
+.leg-depart{color:#ffb3a7;font-weight:700;white-space:nowrap}
