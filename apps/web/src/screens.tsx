@@ -527,8 +527,9 @@ SCREENS.dash = (nav) => {
      2026-08-19) : chaque dossier actif est dans UNE file, celle de sa prochaine
      étape. Quand il avance, il quitte une tuile et rejoint la suivante ; la
      somme des tuiles égale donc le nombre de dossiers en cours, et les parts
-     font 100 %. La file CFS (chargement non terminé) y entre le 2026-09-12. */
-  const fileTotale = ['attCFS', 'attValidation', 'attT1', 'attBalise', 'attBs', 'attPP']
+     font 100 %. La file CFS (chargement non terminé) y entre le 2026-09-12, les véhicules en
+     attente le 2026-09-13 (demande utilisateur) : les sept tuiles font 100 %. */
+  const fileTotale = ['attCFS', 'attValidation', 'attT1', 'attBalise', 'attBs', 'attPP', 'vehiculesAttente']
     .reduce((t, k) => t + Number(s[k] ?? 0), 0);
   /* INDICATEURS DES TUILES D'ÉTAPE (2026-09-13, demande utilisateur) : deux
      indicateurs sans mots, du même dessin — ↗ vert, la part des ARRIVÉES de
@@ -556,6 +557,8 @@ SCREENS.dash = (nav) => {
             montrent les tuiles « Attente », et la légende des deux flèches. */}
         <b>Du {fmtJour(du)} au {fmtJour(au)}</b> · « Attente » : situation actuelle ·{' '}
         <span className="leg-arrivee">↗ arrivées</span>{' '}<span className="leg-depart">↘ départs</span>
+        {/* 2026-09-13 : sens du « % de la file », en une phrase (demande utilisateur). */}
+        {' '}· <b>% de la file</b> : part des dossiers en attente
         {p.inversee && <span className="bm-alerte"> — dates inversées, remises à l'endroit</span>}
       </>}
       action={<div className="bm-outils">
@@ -591,7 +594,7 @@ SCREENS.dash = (nav) => {
       <StatCard n={Number(s['attBalise'] ?? 0)} l="Attente Balise" onClick={() => nav.go('wait_gps')} etape="balise" part={part('attBalise')} />
       <StatCard n={Number(s['attBs'] ?? 0)} l="Attente Bon de sortie" onClick={() => nav.go('wait_bs')} etape="bs" part={part('attBs')} />
       <StatCard n={Number(s['attPP'] ?? 0)} l="Attente sortie" onClick={() => nav.go('wait_sortie')} etape="pp" part={part('attPP')} />
-      <StatCard n={Number(s['vehiculesAttente'] ?? 0)} l="Véhicules en attente" onClick={() => nav.go('vehicules')} etape="vehicule" />
+      <StatCard n={Number(s['vehiculesAttente'] ?? 0)} l="Véhicules en attente" onClick={() => nav.go('vehicules')} etape="vehicule" part={part('vehiculesAttente')} />
     </div></div>}
     {/* Neuf tuiles disent COMBIEN, aucune ne dit OÙ ÇA BLOQUE : c'est pourtant
         la première question d'un chef le matin. Le classement des files répond
