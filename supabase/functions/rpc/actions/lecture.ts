@@ -395,8 +395,8 @@ export async function dashboardStats(ctx: Ctx, opts: { du?: string; au?: string 
     // En attente — état instantané, hors période.
     attCFS: 0, attValidation: 0, attT1: 0, attBalise: 0, attBs: 0, attPP: 0,
     camion: 0, chargement: 0, vehiculesAttente: 0,
-    // Entrées / sorties de chaque file SUR LA PÉRIODE (2026-09-13) : sous les
-    // tuiles « Attente », ↑ entrés et ↓ sortis. Clés : ORDRE_FILES + VEHICULES.
+    // Entrées / sorties de chaque file SUR LA PÉRIODE (2026-09-13) : elles
+    // orientent la flèche des tuiles d'étape. Clés : ORDRE_FILES + VEHICULES.
     flux: {} as Record<string, { entres: number; sortis: number }>,
     // Divers / compat.
     total: 0, sortie: 0, aujourdHui: 0,

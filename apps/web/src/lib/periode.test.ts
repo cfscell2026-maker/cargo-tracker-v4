@@ -5,7 +5,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { bornesDe, comparer, fenetreComparaison, isoDate, normaliserPlage, periodePrecedente } from './periode.ts';
+import { bornesDe, comparer, fenetreComparaison, isoDate, mouvement, normaliserPlage, periodePrecedente } from './periode.ts';
 
 /** Date LOCALE (le module raisonne en local, pas en UTC). */
 const jour = (a: number, m: number, j: number) => new Date(a, m - 1, j);
@@ -189,4 +189,20 @@ test('une période entièrement à venir retombe sur la période pleine', () => 
   assert.deepEqual(
     fenetreComparaison('2026-10-01', '2026-10-07', new Date(2026, 8, 11)),
     { du: '2026-09-24', au: '2026-09-30' });
+});
+
+test('MOUVEMENT : plus d\'arrivées que de départs → hausse ; l\'inverse → baisse (2026-09-13)', () => {
+  // Chiffres réels de la semaine du 07/09 : CFS 760 arrivés / 843 partis.
+  assert.deepEqual(mouvement(760, 843), { sens: 'baisse', pourcent: 10 });
+  // Validation 843 arrivés / 798 partis.
+  assert.deepEqual(mouvement(843, 798), { sens: 'hausse', pourcent: 5 });
+  // Petite file : borné à 100 %, pas 200 %.
+  assert.deepEqual(mouvement(10, 30), { sens: 'baisse', pourcent: 67 });
+  assert.deepEqual(mouvement(0, 4), { sens: 'baisse', pourcent: 100 });
+  assert.deepEqual(mouvement(4, 0), { sens: 'hausse', pourcent: 100 });
+  // Rien ne bouge, ou autant d'arrivées que de départs.
+  assert.deepEqual(mouvement(0, 0), { sens: 'stable', pourcent: 0 });
+  assert.deepEqual(mouvement(12, 12), { sens: 'stable', pourcent: 0 });
+  // Un écart infime garde sa flèche : le pourcentage arrondi vaut 0, l'écran dira « < 1 % ».
+  assert.deepEqual(mouvement(844, 843), { sens: 'hausse', pourcent: 0 });
 });

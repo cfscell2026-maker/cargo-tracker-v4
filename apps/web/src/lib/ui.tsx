@@ -210,7 +210,7 @@ const ICONE_ETAPE: Record<string, string> = {
   balise: 'balise', bs: 'bonSortie', pp: 'sortie', vehicule: 'voiture',
 };
 
-export function StatCard({ n, l, tone, onClick, variation, comparable, etape, part, icone, flux }: {
+export function StatCard({ n, l, tone, onClick, variation, comparable, etape, part, icone }: {
   n: ReactNode; l: string; tone?: 'ok' | 'warn'; onClick?: () => void;
   variation?: Variation | null; comparable?: boolean;
   /**
@@ -234,13 +234,6 @@ export function StatCard({ n, l, tone, onClick, variation, comparable, etape, pa
    * qui existe.
    */
   part?: number | null;
-  /**
-   * ENTRÉES ET SORTIES de la file sur la période (2026-09-13, demande
-   * utilisateur) : ↑ en vert ce qui est entré, ↓ en rouge ce qui est sorti.
-   * Un camion qui passe du CFS au T1 sort du CFS et entre au T1.
-   * Libellés ajustables (« positionnés » / « dépotés » sur le stock).
-   */
-  flux?: { entres: number; sortis: number; libEntres?: string; libSortis?: string } | null;
 }) {
   const cliquable = !!onClick;
   return <div
@@ -256,14 +249,6 @@ export function StatCard({ n, l, tone, onClick, variation, comparable, etape, pa
       <Icone nom={icone ?? ICONE_ETAPE[etape!] ?? 'tableau'} taille={17} /></span>}
     <div className="n">{n}</div>
     <div className="l">{l}</div>
-    {flux && <div className="evo-flux">
-      <span className="evo evo-entree" title="Entrés sur la période">
-        <Icone nom="hausse" taille={13} />{flux.entres} {flux.libEntres ?? (flux.entres > 1 ? 'entrés' : 'entré')}
-      </span>
-      <span className="evo evo-sortie" title="Sortis sur la période">
-        <Icone nom="baisse" taille={13} />{flux.sortis} {flux.libSortis ?? (flux.sortis > 1 ? 'sortis' : 'sorti')}
-      </span>
-    </div>}
     {part !== undefined && part !== null && <div className="evo evo-part">
       <Icone nom="rapport" taille={12} />{part} % de la file
     </div>}
@@ -275,7 +260,9 @@ export function StatCard({ n, l, tone, onClick, variation, comparable, etape, pa
             occupait plus de place que le chiffre qu'elle qualifiait. Le sens de
             la comparaison est déjà donné une fois pour toutes par la note en
             tête d'écran. */}
-        {variation.sens === 'stable' ? 'stable' : `${variation.pourcent} %`}
+        {/* 2026-09-13 : aucun mot, seulement le pourcentage (demande utilisateur).
+            Un écart réel mais inférieur à 1 % garde sa flèche : « < 1 % ». */}
+        {variation.sens === 'stable' ? '0 %' : variation.pourcent === 0 ? '< 1 %' : `${variation.pourcent} %`}
       </div>
       : <div className="evo evo-neuf">nouveau</div>)}
     {cliquable && <span className="stat-clic" aria-hidden="true"><Icone nom="chevron" taille={15} /></span>}

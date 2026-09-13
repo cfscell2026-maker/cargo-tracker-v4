@@ -8,7 +8,7 @@ import { useAsync } from './lib/hooks.ts';
 import { Icone } from './lib/icones.tsx';
 import { iconeDeLEcran, MENUS } from './lib/menu.ts';
 import { Spinner, StatCard, Tag, Modal, masks, toast, fmtDate, fmtJour, ChampDestination, Graphique, BarresClassees, useSuiviEngagement, ChampCamion, roleLabel, TITLES, ChoixSegmente } from './lib/ui.tsx';
-import { bornesDe, isoDate, normaliserPlage, type ModePeriode, comparer, type Variation, fenetreComparaison } from './lib/periode.ts';
+import { bornesDe, isoDate, normaliserPlage, type ModePeriode, mouvement } from './lib/periode.ts';
 import { Detail, TitrePanneau } from './detail.tsx';
 import type { ReactNode } from 'react';
 import type { Nav } from './App.tsx';
@@ -522,23 +522,7 @@ SCREENS.dash = (nav) => {
   const [tic, setTic] = useState(0);
   useEffect(() => { const t = window.setInterval(() => setTic((x) => x + 1), 60000); return () => window.clearInterval(t); }, []);
   const { data, loading } = useAsync<O>(() => call('dashboard.stats', { du, au }), [du, au, tic]);
-  /* COMPARAISON (2026-09-11) : un second appel sur la fenêtre précédente, pour
-     les flèches de hausse et de baisse.
-     `fenetreComparaison` compare À DURÉE ÉCOULÉE ÉGALE : un vendredi, la
-     semaine en cours ne pèse que cinq jours et se mesure aux cinq jours
-     correspondants d'avant, pas aux sept. Sans cela, le tableau de bord
-     afficherait une chute tous les jours de la semaine — et l'indicateur
-     perdrait tout crédit.
-     Appel SÉPARÉ et non bloquant : s'il échoue ou tarde, les tuiles
-     s'affichent quand même, sans flèche. Un tableau de bord doit apparaître ;
-     la comparaison est un supplément. */
-  const av = fenetreComparaison(du, au, new Date(), p.m);
-  const { data: dataAvant } = useAsync<O>(() => call('dashboard.stats', { du: av.du, au: av.au }), [av.du, av.au]);
   const s = data ?? {};
-  const sAvant = dataAvant;
-  /** Variation d'un compteur de PÉRIODE. `undefined` tant que la comparaison n'est pas là. */
-  const evo = (cle: string): Variation | null | undefined =>
-    sAvant ? comparer(Number(s[cle] ?? 0), Number(sAvant[cle] ?? 0)) : undefined;
   /* PART DE LA FILE pour les compteurs d'attente. FILE UNIQUE (serveur,
      2026-08-19) : chaque dossier actif est dans UNE file, celle de sa prochaine
      étape. Quand il avance, il quitte une tuile et rejoint la suivante ; la
@@ -546,9 +530,14 @@ SCREENS.dash = (nav) => {
      font 100 %. La file CFS (chargement non terminé) y entre le 2026-09-12. */
   const fileTotale = ['attCFS', 'attValidation', 'attT1', 'attBalise', 'attBs', 'attPP']
     .reduce((t, k) => t + Number(s[k] ?? 0), 0);
-  /* ↑ ENTRÉS / ↓ SORTIS de chaque file sur la période (2026-09-13). Absent tant
-     que le serveur ne le fournit pas : la tuile s'affiche alors sans. */
+  /* FLÈCHE DES TUILES D'ÉTAPE (2026-09-13, demande utilisateur). Elle suit les
+     camions sur la période : plus d'arrivées que de départs à l'étape → vers le
+     haut, en vert ; plus de départs → vers le bas, en rouge ; le pourcentage mesure
+     l'écart (voir `mouvement`). Elle remplace la comparaison avec la période
+     précédente, et son second appel au serveur. Arrivées et départs viennent de
+     `flux`, calculé par le serveur ; absent (serveur plus ancien), pas de flèche. */
   const flux = (cle: string) => ((s['flux'] as Record<string, { entres: number; sortis: number }> | undefined)?.[cle]) ?? null;
+  const mvt = (cle: string) => { const f = flux(cle); return f ? mouvement(f.entres, f.sortis) : undefined; };
   const part = (cle: string): number | null =>
     fileTotale > 0 ? Math.round((Number(s[cle] ?? 0) / fileTotale) * 100) : null;
   const go = (statut: string) => nav.go('list', { statut });
@@ -565,8 +554,9 @@ SCREENS.dash = (nav) => {
         <b>Événements du {fmtJour(du)} au {fmtJour(au)}</b> (« (période) ») : ce qui s'est passé à chaque cellule
         sur la période, compté <b>à la date de chaque passage</b> — une sortie du jour reste une sortie du jour,
         même si le camion est entré avant. Les tuiles <b>« Attente »</b> montrent l'état <b>à l'instant T</b>,
-        indépendamment de la période ; dessous, <b>↑ entrés</b> (vert) et <b>↓ sortis</b> (rouge) de chaque file
-        sur la période.
+        indépendamment de la période. La <b>flèche</b> de chaque étape suit les camions sur la période :
+        <b>verte vers le haut</b> quand il en arrive plus qu'il n'en part, <b>rouge vers le bas</b> quand il en
+        part plus qu'il n'en arrive.
         {p.inversee && <span className="bm-alerte"> — dates inversées, remises à l'endroit</span>}
       </>}
       action={<div className="bm-outils">
@@ -586,23 +576,23 @@ SCREENS.dash = (nav) => {
       {/* Événements datés sur la période — le travail EFFECTIF de chaque cellule
           sur la période, compté à la date de la cellule (pas à la création). */}
       <StatCard n={Number(s['creesPeriode'] ?? 0)} l="Entrées CFS (période)" onClick={() => nav.go('cfsreport')}
-        etape="cfs" comparable variation={evo('creesPeriode')} />
+        etape="cfs" comparable={!!flux('CFS')} variation={mvt('CFS')} />
       <StatCard n={Number(s['t1Periode'] ?? 0)} l="T1 saisis (période)" onClick={() => go(STATUTS.T1)}
-        etape="t1" comparable variation={evo('t1Periode')} />
+        etape="t1" comparable={!!flux('T1')} variation={mvt('T1')} />
       <StatCard n={Number(s['balisesPeriode'] ?? 0)} l="Balisés (période)" onClick={() => nav.go('baliserep')}
-        etape="balise" comparable variation={evo('balisesPeriode')} />
+        etape="balise" comparable={!!flux('BALISE')} variation={mvt('BALISE')} />
       <StatCard n={Number(s['bonsPeriode'] ?? 0)} l="Bons de sortie (période)" onClick={() => go(STATUTS.BS)}
-        etape="bs" comparable variation={evo('bonsPeriode')} />
+        etape="bs" comparable={!!flux('BS')} variation={mvt('BS')} />
       <StatCard n={Number(s['sortiePeriode'] ?? 0)} l="Sortis (période)" onClick={() => nav.go('pprep')}
-        etape="pp" comparable variation={evo('sortiePeriode')} />
+        etape="pp" comparable={!!flux('PP')} variation={mvt('PP')} />
       {/* En attente — état instantané (hors période). */}
-      <StatCard n={Number(s['attCFS'] ?? 0)} l="En cours au CFS" onClick={() => nav.go('wait_cfs')} etape="cfs" part={part('attCFS')} flux={flux('CFS')} />
-      <StatCard n={Number(s['attValidation'] ?? 0)} l="Attente validation" onClick={() => nav.go('wait_valid')} etape="validation" part={part('attValidation')} flux={flux('VALIDATION')} />
-      <StatCard n={Number(s['attT1'] ?? 0)} l="Attente T1" onClick={() => nav.go('wait_t1')} etape="t1" part={part('attT1')} flux={flux('T1')} />
-      <StatCard n={Number(s['attBalise'] ?? 0)} l="Attente Balise" onClick={() => nav.go('wait_gps')} etape="balise" part={part('attBalise')} flux={flux('BALISE')} />
-      <StatCard n={Number(s['attBs'] ?? 0)} l="Attente Bon de sortie" onClick={() => nav.go('wait_bs')} etape="bs" part={part('attBs')} flux={flux('BS')} />
-      <StatCard n={Number(s['attPP'] ?? 0)} l="Attente sortie" onClick={() => nav.go('wait_sortie')} etape="pp" part={part('attPP')} flux={flux('PP')} />
-      <StatCard n={Number(s['vehiculesAttente'] ?? 0)} l="Véhicules en attente" onClick={() => nav.go('vehicules')} etape="vehicule" flux={flux('VEHICULES')} />
+      <StatCard n={Number(s['attCFS'] ?? 0)} l="En cours au CFS" onClick={() => nav.go('wait_cfs')} etape="cfs" part={part('attCFS')} />
+      <StatCard n={Number(s['attValidation'] ?? 0)} l="Attente validation" onClick={() => nav.go('wait_valid')} etape="validation" part={part('attValidation')} />
+      <StatCard n={Number(s['attT1'] ?? 0)} l="Attente T1" onClick={() => nav.go('wait_t1')} etape="t1" part={part('attT1')} />
+      <StatCard n={Number(s['attBalise'] ?? 0)} l="Attente Balise" onClick={() => nav.go('wait_gps')} etape="balise" part={part('attBalise')} />
+      <StatCard n={Number(s['attBs'] ?? 0)} l="Attente Bon de sortie" onClick={() => nav.go('wait_bs')} etape="bs" part={part('attBs')} />
+      <StatCard n={Number(s['attPP'] ?? 0)} l="Attente sortie" onClick={() => nav.go('wait_sortie')} etape="pp" part={part('attPP')} />
+      <StatCard n={Number(s['vehiculesAttente'] ?? 0)} l="Véhicules en attente" onClick={() => nav.go('vehicules')} etape="vehicule" />
     </div></div>}
     {/* Neuf tuiles disent COMBIEN, aucune ne dit OÙ ÇA BLOQUE : c'est pourtant
         la première question d'un chef le matin. Le classement des files répond
@@ -2050,8 +2040,9 @@ function StatsDepotage() {
       <div className="stats" style={{ marginTop: 10 }}>
         <StatCard n={Number(c['pointes'] ?? 0)} l="Positionnés (période)" />
         <StatCard n={Number(c['depotes'] ?? 0)} l="Dépotés (période)" tone="ok" />
+        {/* Même flèche que les étapes du tableau de bord : positionnés = arrivées, dépotés = départs. */}
         <StatCard n={Number(c['restant'] ?? 0)} l="Restant à dépoter" tone="warn"
-          flux={{ entres: Number(c['pointes'] ?? 0), sortis: Number(c['depotes'] ?? 0), libEntres: 'positionnés', libSortis: 'dépotés' }} />
+          comparable variation={mouvement(Number(c['pointes'] ?? 0), Number(c['depotes'] ?? 0))} />
         <StatCard n={Number(c['evp'] ?? 0)} l="EVP restants" />
         <StatCard n={Number(c['jamaisPointes'] ?? 0)} l="Au parc, jamais pointés" tone="warn" />
       </div>

@@ -99,6 +99,25 @@ export function comparer(actuel: number, precedent: number): Variation | null {
 }
 
 /**
+ * MOUVEMENT D'UNE ÉTAPE — 2026-09-13 (demande utilisateur).
+ *
+ * La flèche des tuiles d'étape (CFS, T1, Balise, Bon de sortie, Sortie) suit
+ * les camions : il en ARRIVE plus qu'il n'en PART sur la période → vers le haut,
+ * en vert ; il en part plus qu'il n'en arrive → vers le bas, en rouge.
+ *
+ * Le pourcentage est l'écart rapporté au PLUS GRAND des deux mouvements. Il
+ * reste ainsi entre 0 et 100 % et ne s'emballe pas sur une petite file :
+ * 10 arrivées pour 30 départs donnent 67 %, et non 200 %.
+ */
+export function mouvement(arrives: number, partis: number): Variation {
+  const a = Math.max(0, Number(arrives) || 0);
+  const p = Math.max(0, Number(partis) || 0);
+  const base = Math.max(a, p);
+  if (base === 0 || a === p) return { sens: 'stable', pourcent: 0 };
+  return { sens: a > p ? 'hausse' : 'baisse', pourcent: Math.round((Math.abs(a - p) / base) * 100) };
+}
+
+/**
  * FENÊTRE DE COMPARAISON HONNÊTE — 2026-09-11, corrigée le 2026-09-12.
  *
  * Comparer une période EN COURS à une période ACHEVÉE fausse tout. Un vendredi,

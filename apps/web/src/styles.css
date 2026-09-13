@@ -1393,11 +1393,12 @@ tr.clk{cursor:pointer} tr.clk:hover{background:var(--accent-soft)}
    réservant plus de hauteur. L'évolution occupe désormais sa propre rangée,
    définie plus haut par `grid-area:evo`.) */
 .evo-hausse{color:var(--ok);background:var(--ok-soft)}
-.evo-baisse{color:var(--warn);background:var(--warn-soft)}
+/* 2026-09-13 : la baisse passe au ROUGE (demande utilisateur) ; la hausse reste verte. */
+.evo-baisse{color:#c0392b;background:rgba(192,57,43,.10)}
 .evo-stable{color:var(--muted);background:rgba(92,107,122,.12)}
 /* Dans le bento, pas de fond : seule la couleur du texte porte le sens. */
 .bento .evo-hausse{color:#1f7a5c;background:none}
-.bento .evo-baisse{color:#8a4b1c;background:none}
+.bento .evo-baisse{color:#c0392b;background:none}
 .bento .evo-stable,.bento .evo-neuf{color:#6b7a89;background:none}
 /* La PART de la file : gris sobre, sans flèche — ce n'est pas un mouvement,
    c'est un poids. La confondre avec une évolution serait pire que rien. */
@@ -2761,20 +2762,3 @@ button.modal-fermer:focus-visible{outline:2px solid #0e5a8a;outline-offset:2px}
   .acts-dossier button{min-width:36px;min-height:36px;justify-content:center;font-size:15px}
 }
 
-/* ---- ENTRÉES / SORTIES DE FILE (2026-09-13) ----
-   ↑ entrés en VERT, ↓ sortis en ROUGE, sur la période (demande utilisateur).
-   Rangée PROPRE dans la grille de la tuile : sans elle, la ligne se posait dans
-   la zone `evo` déjà occupée par la part de la file, et les deux se chevauchaient.
-   Une tuile sans flux laisse la rangée vide, donc de hauteur nulle. */
-.bento .stat{
-  grid-template-areas:
-    "pastille libelle chevron"
-    "pastille nombre  chevron"
-    "pastille flux    chevron"
-    "pastille evo     chevron";
-}
-.bento .evo-flux{grid-area:flux}
-.evo-flux{display:flex;flex-wrap:wrap;gap:2px 12px;margin-top:6px}
-.evo-flux .evo{grid-area:auto;margin:0;padding:0;background:none;border-radius:0;font-weight:700}
-.evo-flux .evo-entree{color:#1f7a5c}
-.evo-flux .evo-sortie{color:#c0392b}
