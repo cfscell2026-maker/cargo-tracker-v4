@@ -2762,3 +2762,13 @@ button.modal-fermer:focus-visible{outline:2px solid #0e5a8a;outline-offset:2px}
   .acts-dossier button{min-width:36px;min-height:36px;justify-content:center;font-size:15px}
 }
 
+
+/* ---- MOUVEMENT NET + RÉPARTITION, SUR UNE LIGNE (2026-09-13) ----
+   La flèche du mouvement net, puis la part des arrivées (↑ vert) et celle des
+   départs (↓ rouge). Enveloppe commune dans la zone `evo` de la grille. */
+.evo-ligne{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px;margin-top:9px}
+.bento .evo-ligne{grid-area:evo;margin:1px 0 0}
+.evo-ligne .evo{margin-top:0}
+.bento .evo-ligne .evo{grid-area:auto}
+/* Un filet sépare le mouvement net de sa répartition : ce sont deux lectures. */
+.evo-ligne .evo-rep:first-of-type{border-left:1px solid rgba(92,107,122,.28);padding-left:10px;border-radius:0}

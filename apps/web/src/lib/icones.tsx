@@ -50,6 +50,10 @@ const TRACES: Record<string, string | string[]> = {
   plus: 'M12 5v14M5 12h14',
   hausse: 'M4 16l6-6 4 4 6-7M15 7h5v5',
   baisse: 'M4 8l6 6 4-4 6 7M15 17h5v-5',
+  // 2026-09-13 : flèches DROITES des arrivées / départs, distinctes des flèches
+  // de tendance du mouvement net posées juste avant elles sur la tuile.
+  monte: 'M12 19V5M6 11l6-6 6 6',
+  descend: 'M12 5v14M6 13l6 6 6-6',
   stable: 'M4 12h16',
 
   // Vue d'ensemble

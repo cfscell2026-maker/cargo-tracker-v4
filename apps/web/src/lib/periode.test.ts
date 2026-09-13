@@ -5,7 +5,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { bornesDe, comparer, fenetreComparaison, isoDate, mouvement, normaliserPlage, periodePrecedente } from './periode.ts';
+import { bornesDe, comparer, fenetreComparaison, isoDate, mouvement, normaliserPlage, periodePrecedente, repartition } from './periode.ts';
 
 /** Date LOCALE (le module raisonne en local, pas en UTC). */
 const jour = (a: number, m: number, j: number) => new Date(a, m - 1, j);
@@ -205,4 +205,19 @@ test('MOUVEMENT : plus d\'arrivées que de départs → hausse ; l\'inverse → 
   assert.deepEqual(mouvement(12, 12), { sens: 'stable', pourcent: 0 });
   // Un écart infime garde sa flèche : le pourcentage arrondi vaut 0, l'écran dira « < 1 % ».
   assert.deepEqual(mouvement(844, 843), { sens: 'hausse', pourcent: 0 });
+});
+
+test('RÉPARTITION : part des arrivées et des départs, toujours 100 % à eux deux (2026-09-13)', () => {
+  // L'exemple de l'utilisateur : 80 arrivés, 20 partis.
+  assert.deepEqual(repartition(80, 20), { arrivees: 80, departs: 20 });
+  // CFS, semaine du 07/09 : 760 arrivés, 843 partis → 760 / 1603 = 47,4 %.
+  assert.deepEqual(repartition(760, 843), { arrivees: 47, departs: 53 });
+  // Balise : 769 / 755 → 769 / 1524 = 50,5 %.
+  assert.deepEqual(repartition(769, 755), { arrivees: 50, departs: 50 });
+  // Arrondi : 1 / 3 = 33,3 % → 33 et 67, et non 33 et 33.
+  assert.deepEqual(repartition(1, 2), { arrivees: 33, departs: 67 });
+  assert.deepEqual(repartition(0, 5), { arrivees: 0, departs: 100 });
+  assert.deepEqual(repartition(5, 0), { arrivees: 100, departs: 0 });
+  // Aucun mouvement : rien à répartir.
+  assert.deepEqual(repartition(0, 0), { arrivees: 0, departs: 0 });
 });

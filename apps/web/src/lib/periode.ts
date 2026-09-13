@@ -118,6 +118,24 @@ export function mouvement(arrives: number, partis: number): Variation {
 }
 
 /**
+ * RÉPARTITION DES MOUVEMENTS — 2026-09-13 (demande utilisateur).
+ *
+ * Deux pourcentages qui font 100 % : la part des ARRIVÉES et la part des
+ * DÉPARTS dans l'ensemble des mouvements d'une étape sur la période.
+ * 80 camions arrivés et 20 partis : 80 % d'arrivées, 20 % de départs.
+ *
+ * Les arrivées sont arrondies, les départs pris par différence : la somme
+ * affichée fait toujours 100 %, jamais 99 ni 101.
+ */
+export function repartition(arrives: number, partis: number): { arrivees: number; departs: number } {
+  const a = Math.max(0, Number(arrives) || 0);
+  const p = Math.max(0, Number(partis) || 0);
+  if (a + p === 0) return { arrivees: 0, departs: 0 };
+  const arrivees = Math.round((a / (a + p)) * 100);
+  return { arrivees, departs: 100 - arrivees };
+}
+
+/**
  * FENÊTRE DE COMPARAISON HONNÊTE — 2026-09-11, corrigée le 2026-09-12.
  *
  * Comparer une période EN COURS à une période ACHEVÉE fausse tout. Un vendredi,
