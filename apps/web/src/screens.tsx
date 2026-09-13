@@ -546,6 +546,9 @@ SCREENS.dash = (nav) => {
      font 100 %. La file CFS (chargement non terminé) y entre le 2026-09-12. */
   const fileTotale = ['attCFS', 'attValidation', 'attT1', 'attBalise', 'attBs', 'attPP']
     .reduce((t, k) => t + Number(s[k] ?? 0), 0);
+  /* ↑ ENTRÉS / ↓ SORTIS de chaque file sur la période (2026-09-13). Absent tant
+     que le serveur ne le fournit pas : la tuile s'affiche alors sans. */
+  const flux = (cle: string) => ((s['flux'] as Record<string, { entres: number; sortis: number }> | undefined)?.[cle]) ?? null;
   const part = (cle: string): number | null =>
     fileTotale > 0 ? Math.round((Number(s[cle] ?? 0) / fileTotale) * 100) : null;
   const go = (statut: string) => nav.go('list', { statut });
@@ -562,7 +565,8 @@ SCREENS.dash = (nav) => {
         <b>Événements du {fmtJour(du)} au {fmtJour(au)}</b> (« (période) ») : ce qui s'est passé à chaque cellule
         sur la période, compté <b>à la date de chaque passage</b> — une sortie du jour reste une sortie du jour,
         même si le camion est entré avant. Les tuiles <b>« Attente »</b> montrent l'état <b>à l'instant T</b>,
-        indépendamment de la période.
+        indépendamment de la période ; dessous, <b>↑ entrés</b> (vert) et <b>↓ sortis</b> (rouge) de chaque file
+        sur la période.
         {p.inversee && <span className="bm-alerte"> — dates inversées, remises à l'endroit</span>}
       </>}
       action={<div className="bm-outils">
@@ -592,13 +596,13 @@ SCREENS.dash = (nav) => {
       <StatCard n={Number(s['sortiePeriode'] ?? 0)} l="Sortis (période)" onClick={() => nav.go('pprep')}
         etape="pp" comparable variation={evo('sortiePeriode')} />
       {/* En attente — état instantané (hors période). */}
-      <StatCard n={Number(s['attCFS'] ?? 0)} l="En cours au CFS" onClick={() => nav.go('wait_cfs')} etape="cfs" part={part('attCFS')} />
-      <StatCard n={Number(s['attValidation'] ?? 0)} l="Attente validation" onClick={() => nav.go('wait_valid')} etape="validation" part={part('attValidation')} />
-      <StatCard n={Number(s['attT1'] ?? 0)} l="Attente T1" onClick={() => nav.go('wait_t1')} etape="t1" part={part('attT1')} />
-      <StatCard n={Number(s['attBalise'] ?? 0)} l="Attente Balise" onClick={() => nav.go('wait_gps')} etape="balise" part={part('attBalise')} />
-      <StatCard n={Number(s['attBs'] ?? 0)} l="Attente Bon de sortie" onClick={() => nav.go('wait_bs')} etape="bs" part={part('attBs')} />
-      <StatCard n={Number(s['attPP'] ?? 0)} l="Attente sortie" onClick={() => nav.go('wait_sortie')} etape="pp" part={part('attPP')} />
-      <StatCard n={Number(s['vehiculesAttente'] ?? 0)} l="Véhicules en attente" onClick={() => nav.go('vehicules')} etape="vehicule" />
+      <StatCard n={Number(s['attCFS'] ?? 0)} l="En cours au CFS" onClick={() => nav.go('wait_cfs')} etape="cfs" part={part('attCFS')} flux={flux('CFS')} />
+      <StatCard n={Number(s['attValidation'] ?? 0)} l="Attente validation" onClick={() => nav.go('wait_valid')} etape="validation" part={part('attValidation')} flux={flux('VALIDATION')} />
+      <StatCard n={Number(s['attT1'] ?? 0)} l="Attente T1" onClick={() => nav.go('wait_t1')} etape="t1" part={part('attT1')} flux={flux('T1')} />
+      <StatCard n={Number(s['attBalise'] ?? 0)} l="Attente Balise" onClick={() => nav.go('wait_gps')} etape="balise" part={part('attBalise')} flux={flux('BALISE')} />
+      <StatCard n={Number(s['attBs'] ?? 0)} l="Attente Bon de sortie" onClick={() => nav.go('wait_bs')} etape="bs" part={part('attBs')} flux={flux('BS')} />
+      <StatCard n={Number(s['attPP'] ?? 0)} l="Attente sortie" onClick={() => nav.go('wait_sortie')} etape="pp" part={part('attPP')} flux={flux('PP')} />
+      <StatCard n={Number(s['vehiculesAttente'] ?? 0)} l="Véhicules en attente" onClick={() => nav.go('vehicules')} etape="vehicule" flux={flux('VEHICULES')} />
     </div></div>}
     {/* Neuf tuiles disent COMBIEN, aucune ne dit OÙ ÇA BLOQUE : c'est pourtant
         la première question d'un chef le matin. Le classement des files répond
@@ -2046,7 +2050,8 @@ function StatsDepotage() {
       <div className="stats" style={{ marginTop: 10 }}>
         <StatCard n={Number(c['pointes'] ?? 0)} l="Positionnés (période)" />
         <StatCard n={Number(c['depotes'] ?? 0)} l="Dépotés (période)" tone="ok" />
-        <StatCard n={Number(c['restant'] ?? 0)} l="Restant à dépoter" tone="warn" />
+        <StatCard n={Number(c['restant'] ?? 0)} l="Restant à dépoter" tone="warn"
+          flux={{ entres: Number(c['pointes'] ?? 0), sortis: Number(c['depotes'] ?? 0), libEntres: 'positionnés', libSortis: 'dépotés' }} />
         <StatCard n={Number(c['evp'] ?? 0)} l="EVP restants" />
         <StatCard n={Number(c['jamaisPointes'] ?? 0)} l="Au parc, jamais pointés" tone="warn" />
       </div>

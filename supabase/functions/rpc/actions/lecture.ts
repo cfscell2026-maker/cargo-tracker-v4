@@ -17,6 +17,8 @@ import {
   etatEngagement,
   libelleEngagement,
   fileAttente,
+  passagesDesFiles,
+  ORDRE_FILES,
   estOui,
   aFait,
   normAlphaNum,
@@ -393,6 +395,9 @@ export async function dashboardStats(ctx: Ctx, opts: { du?: string; au?: string 
     // En attente — état instantané, hors période.
     attCFS: 0, attValidation: 0, attT1: 0, attBalise: 0, attBs: 0, attPP: 0,
     camion: 0, chargement: 0, vehiculesAttente: 0,
+    // Entrées / sorties de chaque file SUR LA PÉRIODE (2026-09-13) : sous les
+    // tuiles « Attente », ↑ entrés et ↓ sortis. Clés : ORDRE_FILES + VEHICULES.
+    flux: {} as Record<string, { entres: number; sortis: number }>,
     // Divers / compat.
     total: 0, sortie: 0, aujourdHui: 0,
   };
@@ -407,6 +412,22 @@ export async function dashboardStats(ctx: Ctx, opts: { du?: string; au?: string 
     if (auEx && d >= auEx) return false;
     return true;
   };
+
+  for (const k of [...ORDRE_FILES, 'VEHICULES']) stats.flux[k] = { entres: 0, sortis: 0 };
+  const dansPeriodeMs = (t: number | null): boolean =>
+    t !== null && (!du || t >= du.getTime()) && (!auEx || t < auEx.getTime());
+
+  /* FIN DE CHARGEMENT — lue sur la table, pas sur la vue résumé qui ne la porte
+     pas : on évite ainsi une migration. Seules comptent celles posées à partir
+     de la veille du début de période (index partiel 00110). Une fin plus
+     ancienne tombe avant la période : l'ignorer ne change aucun compte, puisque
+     l'entrée et la sortie qu'elle date sont alors, elles aussi, avant la période. */
+  const finsChargement = new Map<string, unknown>();
+  const depuis = du ? new Date(du.getTime() - 86400000).toISOString() : '1970-01-01T00:00:00.000Z';
+  for (const f of await fetchAll(ctx, 'cargaisons', 'id, date_fin_chargement', { colonne: 'id' },
+    (q) => q.gte('date_fin_chargement', depuis))) {
+    if (f['date_fin_chargement']) finsChargement.set(String(f['id']), f['date_fin_chargement']);
+  }
 
   const data = await chargerResume(ctx);
   const today = new Date();
@@ -430,9 +451,18 @@ export async function dashboardStats(ctx: Ctx, opts: { du?: string; au?: string 
     /* --- EN ATTENTE MAINTENANT (instant T, hors période) --- */
     if (veh) {
       if (r['statut'] !== STATUTS.SORTIE) stats.vehiculesAttente++;
+      if (dansPeriode(r['dateCreation'])) stats.flux['VEHICULES']!.entres++;
+      if (dansPeriode(r['dateSortie'])) stats.flux['VEHICULES']!.sortis++;
       continue;
     }
     stats.total++;
+    const passages = passagesDesFiles({ ...r, dateFinChargement: finsChargement.get(String(r['id'])) } as never);
+    for (const k of ORDRE_FILES) {
+      const ps = passages[k];
+      if (!ps) continue;
+      if (dansPeriodeMs(ps.entree)) stats.flux[k]!.entres++;
+      if (dansPeriodeMs(ps.sortie)) stats.flux[k]!.sortis++;
+    }
     if (r['statut'] === STATUTS.CAMION) stats.camion++;
     else if (r['statut'] === STATUTS.CHARGEMENT) stats.chargement++;
     // FILE UNIQUE (2026-08-19) : chaque camion ne compte QUE dans sa prochaine

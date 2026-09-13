@@ -2760,3 +2760,21 @@ button.modal-fermer:focus-visible{outline:2px solid #0e5a8a;outline-offset:2px}
   .acts-dossier .acts-lib{display:none}
   .acts-dossier button{min-width:36px;min-height:36px;justify-content:center;font-size:15px}
 }
+
+/* ---- ENTRÉES / SORTIES DE FILE (2026-09-13) ----
+   ↑ entrés en VERT, ↓ sortis en ROUGE, sur la période (demande utilisateur).
+   Rangée PROPRE dans la grille de la tuile : sans elle, la ligne se posait dans
+   la zone `evo` déjà occupée par la part de la file, et les deux se chevauchaient.
+   Une tuile sans flux laisse la rangée vide, donc de hauteur nulle. */
+.bento .stat{
+  grid-template-areas:
+    "pastille libelle chevron"
+    "pastille nombre  chevron"
+    "pastille flux    chevron"
+    "pastille evo     chevron";
+}
+.bento .evo-flux{grid-area:flux}
+.evo-flux{display:flex;flex-wrap:wrap;gap:2px 12px;margin-top:6px}
+.evo-flux .evo{grid-area:auto;margin:0;padding:0;background:none;border-radius:0;font-weight:700}
+.evo-flux .evo-entree{color:#1f7a5c}
+.evo-flux .evo-sortie{color:#c0392b}

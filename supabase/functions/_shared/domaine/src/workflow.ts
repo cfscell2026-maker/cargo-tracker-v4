@@ -186,3 +186,83 @@ export function estDispenseBalise(c: {
   const pasRequise = c.baliseRequise === false || String(c.baliseRequise) === 'Non';
   return pasRequise && String(c.numeroDispense ?? '').trim() !== '';
 }
+
+/* ===================== ENTRÉES ET SORTIES DES FILES =====================
+ * 2026-09-13 — demande utilisateur : sous chaque tuile « Attente » du tableau
+ * de bord, combien de dossiers sont ENTRÉS dans la file et combien en sont
+ * SORTIS sur la période. Un camion qui quitte le CFS pour la validation compte
+ * une sortie au CFS et une entrée à la validation, et ainsi de suite.
+ *
+ * On ne stocke aucun compteur : les instants se DÉDUISENT des horodatages que
+ * chaque cellule pose déjà. Un dossier entre dans une file au moment où il a fini
+ * tout ce qui la précède, et en sort au moment où il finit cette étape.
+ *
+ * GARANTIE : les files, leur ordre et leurs sauts sont EXACTEMENT ceux de
+ * `fileAttente`. Le dossier dont la sortie est inconnue est dans la file que
+ * `fileAttente` désigne, et dans aucune autre. D'où l'invariant, testé : sur une
+ * période couvrant toute la vie des dossiers, entrées − sorties = taille de la file.
+ */
+
+/** Ordre des files, celui de `fileAttente`. */
+export const ORDRE_FILES: readonly Etape[] = ['CFS', 'VALIDATION', 'T1', 'BALISE', 'BS', 'PP'];
+
+export interface SourcePassages extends SourceEtapes {
+  dateCreation?: unknown;
+  /** Posée par déclencheur depuis le 2026-08-13 (migration 00110). */
+  dateFinChargement?: unknown;
+  dateBonSortie?: unknown;
+}
+
+/** Instants (ms) d'entrée et de sortie d'une file ; `sortie` null = encore dedans. */
+export type Passage = { entree: number; sortie: number | null };
+
+export function passagesDesFiles(c: SourcePassages): Partial<Record<Etape, Passage>> {
+  const ms = (v: unknown): number | null => {
+    if (!aFait(v)) return null;
+    const t = new Date(String(v)).getTime();
+    return isNaN(t) ? null : t;
+  };
+  const debut = ms(c.dateCreation);
+  if (debut === null) return {};
+  const e = etatCellules(c);
+  const sortiePort = e.sorti ? ms(c.dateSortie) : null;
+  const plusTot = (a: number | null, b: number | null) => (a === null ? b : b === null ? a : Math.min(a, b));
+
+  const faite: Record<Etape, boolean> = { CFS: e.cfs, VALIDATION: e.valide, T1: e.t1, BALISE: e.balise, BS: e.bs, PP: e.sorti };
+  // Sauts : les mêmes que ceux qu'`etatCellules` tient pour « faits » sans passage.
+  const sautee: Record<Etape, boolean> = {
+    CFS: false,
+    VALIDATION: estOui(c.sauteValidation),
+    T1: estOui(c.sauteT1) || estTypeSansT1(c.typeDeclaration),
+    BALISE: estOui(c.sauteBalise) || estOui(c.estVehicule),
+    BS: estOui(c.sauteBS) || estOui(c.sauteBs),
+    PP: false,
+  };
+  const dateFin: Record<Etape, number | null> = {
+    CFS: ms(c.dateFinChargement),
+    // Cascade d'`etatCellules` : réputée validée dès le T1 saisi.
+    VALIDATION: plusTot(ms(c.dateValidation), ms(c.dateT1)),
+    T1: ms(c.dateT1),
+    BALISE: ms(c.datePoseGps),
+    BS: aFait(c.bonSortieNumero) ? ms(c.dateBonSortie) : null,
+    PP: sortiePort,
+  };
+
+  const out: Partial<Record<Etape, Passage>> = {};
+  let courant = debut;
+  for (const k of ORDRE_FILES) {
+    if (sautee[k]) continue;
+    if (!(faite[k] || e.sorti)) { out[k] = { entree: courant, sortie: null }; break; }
+    // Fin connue ; à défaut, la sortie du port (un camion sorti a quitté toutes
+    // les files) ; à défaut encore (dossier ancien sans horodatage), l'instant
+    // d'entrée — traversée comptée, sans inventer de durée.
+    let fin = dateFin[k] ?? sortiePort ?? courant;
+    // Étape faite AVANT d'y arriver (Bon de sortie émis avant la balise) : le
+    // dossier traverse la file à l'instant où il l'atteint.
+    if (fin < courant) fin = courant;
+    if (sortiePort !== null && fin > sortiePort) fin = Math.max(courant, sortiePort);
+    out[k] = { entree: courant, sortie: fin };
+    courant = fin;
+  }
+  return out;
+}

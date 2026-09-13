@@ -2691,3 +2691,29 @@ test('véhicule : un châssis égal à la plaque d\'un CAMION présent n\'est pa
     vehicules: [{ chassis: 'TG2944BI', destination: 'Transit' }] });
   assert.equal(db.store['cargaisons'].filter((c) => c['numero_camion'] === 'TG2944BI').length, 2);
 });
+
+test('tableau de bord : ↑ entrés / ↓ sortis de chaque file sur la période (2026-09-13)', async () => {
+  const db = new FakeDB();
+  db.store['stock'].push({ numero_tc: 'MSKU1234567', taille: "40'", statut: 'En stock' });
+  const cfs = ctxAvec(db);
+  const j = new Date();
+  const aujourdhui = `${j.getFullYear()}-${String(j.getMonth() + 1).padStart(2, '0')}-${String(j.getDate()).padStart(2, '0')}`;
+  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'TG2222BB', routage: 'Enlèvement' })) as { id: string };
+  const decl = { declarant: 'STE X', contactDeclarant: '90123456', destinationMarchandise: 'LOME', bureauDeclaration: 'TG120', typeDeclaration: 'T', numeroDeclaration: '5151', anneeDeclaration: '2026', dateDeclaration: '2026-06-24', descriptionMarchandise: 'RIZ', nombreConteneurs: 1 };
+  await ecr.cfs(cfs, { id, conteneur: { num: 'MSKU1234567', taille: "40'", type: 'DRY', plomb: 'SEAL1' }, declaration: decl });
+  // Le déclencheur 00110 n'existe pas dans le double : on pose la date qu'il écrirait.
+  db.store['cargaisons'].find((c) => c['id'] === id)!['date_fin_chargement'] = new Date().toISOString();
+  await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'), { id, enSurcharge: false, suiviEngagement: false });
+
+  const s = (await lec.dashboardStats(cfs, { du: aujourdhui, au: aujourdhui })) as { flux: Record<string, { entres: number; sortis: number }>; attT1: number };
+  assert.deepEqual(s.flux['CFS'], { entres: 1, sortis: 1 }, 'a quitté le CFS');
+  assert.deepEqual(s.flux['VALIDATION'], { entres: 1, sortis: 1 }, 'est passé par la validation');
+  assert.deepEqual(s.flux['T1'], { entres: 1, sortis: 0 }, 'est entré au T1, pas encore sorti');
+  assert.deepEqual(s.flux['BALISE'], { entres: 0, sortis: 0 });
+  assert.equal(s.attT1, 1);
+  // Période d'hier : rien ne s'y est passé.
+  const hier = new Date(j.getTime() - 86400000);
+  const h = `${hier.getFullYear()}-${String(hier.getMonth() + 1).padStart(2, '0')}-${String(hier.getDate()).padStart(2, '0')}`;
+  const s2 = (await lec.dashboardStats(cfs, { du: h, au: h })) as { flux: Record<string, { entres: number; sortis: number }> };
+  assert.deepEqual(s2.flux['T1'], { entres: 0, sortis: 0 });
+});
