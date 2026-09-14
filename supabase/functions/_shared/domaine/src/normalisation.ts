@@ -120,6 +120,12 @@ export interface ChampLibre {
 }
 
 export interface Conteneur {
+  /**
+   * 2026-09-14 — Conteneur PARTAGÉ : déjà dépoté sur un autre camion, rattaché à
+   * celui-ci en plus. Posé par le serveur seul ; exclu de tous les comptes de
+   * conteneurs, la boîte ayant été comptée au premier dépotage.
+   */
+  partage?: boolean;
   num: string;
   plomb: string;
   taille: string;

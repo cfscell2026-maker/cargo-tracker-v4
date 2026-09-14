@@ -365,6 +365,7 @@ function collecteCFS(cargos: Record<string, unknown>[], du?: string, au?: string
     a.camions++; total.camions++;
     camions.push({ id: c['id'], numeroCamion: c['numeroCamion'], typeOperation: op, statut: c['statut'], dateCreation: c['dateCreation'], nbConteneurs: dets.length, agentCfs: c['agentCfs'] });
     for (const ct of dets) {
+      if (ct.partage) continue; // partagé (2026-09-14) : compté au premier dépotage
       if (ct.num && vus.has(ct.num)) continue; // conteneur partagé : déjà compté
       if (ct.num) vus.add(ct.num);
       const bk = tailleBucket(ct.taille); const ev = evpDeTaille(bk);
@@ -541,8 +542,10 @@ function collecteActivite(cargos: Record<string, unknown>[], dateCol: string, ag
        * La LISTE détaillée conserve toutes les lignes : elle sert à retrouver
        * quel camion a emporté quoi, et masquer le second passage y serait une
        * perte d'information. Seuls les COMPTEURS sont dédoublonnés. */
-      const dejaCompte = !!ct.num && vus.has(ct.num);
-      if (ct.num) vus.add(ct.num);
+      // 2026-09-14 : une ligne marquée « partage » n'est jamais comptée, et n'entre
+      // pas dans `vus` — sinon elle masquerait le dépotage d'origine de la période.
+      const dejaCompte = ct.partage === true || (!!ct.num && vus.has(ct.num));
+      if (ct.num && !ct.partage) vus.add(ct.num);
       const bk = tailleBucket(ct.taille); const ev = evpDeTaille(bk);
       if (!dejaCompte) {
         (a as Record<string, number>)[bk]++; a.conteneurs++; a.evp += ev;
@@ -811,6 +814,7 @@ export async function ficheBord(ctx: Ctx, p: Record<string, unknown>) {
       else if (op === OPERATIONS.MAGASIN) cfs.camionsMad++;
       if (estConso) cfs.camionsConso++; // cross-cut : compté au type C, en plus du bucket d'opération
       for (const ct of conts) {
+        if (ct.partage) continue; // partagé (2026-09-14) : compté au premier dépotage
         if (ct.num && vusCfs.has(ct.num)) continue; // conteneur partagé : compté une seule fois
         if (ct.num) vusCfs.add(ct.num);
         if (cible) ajouterTaille(cible, ct.taille);
@@ -864,6 +868,7 @@ export async function ficheBord(ctx: Ctx, p: Record<string, unknown>) {
         else if (op === OPERATIONS.DEPOTAGE) pp.depotage++;
         else if (op === OPERATIONS.MAGASIN) pp.mad++;
         for (const ct of conts) {
+          if (ct.partage) continue; // partagé (2026-09-14) : compté au premier dépotage
           if (ct.num && vusPp.has(ct.num)) continue; // conteneur partagé : compté une fois
           if (ct.num) vusPp.add(ct.num);
           ajouterTaille(pp.tailles, ct.taille);
@@ -916,6 +921,7 @@ export async function rapportKPI(ctx: Ctx, p: Record<string, unknown>) {
     if (sorti) kpi.camionsSortis++; else kpi.camionsActifs++;
     const op = c['typeOperation'];
     for (const ct of detsDeRow(c)) {
+      if (ct.partage) continue; // partagé (2026-09-14) : compté au premier dépotage
       const bk = tailleBucket(ct.taille); const ev = evpDeTaille(bk);
       if (op === OPERATIONS.DEPOTAGE) { kpi.videsDepotage++; kpi.evpVides += ev; }
       if (op === OPERATIONS.ENLEVEMENT && sorti) { kpi.sortisScelles++; kpi.evpSortis += ev; }
@@ -1126,7 +1132,8 @@ export async function rapportFlux(ctx: Ctx, p: Record<string, unknown>) {
   for (const c of cargos) {
     if (estOui(c['estVehicule'])) continue;
     const op = String(c['typeOperation']);
-    const dets = detsDeRow(c);
+    // Partagés exclus (2026-09-14) : ni conteneurs ni EVP en double.
+    const dets = detsDeRow(c).filter((ct) => !ct.partage);
     let evp = 0; for (const ct of dets) evp += evpDeTaille(tailleBucket(ct.taille));
     // Enlèvement / dépotage : comptés à l'entrée CFS.
     const kC = dansPeriode(c['dateCreation']) ? bump(periodeKey(c['dateCreation'], gran)) : null;
