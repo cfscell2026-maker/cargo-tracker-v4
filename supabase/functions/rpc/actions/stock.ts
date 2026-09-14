@@ -6,10 +6,10 @@
  * ============================================================================
  */
 import type { Ctx } from '../ctx.ts';
-import { versCamel } from '../ctx.ts';
+import { versCamel, ErreurMetier } from '../ctx.ts';
 import {
   STOCK_STATUTS, ANNONCE_STATUTS, STATUTS, TRANCHES_SEJOUR, SEUIL_ALERTE_SEJOUR,
-  tailleBucket, evpDeTaille, trancheAge, tcValide, maj, parseDateImport,
+  tailleBucket, evpDeTaille, trancheAge, tcValide, maj, txt, parseDateImport,
 } from '../../_shared/domaine/src/index.ts';
 
 /** Cargaison sortie de l'enceinte : ne rend plus un conteneur indisponible. */
@@ -601,4 +601,106 @@ export async function rapportDepotage(ctx: Ctx, p: Record<string, unknown>) {
 
   const rows = [...parJour.values()].sort((a, b) => b.jour.localeCompare(a.jour));
   return { rows, compte };
+}
+
+/**
+ * CORRECTION MANUELLE DE L'APUREMENT (2026-09-10) — ADMIN uniquement.
+ *
+ * ⚠ C'EST UN COMPTEUR DOUANIER. Le modifier à la main, c'est déclarer qu'un
+ * nombre de conteneurs a été dédouané — l'écriture la plus sensible du système.
+ * D'où trois garde-fous, tous délibérés :
+ *
+ *  1. MOTIF OBLIGATOIRE. Sans lui, le journal dirait qu'un apurement a bougé
+ *     sans dire pourquoi : sans valeur lors d'un contrôle.
+ *  2. VALEURS BORNÉES. Ni négatif, ni au-delà du nombre déclaré quand celui-ci
+ *     est connu. Un apurement supérieur au déclaré est ce que le diagnostic du
+ *     2026-09-09 a trouvé sur 34 déclarations — on ne rouvre pas la porte.
+ *  3. AVANT / APRÈS AU JOURNAL. La valeur remplacée est inscrite, sinon la
+ *     correction efface ce qu'elle corrige.
+ *
+ * Ce n'est PAS le chemin normal : depuis la migration 00170, l'apurement se
+ * corrige tout seul quand un conteneur est retiré, réaffecté ou qu'une cargaison
+ * est annulée. Cette action ne sert qu'à rattraper un écart hérité.
+ */
+export async function apurementEdit(ctx: Ctx, p: Record<string, unknown>) {
+  const cle = String(p['cle'] ?? '').trim();
+  const motif = txt(p['motif'], 300);
+  if (!cle) throw new ErreurMetier('Déclaration non identifiée.');
+  if (!motif) throw new ErreurMetier('Indiquez le motif de la correction.');
+
+  const { data: ligne, error: eLire } = await ctx.db
+    .from('declarations').select('*').eq('cle', cle).maybeSingle();
+  if (eLire) throw new Error(eLire.message);
+  if (!ligne) throw new ErreurMetier('Déclaration introuvable : ' + cle);
+
+  const avantApures = Number(ligne['conteneurs_apures'] ?? 0);
+  const avantNombre = Number(ligne['nombre_conteneurs'] ?? 0);
+
+  // Chaque champ est facultatif : on ne corrige que ce qui est fourni.
+  const nombre = p['nombreConteneurs'] === undefined || p['nombreConteneurs'] === ''
+    ? avantNombre : Number(p['nombreConteneurs']);
+  const apures = p['conteneursApures'] === undefined || p['conteneursApures'] === ''
+    ? avantApures : Number(p['conteneursApures']);
+
+  if (!Number.isInteger(nombre) || nombre < 0)
+    throw new ErreurMetier('Nombre déclaré : entier positif ou zéro attendu.');
+  if (!Number.isInteger(apures) || apures < 0)
+    throw new ErreurMetier('Conteneurs apurés : entier positif ou zéro attendu.');
+  // Le plafond ne s'applique que si le nombre déclaré est connu : 0 = inconnu,
+  // et l'apurement y est neutre (cf. helpers.ts / migration 00180).
+  if (nombre > 0 && apures > nombre)
+    throw new ErreurMetier(`Apurement (${apures}) supérieur au nombre déclaré (${nombre}).`);
+
+  const { error } = await ctx.db.from('declarations')
+    .update({ nombre_conteneurs: nombre, conteneurs_apures: apures, derniere_maj: new Date().toISOString() })
+    .eq('cle', cle);
+  if (error) throw new Error(error.message);
+
+  await ctx.log('Correction apurement déclaration', '',
+    `${cle} · déclarés ${avantNombre} → ${nombre} · apurés ${avantApures} → ${apures} · motif : ${motif}`);
+  return { cle, nombreConteneurs: nombre, conteneursApures: apures, restant: Math.max(0, nombre - apures) };
+}
+
+/**
+ * SUPPRESSION d'une ligne de déclaration — ADMIN uniquement (2026-09-10).
+ *
+ * Ce qu'on supprime ici n'est PAS une déclaration en douane : c'est la ligne de
+ * SUIVI D'APUREMENT que l'application tient en face d'elle. Elle se crée toute
+ * seule à la première saisie d'un conteneur portant cette référence — une faute
+ * de frappe sur le numéro engendre donc une ligne fantôme, qui traîne ensuite
+ * dans les recherches et les rapports sans jamais rien apurer.
+ *
+ * LE GARDE-FOU. On refuse la suppression dès que `conteneurs_apures > 0` : des
+ * conteneurs ont alors été dédouanés en face de cette référence, et effacer le
+ * compteur ferait disparaître la trace de ce qui a été apuré. Ne partent donc
+ * que les lignes à ZÉRO — les coquilles vides, précisément celles qu'on veut
+ * retirer. Une ligne réellement en service se corrige (`decl.apurementedit`),
+ * elle ne se supprime pas.
+ */
+export async function apurementSupprimer(ctx: Ctx, p: Record<string, unknown>) {
+  const cle = String(p['cle'] ?? '').trim();
+  const motif = txt(p['motif'], 300);
+  if (!cle) throw new ErreurMetier('Déclaration non identifiée.');
+  if (!motif) throw new ErreurMetier('Indiquez le motif de la suppression.');
+
+  const { data: ligne, error: eLire } = await ctx.db
+    .from('declarations').select('*').eq('cle', cle).maybeSingle();
+  if (eLire) throw new Error(eLire.message);
+  if (!ligne) throw new ErreurMetier('Déclaration introuvable : ' + cle);
+
+  const apures = Number(ligne['conteneurs_apures'] ?? 0);
+  if (apures > 0)
+    throw new ErreurMetier(
+      `Suppression impossible : ${apures} conteneur(s) sont apurés sur cette déclaration. `
+      + `Effacer la ligne ferait disparaître la trace de ce qui a été dédouané. `
+      + `Corrigez les compteurs plutôt que de supprimer.`,
+    );
+
+  const { error } = await ctx.db.from('declarations').delete().eq('cle', cle);
+  if (error) throw new Error(error.message);
+
+  await ctx.log('Suppression ligne de déclaration', '',
+    `${cle} · déclarés ${Number(ligne['nombre_conteneurs'] ?? 0)} · apurés 0 · `
+    + `déclarant ${String(ligne['declarant'] ?? '—')} · motif : ${motif}`);
+  return { cle, supprime: true };
 }

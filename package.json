@@ -9,7 +9,8 @@
   "scripts": {
     "typecheck": "npm run typecheck -w web",
     "build": "npm run build -w web",
-    "dev": "npm run dev -w web"
+    "dev": "npm run dev -w web",
+    "verifier:serveur": "tsc --noEmit -p tsconfig.serveur.json"
   },
   "engines": {
     "node": ">=20"

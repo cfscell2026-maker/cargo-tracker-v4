@@ -35,15 +35,90 @@ const ROLES_VOIENT_BALISE: string[] = [
 ];
 const voitBalise = (ctx: Ctx) => ROLES_VOIENT_BALISE.indexOf(ctx.session.role) >= 0;
 
-async function loadCargos(ctx: Ctx): Promise<Record<string, unknown>[]> {
+// deno-lint-ignore no-explicit-any
+async function loadCargos(ctx: Ctx, affiner?: (q: any) => any): Promise<Record<string, unknown>[]> {
   // fetchAll : pagine (5000+ cargaisons migrées) sinon les rapports sous-comptent.
-  const data = await fetchAll(ctx, 'cargaisons', '*');
+  const data = await fetchAll(ctx, 'cargaisons', '*', undefined, affiner);
   // SEC-12 — une cargaison annulée (doublon écarté) reste en base pour l'audit
   // mais ne doit compter dans AUCUN rapport, sinon elle fausse tous les totaux.
   // 2026-08-19 — de même pour les dossiers ARCHIVÉS (vieux goulots clôturés) :
   // conservés en base, exclus de tous les rapports et de tous les compteurs.
   return data.filter((r) => r['annule'] !== true && r['archive'] !== true).map((r) => versCamel(r));
 }
+
+/* ===== PRÉ-FILTRES SQL DES ÉCRANS DE VALIDATION — 2026-09-11 ==============
+ *
+ * Mesuré sur la base réelle : `report.validationdecl` tenait 5,4 s en moyenne et
+ * échouait 3 fois sur 8 en HTTP 546 (worker tué faute de ressources), là où une
+ * action sans base répondait 8 fois sur 8 en 1,1 s. La cause n'était donc pas le
+ * démarrage à froid mais le VOLUME : toute la table `cargaisons` était rapatriée
+ * et recopiée en mémoire pour n'en garder qu'une poignée de dossiers.
+ *
+ * Ces deux filtres traduisent en SQL ce que le JS refaisait ensuite, à
+ * l'identique. L'équivalence tient à deux propriétés du schéma, vérifiées :
+ *   · `date_validation`, `date_t1`, `date_sortie` sont des `timestamptz` : NULL
+ *     ou une vraie date, jamais la chaîne vide — `aFait()` et `is null` disent
+ *     donc exactement la même chose ;
+ *   · `statut` est `not null` (type `statut_cargaison`), donc `neq` ne peut pas
+ *     écarter une ligne à NULL par surprise.
+ *
+ * Le tri JS reste en place derrière : si l'un de ces filtres était un jour trop
+ * large, le résultat resterait juste — seulement moins rapide.
+ */
+
+/** Dossiers ayant DÉPASSÉ le CFS et pas encore sortis (`etatCellules.cfs && !SORTIE`). */
+// deno-lint-ignore no-explicit-any
+const SQL_APRES_CFS = (q: any) => q
+  .neq('statut', STATUTS.CAMION)
+  .neq('statut', STATUTS.CHARGEMENT)
+  .neq('statut', STATUTS.VEHICULE_OUILLAGE)
+  .neq('statut', STATUTS.SORTIE);
+
+/**
+ * Dossiers pouvant encore attendre la signature du chef.
+ *
+ * Reprend `etapesEnAttente(...) contient 'VALIDATION'`, c'est-à-dire
+ * `!sorti && cfs && !valide`. Le volet `saute_validation` de `valide` est
+ * VOLONTAIREMENT laissé au JS : l'omettre rend le filtre plus large, donc sûr.
+ */
+// deno-lint-ignore no-explicit-any
+const SQL_VALIDATION_OUVERTE = (q: any) => SQL_APRES_CFS(q)
+  .is('date_sortie', null)
+  .is('date_validation', null)
+  .is('date_t1', null);
+/* ===== PRE-FILTRE PAR PERIODE - 2026-09-12 ================================
+ *
+ * MESURE sur la base reelle, depuis le navigateur, le 12/09/2026 :
+ *   report.cfs (xlsx)        546 / 546 / 546 / 200  -- une fois sur quatre
+ *   report.cargaisons (xlsx) 546
+ *   report.flux              546
+ * Le worker est tue faute de memoire (`WORKER_RESOURCE_LIMIT`), et l'echec est
+ * INTERMITTENT : la consommation flirte avec le plafond. Restreindre la periode
+ * n'y changeait rien - un rapport d'UN SEUL JOUR echouait aussi - parce que la
+ * table `cargaisons` etait rapatriee ENTIEREMENT avant d'etre triee en memoire.
+ *
+ * Ce filtre traduit en SQL le tri que le JS refait ensuite. Il est
+ * DELIBEREMENT ELARGI d'un jour de chaque cote : les bornes JS se comparent en
+ * heure du worker, les bornes SQL en heure du serveur de base, et nul n'a
+ * besoin que les deux coincident a la seconde pres. Un filtre plus LARGE est
+ * sans danger - le tri JS qui suit tranche ; un filtre plus etroit ferait
+ * disparaitre des dossiers en silence, ce qui est bien pire qu'une lenteur.
+ *
+ * Les lignes sans date sont ecartees des deux cotes : `inRange` renvoie faux
+ * sur une valeur vide, et une comparaison SQL ecarte les NULL. Equivalent.
+ */
+const decalerJour = (iso: string, jours: number): string =>
+  new Date(new Date(iso + 'T00:00:00Z').getTime() + jours * 86400000).toISOString().slice(0, 10);
+
+// deno-lint-ignore no-explicit-any
+const SQL_PERIODE = (colonne: string, du?: unknown, au?: unknown) => (q: any) => {
+  const d = typeof du === 'string' && du ? du : '';
+  const a = typeof au === 'string' && au ? au : '';
+  if (d) q = q.gte(colonne, decalerJour(d, -1));
+  if (a) q = q.lt(colonne, decalerJour(a, 2));
+  return q;
+};
+
 const lc = (v: unknown) => String(v ?? '').toLowerCase();
 const inRange = (v: unknown, du?: string, au?: string): boolean => {
   if (!v) return false;
@@ -68,18 +143,137 @@ function agentForce(_ctx: Ctx, _cfgRole: Role, pAgent: unknown): string {
   return lc(pAgent);
 }
 
-/** Excel (base64) à partir de feuilles {nom, aoa:[[...]]}.
- *  Import DYNAMIQUE de xlsx (voir note en tête de fichier) : chargé ici, à la
- *  demande, pour ne pas casser le démarrage de l'Edge Function. */
+/* ---- HABILLAGE DES CLASSEURS EXCEL - 2026-09-12 -----------------------
+ *
+ * Les couleurs de la plateforme, portees dans le fichier lui-meme : les
+ * exports partent par courriel et sont ouverts loin de l'application - ils
+ * doivent se reconnaitre seuls.
+ *
+ * ATTENTION, LE POINT QUI DECIDE DE TOUT : `xlsx` en edition communautaire
+ * ECRIT les cellules mais IGNORE silencieusement leur propriete `s` (style).
+ * On passe donc par `xlsx-js-style`, fork de la meme version qui, lui, ecrit
+ * les styles. Meme API, meme poids : la substitution est sans effet sur le
+ * reste du code.
+ *
+ * Ce fork ne sait pas davantage INSERER UNE IMAGE - aucune bibliotheque assez
+ * legere pour cet Edge Function ne le sait. Le logo reste donc l'affaire des
+ * editions imprimables (`htmlTableau`) ; le classeur, lui, porte la bande
+ * bleue, le nom de la plateforme et les filets. */
+const XL_BLEU = '0E5A8A';
+const XL_BLEU_SOMBRE = '0B3F5F';
+const XL_FILET = 'B9D3E4';
+const XL_ZEBRE = 'F2F7FB';
+const xlBord = { style: 'thin', color: { rgb: XL_FILET } };
+const XL_CADRE = { top: xlBord, bottom: xlBord, left: xlBord, right: xlBord };
+
+/** Largeur d'une colonne : le plus long contenu, borne pour rester lisible. */
+function largeursColonnes(aoa: unknown[][]): { wch: number }[] {
+  const n = Math.max(...aoa.map((l) => l.length), 1);
+  const cols: { wch: number }[] = [];
+  for (let c = 0; c < n; c++) {
+    let max = 8;
+    for (const ligne of aoa) {
+      const t = String(ligne[c] ?? '').length;
+      if (t > max) max = t;
+    }
+    cols.push({ wch: Math.min(max + 2, 42) });
+  }
+  return cols;
+}
+
+/** Excel (base64) a partir de feuilles {nom, aoa:[[...]]}.
+ *  `aoa[0]` est la LIGNE DE TITRES : c'est elle qui recoit la bande bleue.
+ *  Import DYNAMIQUE (voir note en tete de fichier) : charge ici, a la demande,
+ *  pour ne pas casser le demarrage de l'Edge Function. */
 async function xlsxBase64(feuilles: { nom: string; aoa: unknown[][] }[]): Promise<string> {
   // deno-lint-ignore no-explicit-any
-  const mod: any = await import('npm:xlsx@0.18.5');
-  // deno-lint-ignore no-explicit-any
-  const XLSX: any = mod.default ?? mod;
+  let XLSX: any;
+  let styles = true;
+  try {
+    // deno-lint-ignore no-explicit-any
+    const mod: any = await import('npm:xlsx-js-style@1.2.0');
+    XLSX = mod.default ?? mod;
+  } catch {
+    /* REPLI. Un export qui perd ses couleurs vaut infiniment mieux qu'un export
+       qui echoue : si le fork ne se charge pas, on revient a la bibliotheque
+       d'origine et le classeur sort sans habillage. */
+    // deno-lint-ignore no-explicit-any
+    const mod: any = await import('npm:xlsx@0.18.5');
+    XLSX = mod.default ?? mod;
+    styles = false;
+  }
   const wb = XLSX.utils.book_new();
-  for (const f of feuilles) XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(f.aoa), f.nom.slice(0, 31));
+  for (const f of feuilles) {
+    const nbCol = Math.max(...f.aoa.map((l) => l.length), 1);
+    // Deux lignes d'identite au-dessus du tableau, puis une ligne vide.
+    const entete: unknown[][] = [
+      ['PIA Dry Port — Adétikopé · Suivi des cargaisons'],
+      [f.nom],
+      [],
+    ];
+    const aoa = [...entete, ...f.aoa];
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    ws['!cols'] = largeursColonnes(f.aoa);
+    ws['!rows'] = [{ hpt: 22 }, { hpt: 18 }, { hpt: 6 }];
+    if (nbCol > 1) {
+      ws['!merges'] = [
+        { s: { r: 0, c: 0 }, e: { r: 0, c: nbCol - 1 } },
+        { s: { r: 1, c: 0 }, e: { r: 1, c: nbCol - 1 } },
+      ];
+    }
+    if (styles) habiller(XLSX, ws, aoa, nbCol, entete.length);
+    XLSX.utils.book_append_sheet(wb, ws, f.nom.slice(0, 31));
+  }
   const b64 = XLSX.write(wb, { type: 'base64', bookType: 'xlsx' });
   return b64 as string;
+}
+
+/** Pose les styles sur une feuille deja construite. */
+// deno-lint-ignore no-explicit-any
+function habiller(XLSX: any, ws: any, aoa: unknown[][], nbCol: number, decalage: number) {
+  const cell = (r: number, c: number) => {
+    const ref = XLSX.utils.encode_cell({ r, c });
+    // Une cellule vide n'existe pas dans la feuille : on la cree, sinon le
+    // filet s'arreterait au dernier texte de la ligne.
+    if (!ws[ref]) ws[ref] = { t: 's', v: '' };
+    return ws[ref];
+  };
+  // Ligne 1 : le nom de la plateforme, en bleu sombre.
+  cell(0, 0).s = {
+    font: { name: 'Calibri', sz: 14, bold: true, color: { rgb: XL_BLEU_SOMBRE } },
+    alignment: { vertical: 'center' },
+  };
+  // Ligne 2 : le nom de la feuille, plus discret.
+  cell(1, 0).s = {
+    font: { name: 'Calibri', sz: 10, color: { rgb: '5C6B7A' } },
+    alignment: { vertical: 'center' },
+  };
+  for (let r = decalage; r < aoa.length; r++) {
+    const titres = r === decalage;
+    for (let c = 0; c < nbCol; c++) {
+      cell(r, c).s = titres
+        ? {
+          font: { name: 'Calibri', sz: 10, bold: true, color: { rgb: 'FFFFFF' } },
+          fill: { patternType: 'solid', fgColor: { rgb: XL_BLEU } },
+          border: {
+            top: { style: 'thin', color: { rgb: XL_BLEU } },
+            bottom: { style: 'thin', color: { rgb: XL_BLEU } },
+            left: { style: 'thin', color: { rgb: XL_BLEU } },
+            right: { style: 'thin', color: { rgb: XL_BLEU } },
+          },
+          alignment: { vertical: 'center', wrapText: true },
+        }
+        : {
+          font: { name: 'Calibri', sz: 10 },
+          border: XL_CADRE,
+          alignment: { vertical: 'center' },
+          // Une ligne sur deux teintee : l'oeil suit la ligne sur 40 colonnes.
+          ...((r - decalage) % 2 === 0
+            ? {}
+            : { fill: { patternType: 'solid', fgColor: { rgb: XL_ZEBRE } } }),
+        };
+    }
+  }
 }
 async function fichier(nomBase: string, format: string, feuilles: { nom: string; aoa: unknown[][] }[]) {
   return { filename: `${nomBase}.xlsx`, mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', base64: await xlsxBase64(feuilles), format };
@@ -97,13 +291,52 @@ function htmlTableau(titre: string, sousTitre: string, entetes: string[], lignes
   const esc = (v: unknown) => String(v ?? '').replace(/[&<>]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[ch] ?? ch));
   const th = entetes.map((h) => `<th>${esc(h)}</th>`).join('');
   const tr = lignes.map((l) => `<tr>${l.map((c) => `<td>${esc(c)}</td>`).join('')}</tr>`).join('');
+  const edite = new Date().toLocaleString('fr-FR');
+  /* L'adresse du logo est RELATIVE : le client ancre le document sur l'origine
+     de l'application avec une balise `base` (voir `imprimerHtml`). Le serveur
+     n'a aucun moyen de connaitre cette origine, et n'a pas a la connaitre.
+     `onerror` efface l'image : une edition sans logo vaut mieux qu'une edition
+     avec une icone d'image cassee. */
   const html = `<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>${esc(titre)}</title>` +
-    `<style>@page{size:A4 landscape;margin:14mm}body{font-family:Georgia,'Liberation Serif',serif;color:#111;font-size:11pt}` +
-    `h1{font-size:15pt;margin:0 0 2mm}.sub{color:#444;font-size:10pt;margin:0 0 4mm}` +
-    `table{border-collapse:collapse;width:100%}th,td{border:1px solid #999;padding:3px 6px;text-align:left}` +
-    `th{background:#f0f0f0}tr{page-break-inside:avoid}thead{display:table-header-group}</style></head><body>` +
-    `<h1>${esc(titre)}</h1><div class="sub">${esc(sousTitre)} — ${lignes.length} ligne(s)</div>` +
-    `<table><thead><tr>${th}</tr></thead><tbody>${tr}</tbody></table></body></html>`;
+    `<style>` +
+    `@page{size:A4 landscape;margin:12mm}` +
+    `body{font-family:Georgia,'Liberation Serif',serif;color:#16212c;font-size:10.5pt;margin:0}` +
+    /* L'EN-TETE : filet bleu epais en haut, logo a gauche, titre au centre.
+       Repris sur chaque page grace a `position:running` ? Non : les en-tetes
+       repetes ne sont pas supportes uniformement a l'impression. C'est la ligne
+       de titres du TABLEAU qui se repete (`thead{display:table-header-group}`),
+       ce qui suffit a se reperer page 4. */
+    `.entete{display:flex;align-items:center;gap:5mm;border-bottom:1.2mm solid #0e5a8a;padding-bottom:3mm;margin-bottom:4mm}` +
+    `.entete img{width:18mm;height:18mm;object-fit:contain;border:.5mm solid #0e5a8a;border-radius:50%;background:#fff;padding:1mm}` +
+    `.ent-textes{flex:1;min-width:0}` +
+    `.plateforme{font-size:8.5pt;letter-spacing:.12em;text-transform:uppercase;color:#0e5a8a;font-weight:700}` +
+    `h1{font-size:15pt;margin:1mm 0 0;color:#0b3f5f}` +
+    `.sub{color:#4a5a6a;font-size:9.5pt;margin:1mm 0 0}` +
+    `.compte{flex:0 0 auto;text-align:right;font-size:9pt;color:#4a5a6a}` +
+    `.compte b{display:block;font-size:17pt;color:#0e5a8a;line-height:1.1}` +
+    /* LE TABLEAU : filets bleus. Un bleu franc pour le pourtour et la ligne de
+       titres, un bleu tres pale entre les lignes - sans quoi une grille de 300
+       lignes en bleu franc devient illisible. */
+    `table{border-collapse:collapse;width:100%;font-size:9.5pt}` +
+    `th,td{border:.25mm solid #b9d3e4;padding:1.4mm 2mm;text-align:left}` +
+    `thead th{background:#0e5a8a;color:#fff;border-color:#0e5a8a;font-size:9pt;` +
+    `letter-spacing:.03em;text-transform:uppercase}` +
+    `tbody tr:nth-child(even){background:#f2f7fb}` +
+    `table{border:.5mm solid #0e5a8a}` +
+    `tr{page-break-inside:avoid}thead{display:table-header-group}` +
+    `.pied{margin-top:4mm;border-top:.25mm solid #b9d3e4;padding-top:2mm;` +
+    `font-size:8.5pt;color:#6b7a89;display:flex;justify-content:space-between}` +
+    `</style></head><body>` +
+    `<div class="entete">` +
+    `<img src="/logo_PIA.jpg" alt="" onerror="this.remove()">` +
+    `<div class="ent-textes">` +
+    `<div class="plateforme">PIA Dry Port — Adétikopé · Suivi des cargaisons</div>` +
+    `<h1>${esc(titre)}</h1><div class="sub">${esc(sousTitre)}</div></div>` +
+    `<div class="compte"><b>${lignes.length}</b>ligne(s)</div>` +
+    `</div>` +
+    `<table><thead><tr>${th}</tr></thead><tbody>${tr}</tbody></table>` +
+    `<div class="pied"><span>Édité le ${esc(edite)}</span><span>PIA_Suivi_Cargo</span></div>` +
+    `</body></html>`;
   return { html };
 }
 
@@ -145,24 +378,49 @@ function collecteCFS(cargos: Record<string, unknown>[], du?: string, au?: string
 
 export async function rapportCFS(ctx: Ctx, p: Record<string, unknown>) {
   const agentLc = agentForce(ctx, ROLES.CFS, p['agentCFS']);
-  const r = collecteCFS(await loadCargos(ctx), p['du'] as string, p['au'] as string, agentLc || undefined);
+  const cargos = await loadCargos(ctx, SQL_PERIODE('date_creation', p['du'], p['au']));
+  const r = collecteCFS(cargos, p['du'] as string, p['au'] as string, agentLc || undefined);
   const data = { periode: p['periode'], du: p['du'], au: p['au'], parOp: r.parOp, total: r.total };
   if (p['format'] === 'xlsx' || p['format'] === 'pdf') {
+    /* TROIS FEUILLES, et non plus deux lignes de totaux.
+     *
+     * Un classeur qui ne porte que des agregats ne prouve rien : on ne peut ni
+     * verifier un chiffre, ni retrouver le dossier derriere. La synthese reste
+     * en tete - c'est ce qu'on lit en premier - mais le detail des CAMIONS et
+     * celui des CONTENEURS la suivent, ligne a ligne, avec la date, l'agent et
+     * le statut. C'est ce qui fait la difference entre un tableau de chiffres
+     * et un rapport qu'on peut opposer a quelqu'un. */
     const recap: unknown[][] = [['Opération', 'Camions', "20'", "40'", "45'", 'Autres', 'Conteneurs', 'EVP']];
     for (const op of [OPERATIONS.ENLEVEMENT, OPERATIONS.DEPOTAGE]) {
       const a = r.parOp[op]!; recap.push([op, a.camions, a.t20, a.t40, a.t45, a.autres, a.conteneurs, a.evp]);
     }
     recap.push(['TOTAL', r.total.camions, r.total.t20, r.total.t40, r.total.t45, r.total.autres, r.total.conteneurs, r.total.evp]);
-    const det: unknown[][] = [['ID', 'Camion', 'Opération', 'Conteneur', 'Taille']];
-    r.conteneurs.forEach((x) => det.push([x['id'], x['numeroCamion'], x['typeOperation'], x['conteneur'], x['taille']]));
-    return fichier('Rapport_CFS', String(p['format']), [{ nom: 'Récapitulatif', aoa: recap }, { nom: 'Détails conteneurs', aoa: det }]);
+    recap.push([]);
+    recap.push(['Période', `du ${fmtJ(p['du'])} au ${fmtJ(p['au'])}`]);
+    recap.push(['Agent', agentLc ? String(p['agentCFS']) : 'toute la cellule']);
+    recap.push(['Édité le', new Date().toLocaleString('fr-FR')]);
+
+    const cam: unknown[][] = [['ID', 'Camion', 'Opération', 'Statut', 'Conteneurs', 'Agent CFS', 'Créé le']];
+    r.camions.forEach((x) => cam.push([x['id'], x['numeroCamion'], x['typeOperation'], x['statut'],
+      x['nbConteneurs'], x['agentCfs'], fmtJ(x['dateCreation'])]));
+
+    const det: unknown[][] = [['ID', 'Camion', 'Opération', 'Conteneur', 'Taille', 'Type', 'Scellé', 'Créé le']];
+    r.conteneurs.forEach((x) => det.push([x['id'], x['numeroCamion'], x['typeOperation'], x['conteneur'],
+      x['taille'], x['type'], x['scelle'], fmtJ(x['dateCreation'])]));
+
+    return fichier('Rapport_CFS', String(p['format']), [
+      { nom: 'Synthèse', aoa: recap },
+      { nom: 'Camions', aoa: cam },
+      { nom: 'Conteneurs', aoa: det },
+    ]);
   }
   return data;
 }
 
 export async function rapportCFSDetail(ctx: Ctx, p: Record<string, unknown>) {
   const agentLc = agentForce(ctx, ROLES.CFS, p['agentCFS']);
-  const r = collecteCFS(await loadCargos(ctx), p['du'] as string, p['au'] as string, agentLc || undefined);
+  const r = collecteCFS(await loadCargos(ctx, SQL_PERIODE('date_creation', p['du'], p['au'])),
+    p['du'] as string, p['au'] as string, agentLc || undefined);
   const op = String(p['operation'] ?? '');
   const metric = String(p['metric'] ?? 'camions');
   const filtreOp = (x: Record<string, unknown>) => !op || x['typeOperation'] === op;
@@ -237,13 +495,19 @@ function cfgActivite(kind: string) {
   // plus de la Balise (pose) et de la PP (sortie). « 30 balises aujourd'hui » =
   // 30 poses datées aujourd'hui, quelle que soit la date de création du camion.
   switch (kind) {
-    case 'pp': return { dateCol: 'dateSortie', agentCol: 'agentPp', role: ROLES.PP };
-    case 't1': return { dateCol: 'dateT1', agentCol: 'agentT1', role: ROLES.T1 };
-    case 'bonsortie': return { dateCol: 'dateBonSortie', agentCol: 'agentBonSortie', role: ROLES.BON_SORTIE };
-    default: return { dateCol: 'datePoseGps', agentCol: 'agentBalise', role: ROLES.BALISE };
+    // `colSql` : LA MEME date, en nom de colonne SQL. Elle sert au pre-filtre par
+    // periode. Sans elle, `SQL_PERIODE` filtrait sur une colonne `undefined` et
+    // les rapports rendaient ZERO — un test l'a rattrape avant la production.
+    case 'pp': return { dateCol: 'dateSortie', colSql: 'date_sortie', agentCol: 'agentPp', role: ROLES.PP };
+    case 't1': return { dateCol: 'dateT1', colSql: 'date_t1', agentCol: 'agentT1', role: ROLES.T1 };
+    case 'bonsortie': return { dateCol: 'dateBonSortie', colSql: 'date_bon_sortie', agentCol: 'agentBonSortie', role: ROLES.BON_SORTIE };
+    default: return { dateCol: 'datePoseGps', colSql: 'date_pose_gps', agentCol: 'agentBalise', role: ROLES.BALISE };
   }
 }
 function collecteActivite(cargos: Record<string, unknown>[], dateCol: string, agentCol: string, du?: string, au?: string, agentLc?: string) {
+  // N° déjà comptés : un conteneur partagé entre plusieurs camions ne doit
+  // peser qu'une fois dans les totaux (voir la note dans la boucle).
+  const vus = new Set<string>();
   const parOp: Record<string, AggCFS & { twins: number; sansBalise: number }> = {
     [OPERATIONS.ENLEVEMENT]: { ...aggVide(), twins: 0, sansBalise: 0 },
     [OPERATIONS.DEPOTAGE]: { ...aggVide(), twins: 0, sansBalise: 0 },
@@ -264,9 +528,26 @@ function collecteActivite(cargos: Record<string, unknown>[], dateCol: string, ag
     if (String(c['baliseRequise']) === 'Non' || c['baliseRequise'] === false) { a.sansBalise++; total.sansBalise++; }
     camions.push({ id: c['id'], numeroCamion: c['numeroCamion'], typeOperation: op, statut: c['statut'], date: c[dateCol], numeroGps: c['numeroGps'], nbConteneurs: dets.length, twins: c['twins'] });
     for (const ct of dets) {
+      /* CONTENEUR PARTAGÉ : COMPTÉ UNE SEULE FOIS — 2026-09-12, règle dictée
+       * par le douanier. Un conteneur dont la marchandise se répartit sur
+       * plusieurs camions apparaît sur chacun d'eux. Le compter à chaque fois
+       * gonflerait les totaux et les EVP — on facturerait, ou on déclarerait,
+       * plusieurs fois la même boîte.
+       *
+       * `collecteCFS` dédoublonnait déjà ; ces rapports-ci (Balise, PP, T1, Bon
+       * de sortie) ne le faisaient PAS. Le camion, lui, reste compté à chaque
+       * fois : ce sont bien deux passages distincts au poste.
+       *
+       * La LISTE détaillée conserve toutes les lignes : elle sert à retrouver
+       * quel camion a emporté quoi, et masquer le second passage y serait une
+       * perte d'information. Seuls les COMPTEURS sont dédoublonnés. */
+      const dejaCompte = !!ct.num && vus.has(ct.num);
+      if (ct.num) vus.add(ct.num);
       const bk = tailleBucket(ct.taille); const ev = evpDeTaille(bk);
-      (a as Record<string, number>)[bk]++; a.conteneurs++; a.evp += ev;
-      (total as Record<string, number>)[bk]++; total.conteneurs++; total.evp += ev;
+      if (!dejaCompte) {
+        (a as Record<string, number>)[bk]++; a.conteneurs++; a.evp += ev;
+        (total as Record<string, number>)[bk]++; total.conteneurs++; total.evp += ev;
+      }
       conteneurs.push({ id: c['id'], cargaisonId: c['id'], numeroCamion: c['numeroCamion'], typeOperation: op, conteneur: ct.num, taille: ct.taille, type: ct.type, scelle: ct.plomb, bucket: bk, numeroGps: c['numeroGps'], date: c[dateCol] });
     }
   }
@@ -276,7 +557,13 @@ function collecteActivite(cargos: Record<string, unknown>[], dateCol: string, ag
 export async function rapportActivite(ctx: Ctx, p: Record<string, unknown>) {
   const cfg = cfgActivite(String(p['kind']));
   const agentLc = agentForce(ctx, cfg.role, p['agent']);
-  const r = collecteActivite(await loadCargos(ctx), cfg.dateCol, cfg.agentCol, p['du'] as string, p['au'] as string, agentLc || undefined);
+  /* Pre-filtre par periode, sur LA date de la cellule concernee - la meme que
+     le tri JS applique ensuite (`inRange(c[dateCol], ...)`). Equivalent : une
+     ligne sans cette date est ecartee des deux cotes. Sans lui, ces rapports
+     chargeaient toute la table et le worker etait tue (mesure : rapport
+     Balise, 546 en 6,6 s). */
+  const r = collecteActivite(await loadCargos(ctx, SQL_PERIODE(cfg.colSql, p['du'], p['au'])),
+    cfg.dateCol, cfg.agentCol, p['du'] as string, p['au'] as string, agentLc || undefined);
   if (p['format'] === 'xlsx' || p['format'] === 'pdf') {
     // v4.1 — détail par taille ajouté à l'export (comme le rapport CFS).
     const recap: unknown[][] = [['Opération', 'Camions', 'Twins', 'Sans balise', "20'", "40'", "45'", 'Autres', 'Conteneurs', 'EVP']];
@@ -293,7 +580,13 @@ export async function rapportActivite(ctx: Ctx, p: Record<string, unknown>) {
 export async function rapportActiviteDetail(ctx: Ctx, p: Record<string, unknown>) {
   const cfg = cfgActivite(String(p['kind']));
   const agentLc = agentForce(ctx, cfg.role, p['agent']);
-  const r = collecteActivite(await loadCargos(ctx), cfg.dateCol, cfg.agentCol, p['du'] as string, p['au'] as string, agentLc || undefined);
+  /* Pre-filtre par periode, sur LA date de la cellule concernee - la meme que
+     le tri JS applique ensuite (`inRange(c[dateCol], ...)`). Equivalent : une
+     ligne sans cette date est ecartee des deux cotes. Sans lui, ces rapports
+     chargeaient toute la table et le worker etait tue (mesure : rapport
+     Balise, 546 en 6,6 s). */
+  const r = collecteActivite(await loadCargos(ctx, SQL_PERIODE(cfg.colSql, p['du'], p['au'])),
+    cfg.dateCol, cfg.agentCol, p['du'] as string, p['au'] as string, agentLc || undefined);
   const op = String(p['operation'] ?? '');
   const metric = String(p['metric'] ?? 'camions');
   const filtreOp = (x: Record<string, unknown>) => !op || x['typeOperation'] === op;
@@ -667,10 +960,31 @@ export async function rapportControles(ctx: Ctx, p: Record<string, unknown>) {
  * Répond au capitaine qui « n'a pas la main » pour sortir ces listes.
  */
 export async function rapportCargaisons(ctx: Ctx, p: Record<string, unknown>) {
-  const cargos = await loadCargos(ctx);
   const du = p['du'] as string | undefined, au = p['au'] as string | undefined;
   const statut = String(p['statut'] ?? '').trim();  // valeur exacte de statut ('' = tous)
   const etape = String(p['etape'] ?? '').trim();     // étape en attente (VALIDATION/T1/BALISE/BS/PP/CFS)
+  /* PRE-FILTRE SQL - 2026-09-12, apres un echec MESURE en production : cet
+     export renvoyait HTTP 546 (worker tue) parce qu'il chargeait les 14 450
+     dossiers avec le detail de leurs conteneurs. Les trois criteres que la
+     fenetre d'extraction propose se traduisent en SQL ; le tri JS qui suit
+     reste en place et tranche.
+       . periode  -> `inRange` ne filtre rien quand les bornes sont vides ;
+                     `SQL_PERIODE` non plus. Equivalent.
+       . statut   -> comparaison exacte, des deux cotes. Equivalent.
+       . etape    -> `fileAttente` rend null des qu'un dossier est sorti (voir
+                     `workflow.ts`), donc une etape implique EXACTEMENT
+                     `statut <> SORTIE` et `date_sortie IS NULL`.
+     Il reste un cas que rien ne peut alleger : extraire TOUTE la base sans
+     aucun critere. La demande est alors legitimement enorme. */
+  // deno-lint-ignore no-explicit-any
+  const affinages: ((q: any) => any)[] = [];
+  if (du || au) affinages.push(SQL_PERIODE('date_creation', du, au));
+  if (statut) affinages.push((q) => q.eq('statut', statut));
+  if (etape) affinages.push((q) => q.neq('statut', STATUTS.SORTIE).is('date_sortie', null));
+  const cargos = await loadCargos(
+    ctx,
+    affinages.length ? (q) => affinages.reduce((acc, f) => f(acc), q) : undefined,
+  );
   const sansVeh = p['vehicules'] === false;
   // v4.2 — 2026-08-19 : l'extraction reçoit désormais AUSSI le texte recherché
   // dans la liste, pour que « extraire » sorte EXACTEMENT ce qui est affiché
@@ -1182,6 +1496,11 @@ async function collecterParDeclaration(
   ctx: Ctx,
   p: Record<string, unknown>,
   garder: (c: Record<string, unknown>) => boolean,
+  // 2026-09-11 — pré-filtre SQL facultatif, à fournir SEULEMENT s'il traduit
+  // fidèlement `garder`. Absent (le cas de la plupart des appelants) : rien ne
+  // change, la table entière est parcourue comme avant.
+  // deno-lint-ignore no-explicit-any
+  affiner?: (q: any) => any,
 ) {
   const cle = (v: unknown) => String(v ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
   const num = cle(p['numeroDeclaration']);
@@ -1203,7 +1522,7 @@ async function collecterParDeclaration(
   const vehicules: Record<string, unknown>[] = [];
   let totalConteneurs = 0;
 
-  for (const c of await loadCargos(ctx)) {
+  for (const c of await loadCargos(ctx, affiner)) {
     if (!garder(c)) continue;
     const pd = parseConteneursDetails(c['conteneursDetails']);
     const retenus = pd.conteneurs.filter((ct) => concorde(ct as never));
@@ -1301,8 +1620,12 @@ export async function validationParDeclaration(ctx: Ctx, p: Record<string, unkno
 
   // Tout ce qui relève de la déclaration ET a fini le chargement — y compris ce
   // qui est DÉJÀ validé, pour que le chef voie l'ensemble et non un reliquat.
+  // `SQL_APRES_CFS` dit en SQL exactement ce que le tri JS qui suit redemande :
+  // `etatCellules(c).cfs` (statut ni « Camion créé », ni « En cours de
+  // chargement », ni « Véhicule ouillage créé ») et statut ≠ « Sortie
+  // Enregistrée ». Aucun dossier ne peut donc disparaître de l'écran.
   const r = await collecterParDeclaration(ctx, p, (c) =>
-    etatCellules(c as never).cfs && c['statut'] !== STATUTS.SORTIE);
+    etatCellules(c as never).cfs && c['statut'] !== STATUTS.SORTIE, SQL_APRES_CFS);
   const lignes = [...r.camions, ...r.vehicules];
   // « À valider » = réellement encore en attente de validation. On s'appuie sur
   // le moteur (etapesEnAttente 'VALIDATION') et non sur `dateValidation` seul :
@@ -1324,7 +1647,9 @@ export async function validationParDeclaration(ctx: Ctx, p: Record<string, unkno
 /** Déclarations ayant au moins une cargaison en attente de signature. */
 async function declarationsAValider(ctx: Ctx) {
   const parCle: Record<string, Record<string, unknown>> = {};
-  for (const c of await loadCargos(ctx)) {
+  // Le tri JS ci-dessous est inchangé : il reste l'autorité. Le filtre SQL ne
+  // fait que lui éviter de parcourir les milliers de dossiers déjà signés.
+  for (const c of await loadCargos(ctx, SQL_VALIDATION_OUVERTE)) {
     if (etapesEnAttente(c as never).indexOf('VALIDATION') < 0) continue;
     const pd = parseConteneursDetails(c['conteneursDetails']);
     // Un camion en chargement MIXTE alimente CHACUNE de ses déclarations : sinon
@@ -1617,4 +1942,39 @@ export async function rapportHistorique(ctx: Ctx, p: Record<string, unknown>) {
   }
   await ctx.log('Export historique', '', `${aoa.length - 1} ligne(s)`);
   return fichier('Historique', String(p['format'] || 'xlsx'), [{ nom: 'Historique', aoa }]);
+}
+
+/**
+ * HISTORIQUE D'UNE CARGAISON (2026-09-10) — tout ce qui lui est arrivé.
+ *
+ * La fiche dit l'ÉTAT ; ceci dit le PARCOURS : qui a saisi, qui a corrigé, qui a
+ * validé, ce qui a été modifié après coup et pourquoi. C'est la moitié de
+ * l'information qui manquait — un champ corrigé ne laisse sur la fiche que sa
+ * valeur finale, jamais la trace de ce qu'il valait avant.
+ *
+ * DISTINCT de `report.history` (ADMIN, journal complet, filtré par agent et par
+ * date) : ici on lit UNE cargaison, dans l'ordre chronologique, et l'action est
+ * ouverte à ceux qui suivent le dossier.
+ *
+ * PORTÉE VOLONTAIREMENT RESTREINTE — RGPD-03. Le journal d'audit est aussi un
+ * fichier de surveillance des agents : « qui a travaillé, quand, à quelle
+ * cadence ». On l'ouvre donc au CFS et à l'encadrement (VOIENT_HORSGABARIT),
+ * pas à toutes les cellules. Chaque cellule voit déjà son propre passage sur la
+ * fiche ; elle n'a pas besoin du relevé d'activité des autres.
+ */
+export async function historiqueCargaison(ctx: Ctx, p: Record<string, unknown>) {
+  const id = String(p['id'] ?? '').trim();
+  if (!id) throw new Error('Cargaison non identifiée.');
+
+  const { data, error } = await ctx.db
+    .from('audit_log')
+    .select('ts, username, nom_complet, role, action, details')
+    .eq('cargaison_id', id)
+    .order('ts', { ascending: true });
+  if (error) throw new Error(error.message);
+
+  return {
+    id,
+    lignes: (data ?? []).map((r) => versCamel(r as unknown as Record<string, unknown>)),
+  };
 }

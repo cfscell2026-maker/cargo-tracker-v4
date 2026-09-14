@@ -7,13 +7,14 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { STATUTS, etapesEnAttente, fileAttente, groupesDeclaration } from '../../_shared/domaine/src/index.ts';
+import { STATUTS, etapesEnAttente, fileAttente, groupesDeclaration, verifierPermission } from '../../_shared/domaine/src/index.ts';
 import { versCamel, type Ctx } from '../ctx.ts';
 import { FakeDB } from './fake-db.ts';
 import * as ecr from './ecriture.ts';
 import * as spe from './speciaux.ts';
 import * as stk from './stock.ts';
 import * as rap from './rapports.ts';
+import * as lec from './lecture.ts';
 
 function ctxAvec(db: FakeDB): Ctx {
   return {
@@ -37,7 +38,7 @@ test('cycle de vie complet — ENLÈVEMENT (2 conteneurs 20\', binôme)', async 
   const cfs = ctxAvec(db);
 
   // 1) La PP/CFS crée le camion vide.
-  const cree = (await ecr.createcamion(cfs, { numeroCamion: 'AB1234CD', routage: 'Enlèvement' })) as { id: string };
+  const cree = (await ecr.createcamion(cfs, { numeroCamion: 'AB1234CD/RM01', routage: 'Enlèvement' })) as { id: string };
   const id = cree.id;
   assert.equal(statutDe(db, id), STATUTS.CAMION);
 
@@ -62,7 +63,7 @@ test('cycle de vie complet — ENLÈVEMENT (2 conteneurs 20\', binôme)', async 
   assert.equal(apres2['twins'], true);
 
   // 3) Chef brigade valide (signature).
-  await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'Chef Brigade'), { id, enSurcharge: false });
+  await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'Chef Brigade'), { id, enSurcharge: false, suiviEngagement: false });
   assert.ok(db.store['cargaisons'][0]!['date_validation']);
   assert.deepEqual(etapesEnAttente(versCamel(db.store['cargaisons'][0]!) as never), ['T1', 'BALISE', 'BS']);
 
@@ -97,7 +98,7 @@ test('déclaration type C balisée : saute le T1, garde la Balise', async () => 
   const db = new FakeDB();
   db.store['stock'].push({ numero_tc: 'MSKU1234567', taille: "40'", statut: 'En stock' });
   const cfs = ctxAvec(db);
-  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'CONSO1', routage: 'Enlèvement' })) as { id: string };
+  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'CONSO1/RM01', routage: 'Enlèvement' })) as { id: string };
   await ecr.cfs(cfs, {
     id, conteneur: { num: 'MSKU1234567', taille: "40'", type: 'DRY', plomb: 'S1' },
     declaration: { declarant: 'A', contactDeclarant: '901234', destinationMarchandise: 'D', bureauDeclaration: 'TG120', typeDeclaration: 'C', numeroDeclaration: '1', anneeDeclaration: '2026', dateDeclaration: '2026-06-24', descriptionMarchandise: 'X', nombreConteneurs: 1 },
@@ -107,7 +108,7 @@ test('déclaration type C balisée : saute le T1, garde la Balise', async () => 
   assert.equal(c['sauteT1'], true);
   assert.equal(c['sauteBalise'], false);
   // Après validation : le T1 est sauté → Balise ET Bon de sortie en attente.
-  await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'), { id, enSurcharge: false });
+  await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'), { id, enSurcharge: false, suiviEngagement: false });
   assert.deepEqual(etapesEnAttente(versCamel(db.store['cargaisons'][0]!) as never), ['BALISE', 'BS']);
 });
 
@@ -115,7 +116,7 @@ test('déclaration type C non balisée : saute le T1 ET la Balise', async () => 
   const db = new FakeDB();
   db.store['stock'].push({ numero_tc: 'MSKU1234567', taille: "40'", statut: 'En stock' });
   const cfs = ctxAvec(db);
-  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'CONSO2', routage: 'Enlèvement' })) as { id: string };
+  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'CONSO2/RM01', routage: 'Enlèvement' })) as { id: string };
   await ecr.cfs(cfs, {
     id, conteneur: { num: 'MSKU1234567', taille: "40'", type: 'DRY', plomb: 'S1' },
     declaration: { declarant: 'A', contactDeclarant: '901234', destinationMarchandise: 'D', bureauDeclaration: 'TG120', typeDeclaration: 'C', numeroDeclaration: '2', anneeDeclaration: '2026', dateDeclaration: '2026-06-24', descriptionMarchandise: 'X', nombreConteneurs: 1 },
@@ -125,7 +126,7 @@ test('déclaration type C non balisée : saute le T1 ET la Balise', async () => 
   assert.equal(c['sauteT1'], true);
   assert.equal(c['sauteBalise'], true);
   // Après validation : T1 et Balise sautés → Bon de sortie + PP disponibles.
-  await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'), { id, enSurcharge: false });
+  await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'), { id, enSurcharge: false, suiviEngagement: false });
   assert.deepEqual(etapesEnAttente(versCamel(db.store['cargaisons'][0]!) as never), ['BS', 'PP']);
 });
 
@@ -133,7 +134,7 @@ test('déclaration : date et nombre de conteneurs FACULTATIFS (dépotage)', asyn
   const db = new FakeDB();
   db.store['stock'].push({ numero_tc: 'MSKU1234567', taille: "40'", statut: 'Positionné' });
   const cfs = ctxAvec(db);
-  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'FAC1', routage: 'Dépotage' })) as { id: string };
+  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'FAC1/RM01', routage: 'Dépotage' })) as { id: string };
   // Nouvelle déclaration SANS date NI nombre de conteneurs : accepté.
   await ecr.cfs(cfs, {
     id, conteneur: { num: 'MSKU1234567', taille: "40'", type: 'DRY' },
@@ -148,7 +149,7 @@ test('annulation de doublon (ADMIN) : suppression LOGIQUE, stock libéré, pièc
   const db = new FakeDB();
   db.store['stock'].push({ numero_tc: 'MSKU1234567', taille: "40'", statut: 'Positionné' });
   const cfs = ctxAvec(db);
-  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'DUP99', routage: 'Dépotage' })) as { id: string };
+  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'DUP99/RM01', routage: 'Dépotage' })) as { id: string };
   await ecr.cfs(cfs, {
     id, conteneur: { num: 'MSKU1234567', taille: "40'", type: 'DRY' },
     declaration: { declarant: 'A', contactDeclarant: '901234', destinationMarchandise: 'D', bureauDeclaration: 'TG120', typeDeclaration: 'T', numeroDeclaration: '70', anneeDeclaration: '2026', descriptionMarchandise: 'X' },
@@ -173,27 +174,45 @@ test('annulation de doublon (ADMIN) : suppression LOGIQUE, stock libéré, pièc
 
   // Plus aucune écriture n'est possible sur une cargaison annulée.
   await assert.rejects(
-    () => ecr.editcamion(ctxRole(db, 'CFS', 'C'), { id, numeroCamion: 'AUTRE1', motif: 'test' }),
+    () => ecr.editcamion(ctxRole(db, 'CFS', 'C'), { id, numeroCamion: 'AUTRE1/RM01', motif: 'test' }),
     /annulée/,
   );
 });
 
-test('annulation refusée après validation du chef de brigade (SEC-12)', async () => {
+test('annulation APRÈS validation : autorisée à l\'ADMIN, signalée comme écriture engagée (2026-09-10)', async () => {
   const db = new FakeDB();
   db.store['stock'].push({ numero_tc: 'MSKU7654321', taille: "40'", statut: 'En stock' });
   const cfs = ctxAvec(db);
   // Enlèvement : la saisie du conteneur scellé vaut fin de chargement (« Créée »),
   // donc la validation du chef de brigade est possible dans la foulée.
-  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'DUP98', routage: 'Enlèvement' })) as { id: string };
+  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'DUP98/RM01', routage: 'Enlèvement' })) as { id: string };
   await ecr.cfs(cfs, {
     id, conteneur: { num: 'MSKU7654321', taille: "40'", type: 'DRY', plomb: 'S1' },
     declaration: { declarant: 'A', contactDeclarant: '901234', destinationMarchandise: 'D', bureauDeclaration: 'TG120', typeDeclaration: 'T', numeroDeclaration: '71', anneeDeclaration: '2026', descriptionMarchandise: 'X', nombreConteneurs: 1 },
   });
-  await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'Chef'), { id, enSurcharge: 'Non' });
+  await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'Chef'), { id, enSurcharge: 'Non', suiviEngagement: false });
+
+  // L'annulation n'est PLUS refusée après signature (décision 2026-09-10) : elle
+  // reste réservée à l'ADMIN, elle est logique, et le journal la signale.
+  const r = (await ecr.supprimerCargo(ctxRole(db, 'ADMIN', 'Admin'), { id, motif: 'erreur de saisie' })) as
+    { annule: boolean; engagee: string[] };
+  assert.equal(r.annule, true);
+  assert.ok(r.engagee.some((x) => /VALIDÉE ET SIGNÉE/.test(x)),
+    'le retrait d\'une cargaison signée doit être marqué comme écriture engagée');
+
+  // SEC-12 tient toujours : la pièce n'est pas détruite, seulement marquée.
+  const c = versCamel(db.store['cargaisons'][0]!);
+  assert.equal(c['annule'], true);
+  assert.equal(c['annuleMotif'], 'erreur de saisie');
+  assert.ok(c['dateValidation'], 'la validation reste inscrite sur la pièce annulée');
+  // Le motif est toujours exigé, même à ce stade.
   await assert.rejects(
-    () => ecr.supprimerCargo(ctxRole(db, 'ADMIN', 'Admin'), { id, motif: 'erreur' }),
-    /déjà validée et signée/,
+    () => ecr.supprimerCargo(ctxRole(db, 'ADMIN', 'Admin'), { id: 'CT-INEXISTANT', motif: '' }),
+    /motif de l'annulation/i,
   );
+
+  // Et le stock rattaché est bien libéré.
+  assert.equal(db.store['stock'][0]!['statut'], 'En stock');
 });
 
 test('véhicule : le conteneur d\'origine (TC) est obligatoire', async () => {
@@ -219,13 +238,13 @@ test('véhicule : « chargement terminé » est porté PAR camion d\'effets dive
     vehicules: [{ chassis: 'VIN123', destination: 'Transit' }],
     camions: [
       // terminé → scellés exigés, statut « Créée »
-      { numeroCamion: 'CAM-FINI', chargementTermine: true, designation: 'Cartons d\'effets personnels', scellesCamion: ['S1', 'S2'] },
+      { numeroCamion: 'CAM-FINI/RM01', chargementTermine: true, designation: 'Cartons d\'effets personnels', scellesCamion: ['S1', 'S2'] },
       // pas terminé → scellés NON exigés, statut « En cours de chargement »
-      { numeroCamion: 'CAM-ENCOURS', chargementTermine: false, designation: 'Colis divers', scellesCamion: [] },
+      { numeroCamion: 'CAM-ENCOURS/RM01', chargementTermine: false, designation: 'Colis divers', scellesCamion: [] },
     ],
   });
-  const fini = db.store['cargaisons'].find((c) => c['numero_camion'] === 'CAM-FINI');
-  const enCours = db.store['cargaisons'].find((c) => c['numero_camion'] === 'CAM-ENCOURS');
+  const fini = db.store['cargaisons'].find((c) => c['numero_camion'] === 'CAM-FINI/RM01');
+  const enCours = db.store['cargaisons'].find((c) => c['numero_camion'] === 'CAM-ENCOURS/RM01');
   assert.equal(fini?.['statut'], STATUTS.CREEE);
   assert.equal(enCours?.['statut'], STATUTS.CHARGEMENT);
   // v4 — le camion d'effets divers porte sa DÉSIGNATION, pas de conteneur propre.
@@ -242,7 +261,7 @@ test('effets divers : la désignation est obligatoire', async () => {
     () => spe.create(cfs, {
       typeOperation: 'Dépotage / Véhicule', declaration: decl, conteneurOrigine: 'MSKU1234567',
       vehicules: [{ chassis: 'VIN123', destination: 'Transit' }],
-      camions: [{ numeroCamion: 'CAM-X', chargementTermine: true, scellesCamion: ['S1', 'S2'] }],
+      camions: [{ numeroCamion: 'CAM-X/RM01', chargementTermine: true, scellesCamion: ['S1', 'S2'] }],
     }),
     /désignation des effets divers est obligatoire/,
   );
@@ -254,7 +273,7 @@ test('conso MAD (cargo.create) : type T = parcours complet (T1 + Balise), comme 
   const decl = { declarant: 'A', contactDeclarant: '901234', destinationMarchandise: 'D', bureauDeclaration: 'TG120', typeDeclaration: 'T', numeroDeclaration: '20', anneeDeclaration: '2026', dateDeclaration: '2026-06-24', descriptionMarchandise: 'RIZ', nombreConteneurs: 1 };
   await spe.create(cfs, {
     typeOperation: 'Conso (type C)', consoMode: 'balise', declaration: decl,
-    camions: [{ numeroCamion: 'MADT1', conteneurs: [{ num: 'MSKU1234567', taille: "40'", type: 'DRY', plomb: 'S1' }] }],
+    camions: [{ numeroCamion: 'MADT1/RM01', conteneurs: [{ num: 'MSKU1234567', taille: "40'", type: 'DRY', plomb: 'S1' }] }],
   });
   const c = db.store['cargaisons'][0]!;
   assert.equal(c['saute_t1'], false);
@@ -267,7 +286,7 @@ test('conso MAD (cargo.create) : type C non balisée = saute T1 ET Balise', asyn
   const decl = { declarant: 'A', contactDeclarant: '901234', destinationMarchandise: 'D', bureauDeclaration: 'TG120', typeDeclaration: 'C', numeroDeclaration: '21', anneeDeclaration: '2026', dateDeclaration: '2026-06-24', descriptionMarchandise: 'RIZ', nombreConteneurs: 1 };
   await spe.create(cfs, {
     typeOperation: 'Conso (type C)', consoMode: 'sansbalise', declaration: decl,
-    camions: [{ numeroCamion: 'MADC1', conteneurs: [{ num: 'MSKU1234567', taille: "40'", type: 'DRY', plomb: 'S1' }] }],
+    camions: [{ numeroCamion: 'MADC1/RM01', conteneurs: [{ num: 'MSKU1234567', taille: "40'", type: 'DRY', plomb: 'S1' }] }],
   });
   const c = db.store['cargaisons'][0]!;
   assert.equal(c['saute_t1'], true);
@@ -279,10 +298,10 @@ test('sortie Magasin/MAD : type T garde le T1, type C le saute', async () => {
   const cfs = ctxAvec(db);
   const base = { declarant: 'A', contactDeclarant: '901234', destinationMarchandise: 'D', bureauDeclaration: 'TG120', anneeDeclaration: '2026', dateDeclaration: '2026-06-24', descriptionMarchandise: 'VRAC', nombreConteneurs: 1 };
   const sc = { chargementTermine: true, scellesCamion: ['SC1', 'SC2'] };
-  await spe.create(cfs, { typeOperation: 'Sortie Magasin / MAD', numeroCamion: 'MAG-T', consoMode: 'balise', declaration: { ...base, typeDeclaration: 'T', numeroDeclaration: '30' }, ...sc });
-  await spe.create(cfs, { typeOperation: 'Sortie Magasin / MAD', numeroCamion: 'MAG-C', consoMode: 'sansbalise', declaration: { ...base, typeDeclaration: 'C', numeroDeclaration: '31' }, ...sc });
-  const magT = db.store['cargaisons'].find((c) => c['numero_camion'] === 'MAG-T');
-  const magC = db.store['cargaisons'].find((c) => c['numero_camion'] === 'MAG-C');
+  await spe.create(cfs, { typeOperation: 'Sortie Magasin / MAD', numeroCamion: 'MAG-T/RM01', consoMode: 'balise', declaration: { ...base, typeDeclaration: 'T', numeroDeclaration: '30' }, ...sc });
+  await spe.create(cfs, { typeOperation: 'Sortie Magasin / MAD', numeroCamion: 'MAG-C/RM01', consoMode: 'sansbalise', declaration: { ...base, typeDeclaration: 'C', numeroDeclaration: '31' }, ...sc });
+  const magT = db.store['cargaisons'].find((c) => c['numero_camion'] === 'MAG-T/RM01');
+  const magC = db.store['cargaisons'].find((c) => c['numero_camion'] === 'MAG-C/RM01');
   assert.equal(magT?.['saute_t1'], false);
   assert.equal(magT?.['saute_balise'], false);
   assert.equal(magC?.['saute_t1'], true);
@@ -294,7 +313,7 @@ test('sortie Magasin/MAD : scellés camion posés → « Créée » d\'emblée',
   const cfs = ctxAvec(db);
   const base = { declarant: 'A', contactDeclarant: '901234', destinationMarchandise: 'D', bureauDeclaration: 'TG120', anneeDeclaration: '2026', descriptionMarchandise: 'SACS DE RIZ', typeDeclaration: 'C', numeroDeclaration: '40' };
   const r = (await spe.create(cfs, {
-    typeOperation: 'Sortie Magasin / MAD', numeroCamion: 'MAG-S', consoMode: 'balise', declaration: base,
+    typeOperation: 'Sortie Magasin / MAD', numeroCamion: 'MAG-S/RM01', consoMode: 'balise', declaration: base,
     chargementTermine: true, scellesCamion: ['SC1', 'SC2'],
   })) as { camions: { id: string }[] };
   const cargo = db.store['cargaisons'].find((c) => c['id'] === r.camions[0]!.id)!;
@@ -307,7 +326,7 @@ test('sortie Magasin/MAD : « chargement terminé » exige ≥ 2 scellés', asyn
   const cfs = ctxAvec(db);
   const base = { declarant: 'A', contactDeclarant: '901234', destinationMarchandise: 'D', bureauDeclaration: 'TG120', anneeDeclaration: '2026', descriptionMarchandise: 'RIZ', typeDeclaration: 'C', numeroDeclaration: '41' };
   await assert.rejects(
-    spe.create(cfs, { typeOperation: 'Sortie Magasin / MAD', numeroCamion: 'MAG-X', consoMode: 'balise', declaration: base, chargementTermine: true, scellesCamion: ['SEUL'] }),
+    spe.create(cfs, { typeOperation: 'Sortie Magasin / MAD', numeroCamion: 'MAG-X/RM01', consoMode: 'balise', declaration: base, chargementTermine: true, scellesCamion: ['SEUL'] }),
     /2 scellés/,
   );
 });
@@ -317,7 +336,7 @@ test('sortie Magasin/MAD : sans « chargement terminé » → « En cours de cha
   const cfs = ctxAvec(db);
   const base = { declarant: 'A', contactDeclarant: '901234', destinationMarchandise: 'D', bureauDeclaration: 'TG120', anneeDeclaration: '2026', descriptionMarchandise: 'RIZ', typeDeclaration: 'C', numeroDeclaration: '42' };
   const r = (await spe.create(cfs, {
-    typeOperation: 'Sortie Magasin / MAD', numeroCamion: 'MAG-P', consoMode: 'balise', declaration: base, chargementTermine: false,
+    typeOperation: 'Sortie Magasin / MAD', numeroCamion: 'MAG-P/RM01', consoMode: 'balise', declaration: base, chargementTermine: false,
   })) as { camions: { id: string }[] };
   const id = r.camions[0]!.id;
   assert.equal(statutDe(db, id), STATUTS.CHARGEMENT);
@@ -361,7 +380,7 @@ test('validation non bloquante : T1 / Balise / sortie possibles sans validation'
   const db = new FakeDB();
   db.store['stock'].push({ numero_tc: 'MSKU1234567', taille: "40'", statut: 'En stock' });
   const cfs = ctxAvec(db);
-  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'NOVAL1', routage: 'Enlèvement' })) as { id: string };
+  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'NOVAL1/RM01', routage: 'Enlèvement' })) as { id: string };
   await ecr.cfs(cfs, {
     id, conteneur: { num: 'MSKU1234567', taille: "40'", type: 'DRY', plomb: 'S1' },
     declaration: { declarant: 'A', contactDeclarant: '901234', destinationMarchandise: 'D', bureauDeclaration: 'TG120', typeDeclaration: 'T', numeroDeclaration: '60', anneeDeclaration: '2026', descriptionMarchandise: 'X', nombreConteneurs: 1 },
@@ -377,7 +396,7 @@ test('correction du type : dépotage → enlèvement (scellés camion → plombs
   const db = new FakeDB();
   db.store['stock'].push({ numero_tc: 'MSKU1234567', taille: "40'", statut: 'Positionné' });
   const cfs = ctxAvec(db);
-  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'CORR1', routage: 'Dépotage' })) as { id: string };
+  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'CORR1/RM01', routage: 'Dépotage' })) as { id: string };
   await ecr.cfs(cfs, {
     id, conteneur: { num: 'MSKU1234567', taille: "40'", type: 'DRY' },
     declaration: { declarant: 'A', contactDeclarant: '901234', destinationMarchandise: 'D', bureauDeclaration: 'TG120', typeDeclaration: 'T', numeroDeclaration: '50', anneeDeclaration: '2026', dateDeclaration: '2026-06-24', descriptionMarchandise: 'X', nombreConteneurs: 1 },
@@ -398,12 +417,12 @@ test('correction du type refusée après validation (hors ADMIN)', async () => {
   const db = new FakeDB();
   db.store['stock'].push({ numero_tc: 'MSKU1234567', taille: "40'", statut: 'En stock' });
   const cfs = ctxAvec(db);
-  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'CORR2', routage: 'Enlèvement' })) as { id: string };
+  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'CORR2/RM01', routage: 'Enlèvement' })) as { id: string };
   await ecr.cfs(cfs, {
     id, conteneur: { num: 'MSKU1234567', taille: "40'", type: 'DRY', plomb: 'S1' },
     declaration: { declarant: 'A', contactDeclarant: '901234', destinationMarchandise: 'D', bureauDeclaration: 'TG120', typeDeclaration: 'T', numeroDeclaration: '51', anneeDeclaration: '2026', dateDeclaration: '2026-06-24', descriptionMarchandise: 'X', nombreConteneurs: 1 },
   });
-  await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'), { id, enSurcharge: false });
+  await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'), { id, enSurcharge: false, suiviEngagement: false });
   await assert.rejects(() => ecr.edittype(cfs, { id, typeOperation: 'Dépotage' }), /déjà validée/);
 });
 
@@ -438,12 +457,12 @@ test('garde-fou : sortie refusée tant que la Balise n\'est pas posée', async (
   const db = new FakeDB();
   db.store['stock'].push({ numero_tc: 'MSKU1234567', taille: "40'", statut: 'En stock' });
   const cfs = ctxAvec(db);
-  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'ZZ99', routage: 'Enlèvement' })) as { id: string };
+  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'ZZ99/RM01', routage: 'Enlèvement' })) as { id: string };
   await ecr.cfs(cfs, {
     id, conteneur: { num: 'MSKU1234567', taille: "40'", type: 'DRY', plomb: 'S1' },
     declaration: { declarant: 'A', contactDeclarant: '901234', destinationMarchandise: 'D', bureauDeclaration: 'TG120', typeDeclaration: 'T', numeroDeclaration: '1', anneeDeclaration: '2026', dateDeclaration: '2026-06-24', descriptionMarchandise: 'X', nombreConteneurs: 1 },
   });
-  await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'), { id, enSurcharge: false });
+  await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'), { id, enSurcharge: false, suiviEngagement: false });
   // v4.1 — VERROU RÉACTIVÉ : ni T1 ni Balise → la PP ne peut pas clôturer.
   await assert.rejects(
     () => ecr.sortie(ctxRole(db, 'PP', 'PP'), { id, ckCfs: true, ckT1: true, ckBalise: true, ckBs: true }),
@@ -464,10 +483,10 @@ test('garde-fou : sortie refusée tant que la Balise n\'est pas posée', async (
 test('anti-doublon : recréer un camion actif est refusé', async () => {
   const db = new FakeDB();
   const cfs = ctxAvec(db);
-  await ecr.createcamion(cfs, { numeroCamion: 'DUP1', routage: 'Dépotage' });
-  // numero_camion_norm est une colonne générée en base ; on la simule ici.
-  db.store['cargaisons'][0]!['numero_camion_norm'] = 'DUP1';
-  await assert.rejects(() => ecr.createcamion(cfs, { numeroCamion: 'DUP 1', routage: 'Dépotage' }), /existe déjà/);
+  await ecr.createcamion(cfs, { numeroCamion: 'DUP1/RM01', routage: 'Dépotage' });
+  // `numero_camion_norm` est désormais CALCULÉE par FakeDB, comme la colonne
+  // générée l'est en base : plus besoin de la poser à la main ici.
+  await assert.rejects(() => ecr.createcamion(cfs, { numeroCamion: 'DUP 1/RM01', routage: 'Dépotage' }), /existe déjà/);
 });
 
 /* ------------------------------------------------------------------------
@@ -490,8 +509,8 @@ test('lot camions : une seule déclaration reportée sur plusieurs camions', asy
   const r = (await ecr.lotcamions(cfs, {
     typeOperation: 'Enlèvement', declaration: DECL_OK,
     camions: [
-      { numeroCamion: 'LOT001', conteneurs: [{ num: 'MSKU1111111', taille: "40'", type: 'DRY', plomb: 'S1' }] },
-      { numeroCamion: 'LOT002', conteneurs: [{ num: 'TCLU2222222', taille: "40'", type: 'DRY', plomb: 'S2' }] },
+      { numeroCamion: 'LOT001/RM01', conteneurs: [{ num: 'MSKU1111111', taille: "40'", type: 'DRY', plomb: 'S1' }] },
+      { numeroCamion: 'LOT002/RM01', conteneurs: [{ num: 'TCLU2222222', taille: "40'", type: 'DRY', plomb: 'S2' }] },
     ],
   })) as { crees: Record<string, unknown>[]; erreurs: unknown[] };
 
@@ -518,15 +537,15 @@ test("lot camions : un camion en erreur n'annule pas les autres", async () => {
   const r = (await ecr.lotcamions(cfs, {
     typeOperation: 'Enlèvement', declaration: DECL_OK,
     camions: [
-      { numeroCamion: 'LOT001', conteneurs: [{ num: 'MSKU1111111', taille: "40'", type: 'DRY', plomb: 'S1' }] },
+      { numeroCamion: 'LOT001/RM01', conteneurs: [{ num: 'MSKU1111111', taille: "40'", type: 'DRY', plomb: 'S1' }] },
       // TC absent du stock → cette ligne seule échoue.
-      { numeroCamion: 'LOT002', conteneurs: [{ num: 'ZZZZ9999999', taille: "40'", type: 'DRY', plomb: 'S2' }] },
+      { numeroCamion: 'LOT002/RM01', conteneurs: [{ num: 'ZZZZ9999999', taille: "40'", type: 'DRY', plomb: 'S2' }] },
     ],
   })) as { crees: unknown[]; erreurs: Record<string, unknown>[] };
 
   assert.equal(r.crees.length, 1);
   assert.equal(r.erreurs.length, 1);
-  assert.equal(r.erreurs[0]?.['numeroCamion'], 'LOT002');
+  assert.equal(r.erreurs[0]?.['numeroCamion'], 'LOT002/RM01');
   assert.match(String(r.erreurs[0]?.['message']), /introuvable dans le stock/);
 });
 
@@ -537,7 +556,7 @@ test('correction conteneur : le mauvais N° est remplacé et rendu au stock', as
     { numero_tc: 'TCLU2222222', taille: "40'", statut: 'En stock' }, // le vrai conteneur
   );
   const cfs = ctxAvec(db);
-  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'FIX001', routage: 'Enlèvement' })) as { id: string };
+  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'FIX001/RM01', routage: 'Enlèvement' })) as { id: string };
   await ecr.cfs(cfs, { id, conteneur: { num: 'MSKU1111111', taille: "40'", type: 'DRY', plomb: 'S1' }, declaration: DECL_OK });
   assert.equal(db.store['stock'].find((s) => s['numero_tc'] === 'MSKU1111111')?.['statut'], 'Dépoté');
 
@@ -560,7 +579,7 @@ test('correction conteneur : retrait de la ligne → camion revenu à « Camion 
   const db = new FakeDB();
   db.store['stock'].push({ numero_tc: 'MSKU1111111', taille: "40'", statut: 'En stock' });
   const cfs = ctxAvec(db);
-  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'FIX002', routage: 'Enlèvement' })) as { id: string };
+  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'FIX002/RM01', routage: 'Enlèvement' })) as { id: string };
   await ecr.cfs(cfs, { id, conteneur: { num: 'MSKU1111111', taille: "40'", type: 'DRY', plomb: 'S1' }, declaration: DECL_OK });
 
   await ecr.editconteneur(cfs, { id, index: 0, supprimer: true });
@@ -574,9 +593,9 @@ test('correction conteneur refusée après validation (hors ADMIN)', async () =>
   const db = new FakeDB();
   db.store['stock'].push({ numero_tc: 'MSKU1111111', taille: "40'", statut: 'En stock' });
   const cfs = ctxAvec(db);
-  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'FIX003', routage: 'Enlèvement' })) as { id: string };
+  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'FIX003/RM01', routage: 'Enlèvement' })) as { id: string };
   await ecr.cfs(cfs, { id, conteneur: { num: 'MSKU1111111', taille: "40'", type: 'DRY', plomb: 'S1' }, declaration: DECL_OK });
-  await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'), { id, enSurcharge: false });
+  await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'), { id, enSurcharge: false, suiviEngagement: false });
   await ecr.gps(ctxRole(db, 'BALISE', 'B'), { id, baliseRequise: 'Oui', t1Correct: 'Oui', numeroGPS: 'G' });
 
   await assert.rejects(() => ecr.editconteneur(cfs, { id, index: 0, supprimer: true }), /a déjà avancé/);
@@ -590,7 +609,7 @@ test('correction déclaration : camion ET conteneurs réalignés', async () => {
   const db = new FakeDB();
   db.store['stock'].push({ numero_tc: 'MSKU1111111', taille: "40'", statut: 'En stock' });
   const cfs = ctxAvec(db);
-  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'FIX004', routage: 'Enlèvement' })) as { id: string };
+  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'FIX004/RM01', routage: 'Enlèvement' })) as { id: string };
   await ecr.cfs(cfs, { id, conteneur: { num: 'MSKU1111111', taille: "40'", type: 'DRY', plomb: 'S1' }, declaration: DECL_OK });
 
   await ecr.editdecl(cfs, { id, declaration: { ...DECL_OK, numeroDeclaration: '9999', declarant: 'STE Z' } });
@@ -620,11 +639,11 @@ test('validation par déclaration : le chef voit tout puis signe en une fois', a
   const chef = ctxRole(db, 'CHEF_BRIGADE', 'Chef Brigade');
 
   // Deux camions sur la déclaration 4242, un troisième sur une AUTRE déclaration.
-  const a = (await ecr.createcamion(cfs, { numeroCamion: 'VAL001', routage: 'Enlèvement' })) as { id: string };
+  const a = (await ecr.createcamion(cfs, { numeroCamion: 'VAL001/RM01', routage: 'Enlèvement' })) as { id: string };
   await ecr.cfs(cfs, { id: a.id, conteneur: { num: 'MSKU1111111', taille: "40'", type: 'DRY', plomb: 'S1' }, declaration: DECL_OK });
-  const b = (await ecr.createcamion(cfs, { numeroCamion: 'VAL002', routage: 'Enlèvement' })) as { id: string };
+  const b = (await ecr.createcamion(cfs, { numeroCamion: 'VAL002/RM01', routage: 'Enlèvement' })) as { id: string };
   await ecr.cfs(cfs, { id: b.id, conteneur: { num: 'TCLU2222222', taille: "20'", type: 'DRY', plomb: 'S2' }, declaration: DECL_OK });
-  const autre = (await ecr.createcamion(cfs, { numeroCamion: 'VAL003', routage: 'Enlèvement' })) as { id: string };
+  const autre = (await ecr.createcamion(cfs, { numeroCamion: 'VAL003/RM01', routage: 'Enlèvement' })) as { id: string };
   await ecr.cfs(cfs, { id: autre.id, conteneur: { num: 'GLDU3333333', taille: "20'", type: 'DRY', plomb: 'S3' },
     declaration: { ...DECL_OK, numeroDeclaration: '5555' } });
 
@@ -648,7 +667,7 @@ test('validation par déclaration : le chef voit tout puis signe en une fois', a
   assert.ok(!dossier.aValider.includes(autre.id));
 
   // Signature en lot : les deux cargaisons sont validées d'un geste.
-  const res = (await ecr.validerLot(chef, { ids: dossier.aValider, pesees: Object.fromEntries((dossier.aValider as string[]).map((x) => [x, { enSurcharge: false }])) })) as {
+  const res = (await ecr.validerLot(chef, { ids: dossier.aValider, pesees: Object.fromEntries((dossier.aValider as string[]).map((x) => [x, { enSurcharge: false }])), suiviEngagement: false })) as {
     validees: string[]; erreurs: unknown[]; compte: Record<string, number>;
   };
   assert.equal(res.compte['validees'], 2);
@@ -685,12 +704,12 @@ test('validation en lot : une cargaison en erreur n\'annule pas les autres', asy
   const cfs = ctxAvec(db);
   const chef = ctxRole(db, 'CHEF_BRIGADE', 'Chef Brigade');
 
-  const ok = (await ecr.createcamion(cfs, { numeroCamion: 'VAL010', routage: 'Enlèvement' })) as { id: string };
+  const ok = (await ecr.createcamion(cfs, { numeroCamion: 'VAL010/RM01', routage: 'Enlèvement' })) as { id: string };
   await ecr.cfs(cfs, { id: ok.id, conteneur: { num: 'MSKU1111111', taille: "40'", type: 'DRY', plomb: 'S1' }, declaration: DECL_OK });
   // Camion encore EN CHARGEMENT : le CFS n'a pas fini, il ne peut pas être validé.
-  const pasPret = (await ecr.createcamion(cfs, { numeroCamion: 'VAL011', routage: 'Enlèvement' })) as { id: string };
+  const pasPret = (await ecr.createcamion(cfs, { numeroCamion: 'VAL011/RM01', routage: 'Enlèvement' })) as { id: string };
 
-  const res = (await ecr.validerLot(chef, { ids: [ok.id, pasPret.id, 'INEXISTANT'], pesees: { [ok.id]: { enSurcharge: false }, [pasPret.id]: { enSurcharge: false } } })) as {
+  const res = (await ecr.validerLot(chef, { ids: [ok.id, pasPret.id, 'INEXISTANT'], pesees: { [ok.id]: { enSurcharge: false }, [pasPret.id]: { enSurcharge: false } }, suiviEngagement: false })) as {
     validees: string[]; erreurs: Record<string, unknown>[];
   };
   assert.deepEqual(res.validees, [ok.id]);
@@ -719,7 +738,7 @@ function ctxTrace(db: FakeDB, role: string, nom: string) {
 }
 
 /** Camion balisé, prêt pour les corrections d'aval. */
-async function camionBalise(db: FakeDB, plaque = 'COR001') {
+async function camionBalise(db: FakeDB, plaque = 'COR001/RM01') {
   const cfs = ctxAvec(db);
   const { id } = (await ecr.createcamion(cfs, { numeroCamion: plaque, routage: 'Enlèvement' })) as { id: string };
   await ecr.cfs(cfs, { id, conteneur: { num: 'MSKU1111111', taille: "40'", type: 'DRY', plomb: 'S1' }, declaration: DECL_OK });
@@ -765,47 +784,47 @@ test('correction de balise impossible une fois le camion sorti', async () => {
 test('plaque : le CFS corrige avec motif, et la correction suit les conteneurs (SEC-11)', async () => {
   const db = new FakeDB();
   db.store['stock'].push({ numero_tc: 'MSKU1111111', taille: "40'", statut: 'En stock' });
-  const id = await camionBalise(db, 'MAUVAISE1');
+  const id = await camionBalise(db, 'MAUVAISE1/RM01');
 
   // Le motif est obligatoire : c'est lui qui rend l'audit exploitable. 638
   // corrections de plaque figurent dans l'historique de production, sans qu'on
   // puisse dire laquelle est une coquille et laquelle est une substitution.
   const c = ctxTrace(db, 'CFS', 'Agent CFS');
   await assert.rejects(
-    () => ecr.editcamion(c.ctx, { id, numeroCamion: 'BONNE2' }),
+    () => ecr.editcamion(c.ctx, { id, numeroCamion: 'BONNE2/RM01' }),
     /motif de la correction/,
   );
 
-  await ecr.editcamion(c.ctx, { id, numeroCamion: 'BONNE2', motif: 'plaque illisible à l\'entrée' });
-  assert.equal(versCamel(db.store['cargaisons'][0]!)['numeroCamion'], 'BONNE2');
-  assert.match(c.traces.at(-1)!.detail, /MAUVAISE1 → BONNE2 · motif : plaque illisible/);
+  await ecr.editcamion(c.ctx, { id, numeroCamion: 'BONNE2/RM01', motif: 'plaque illisible à l\'entrée' });
+  assert.equal(versCamel(db.store['cargaisons'][0]!)['numeroCamion'], 'BONNE2/RM01');
+  assert.match(c.traces.at(-1)!.detail, /MAUVAISE1\/RM01 → BONNE2\/RM01 · motif : plaque illisible/);
 
   // La correction suit le camion sur ses conteneurs, pas seulement sur la fiche.
   const ct = db.store['conteneurs'].find((x) => x['cargaison_id'] === id);
-  if (ct) assert.equal(ct['numero_camion'], 'BONNE2');
+  if (ct) assert.equal(ct['numero_camion'], 'BONNE2/RM01');
 });
 
 test('plaque : verrouillée après validation, puis après la sortie (SEC-11)', async () => {
   const db = new FakeDB();
   db.store['stock'].push({ numero_tc: 'MSKU1111111', taille: "40'", statut: 'En stock' });
-  const id = await camionBalise(db, 'VERROU1');
+  const id = await camionBalise(db, 'VERROU1/RM01');
 
   // Une fois le chef de brigade passé, la plaque n'appartient plus au CFS.
-  await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'Chef'), { id, enSurcharge: 'Non' });
+  await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'Chef'), { id, enSurcharge: 'Non', suiviEngagement: false });
   await assert.rejects(
-    () => ecr.editcamion(ctxRole(db, 'CFS', 'C'), { id, numeroCamion: 'APRES2', motif: 'coquille' }),
+    () => ecr.editcamion(ctxRole(db, 'CFS', 'C'), { id, numeroCamion: 'APRES2/RM01', motif: 'coquille' }),
     /relève de l'administrateur/,
   );
   // L'ADMIN reste capable de dépanner tant que le camion est dans l'enceinte.
-  await ecr.editcamion(ctxRole(db, 'ADMIN', 'Admin'), { id, numeroCamion: 'APRES2', motif: 'coquille avérée' });
-  assert.equal(versCamel(db.store['cargaisons'][0]!)['numeroCamion'], 'APRES2');
+  await ecr.editcamion(ctxRole(db, 'ADMIN', 'Admin'), { id, numeroCamion: 'APRES2/RM01', motif: 'coquille avérée' });
+  assert.equal(versCamel(db.store['cargaisons'][0]!)['numeroCamion'], 'APRES2/RM01');
 
   // Après la sortie, plus personne — pas même l'ADMIN : le camion est parti
   // avec un bon de sortie portant cette plaque. (Le T1 conditionne la sortie.)
   await ecr.t1(ctxRole(db, 'T1', 'T1'), { id, bureauDestination: 'TG120', t1Numeros: [{ conteneur: 'MSKU1111111', numero: 'T1-1' }] });
   await ecr.sortie(ctxRole(db, 'PP', 'PP'), { id, ckCfs: true, ckT1: true, ckBalise: true, ckBs: true });
   await assert.rejects(
-    () => ecr.editcamion(ctxRole(db, 'ADMIN', 'Admin'), { id, numeroCamion: 'APRES3', motif: 'x' }),
+    () => ecr.editcamion(ctxRole(db, 'ADMIN', 'Admin'), { id, numeroCamion: 'APRES3/RM01', motif: 'x' }),
     /déjà sorti/,
   );
 });
@@ -813,7 +832,7 @@ test('plaque : verrouillée après validation, puis après la sortie (SEC-11)', 
 test('checklist PP : une case cochée ne crée pas la pièce manquante (SEC-13)', async () => {
   const db = new FakeDB();
   db.store['stock'].push({ numero_tc: 'MSKU1111111', taille: "40'", statut: 'En stock' });
-  const id = await camionBalise(db, 'CHKPP1');
+  const id = await camionBalise(db, 'CHKPP1/RM01');
   await ecr.t1(ctxRole(db, 'T1', 'T1'), { id, bureauDestination: 'TG120', t1Numeros: [{ conteneur: 'MSKU1111111', numero: 'T1-9' }] });
 
   // L'agent coche les 4 contrôles alors qu'AUCUN bon de sortie n'a été émis.
@@ -836,7 +855,7 @@ test('enlèvement : la saisie du conteneur (scellé) passe SEULE en « Créée �
   const db = new FakeDB();
   db.store['stock'].push({ numero_tc: 'MSKU1111111', taille: "40'", statut: 'En stock' });
   const cfs = ctxAvec(db);
-  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'FIN001', routage: 'Enlèvement' })) as { id: string };
+  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'FIN001/RM01', routage: 'Enlèvement' })) as { id: string };
   await ecr.cfs(cfs, { id, conteneur: { num: 'MSKU1111111', taille: "40'", type: 'DRY', plomb: 'S1' }, declaration: DECL_OK });
   // Aucune confirmation : l'étape CFS est franchie d'emblée.
   assert.equal(statutDe(db, id), STATUTS.CREEE);
@@ -847,7 +866,7 @@ test('rattrapage : un enlèvement resté « En cours de chargement » se termine
   const db = new FakeDB();
   db.store['stock'].push({ numero_tc: 'MSKU1111111', taille: "40'", statut: 'En stock' });
   const cfs = ctxAvec(db);
-  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'FIN002', routage: 'Enlèvement' })) as { id: string };
+  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'FIN002/RM01', routage: 'Enlèvement' })) as { id: string };
   await ecr.cfs(cfs, { id, conteneur: { num: 'MSKU1111111', taille: "40'", type: 'DRY', plomb: 'S1' }, declaration: DECL_OK });
   // Simule un camion LEGACY bloqué (créé quand l'enlèvement restait au chargement).
   db.store['cargaisons'].find((c) => c['id'] === id)!['statut'] = STATUTS.CHARGEMENT;
@@ -860,7 +879,7 @@ test('rattrapage : un enlèvement resté « En cours de chargement » se termine
 test('rattrapage refusé sur un camion vide', async () => {
   const db = new FakeDB();
   const cfs = ctxAvec(db);
-  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'FIN003', routage: 'Enlèvement' })) as { id: string };
+  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'FIN003/RM01', routage: 'Enlèvement' })) as { id: string };
   await assert.rejects(() => ecr.finChargement(cfs, { id }), /Rien à clôturer/);
 });
 
@@ -868,7 +887,7 @@ test('le dépotage garde sa propre clôture (scellés camion), pas fincharge', a
   const db = new FakeDB();
   db.store['stock'].push({ numero_tc: 'TCLU7654321', taille: "40'", statut: 'Positionné' });
   const cfs = ctxAvec(db);
-  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'FIN005', routage: 'Dépotage' })) as { id: string };
+  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'FIN005/RM01', routage: 'Dépotage' })) as { id: string };
   await ecr.cfs(cfs, { id, conteneur: { num: 'TCLU7654321', taille: "40'", type: 'DRY' }, declaration: DECL_OK });
   // Le dépotage reste « En cours de chargement » et se termine par la finalisation.
   assert.equal(statutDe(db, id), STATUTS.CHARGEMENT);
@@ -951,7 +970,7 @@ test('correction déclaration : possible même sans contact ni destination (migr
   const db = new FakeDB();
   db.store['stock'].push({ numero_tc: 'MSKU1111111', taille: "40'", statut: 'En stock' });
   const cfs = ctxAvec(db);
-  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'MIG001', routage: 'Enlèvement' })) as { id: string };
+  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'MIG001/RM01', routage: 'Enlèvement' })) as { id: string };
   await ecr.cfs(cfs, { id, conteneur: { num: 'MSKU1111111', taille: "40'", type: 'DRY', plomb: 'S1' }, declaration: DECL_OK });
   // On simule une cargaison MIGRÉE : contact / destination / désignation absents.
   const ligne = db.store['cargaisons'].find((x) => x['id'] === id)!;
@@ -974,7 +993,7 @@ test('correction déclaration : un champ vide ne vide pas ce qui existe', async 
   const db = new FakeDB();
   db.store['stock'].push({ numero_tc: 'MSKU1111111', taille: "40'", statut: 'En stock' });
   const cfs = ctxAvec(db);
-  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'MIG002', routage: 'Enlèvement' })) as { id: string };
+  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'MIG002/RM01', routage: 'Enlèvement' })) as { id: string };
   await ecr.cfs(cfs, { id, conteneur: { num: 'MSKU1111111', taille: "40'", type: 'DRY', plomb: 'S1' }, declaration: DECL_OK });
   await ecr.editdecl(cfs, {
     id,
@@ -993,7 +1012,7 @@ test('correction conteneur : la déclaration se change LIGNE PAR LIGNE (mixte pr
     { numero_tc: 'TCLU2222222', taille: "20'", statut: 'En stock' },
   );
   const cfs = ctxAvec(db);
-  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'MIX001', routage: 'Enlèvement' })) as { id: string };
+  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'MIX001/RM01', routage: 'Enlèvement' })) as { id: string };
   await ecr.cfs(cfs, { id, conteneur: { num: 'MSKU1111111', taille: "20'", type: 'DRY', plomb: 'S1' }, declaration: DECL_OK });
   await ecr.cfs(cfs, { id, conteneur: { num: 'TCLU2222222', taille: "20'", type: 'DRY', plomb: 'S2' } });
 
@@ -1026,7 +1045,7 @@ test('correction conteneur : la déclaration se change LIGNE PAR LIGNE (mixte pr
  * stock ») : il est donc sur un camion (table conteneurs) mais ABSENT de la
  * table stock — exactement le cas que l'import doit rattraper.
  */
-async function enlevementSaisieManuelle(db: FakeDB, tc = 'MSKU1234567', plaque = 'MAN001') {
+async function enlevementSaisieManuelle(db: FakeDB, tc = 'MSKU1234567', plaque = 'MAN001/RM01') {
   const cfs = ctxAvec(db);
   const { id } = (await ecr.createcamion(cfs, { numeroCamion: plaque, routage: 'Enlèvement' })) as { id: string };
   await ecr.cfs(cfs, {
@@ -1117,12 +1136,12 @@ test('fiche : « conso » = camions dont la déclaration est de type C (pas l’
   const base = { declarant: 'A', contactDeclarant: '901234', destinationMarchandise: 'D', bureauDeclaration: 'TG120', descriptionMarchandise: 'X', anneeDeclaration: '2026' };
 
   // (a) un ENLÈVEMENT dont la DÉCLARATION est de type C → doit compter en conso.
-  const e1 = (await ecr.createcamion(cfs, { numeroCamion: 'CONSO-ENL', routage: 'Enlèvement' })) as { id: string };
+  const e1 = (await ecr.createcamion(cfs, { numeroCamion: 'CONSO-ENL/RM01', routage: 'Enlèvement' })) as { id: string };
   await ecr.cfs(cfs, { id: e1.id, conteneur: { num: 'MSKU1000001', taille: "40'", type: 'DRY', plomb: 'S1' },
     declaration: { ...base, typeDeclaration: 'C', numeroDeclaration: '100' }, consoMode: 'balise' });
 
   // (b) un enlèvement de type T (transit) → NE compte PAS en conso.
-  const e2 = (await ecr.createcamion(cfs, { numeroCamion: 'TRANSIT', routage: 'Enlèvement' })) as { id: string };
+  const e2 = (await ecr.createcamion(cfs, { numeroCamion: 'TRANSIT/RM01', routage: 'Enlèvement' })) as { id: string };
   await ecr.cfs(cfs, { id: e2.id, conteneur: { num: 'MSKU1000002', taille: "40'", type: 'DRY', plomb: 'S2' },
     declaration: { ...base, typeDeclaration: 'T', numeroDeclaration: '101' } });
 
@@ -1135,7 +1154,7 @@ test('fiche : la « Sortie conso » compte les sorties de type C', async () => {
   db.store['stock'].push({ numero_tc: 'MSKU1000003', taille: "40'", statut: 'En stock' });
   const cfs = ctxAvec(db);
   const base = { declarant: 'A', contactDeclarant: '901234', destinationMarchandise: 'D', bureauDeclaration: 'TG120', descriptionMarchandise: 'X', anneeDeclaration: '2026' };
-  const e = (await ecr.createcamion(cfs, { numeroCamion: 'CONSO-OUT', routage: 'Enlèvement' })) as { id: string };
+  const e = (await ecr.createcamion(cfs, { numeroCamion: 'CONSO-OUT/RM01', routage: 'Enlèvement' })) as { id: string };
   await ecr.cfs(cfs, { id: e.id, conteneur: { num: 'MSKU1000003', taille: "40'", type: 'DRY', plomb: 'S1' },
     declaration: { ...base, typeDeclaration: 'C', numeroDeclaration: '102' }, consoMode: 'sansbalise' });
   // type C non balisé → saute T1 et Balise ; on émet le bon de sortie puis on sort.
@@ -1158,18 +1177,18 @@ test('fiche : le parking ne compte QUE les camions en attente de balise', async 
   const base = { declarant: 'A', contactDeclarant: '901234', destinationMarchandise: 'D', bureauDeclaration: 'TG120', descriptionMarchandise: 'X', anneeDeclaration: '2026' };
 
   // (a) enlèvement transit balise requise, PAS encore balisé → compte.
-  const a = (await ecr.createcamion(cfs, { numeroCamion: 'PK-WAIT', routage: 'Enlèvement' })) as { id: string };
+  const a = (await ecr.createcamion(cfs, { numeroCamion: 'PK-WAIT/RM01', routage: 'Enlèvement' })) as { id: string };
   await ecr.cfs(cfs, { id: a.id, conteneur: { num: 'MSKU2000001', taille: "40'", type: 'DRY', plomb: 'S1' },
     declaration: { ...base, typeDeclaration: 'T', numeroDeclaration: '200' } });
 
   // (b) camion encore EN CHARGEMENT au CFS (dépotage non finalisé) → ne compte PAS.
   db.store['stock'].push({ numero_tc: 'TCLU2000003', taille: "40'", statut: 'Positionné' });
-  const b = (await ecr.createcamion(cfs, { numeroCamion: 'PK-LOAD', routage: 'Dépotage' })) as { id: string };
+  const b = (await ecr.createcamion(cfs, { numeroCamion: 'PK-LOAD/RM01', routage: 'Dépotage' })) as { id: string };
   await ecr.cfs(cfs, { id: b.id, conteneur: { num: 'TCLU2000003', taille: "40'", type: 'DRY' },
     declaration: { ...base, typeDeclaration: 'T', numeroDeclaration: '201' } });
 
   // (c) conso NON balisée (dispense) → jamais de balise → ne compte PAS.
-  const cc = (await ecr.createcamion(cfs, { numeroCamion: 'PK-DISP', routage: 'Enlèvement' })) as { id: string };
+  const cc = (await ecr.createcamion(cfs, { numeroCamion: 'PK-DISP/RM01', routage: 'Enlèvement' })) as { id: string };
   await ecr.cfs(cfs, { id: cc.id, conteneur: { num: 'MSKU2000002', taille: "40'", type: 'DRY', plomb: 'S2' },
     declaration: { ...base, typeDeclaration: 'C', numeroDeclaration: '202' }, consoMode: 'sansbalise' });
 
@@ -1191,7 +1210,7 @@ async function enlevementSorti(db: FakeDB, plaque: string, tc: string, dest: str
   const { id } = (await ecr.createcamion(cfs, { numeroCamion: plaque, routage: 'Enlèvement' })) as { id: string };
   await ecr.cfs(cfs, { id, conteneur: { num: tc, taille: "40'", type: 'DRY', plomb: 'S1' },
     declaration: { declarant: 'A', contactDeclarant: '901234', destinationMarchandise: dest, bureauDeclaration: 'TG120', typeDeclaration: 'T', numeroDeclaration: num, anneeDeclaration: '2026', descriptionMarchandise: 'X' } });
-  await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'), { id, enSurcharge: false });
+  await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'), { id, enSurcharge: false, suiviEngagement: false });
   await ecr.t1(ctxRole(db, 'T1', 'T1'), { id, bureauDestination: 'BF', t1Numeros: [{ conteneur: tc, numero: 'T1-' + num }] });
   await ecr.gps(ctxRole(db, 'BALISE', 'B'), { id, baliseRequise: 'Oui', t1Correct: 'Oui', numeroGPS: 'G-' + num });
   await ecr.bonsortie(ctxRole(db, 'BON_SORTIE', 'BS'), { id, bonSortieNumero: [{ conteneur: tc, t1: 'T1-' + num, numero: 'BS-' + num }] });
@@ -1201,9 +1220,9 @@ async function enlevementSorti(db: FakeDB, plaque: string, tc: string, dest: str
 
 test('rapport destinations : compte les camions SORTIS par destination', async () => {
   const db = new FakeDB();
-  await enlevementSorti(db, 'D-BF1', 'MSKU3000001', 'BF', '300');
-  await enlevementSorti(db, 'D-BF2', 'MSKU3000002', 'BF', '301');
-  await enlevementSorti(db, 'D-NE1', 'MSKU3000003', 'NE', '302');
+  await enlevementSorti(db, 'D-BF1/RM01', 'MSKU3000001', 'BF', '300');
+  await enlevementSorti(db, 'D-BF2/RM01', 'MSKU3000002', 'BF', '301');
+  await enlevementSorti(db, 'D-NE1/RM01', 'MSKU3000003', 'NE', '302');
   const r = (await rap.rapportDestinations(ctxAvec(db), { granularite: 'mois' })) as
     { total: number; parDest: Record<string, number>; series: Record<string, unknown>[] };
   assert.equal(r.total, 3);
@@ -1215,8 +1234,8 @@ test('rapport destinations : compte les camions SORTIS par destination', async (
 
 test('analyse des flux : les totaux agrègent enlevés / balisés / sortis', async () => {
   const db = new FakeDB();
-  await enlevementSorti(db, 'F1', 'MSKU4000001', 'BF', '400');
-  await enlevementSorti(db, 'F2', 'MSKU4000002', 'NE', '401');
+  await enlevementSorti(db, 'F1/RM01', 'MSKU4000001', 'BF', '400');
+  await enlevementSorti(db, 'F2/RM01', 'MSKU4000002', 'NE', '401');
   const r = (await rap.rapportFlux(ctxAvec(db), { granularite: 'mois' })) as
     { totaux: { enlevesC: number; tc: number; baliseC: number; ppC: number } };
   assert.equal(r.totaux.enlevesC, 2);
@@ -1235,10 +1254,10 @@ test('rapport CFS : un agent voit l\'activité de TOUS les agents CFS', async ()
   );
   // Deux enlèvements saisis par DEUX agents CFS différents.
   const a = ctxRole(db, 'CFS', 'Agent A');
-  const ida = (await ecr.createcamion(a, { numeroCamion: 'RA', routage: 'Enlèvement' })) as { id: string };
+  const ida = (await ecr.createcamion(a, { numeroCamion: 'RA/RM01', routage: 'Enlèvement' })) as { id: string };
   await ecr.cfs(a, { id: ida.id, conteneur: { num: 'MSKU3000001', taille: "40'", type: 'DRY', plomb: 'S1' }, declaration: DECL_OK });
   const b = ctxRole(db, 'CFS', 'Agent B');
-  const idb = (await ecr.createcamion(b, { numeroCamion: 'RB', routage: 'Enlèvement' })) as { id: string };
+  const idb = (await ecr.createcamion(b, { numeroCamion: 'RB/RM01', routage: 'Enlèvement' })) as { id: string };
   await ecr.cfs(b, { id: idb.id, conteneur: { num: 'MSKU3000002', taille: "40'", type: 'DRY', plomb: 'S2' }, declaration: DECL_OK });
 
   // Agent A ouvre le rapport CFS SANS filtre : il voit les DEUX camions.
@@ -1248,7 +1267,7 @@ test('rapport CFS : un agent voit l\'activité de TOUS les agents CFS', async ()
 
 /* ---- v4.1 : pesée obligatoire avant la validation chef ------------------ */
 
-async function camionAValider(db: FakeDB, plaque = 'PES001') {
+async function camionAValider(db: FakeDB, plaque = 'PES001/RM01') {
   db.store['stock'].push({ numero_tc: 'MSKU7777777', taille: "40'", statut: 'En stock' });
   const cfs = ctxAvec(db);
   const { id } = (await ecr.createcamion(cfs, { numeroCamion: plaque, routage: 'Enlèvement' })) as { id: string };
@@ -1258,7 +1277,7 @@ async function camionAValider(db: FakeDB, plaque = 'PES001') {
 
 // v4.3 — DÉPOTAGE prêt à valider : la pesée (surcharge) ne concerne QUE le
 // dépotage (2026-08-19), donc les tests de pesée doivent partir d'un dépotage.
-async function depotageAValider(db: FakeDB, plaque = 'DEP001', tc = 'MSKU8888888') {
+async function depotageAValider(db: FakeDB, plaque = 'DEP001/RM01', tc = 'MSKU8888888') {
   db.store['stock'].push({ numero_tc: tc, taille: "40'", statut: 'Positionné' });
   const cfs = ctxAvec(db);
   const { id } = (await ecr.createcamion(cfs, { numeroCamion: plaque, routage: 'Dépotage' })) as { id: string };
@@ -1273,11 +1292,136 @@ test('validation refusée sans pesée renseignée (dépotage)', async () => {
   await assert.rejects(() => ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'), { id }), /Renseignez la pesée/);
 });
 
+/** Date ISO à N jours d'aujourd'hui — les délais d'engagement doivent être à venir. */
+const dansNJours = (n: number) => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10);
+
+test('00180 — suivi des engagements : OUI exige de préciser, puis enregistre', async () => {
+  const db = new FakeDB();
+  const id = await depotageAValider(db, 'ENG001/RM01', 'MSKU9999001');
+  const chef = ctxRole(db, 'CHEF_BRIGADE', 'CB');
+  // OUI sans précision : refusé.
+  await assert.rejects(
+    () => ecr.valider(chef, { id, enSurcharge: false, suiviEngagement: true }),
+    /précisez l'engagement/i,
+  );
+  // Type fourni mais SANS délai : refusé aussi — le délai est obligatoire.
+  await assert.rejects(
+    () => ecr.valider(chef, { id, enSurcharge: false, suiviEngagement: true, engagementType: 'Transit côtier' }),
+    /indiquez le délai/i,
+  );
+  // Délai DÉJÀ PASSÉ : refusé — ce serait en retard dès la signature.
+  await assert.rejects(
+    () => ecr.valider(chef, {
+      id, enSurcharge: false, suiviEngagement: true,
+      engagementType: 'Transit côtier', engagementDelai: dansNJours(-2),
+    }),
+    /déjà passé/i,
+  );
+  await ecr.valider(chef, {
+    id, enSurcharge: false, suiviEngagement: true,
+    engagementType: 'Transit côtier', engagementDelai: dansNJours(5),
+  });
+  const c = versCamel(db.store['cargaisons'][0]!);
+  assert.equal(c['suiviEngagement'], true);
+  assert.equal(c['engagementType'], 'Transit côtier');
+  assert.equal(c['engagementDelai'], dansNJours(5));
+  assert.equal(c['engagementEffectueLe'], undefined); // encore dû
+});
+
+test('00180 — échéancier : ne remonte qu\'à partir de J-1, et disparaît une fois soldé', async () => {
+  const db = new FakeDB();
+  const chef = ctxRole(db, 'CHEF_BRIGADE', 'CB');
+
+  const loin = await depotageAValider(db, 'ENG010/RM01', 'MSKU9999010');
+  await ecr.valider(chef, { id: loin, enSurcharge: false, suiviEngagement: true,
+    engagementType: 'Transit national', engagementDelai: dansNJours(10) });
+
+  const demain = await depotageAValider(db, 'ENG011/RM01', 'MSKU9999011');
+  await ecr.valider(chef, { id: demain, enSurcharge: false, suiviEngagement: true,
+    engagementType: 'BFE 03 Sinkase', engagementDelai: dansNJours(1) });
+
+  // Seule l'échéance de demain doit remonter ; celle à 10 jours est encore muette.
+  const av = (await lec.engagementsDus(chef)) as { lignes: Record<string, unknown>[]; compte: Record<string, number> };
+  assert.equal(av.lignes.length, 1);
+  assert.equal(av.lignes[0]!['id'], demain);
+  assert.equal(av.compte['demain'], 1);
+
+  // Une fois soldée, elle sort de l'échéancier.
+  await ecr.engagementFait(chef, { id: demain });
+  const ap = (await lec.engagementsDus(chef)) as { lignes: unknown[] };
+  assert.equal(ap.lignes.length, 0);
+
+  // Et on ne solde pas deux fois.
+  await assert.rejects(() => ecr.engagementFait(chef, { id: demain }), /déjà soldé/i);
+});
+
+test('00180 — solder refusé sur une cargaison sans suivi d\'engagement', async () => {
+  const db = new FakeDB();
+  const id = await depotageAValider(db, 'ENG012/RM01', 'MSKU9999012');
+  const chef = ctxRole(db, 'CHEF_BRIGADE', 'CB');
+  await ecr.valider(chef, { id, enSurcharge: false, suiviEngagement: false });
+  await assert.rejects(() => ecr.engagementFait(chef, { id }), /pas sous suivi d'engagement/i);
+});
+
+/* 2026-09-12 — CE TEST DISAIT L'INVERSE, et il avait tort.
+ *
+ * La garde exigeait `suiviEngagement` côté serveur. Déployée avant l'écran qui
+ * sait l'envoyer, elle a bloqué TOUTE signature en production : le front alors
+ * en ligne ignorait ce champ. Un serveur ne peut pas exiger ce qu'un client
+ * déjà déployé n'a aucun moyen de fournir — entre deux déploiements, les deux
+ * versions coexistent toujours.
+ *
+ * L'exigence n'est pas abandonnée : elle vit dans l'écran, dont le bouton de
+ * signature reste inerte tant qu'on n'a pas répondu. Le serveur, lui, tolère
+ * l'absence et vérifie intégralement ce qui lui est fourni — c'est l'objet des
+ * deux tests suivants. */
+test('00180 — engagement ABSENT : la validation passe, sans rien enregistrer', async () => {
+  const db = new FakeDB();
+  const id = await depotageAValider(db, 'ENG002/RM01', 'MSKU9999002');
+  await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'), { id, enSurcharge: false });
+  const c = db.store['cargaisons'].find((x) => x['id'] === id)!;
+  assert.ok(c['date_validation'], 'la signature doit aboutir');
+  assert.equal(c['suivi_engagement'] ?? null, null,
+    'rien ne doit être inventé : le champ reste vide, pas « non »');
+});
+
+test('00180 — engagement FOURNI mais incomplet : toujours refusé', async () => {
+  const db = new FakeDB();
+  const id = await depotageAValider(db, 'ENG004/RM01', 'MSKU9999004');
+  // OUI sans type : la vérification complète s'applique dès qu'on répond.
+  await assert.rejects(
+    () => ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'),
+      { id, enSurcharge: false, suiviEngagement: true }),
+    /précisez l'engagement/i,
+  );
+});
+
+test('00180 — suivi des engagements : NON laisse le type vide, même si un type est envoyé', async () => {
+  const db = new FakeDB();
+  const id = await depotageAValider(db, 'ENG003/RM01', 'MSKU9999003');
+  await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'),
+    { id, enSurcharge: false, suiviEngagement: false, engagementType: 'Transit national' });
+  const c = versCamel(db.store['cargaisons'][0]!);
+  assert.equal(c['suiviEngagement'], false);
+  // Le type ne doit PAS être conservé quand la réponse est NON : sinon la fiche
+  // afficherait un engagement sur une cargaison déclarée sans suivi.
+  assert.equal(c['engagementType'], '');
+});
+
+test('00180 — suivi des engagements : saisie libre hors liste acceptée', async () => {
+  const db = new FakeDB();
+  const id = await depotageAValider(db, 'ENG004/RM01', 'MSKU9999004');
+  await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'),
+    { id, enSurcharge: false, suiviEngagement: true, engagementType: 'RÉGIME EXCEPTIONNEL 2026', engagementDelai: dansNJours(4) });
+  const c = versCamel(db.store['cargaisons'][0]!);
+  assert.equal(c['engagementType'], 'RÉGIME EXCEPTIONNEL 2026');
+});
+
 test('pesée EN SURCHARGE : le poids est obligatoire puis enregistré (dépotage)', async () => {
   const db = new FakeDB();
-  const id = await depotageAValider(db, 'PES002', 'MSKU8888802');
+  const id = await depotageAValider(db, 'PES002/RM01', 'MSKU8888802');
   await assert.rejects(() => ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'), { id, enSurcharge: true }), /poids en surcharge/);
-  await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'), { id, enSurcharge: true, poidsSurcharge: '1200' });
+  await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'), { id, enSurcharge: true, poidsSurcharge: '1200', suiviEngagement: false });
   const c = versCamel(db.store['cargaisons'][0]!);
   assert.equal(c['enSurcharge'], true);
   assert.equal(c['poidsSurcharge'], '1200');
@@ -1286,8 +1430,8 @@ test('pesée EN SURCHARGE : le poids est obligatoire puis enregistré (dépotage
 
 test('pesée HORS SURCHARGE : validé sans poids, poids resté vide (dépotage)', async () => {
   const db = new FakeDB();
-  const id = await depotageAValider(db, 'PES003', 'MSKU8888803');
-  await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'), { id, enSurcharge: false });
+  const id = await depotageAValider(db, 'PES003/RM01', 'MSKU8888803');
+  await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'), { id, enSurcharge: false, suiviEngagement: false });
   const c = versCamel(db.store['cargaisons'][0]!);
   assert.equal(c['enSurcharge'], false);
   assert.equal(c['poidsSurcharge'], '');
@@ -1295,9 +1439,9 @@ test('pesée HORS SURCHARGE : validé sans poids, poids resté vide (dépotage)'
 
 test('ENLÈVEMENT : validé SANS pesée (hors gabarit/surcharge = dépotage only, 2026-08-19)', async () => {
   const db = new FakeDB();
-  const id = await camionAValider(db, 'ENL001'); // enlèvement
+  const id = await camionAValider(db, 'ENL001/RM01'); // enlèvement
   // Aucune pesée fournie : la validation passe quand même, hors surcharge.
-  await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'), { id });
+  await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'), { id, suiviEngagement: false });
   const c = versCamel(db.store['cargaisons'][0]!);
   assert.ok(c['dateValidation']);
   assert.equal(c['enSurcharge'], false);
@@ -1308,7 +1452,7 @@ test('horodatage : plage d\'activité par cellule/agent (2026-08-19)', async () 
   const db = new FakeDB();
   const cfs = ctxAvec(db); // agent « Agent CFS Un »
   db.store['stock'].push({ numero_tc: 'MSKU5000001', taille: "40'", statut: 'En stock' });
-  const a = (await ecr.createcamion(cfs, { numeroCamion: 'HORO1', routage: 'Enlèvement' })) as { id: string };
+  const a = (await ecr.createcamion(cfs, { numeroCamion: 'HORO1/RM01', routage: 'Enlèvement' })) as { id: string };
   await ecr.cfs(cfs, { id: a.id, conteneur: { num: 'MSKU5000001', taille: "40'", type: 'DRY', plomb: 'S1' }, declaration: DECL_OK });
   const r = (await rap.rapportHorodatage(cfs, {})) as { rows: { cellule: string; agent: string; camions: number; debut: string; fin: string }[] };
   const cfsRow = r.rows.find((x) => x.cellule === 'CFS');
@@ -1322,7 +1466,7 @@ test('archivage goulots : analyse, archive (réversible) sort des rapports (2026
   const db = new FakeDB();
   const cfs = ctxAvec(db);
   const admin = ctxRole(db, 'ADMIN', 'Admin');
-  const a = (await ecr.createcamion(cfs, { numeroCamion: 'GOULOT1', routage: 'Dépotage' })) as { id: string };
+  const a = (await ecr.createcamion(cfs, { numeroCamion: 'GOULOT1/RM01', routage: 'Dépotage' })) as { id: string };
   // Reste au statut « Camion créé » = goulot. L'analyse le voit (seuil 0 j).
   let g = (await rap.rapportGoulots(cfs, { joursMin: 0 })) as { total: number; rows: O[] };
   assert.ok(g.rows.some((r) => r['id'] === a.id), 'le goulot doit apparaître dans l\'analyse');
@@ -1345,9 +1489,9 @@ test('rapport de cellule T1 : compte les T1 saisis, datés au T1 (2026-08-19)', 
   const db = new FakeDB();
   const cfs = ctxAvec(db);
   db.store['stock'].push({ numero_tc: 'MSKU7000001', taille: "40'", statut: 'En stock' });
-  const a = (await ecr.createcamion(cfs, { numeroCamion: 'T1REP', routage: 'Enlèvement' })) as { id: string };
+  const a = (await ecr.createcamion(cfs, { numeroCamion: 'T1REP/RM01', routage: 'Enlèvement' })) as { id: string };
   await ecr.cfs(cfs, { id: a.id, conteneur: { num: 'MSKU7000001', taille: "40'", type: 'DRY', plomb: 'S1' }, declaration: DECL_OK });
-  await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'), { id: a.id }); // enlèvement : sans pesée
+  await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'), { id: a.id, suiviEngagement: false }); // enlèvement : sans pesée
   await ecr.t1(ctxRole(db, 'T1', 'Agent T1'), { id: a.id, bureauDestination: 'TG120', t1Numeros: [{ conteneur: 'MSKU7000001', numero: 'T1-X' }] });
   const r = (await rap.rapportActivite(cfs, { kind: 't1' })) as { total: { camions: number } };
   assert.ok(r.total.camions >= 1, 'le T1 saisi doit être compté dans le rapport de la cellule T1');
@@ -1409,7 +1553,7 @@ test('MAD sortie : crée le camion dans le parcours selon le régime (2026-08-19
   const st = (await entrepot.entrepotSortie(cfs, {
     entreeId: e.id, numeroArticle: 1, nbColis: '10',
     declarationApurement: { numeroDeclaration: '900', anneeDeclaration: '2026', bureauDeclaration: 'TG120', typeDeclaration: 'T' },
-    numeroCamion: 'MADT001', scelles: ['P1', 'P2'],
+    numeroCamion: 'MADT001/RM01', scelles: ['P1', 'P2'],
   })) as { cargaisonId: string };
   assert.ok(st.cargaisonId, 'une cargaison doit être créée pour le camion');
   const cargoT = versCamel(db.store['cargaisons'].find((c) => c['id'] === st.cargaisonId)!);
@@ -1427,7 +1571,7 @@ test('MAD sortie : crée le camion dans le parcours selon le régime (2026-08-19
   const sc = (await entrepot.entrepotSortie(cfs, {
     entreeId: e.id, numeroArticle: 1, nbColis: '10',
     declarationApurement: { numeroDeclaration: '901', anneeDeclaration: '2026', bureauDeclaration: 'TG120', typeDeclaration: 'C' },
-    numeroCamion: 'MADC001', scelles: ['P3'], baliseRequise: false,
+    numeroCamion: 'MADC001/RM01', scelles: ['P3'], baliseRequise: false,
   })) as { cargaisonId: string };
   const cargoC = versCamel(db.store['cargaisons'].find((c) => c['id'] === sc.cargaisonId)!);
   assert.equal(cargoC['sauteT1'], true);
@@ -1603,7 +1747,7 @@ test('dépotage : un conteneur au parc non pointé est refusé, puis pointé à 
   // donc au parc, mais son statut est resté « En stock ».
   db.store['stock'].push({ numero_tc: 'MSKU2222222', taille: "40'", type_conteneur: 'DRY', statut: 'En stock' });
   const cfs = ctxAvec(db);
-  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'TARDIF1', routage: 'Dépotage' })) as { id: string };
+  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'TARDIF1/RM01', routage: 'Dépotage' })) as { id: string };
   const conteneur = { num: 'MSKU2222222', taille: "40'", type: 'DRY' };
   const declaration = { declarant: 'A', contactDeclarant: '901234', destinationMarchandise: 'D', bureauDeclaration: 'TG120', typeDeclaration: 'T', numeroDeclaration: '90', anneeDeclaration: '2026', descriptionMarchandise: 'X', nombreConteneurs: 1 };
 
@@ -1634,7 +1778,7 @@ test('dépotage : un conteneur déjà POSITIONNÉ passe sans confirmation', asyn
   const db = new FakeDB();
   db.store['stock'].push({ numero_tc: 'MSKU3333333', taille: "40'", statut: 'Positionné' });
   const cfs = ctxAvec(db);
-  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'NORMAL1', routage: 'Dépotage' })) as { id: string };
+  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'NORMAL1/RM01', routage: 'Dépotage' })) as { id: string };
   await ecr.cfs(cfs, {
     id, conteneur: { num: 'MSKU3333333', taille: "40'", type: 'DRY' },
     declaration: { declarant: 'A', contactDeclarant: '901234', destinationMarchandise: 'D', bureauDeclaration: 'TG120', typeDeclaration: 'T', numeroDeclaration: '91', anneeDeclaration: '2026', descriptionMarchandise: 'X', nombreConteneurs: 1 },
@@ -1796,4 +1940,780 @@ test('temps de passage : sans fin de chargement, le global reste exact', async (
   assert.equal(r.global.moyenne, 360, 'entrée → sortie PP = 6 h, mesurable sans fin de chargement');
   assert.equal(r.postes.find((x) => x.poste === 'cfs')!.n, 0, 'le temps CFS n\'est pas inventé');
   assert.equal(r.postes.find((x) => x.poste === 'pp')!.n, 1, 'la PP reste mesurable : elle part du dernier jalon');
+});
+
+/* ==========================================================================
+ *  00170 — LA FUITE D'APUREMENT
+ *
+ *  Le compteur ne pouvait que MONTER : majApurement n'était appelé que sur
+ *  l'ajout d'un conteneur, et fn_apurer_inc refuse tout décrément (garde-fou
+ *  anti-fraude, migration 00090). Tout conteneur retiré, remplacé ou réaffecté
+ *  laissait donc son +1 collé à sa déclaration d'origine.
+ *
+ *  Mesuré en production le 2026-09-09 : 34 des 121 déclarations portant un
+ *  nombre déclaré étaient sur-apurées, jusqu'à +8 conteneurs.
+ *
+ *  Ces trois tests couvrent les trois chemins de fuite.
+ * ========================================================================== */
+
+const apuresDe = (db: FakeDB, numero: string) =>
+  Number(db.store['declarations'].find((d) => d['numero_declaration'] === numero)?.['conteneurs_apures'] ?? -1);
+
+/** Camion d'enlèvement avec deux conteneurs sur la même déclaration. */
+async function camionDeuxConteneurs(db: FakeDB, numeroDecl: string) {
+  db.store['stock'].push(
+    { numero_tc: 'MSKU1111111', taille: "20'", statut: 'En stock' },
+    { numero_tc: 'TCLU2222222', taille: "20'", statut: 'En stock' },
+  );
+  const cfs = ctxAvec(db);
+  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'FUITE01/RM01', routage: 'Enlèvement' })) as { id: string };
+  await ecr.cfs(cfs, {
+    id,
+    conteneur: { num: 'MSKU1111111', taille: "20'", type: 'DRY', plomb: 'S1' },
+    declaration: {
+      declarant: 'STE F', contactDeclarant: '90000000', destinationMarchandise: 'LOME',
+      bureauDeclaration: 'TG120', typeDeclaration: 'T', numeroDeclaration: numeroDecl,
+      anneeDeclaration: '2026', descriptionMarchandise: 'RIZ', nombreConteneurs: 2,
+    },
+  });
+  await ecr.cfs(cfs, { id, conteneur: { num: 'TCLU2222222', taille: "20'", type: 'DRY', plomb: 'S2' } });
+  return { id, cfs };
+}
+
+test('00170 — retirer un conteneur DÉCRÉMENTE son apurement', async () => {
+  const db = new FakeDB();
+  const { id, cfs } = await camionDeuxConteneurs(db, '5001');
+  assert.equal(apuresDe(db, '5001'), 2, 'deux conteneurs ajoutés = deux apurés');
+
+  await ecr.editconteneur(cfs, { id, index: 1, supprimer: true });
+
+  assert.equal(apuresDe(db, '5001'), 1, 'le conteneur retiré ne doit plus être apuré');
+});
+
+test('00170 — réaffecter un conteneur TRANSFÈRE son apurement', async () => {
+  const db = new FakeDB();
+  const { id, cfs } = await camionDeuxConteneurs(db, '5002');
+  assert.equal(apuresDe(db, '5002'), 2);
+
+  // Même conteneur, déclaration différente : seule la ligne visée change.
+  await ecr.editconteneur(cfs, {
+    id, index: 0,
+    num: 'MSKU1111111', taille: "20'", type: 'DRY', plomb: 'S1',
+    declaration: { numeroDeclaration: '5003', anneeDeclaration: '2026', bureauDeclaration: 'TG120', typeDeclaration: 'T' },
+  });
+
+  assert.equal(apuresDe(db, '5002'), 1, 'la déclaration quittée perd son conteneur');
+  assert.equal(apuresDe(db, '5003'), 1, 'la déclaration rejointe le récupère');
+});
+
+test('00170 — annuler une cargaison DÉCRÉMENTE tous ses conteneurs (effet de bord SEC-12)', async () => {
+  const db = new FakeDB();
+  const { id } = await camionDeuxConteneurs(db, '5004');
+  assert.equal(apuresDe(db, '5004'), 2);
+
+  const admin = ctxRole(db, 'ADMIN', 'Administrateur');
+  await ecr.supprimerCargo(admin, { id, motif: 'doublon de saisie' });
+
+  assert.equal(apuresDe(db, '5004'), 0, 'un doublon écarté ne doit plus apurer la déclaration');
+});
+
+test('00170 — le décrément ne descend jamais sous zéro', async () => {
+  const db = new FakeDB();
+  const { id, cfs } = await camionDeuxConteneurs(db, '5005');
+
+  await ecr.editconteneur(cfs, { id, index: 1, supprimer: true });
+  await ecr.editconteneur(cfs, { id, index: 0, supprimer: true });
+
+  assert.equal(apuresDe(db, '5005'), 0, 'plus aucun conteneur : apurement à zéro');
+
+  // Une annulation par-dessus ne doit pas rendre le compteur négatif : un
+  // apurement négatif serait un dédouanement falsifié (cf. 00090).
+  const admin = ctxRole(db, 'ADMIN', 'Administrateur');
+  await ecr.supprimerCargo(admin, { id, motif: 'doublon de saisie' });
+
+  assert.equal(apuresDe(db, '5005'), 0, 'borné à zéro, jamais négatif');
+});
+
+/* ============== ANTI-DOUBLONS — gardes ajoutées le 2026-09-10 ============= */
+
+test('doublons — I-4 : les flux spéciaux refusent un camion déjà dans le système', async () => {
+  const db = new FakeDB();
+  const cfs = ctxAvec(db);
+  // Un camion entre par le flux principal.
+  await ecr.createcamion(cfs, { numeroCamion: 'DBL100/RM01', routage: 'Enlèvement' });
+
+  // Le MÊME camion, par un flux spécial (Conso) : refusé désormais.
+  await assert.rejects(
+    () => spe.create(cfs, {
+      typeOperation: 'Conso (type C)',
+      declaration: { declarant: 'A', contactDeclarant: '90000000', destinationMarchandise: 'TG', bureauDeclaration: 'TG120', typeDeclaration: 'C', numeroDeclaration: '900', anneeDeclaration: '2026', descriptionMarchandise: 'X' },
+      camions: [{ numeroCamion: 'DBL100/RM01', conteneurs: [{ num: 'MSKU1110001', taille: "20'", plomb: 'S1', type: 'DRY' }] }],
+    }),
+    /déjà dans le système/i,
+  );
+});
+
+test('doublons — I-4 : la même plaque deux fois dans une seule saisie est refusée', async () => {
+  const db = new FakeDB();
+  const cfs = ctxAvec(db);
+  await assert.rejects(
+    () => spe.create(cfs, {
+      typeOperation: 'Conso (type C)',
+      declaration: { declarant: 'A', contactDeclarant: '90000000', destinationMarchandise: 'TG', bureauDeclaration: 'TG120', typeDeclaration: 'C', numeroDeclaration: '901', anneeDeclaration: '2026', descriptionMarchandise: 'X' },
+      camions: [
+        { numeroCamion: 'DBL200/RM01', conteneurs: [{ num: 'MSKU2220001', taille: "20'", plomb: 'S1', type: 'DRY' }] },
+        { numeroCamion: 'DBL200/RM01', conteneurs: [{ num: 'MSKU2220002', taille: "20'", plomb: 'S2', type: 'DRY' }] },
+      ],
+    }),
+    /figure deux fois/i,
+  );
+});
+
+test('doublons — I-4 : un camion SORTI peut être ressaisi (la garde ne bloque pas à vie)', async () => {
+  const db = new FakeDB();
+  const cfs = ctxAvec(db);
+  // On simule un camion déjà sorti : la garde ne doit pas s'y opposer.
+  db.store['cargaisons'].push({
+    id: 'CT-ANCIEN', numero_camion: 'DBL300', numero_camion_norm: 'DBL300',
+    statut: 'Sortie Enregistrée', annule: false,
+  });
+  const r = (await spe.create(cfs, {
+    typeOperation: 'Conso (type C)',
+    declaration: { declarant: 'A', contactDeclarant: '90000000', destinationMarchandise: 'TG', bureauDeclaration: 'TG120', typeDeclaration: 'C', numeroDeclaration: '902', anneeDeclaration: '2026', descriptionMarchandise: 'X' },
+    camions: [{ numeroCamion: 'DBL300/RM01', conteneurs: [{ num: 'MSKU3330001', taille: "20'", plomb: 'S1', type: 'DRY' }] }],
+  })) as { rapportId?: string };
+  assert.ok(r, 'un camion déjà sorti doit pouvoir revenir');
+});
+
+test('doublons — DAT-05 : le même conteneur deux fois sur un camion est refusé', async () => {
+  const db = new FakeDB();
+  const cfs = ctxAvec(db);
+  await assert.rejects(
+    () => spe.create(cfs, {
+      typeOperation: 'Conso (type C)',
+      declaration: { declarant: 'A', contactDeclarant: '90000000', destinationMarchandise: 'TG', bureauDeclaration: 'TG120', typeDeclaration: 'C', numeroDeclaration: '903', anneeDeclaration: '2026', descriptionMarchandise: 'X' },
+      camions: [{ numeroCamion: 'DBL400/RM01', conteneurs: [
+        { num: 'MSKU4440001', taille: "20'", plomb: 'S1', type: 'DRY' },
+        { num: 'MSKU4440001', taille: "20'", plomb: 'S2', type: 'DRY' },
+      ] }],
+    }),
+    /figure deux fois dans cette saisie/i,
+  );
+});
+
+test('doublons — DAT-05 : un conteneur déjà rattaché au camion ne peut pas être rajouté', async () => {
+  const db = new FakeDB();
+  const cfs = ctxAvec(db);
+  // ENLÈVEMENT : le conteneur arrive scellé, sans passer par le stock — c'est le
+  // flux où le même numéro peut être ressaisi par erreur sur le même camion.
+  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'DBL500/RM01', routage: 'Enlèvement' })) as { id: string };
+  const decl = { declarant: 'A', contactDeclarant: '90000000', destinationMarchandise: 'TG', bureauDeclaration: 'TG120', typeDeclaration: 'C', numeroDeclaration: '904', anneeDeclaration: '2026', descriptionMarchandise: 'X', nombreConteneurs: 2 };
+  await ecr.cfs(cfs, { id, conteneur: { num: 'MSKU5550001', taille: "20'", type: 'DRY', plomb: 'S1', manuel: true }, declaration: decl });
+
+  /* Le même conteneur, une seconde fois sur ce camion : refusé.
+   *
+   * DEUX gardes le couvrent désormais, et c'est voulu. `cargo.cfs` en avait déjà
+   * une, propre à ce flux ; celle de `ajouterConteneurs` (2026-09-10) est plus
+   * profonde et attrape les chemins que `cfs` ne traverse pas — la saisie en lot
+   * des flux spéciaux, notamment (cf. le test précédent). Le test accepte donc
+   * l'un ou l'autre message : ce qui compte est que le doublon ne passe pas. */
+  await assert.rejects(
+    () => ecr.cfs(cfs, { id, conteneur: { num: 'MSKU5550001', taille: "20'", type: 'DRY', plomb: 'S2', manuel: true }, declaration: decl }),
+    /déjà (sur|enregistré sur) ce camion/i,
+  );
+});
+
+/* ========== MAGASIN / MAD — format + anti-doublon (2026-09-10) ============ */
+
+/** Déclaration minimale d'une sortie Magasin / MAD. */
+const DECL_MAG = {
+  declarant: 'A', contactDeclarant: '90000000', destinationMarchandise: 'TG',
+  bureauDeclaration: 'TG120', typeDeclaration: 'C', numeroDeclaration: '950',
+  anneeDeclaration: '2026', descriptionMarchandise: 'SACS DE RIZ',
+};
+
+const sortieMagasin = (plaque: string, decl: Record<string, unknown> = DECL_MAG) => ({
+  typeOperation: 'Sortie Magasin / MAD', numeroCamion: plaque,
+  declaration: decl, chargementTermine: true, scellesCamion: ['S1', 'S2'],
+});
+
+/* 2026-09-12 — la barre oblique n'est plus obligatoire (décision utilisateur).
+ * Ce qui reste vérifié ici : le flux MAGASIN/MAD passe bien par le contrôle de
+ * format — il en sortait trop tôt à une époque — et refuse toujours une saisie
+ * avortée. */
+test('MAGASIN/MAD — une plaque seule est désormais acceptée', async () => {
+  const db = new FakeDB();
+  const cfs = ctxAvec(db);
+  await spe.create(cfs, sortieMagasin('MAG900'));
+  const cree = db.store['cargaisons'].find((c) => String(c['numero_camion']) === 'MAG900');
+  assert.ok(cree, 'un porteur unique doit pouvoir être enregistré');
+});
+
+test('MAGASIN/MAD — une saisie avortée reste refusée', async () => {
+  const db = new FakeDB();
+  const cfs = ctxAvec(db);
+  await assert.rejects(
+    () => spe.create(cfs, sortieMagasin('AB')),
+    /non exploitable/i,
+  );
+});
+
+test('MAGASIN/MAD — un camion déjà dans le système est refusé, et le mixte est proposé', async () => {
+  const db = new FakeDB();
+  const cfs = ctxAvec(db);
+  // Le camion entre d'abord par le flux principal.
+  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'MAG901/RM01', routage: 'Dépotage' })) as { id: string };
+
+  // La même plaque en sortie magasin : refusée.
+  await assert.rejects(
+    () => spe.create(cfs, sortieMagasin('MAG901/RM01')),
+    /déjà dans le système/i,
+  );
+  // Le message doit NOMMER le dossier existant et ORIENTER vers le mixte,
+  // sinon l'agent bloqué invente une plaque pour passer outre.
+  await assert.rejects(
+    () => spe.create(cfs, sortieMagasin('MAG901/RM01')),
+    (e: Error) => e.message.includes(id) && /CHARGEMENT MIXTE/i.test(e.message),
+  );
+});
+
+test('MAGASIN/MAD — un camion DÉJÀ SORTI peut revenir en sortie magasin', async () => {
+  const db = new FakeDB();
+  const cfs = ctxAvec(db);
+  // Camion d'un passage précédent, déjà sorti : ce n'est pas un doublon.
+  db.store['cargaisons'].push({
+    id: 'CT-VIEUX', numero_camion: 'MAG902/RM01', numero_camion_norm: 'MAG902RM01',
+    statut: 'Sortie Enregistrée', annule: false,
+  });
+  const r = await spe.create(cfs, sortieMagasin('MAG902/RM01'));
+  assert.ok(r, 'un camion sorti doit pouvoir revenir pour une sortie magasin');
+});
+
+/* ===== DÉPOTAGE : pointage obligatoire, sans échappatoire (2026-09-10) ===== */
+
+/** Prépare un camion en DÉPOTAGE prêt à recevoir un conteneur. */
+async function depotagePret(db: FakeDB, plaque = 'PNT001/RM01') {
+  const cfs = ctxAvec(db);
+  const { id } = (await ecr.createcamion(cfs, { numeroCamion: plaque, routage: 'Dépotage' })) as { id: string };
+  return { cfs, id };
+}
+const DECL_PNT = {
+  declarant: 'A', contactDeclarant: '90000000', destinationMarchandise: 'TG',
+  bureauDeclaration: 'TG120', typeDeclaration: 'C', numeroDeclaration: '960',
+  anneeDeclaration: '2026', descriptionMarchandise: 'X',
+};
+
+test('dépotage — un conteneur NON pointé est refusé, sauf régularisation explicite', async () => {
+  const db = new FakeDB();
+  // Présent au parc mais « En stock » : jamais pointé positionné.
+  db.store['stock'].push({ numero_tc: 'MSKU6660001', taille: "20'", statut: 'En stock' });
+  const { cfs, id } = await depotagePret(db);
+  const cont = { num: 'MSKU6660001', taille: "20'", type: 'DRY' };
+
+  await assert.rejects(
+    () => ecr.cfs(cfs, { id, conteneur: cont, declaration: DECL_PNT }),
+    /n'a pas été pointé comme POSITIONNÉ/i,
+  );
+
+  // Avec la confirmation explicite, il passe ET il est pointé au passage.
+  await ecr.cfs(cfs, { id, conteneur: cont, declaration: DECL_PNT, pointerSiNonPositionne: true });
+  const s = db.store['stock'].find((x) => x['numero_tc'] === 'MSKU6660001')!;
+  assert.equal(s['statut'], 'Dépoté', 'le conteneur doit finir dépoté, donc rattaché à sa fiche');
+  assert.ok(s['date_pointage'], 'le pointage à la volée doit être horodaté');
+});
+
+test('dépotage — la SAISIE MANUELLE ne peut plus masquer un conteneur présent au parc', async () => {
+  const db = new FakeDB();
+  db.store['stock'].push({ numero_tc: 'MSKU6660002', taille: "20'", statut: 'En stock' });
+  const { cfs, id } = await depotagePret(db, 'PNT002/RM01');
+
+  // C'était la porte dérobée : cocher « saisie manuelle » sautait le pointage.
+  await assert.rejects(
+    () => ecr.cfs(cfs, {
+      id, declaration: DECL_PNT,
+      conteneur: { num: 'MSKU6660002', taille: "20'", type: 'DRY', manuel: true },
+    }),
+    /EST au parc.*saisie manuelle ne lui est pas destinée/is,
+  );
+
+  // Le conteneur n'a pas bougé : rien n'a été écrit à la faveur du refus.
+  const s = db.store['stock'].find((x) => x['numero_tc'] === 'MSKU6660002')!;
+  assert.equal(s['statut'], 'En stock');
+});
+
+/* 2026-09-12 — CE TEST DISAIT L'INVERSE, et la production a tranché.
+ *
+ * La règle du 10 septembre posait que « tout conteneur dépoté au port sec figure
+ * au parc ». C'est faux : « CCLU7731903 », physiquement présent, n'existait dans
+ * aucune fiche — et l'agent n'avait alors AUCUNE issue. La saisie manuelle
+ * retrouve donc sa raison d'être d'origine, les conteneurs ABSENTS du parc, et
+ * elle crée la fiche au passage : le grief qui l'avait fait fermer était
+ * justement qu'elle laissait des conteneurs sans fiche. */
+test('dépotage — un conteneur ABSENT du stock passe en saisie manuelle, et sa fiche est créée', async () => {
+  const db = new FakeDB();
+  const { cfs, id } = await depotagePret(db, 'PNT003/RM01');
+  await ecr.cfs(cfs, {
+    id, declaration: DECL_PNT,
+    conteneur: { num: 'MSKU6660003', taille: "20'", type: 'DRY', manuel: true },
+  });
+  const c = db.store['cargaisons'].find((x) => x['id'] === id)!;
+  assert.match(JSON.stringify(c['conteneurs_details']), /MSKU6660003/, 'le conteneur est rattaché');
+
+  const fiche = db.store['stock'].find((x) => x['numero_tc'] === 'MSKU6660003');
+  assert.ok(fiche, 'LE POINT ESSENTIEL : une fiche de stock doit exister, sinon on recrée '
+    + 'le défaut qui avait fait fermer la saisie manuelle');
+  assert.equal(fiche!['statut'], 'Positionné');
+});
+
+test('dépotage — la saisie manuelle reste REFUSÉE si le conteneur est déjà fiché', async () => {
+  const db = new FakeDB();
+  // Présent au parc : c'est là que la saisie manuelle servait à éviter le pointage.
+  db.store['stock'].push({ numero_tc: 'MSKU6660004', taille: "20'", statut: 'En stock' });
+  const { cfs, id } = await depotagePret(db, 'PNT004/RM01');
+  await assert.rejects(
+    () => ecr.cfs(cfs, {
+      id, declaration: DECL_PNT,
+      conteneur: { num: 'MSKU6660004', taille: "20'", type: 'DRY', manuel: true },
+    }),
+    /EST au parc/i,
+  );
+});
+test("enlèvement — la saisie manuelle reste permise : le conteneur part scellé, hors parc", async () => {
+  const db = new FakeDB();
+  const cfs = ctxAvec(db);
+  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'PNT004/RM01', routage: 'Enlèvement' })) as { id: string };
+  await ecr.cfs(cfs, {
+    id, declaration: DECL_PNT,
+    conteneur: { num: 'MSKU6660004', taille: "20'", type: 'DRY', plomb: 'S1', manuel: true },
+  });
+  const c = versCamel(db.store['cargaisons'][0]!);
+  assert.equal(Number(c['nbConteneurs']), 1, "l'enlèvement n'est pas concerné par la règle de pointage");
+});
+
+/* ---- 2026-09-11 : modification et suppression d'un magasin --------------- */
+
+test('magasin : renommer, désactiver, réactiver', async () => {
+  const db = new FakeDB();
+  await entrepot.entrepotCreate(chef(db), { code: 'MAD-09', nom: 'MAGASIN NRD', type: 'MAD' });
+
+  await entrepot.entrepotEdit(chef(db), { code: 'MAD-09', nom: 'MAGASIN NORD' });
+  const apres = db.store['entrepots'].find((e) => e['code'] === 'MAD-09')!;
+  assert.equal(apres['nom'], 'MAGASIN NORD');
+
+  // Désactivé : il sort des listes de saisie, mais reste visible avec `tous`.
+  await entrepot.entrepotEdit(chef(db), { code: 'MAD-09', actif: false });
+  const saisie = (await entrepot.entrepotList(chef(db), { type: 'MAD' })) as { rows: Record<string, unknown>[] };
+  assert.equal(saisie.rows.length, 0, 'un magasin désactivé quitte les écrans de saisie');
+  const gestion = (await entrepot.entrepotList(chef(db), { type: 'MAD', tous: true })) as { rows: Record<string, unknown>[] };
+  assert.equal(gestion.rows.length, 1, 'il reste visible en gestion, sinon on ne pourrait plus le réactiver');
+
+  await entrepot.entrepotEdit(chef(db), { code: 'MAD-09', actif: true });
+  const revenu = (await entrepot.entrepotList(chef(db), { type: 'MAD' })) as { rows: Record<string, unknown>[] };
+  assert.equal(revenu.rows.length, 1);
+});
+
+test('magasin : une modification sans changement est refusée, pas silencieuse', async () => {
+  const db = new FakeDB();
+  await entrepot.entrepotCreate(chef(db), { code: 'MAD-10', nom: 'MAGASIN SUD', type: 'MAD' });
+  await assert.rejects(
+    () => entrepot.entrepotEdit(chef(db), { code: 'MAD-10', nom: 'MAGASIN SUD' }),
+    /Aucune modification/);
+  await assert.rejects(() => entrepot.entrepotEdit(chef(db), { code: 'INCONNU', nom: 'X' }), /introuvable/);
+});
+
+test('magasin : le type ne change plus dès qu\'il y a une entrée', async () => {
+  const db = new FakeDB();
+  const cfs = ctxAvec(db);
+  await entrepot.entrepotCreate(chef(db), { code: 'MAD-11', nom: 'MAGASIN EST', type: 'MAD' });
+  // Encore vierge : le type se corrige.
+  await entrepot.entrepotEdit(chef(db), { code: 'MAD-11', type: 'INDUSTRIEL' });
+  assert.equal(db.store['entrepots'].find((e) => e['code'] === 'MAD-11')!['type'], 'INDUSTRIEL');
+
+  await entrepot.entrepotEntree(cfs, {
+    entrepotCode: 'MAD-11',
+    declaration: { numeroDeclaration: '900', anneeDeclaration: '2026', bureauDeclaration: 'TG120', typeDeclaration: 'C', declarant: 'ACME' },
+    articles: [{ designation: 'CIMENT', poids: '1000' }],
+  });
+  // Garni : bascule refusée — MAD compte des colis, INDUSTRIEL des kilos.
+  await assert.rejects(
+    () => entrepot.entrepotEdit(chef(db), { code: 'MAD-11', type: 'MAD' }),
+    /Type non modifiable/);
+});
+
+test('magasin : suppression refusée s\'il contient une entrée, motif obligatoire', async () => {
+  const db = new FakeDB();
+  const cfs = ctxAvec(db);
+  const admin = ctxRole(db, 'ADMIN', 'Admin');
+  await entrepot.entrepotCreate(chef(db), { code: 'MAD-12', nom: 'MAGASIN OUEST', type: 'MAD' });
+
+  await assert.rejects(() => entrepot.entrepotSupprimer(admin, { code: 'MAD-12' }), /Motif obligatoire/);
+
+  await entrepot.entrepotEntree(cfs, {
+    entrepotCode: 'MAD-12',
+    declaration: { numeroDeclaration: '901', anneeDeclaration: '2026', bureauDeclaration: 'TG120', typeDeclaration: 'C', declarant: 'ACME' },
+    articles: [{ designation: 'RIZ', nbColis: '10' }],
+  });
+  await assert.rejects(
+    () => entrepot.entrepotSupprimer(admin, { code: 'MAD-12', motif: 'doublon' }),
+    /Suppression impossible/);
+  assert.equal(db.store['entrepots'].filter((e) => e['code'] === 'MAD-12').length, 1, 'le magasin est intact');
+});
+
+test('magasin : un magasin vierge se supprime pour de bon', async () => {
+  const db = new FakeDB();
+  const admin = ctxRole(db, 'ADMIN', 'Admin');
+  await entrepot.entrepotCreate(chef(db), { code: 'MAD-13', nom: 'ERREUR DE SAISIE', type: 'MAD' });
+  await entrepot.entrepotSupprimer(admin, { code: 'MAD-13', motif: 'créé par erreur' });
+  assert.equal(db.store['entrepots'].filter((e) => e['code'] === 'MAD-13').length, 0);
+  await assert.rejects(() => entrepot.entrepotSupprimer(admin, { code: 'MAD-13', motif: 'encore' }), /introuvable/);
+});
+
+test('magasin : supprimer est réservé à l\'ADMIN, modifier ne l\'est pas', () => {
+  // La matrice serveur est l'AUTORITÉ ; l'écran ne fait que masquer le bouton.
+  const permis = (role: string, action: string) => {
+    try { verifierPermission(role, action); return true; } catch { return false; }
+  };
+  assert.equal(permis('ADMIN', 'entrepot.delete'), true);
+  for (const r of ['CHEF_BRIGADE', 'CHEF_DIVISION', 'CFS', 'PP', 'T1']) {
+    assert.equal(permis(r, 'entrepot.delete'), false, r + ' ne doit pas supprimer un magasin');
+  }
+  for (const r of ['ADMIN', 'CHEF_BRIGADE', 'CHEF_DIVISION']) {
+    assert.equal(permis(r, 'entrepot.edit'), true, r + ' doit pouvoir modifier');
+  }
+  for (const r of ['CFS', 'PP', 'BALISE']) {
+    assert.equal(permis(r, 'entrepot.edit'), false, r + ' ne doit pas modifier un magasin');
+  }
+});
+
+/* ---- 2026-09-11 : le n° de déclaration se saisit à toutes les étapes ----- */
+
+/** Contexte dont on peut RELIRE le journal, pour vérifier la trace laissée. */
+function ctxJournal(db: FakeDB, role: string, nom: string) {
+  const journal: string[] = [];
+  const ctx = {
+    db: db as never,
+    session: { userId: 'u-' + role, username: role.toLowerCase(), nomComplet: nom, role: role as never },
+    log: async (a: string, c: string, d: string) => { journal.push(a + ' | ' + c + ' | ' + d); },
+  } as unknown as Ctx;
+  return { ctx, journal };
+}
+
+/** Camion mené jusqu'au T1 : à ce stade, la correction était autrefois refusée. */
+async function camionJusquAuT1(db: FakeDB): Promise<string> {
+  db.store['stock'].push({ numero_tc: 'MSKU4444444', taille: "20'", statut: 'En stock' });
+  const cfs = ctxAvec(db);
+  const cree = (await ecr.createcamion(cfs, { numeroCamion: 'DECL01/RM01', routage: 'Enlèvement' })) as { id: string };
+  await ecr.cfs(cfs, {
+    id: cree.id, conteneur: { num: 'MSKU4444444', taille: "20'", type: 'DRY', plomb: 'S1' },
+    declaration: {
+      declarant: 'STE X', contactDeclarant: '90123456', destinationMarchandise: 'LOME',
+      bureauDeclaration: 'TG120', typeDeclaration: 'T', numeroDeclaration: '777', anneeDeclaration: '2026',
+      descriptionMarchandise: 'RIZ', nombreConteneurs: 1,
+    },
+  });
+  await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'Chef Brigade'), { id: cree.id, enSurcharge: false, suiviEngagement: false });
+  await ecr.t1(ctxRole(db, 'T1', 'Agent T1'), {
+    id: cree.id, bureauDestination: 'TG120', t1Numeros: [{ conteneur: 'MSKU4444444', numero: 'T1-A' }],
+  });
+  assert.equal(statutDe(db, cree.id), STATUTS.T1, 'le camion a bien dépassé « Créée »');
+  return cree.id;
+}
+
+const declCorrigee = {
+  declarant: 'STE X', bureauDeclaration: 'TG120', typeDeclaration: 'T',
+  numeroDeclaration: '888', anneeDeclaration: '2026',
+};
+
+test('déclaration : le CFS corrige APRÈS le T1, à condition de motiver', async () => {
+  const db = new FakeDB();
+  const id = await camionJusquAuT1(db);
+  const cfs = ctxAvec(db);
+
+  // Sans motif : refus, et le message dit quoi faire.
+  await assert.rejects(
+    () => ecr.editdecl(cfs, { id, declaration: declCorrigee }),
+    /indiquez le MOTIF/);
+  assert.equal(db.store['cargaisons'][0]!['numero_declaration'], '777', 'rien n\'a bougé');
+
+  // Avec motif : la correction passe — c'est la porte qu'on vient d'ouvrir.
+  await ecr.editdecl(cfs, { id, declaration: declCorrigee, motif: 'numéro saisi à l\'envers' });
+  assert.equal(db.store['cargaisons'][0]!['numero_declaration'], '888');
+});
+
+test('déclaration : la correction tardive laisse motif et mention de signature au journal', async () => {
+  const db = new FakeDB();
+  const id = await camionJusquAuT1(db);
+  const { ctx, journal } = ctxJournal(db, 'CFS', 'Agent CFS Un');
+
+  await ecr.editdecl(ctx, { id, declaration: declCorrigee, motif: 'erreur de frappe' });
+  const ligne = journal.find((l) => l.startsWith('Correction déclaration'))!;
+  assert.ok(ligne, 'la correction est journalisée');
+  assert.match(ligne, /777\|2026\|TG120\|T → /);
+  assert.match(ligne, /motif : erreur de frappe/);
+  // La cargaison était signée : le journal doit le dire, sinon personne ne
+  // saura plus tard pourquoi l'empreinte de validation ne concorde plus.
+  assert.match(ligne, /APRÈS VALIDATION/);
+});
+
+test('déclaration : avant « Créée », aucun motif n\'est réclamé', async () => {
+  const db = new FakeDB();
+  const cfs = ctxAvec(db);
+  const cree = (await ecr.createcamion(cfs, { numeroCamion: 'DECL02/RM01', routage: 'Enlèvement' })) as { id: string };
+  // Statut « Camion créé » : la correction reste un geste courant.
+  await ecr.editdecl(cfs, { id: cree.id, declaration: declCorrigee });
+  assert.equal(db.store['cargaisons'][0]!['numero_declaration'], '888');
+});
+
+test('déclaration : l\'ADMIN garde exactement son comportement d\'avant', async () => {
+  const db = new FakeDB();
+  const id = await camionJusquAuT1(db);
+  const { ctx, journal } = ctxJournal(db, 'ADMIN', 'Admin');
+  // Aucun motif fourni, et pourtant ça passe : rien n'a changé pour lui.
+  await ecr.editdecl(ctx, { id, declaration: declCorrigee });
+  assert.equal(db.store['cargaisons'][0]!['numero_declaration'], '888');
+  assert.match(journal.find((l) => l.startsWith('Correction déclaration'))!, /correction ADMIN/);
+});
+
+test('conteneur : la correction tardive suit la même règle que la déclaration', async () => {
+  const db = new FakeDB();
+  const id = await camionJusquAuT1(db);
+  const cfs = ctxAvec(db);
+  await assert.rejects(
+    () => ecr.editconteneur(cfs, { id, index: 0, num: 'MSKU4444444', taille: "20'", type: 'DRY', plomb: 'S9', manuel: true }),
+    /indiquez le MOTIF/);
+  await ecr.editconteneur(cfs, {
+    id, index: 0, num: 'MSKU4444444', taille: "20'", type: 'DRY', plomb: 'S9', manuel: true,
+    motif: 'plomb relevé à tort',
+  });
+  const dets = versCamel(db.store['cargaisons'][0]!)['conteneursDetails'] as { conteneurs: Record<string, unknown>[] };
+  assert.equal(dets.conteneurs[0]!['plomb'], 'S9');
+});
+
+/* ===== CONTENEUR PARTAGÉ ENTRE PLUSIEURS CAMIONS — 2026-09-12 ============
+ *
+ * Signalé en production : un conteneur dépoté au port sec alimente souvent
+ * PLUSIEURS camions, sa marchandise étant répartie entre eux. Le premier le
+ * fait passer à « Dépoté » ; pour le deuxième, la règle de pointage réclamait
+ * alors un pointage sur un conteneur DÉJÀ pointé et DÉJÀ dépoté. Les agents
+ * contournaient par la « saisie manuelle », qui détache le conteneur de sa
+ * fiche de stock — précisément ce que cette règle devait empêcher.
+ */
+test('dépotage — un conteneur DÉJÀ DÉPOTÉ se rattache à un camion supplémentaire', async () => {
+  const db = new FakeDB();
+  // Le conteneur a déjà servi : il est sorti du parc, statut « Dépoté ».
+  db.store['stock'].push({ numero_tc: 'MSKU7770001', taille: "20'", statut: 'Dépoté' });
+  const { cfs, id } = await depotagePret(db, 'PART001/RM01');
+
+  await ecr.cfs(cfs, {
+    id, declaration: DECL_PNT,
+    conteneur: { num: 'MSKU7770001', taille: "20'", type: 'DRY' },
+  });
+
+  const c = db.store['cargaisons'].find((x) => x['id'] === id)!;
+  // JSON.stringify, et non String() : `conteneurs_details` est un objet, dont
+  // String() ne rend que « [object Object] » — le test passait à côté.
+  assert.match(JSON.stringify(c['conteneurs_details']), /MSKU7770001/,
+    'le conteneur partagé doit être rattaché au second camion');
+});
+
+test('dépotage — un conteneur partagé NE redevient PAS « positionné »', async () => {
+  const db = new FakeDB();
+  db.store['stock'].push({ numero_tc: 'MSKU7770002', taille: "20'", statut: 'Dépoté' });
+  const { cfs, id } = await depotagePret(db, 'PART002/RM01');
+
+  await ecr.cfs(cfs, {
+    id, declaration: DECL_PNT,
+    conteneur: { num: 'MSKU7770002', taille: "20'", type: 'DRY' },
+  });
+
+  const stk = db.store['stock'].find((x) => x['numero_tc'] === 'MSKU7770002')!;
+  assert.equal(stk['statut'], 'Dépoté',
+    'le re-pointage ferait réapparaître au parc un conteneur déjà parti');
+});
+
+test('dépotage — le conteneur NON dépoté garde sa règle de pointage', async () => {
+  const db = new FakeDB();
+  // « En stock » : le garde-fou d'origine doit rester intact.
+  db.store['stock'].push({ numero_tc: 'MSKU7770003', taille: "20'", statut: 'En stock' });
+  const { cfs, id } = await depotagePret(db, 'PART003/RM01');
+  await assert.rejects(
+    () => ecr.cfs(cfs, {
+      id, declaration: DECL_PNT,
+      conteneur: { num: 'MSKU7770003', taille: "20'", type: 'DRY' },
+    }),
+    /pas été pointé comme POSITIONNÉ/i,
+  );
+});
+
+/* ===== UNE BALISE NE SUIT QU'UN CAMION À LA FOIS — 2026-09-12 ============
+ *
+ * La migration 00170 pose un index unique qui l'impose. Ce test couvre le
+ * contrôle applicatif qui le PRÉCÈDE : sans lui, l'agent verrait un refus
+ * technique générique, sans savoir que c'est le numéro de balise qui est en
+ * cause ni sur quel camion il est déjà posé.
+ */
+test('balise — un numéro déjà posé sur un camion non sorti est refusé, en le nommant', async () => {
+  const db = new FakeDB();
+  db.store['cargaisons'].push({
+    id: 'CT-2026-900001', numero_camion: 'BAL001/RM01', statut: 'T1 Saisi',
+    numero_gps: 'GPS-777', date_creation: '2026-09-01T08:00:00Z',
+  });
+  const id = await depotageAValider(db, 'BAL002/RM02', 'MSKU8880001');
+  await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'), { id, enSurcharge: false });
+  await ecr.t1(ctxRole(db, 'T1', 'Agent T1'), { id, bureauDestination: 'TG120',
+    t1Numeros: [{ conteneur: 'MSKU8880001', numero: 'T1-9001' }] });
+
+  await assert.rejects(
+    () => ecr.gps(ctxRole(db, 'BALISE', 'Agent Balise'),
+      { id, baliseRequise: 'Oui', t1Correct: 'Oui', numeroGPS: 'GPS-777' }),
+    (e: Error) => /BAL001\/RM01/.test(e.message) && /d\u00e9j\u00e0 pos\u00e9e/i.test(e.message),
+  );
+});
+
+test('balise — le même numéro est libre une fois l\'autre camion SORTI', async () => {
+  const db = new FakeDB();
+  db.store['cargaisons'].push({
+    id: 'CT-2026-900002', numero_camion: 'BAL003/RM03', statut: 'Sortie Enregistrée',
+    numero_gps: 'GPS-778', date_sortie: '2026-09-02T10:00:00Z',
+    date_creation: '2026-09-01T08:00:00Z',
+  });
+  const id = await depotageAValider(db, 'BAL004/RM04', 'MSKU8880002');
+  await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'), { id, enSurcharge: false });
+  await ecr.t1(ctxRole(db, 'T1', 'Agent T1'), { id, bureauDestination: 'TG120',
+    t1Numeros: [{ conteneur: 'MSKU8880002', numero: 'T1-9002' }] });
+
+  await ecr.gps(ctxRole(db, 'BALISE', 'Agent Balise'),
+    { id, baliseRequise: 'Oui', t1Correct: 'Oui', numeroGPS: 'GPS-778' });
+  const c = db.store['cargaisons'].find((x) => x['id'] === id)!;
+  assert.equal(c['numero_gps'], 'GPS-778', 'une balise se repose sur un autre camion après la sortie');
+});
+
+/* ===== LES TROIS RÈGLES DU DOUANIER — 2026-09-12 =========================
+ *
+ * Dictées après trois blocages successifs en production. Elles ne se déduisent
+ * pas du code : c'est une décision métier, et c'est à ce titre qu'elles sont
+ * verrouillées ici.
+ */
+test('douanier 1 — AU PARC mais NON POINTÉ : saisie manuelle INTERDITE', async () => {
+  const db = new FakeDB();
+  db.store['stock'].push({ numero_tc: 'MSKU5550001', taille: "20'", statut: 'En stock' });
+  const { cfs, id } = await depotagePret(db, 'DOU001/RM01');
+  await assert.rejects(
+    () => ecr.cfs(cfs, {
+      id, declaration: DECL_PNT,
+      conteneur: { num: 'MSKU5550001', taille: "20'", type: 'DRY', manuel: true },
+    }),
+    /EST au parc/i,
+  );
+});
+
+test('douanier 2 — DÉJÀ RATTACHÉ à un camion : saisie manuelle AUTORISÉE', async () => {
+  const db = new FakeDB();
+  db.store['stock'].push({ numero_tc: 'MSKU5550002', taille: "20'", statut: 'Dépoté' });
+  const { cfs, id } = await depotagePret(db, 'DOU002/RM01');
+  await ecr.cfs(cfs, {
+    id, declaration: DECL_PNT,
+    conteneur: { num: 'MSKU5550002', taille: "20'", type: 'DRY', manuel: true },
+  });
+  const c = db.store['cargaisons'].find((x) => x['id'] === id)!;
+  assert.match(JSON.stringify(c['conteneurs_details']), /MSKU5550002/);
+  // Et le stock n'est PAS ramené au parc : le conteneur en est parti.
+  const stk = db.store['stock'].find((x) => x['numero_tc'] === 'MSKU5550002')!;
+  assert.equal(stk['statut'], 'Dépoté');
+});
+
+test('douanier 3 — ABSENT du parc : saisie manuelle autorisée, fiche créée', async () => {
+  const db = new FakeDB();
+  const { cfs, id } = await depotagePret(db, 'DOU003/RM01');
+  await ecr.cfs(cfs, {
+    id, declaration: DECL_PNT,
+    conteneur: { num: 'MSKU5550003', taille: "20'", type: 'DRY', manuel: true },
+  });
+  assert.ok(db.store['stock'].find((x) => x['numero_tc'] === 'MSKU5550003'),
+    'la fiche doit être créée, sinon le conteneur échappe au parc et à l\'apurement');
+});
+
+test('tableau de bord : un camion QUITTE une file et ENTRE dans la suivante (2026-09-12)', async () => {
+  // Demande utilisateur : quand le camion passe du CFS à la validation puis au
+  // T1, la tuile qu'il quitte doit décompter et la suivante s'incrémenter.
+  // La file CFS n'était comptée nulle part : le camion en chargement était invisible.
+  const db = new FakeDB();
+  db.store['stock'].push({ numero_tc: 'MSKU1234567', taille: "40'", statut: 'En stock' });
+  const cfs = ctxAvec(db);
+  const files = async () => {
+    const s = (await lec.dashboardStats(cfs, {})) as Record<string, number>;
+    return [s['attCFS'], s['attValidation'], s['attT1'], s['attBalise'], s['attBs'], s['attPP']];
+  };
+  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'TG1111AA', routage: 'Enlèvement' })) as { id: string };
+  assert.deepEqual(await files(), [1, 0, 0, 0, 0, 0]);
+  const decl = {
+    declarant: 'STE X', contactDeclarant: '90123456', destinationMarchandise: 'LOME',
+    bureauDeclaration: 'TG120', typeDeclaration: 'T', numeroDeclaration: '4242', anneeDeclaration: '2026',
+    dateDeclaration: '2026-06-24', descriptionMarchandise: 'RIZ', nombreConteneurs: 1,
+  };
+  await ecr.cfs(cfs, { id, conteneur: { num: 'MSKU1234567', taille: "40'", type: 'DRY', plomb: 'SEAL1' }, declaration: decl });
+  assert.deepEqual(await files(), [0, 1, 0, 0, 0, 0], 'CFS → validation');
+  await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'), { id, enSurcharge: false, suiviEngagement: false });
+  assert.deepEqual(await files(), [0, 0, 1, 0, 0, 0], 'validation → T1');
+  await ecr.t1(ctxRole(db, 'T1', 'Agent T1'), { id, bureauDestination: 'TG120', t1Numeros: [{ conteneur: 'MSKU1234567', numero: 'T1-X' }] });
+  const [c, v, t] = await files();
+  assert.deepEqual([c, v, t], [0, 0, 0], 'T1 → étape suivante');
+  // Invariant : un dossier actif est dans UNE file et une seule.
+  assert.equal((await files()).reduce((a, b) => a + b, 0), 1);
+});
+
+test('véhicule : le même châssis ne peut pas être créé deux fois (732382 ×3, 2026-09-12)', async () => {
+  const db = new FakeDB();
+  db.store['stock'].push({ numero_tc: 'MSKU1234567', taille: "40'", statut: 'Positionné' },
+    { numero_tc: 'TCLU7654321', taille: "40'", statut: 'Positionné' });
+  const cfs = ctxAvec(db);
+  const decl = { declarant: 'A', contactDeclarant: '901234', destinationMarchandise: 'D', bureauDeclaration: 'TG120', typeDeclaration: 'T', numeroDeclaration: '12', anneeDeclaration: '2026', dateDeclaration: '2026-06-24', descriptionMarchandise: 'X', nombreConteneurs: 2 };
+  const creer = (tc: string, vehicules: unknown[]) => spe.create(cfs, { typeOperation: 'Dépotage / Véhicule', declaration: decl, conteneurOrigine: tc, vehicules });
+  // Deux fois dans la même saisie : refusé, rien d'écrit.
+  await assert.rejects(() => creer('MSKU1234567', [{ chassis: '732382', destination: 'Transit' }, { chassis: '732382', destination: 'Transit' }]),
+    /figure deux fois/);
+  assert.equal(db.store['cargaisons'].length, 0);
+  // Le premier passe ; le second clic est refusé et nomme le dossier existant.
+  await creer('MSKU1234567', [{ chassis: '732382', destination: 'Transit' }]);
+  await assert.rejects(() => creer('TCLU7654321', [{ chassis: '732382', destination: 'Transit' }]), /déjà dans le système/);
+  assert.equal(db.store['cargaisons'].length, 1);
+});
+
+test('véhicule : un châssis égal à la plaque d\'un CAMION présent n\'est pas un doublon (2026-09-12)', async () => {
+  // Cas réels TG2944BI et TG6866BS/5821BE : le véhicule a été saisi avec la plaque
+  // du camion porteur. Ce n'est pas le même dossier : on ne refuse pas.
+  const db = new FakeDB();
+  db.store['stock'].push({ numero_tc: 'MSKU1234567', taille: "40'", statut: 'Positionné' });
+  const cfs = ctxAvec(db);
+  await ecr.createcamion(cfs, { numeroCamion: 'TG2944BI', routage: 'Dépotage' });
+  const decl = { declarant: 'A', contactDeclarant: '901234', destinationMarchandise: 'D', bureauDeclaration: 'TG120', typeDeclaration: 'T', numeroDeclaration: '13', anneeDeclaration: '2026', dateDeclaration: '2026-06-24', descriptionMarchandise: 'X', nombreConteneurs: 1 };
+  await spe.create(cfs, { typeOperation: 'Dépotage / Véhicule', declaration: decl, conteneurOrigine: 'MSKU1234567',
+    vehicules: [{ chassis: 'TG2944BI', destination: 'Transit' }] });
+  assert.equal(db.store['cargaisons'].filter((c) => c['numero_camion'] === 'TG2944BI').length, 2);
+});
+
+test('tableau de bord : ↑ entrés / ↓ sortis de chaque file sur la période (2026-09-13)', async () => {
+  const db = new FakeDB();
+  db.store['stock'].push({ numero_tc: 'MSKU1234567', taille: "40'", statut: 'En stock' });
+  const cfs = ctxAvec(db);
+  const j = new Date();
+  const aujourdhui = `${j.getFullYear()}-${String(j.getMonth() + 1).padStart(2, '0')}-${String(j.getDate()).padStart(2, '0')}`;
+  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'TG2222BB', routage: 'Enlèvement' })) as { id: string };
+  const decl = { declarant: 'STE X', contactDeclarant: '90123456', destinationMarchandise: 'LOME', bureauDeclaration: 'TG120', typeDeclaration: 'T', numeroDeclaration: '5151', anneeDeclaration: '2026', dateDeclaration: '2026-06-24', descriptionMarchandise: 'RIZ', nombreConteneurs: 1 };
+  await ecr.cfs(cfs, { id, conteneur: { num: 'MSKU1234567', taille: "40'", type: 'DRY', plomb: 'SEAL1' }, declaration: decl });
+  // Le déclencheur 00110 n'existe pas dans le double : on pose la date qu'il écrirait.
+  db.store['cargaisons'].find((c) => c['id'] === id)!['date_fin_chargement'] = new Date().toISOString();
+  await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'), { id, enSurcharge: false, suiviEngagement: false });
+
+  const s = (await lec.dashboardStats(cfs, { du: aujourdhui, au: aujourdhui })) as { flux: Record<string, { entres: number; sortis: number }>; attT1: number };
+  assert.deepEqual(s.flux['CFS'], { entres: 1, sortis: 1 }, 'a quitté le CFS');
+  assert.deepEqual(s.flux['VALIDATION'], { entres: 1, sortis: 1 }, 'est passé par la validation');
+  assert.deepEqual(s.flux['T1'], { entres: 1, sortis: 0 }, 'est entré au T1, pas encore sorti');
+  assert.deepEqual(s.flux['BALISE'], { entres: 0, sortis: 0 });
+  assert.equal(s.attT1, 1);
+  // Période d'hier : rien ne s'y est passé.
+  const hier = new Date(j.getTime() - 86400000);
+  const h = `${hier.getFullYear()}-${String(hier.getMonth() + 1).padStart(2, '0')}-${String(hier.getDate()).padStart(2, '0')}`;
+  const s2 = (await lec.dashboardStats(cfs, { du: h, au: h })) as { flux: Record<string, { entres: number; sortis: number }> };
+  assert.deepEqual(s2.flux['T1'], { entres: 0, sortis: 0 });
 });

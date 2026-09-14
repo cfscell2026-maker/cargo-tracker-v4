@@ -1,15 +1,19 @@
 /**
  * Registre de tous les écrans (reproduction de SCREENS v3.6).
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import * as XLSX from 'xlsx';
 import { call } from './lib/rpc.ts';
 import { useAsync } from './lib/hooks.ts';
-import { Spinner, StatCard, Tag, Modal, masks, toast, fmtDate, fmtJour, ChampDestination, Graphique, BarresClassees } from './lib/ui.tsx';
-import { bornesDe, isoDate, normaliserPlage, type ModePeriode } from './lib/periode.ts';
-import { Detail } from './detail.tsx';
+import { Icone } from './lib/icones.tsx';
+import { iconeDeLEcran, MENUS } from './lib/menu.ts';
+import { Spinner, StatCard, Tag, Modal, masks, toast, fmtDate, fmtJour, ChampDestination, Graphique, BarresClassees, useSuiviEngagement, ChampCamion, roleLabel, TITLES, ChoixSegmente } from './lib/ui.tsx';
+import { bornesDe, isoDate, normaliserPlage, type ModePeriode, repartition } from './lib/periode.ts';
+import { Detail, TitrePanneau } from './detail.tsx';
+import type { ReactNode } from 'react';
 import type { Nav } from './App.tsx';
-import { OPERATIONS, VEHICULE_DESTINATIONS, TYPES_DECLARATION, STATUTS, tcValide, fileAttente, estTypeSansT1, libelleTypeSansT1, exigeControlePoids, dureeLisible } from '../../../supabase/functions/_shared/domaine/src/index.ts';
+import { useNav } from './lib/contexte-nav.ts';
+import { ROLES, OPERATIONS, VEHICULE_DESTINATIONS, TYPES_DECLARATION, STATUTS, SUIVENT_ENGAGEMENTS, tcValide, fileAttente, estTypeSansT1, libelleTypeSansT1, exigeControlePoids, dureeLisible } from '../../../supabase/functions/_shared/domaine/src/index.ts';
 
 const STATUT_OPTIONS = Object.values(STATUTS);
 
@@ -17,16 +21,215 @@ type O = Record<string, unknown>;
 type Screen = (p: Nav) => JSX.Element;
 
 /* ------------------------------ Tableau -------------------------------- */
-function Table({ cols, rows, onRow }: { cols: [string, string][]; rows: O[]; onRow?: (r: O) => void }) {
+/**
+ * UN NUMÉRO PRÉCÉDÉ DE L'ICÔNE QUI DIT SA NATURE — 2026-09-11.
+ *
+ * La colonne « Camion » ne contient pas que des plaques : les données migrées y
+ * portent parfois un NUMÉRO DE CONTENEUR (`TGBU4084237`), et rien ne le
+ * signalait — deux natures de référence dans une même colonne, écrites de la
+ * même façon.
+ *
+ * La reconnaissance n'est pas une heuristique de surface : elle utilise
+ * `tcValide`, la règle du domaine (4 lettres + 7 chiffres) qui sert déjà à
+ * valider les saisies. Un conteneur porte donc le même dessin partout dans
+ * l'application, et une plaque le sien.
+ */
+function NumeroMobile({ valeur }: { valeur: unknown }) {
+  const v = String(valeur ?? '').trim();
+  if (!v) return <>—</>;
+  const conteneur = tcValide(v.toUpperCase().replace(/[^A-Z0-9]/g, ''));
+  return <span className={`num-mobile ${conteneur ? 'est-conteneur' : 'est-camion'}`}>
+    <Icone nom={conteneur ? 'conteneur' : 'camion'} taille={14} />
+    <span className="mono">{v}</span>
+  </span>;
+}
+
+/** Colonnes dont la valeur est une référence de camion OU de conteneur. */
+const COLONNES_MOBILES = new Set(['numeroCamion', 'camion', 'numeroTc', 'conteneur', 'num']);
+
+/**
+ * Un VÉHICULE n'est ni un camion ni un conteneur : c'est la marchandise elle-
+ * même, dépotée d'un conteneur. Son châssis mérite donc son propre dessin —
+ * sans quoi `NumeroMobile` l'aurait affiché avec une icône de camion, ce qui
+ * est précisément la confusion que l'écran cherche à éviter.
+ */
+function ChassisVehicule({ valeur }: { valeur: unknown }) {
+  const v = String(valeur ?? '').trim();
+  if (!v) return <>—</>;
+  return <span className="num-mobile est-vehicule">
+    <Icone nom="voiture" taille={14} /><span className="mono">{v}</span>
+  </span>;
+}
+/**
+ * MARQUE D'ENGAGEMENT — 2026-09-12.
+ *
+ * Un engagement qu'il faut ouvrir dossier par dossier pour découvrir n'est pas
+ * suivi, il est archivé. La liste doit donc le dire d'un coup d'œil, et dire
+ * aussi ce qui compte vraiment : l'échéance est-elle passée ?
+ *
+ * Trois états, trois couleurs : soldé (vert), en retard (ambre), en cours
+ * (bleu). Rien du tout si le dossier n'est pas sous suivi — la majorité des
+ * lignes, qu'il ne faut pas charger de bruit.
+ */
+function MarqueEngagement({ c }: { c: O }) {
+  if (c['suiviEngagement'] !== true) return <span className="help">—</span>;
+  const solde = !!c['engagementEffectueLe'];
+  const delai = String(c['engagementDelai'] ?? '');
+  const enRetard = !solde && delai !== '' && delai < new Date().toISOString().slice(0, 10);
+  const ton = solde ? 'ok' : enRetard ? 'retard' : 'cours';
+  const titre = solde ? 'Engagement soldé'
+    : enRetard ? `En retard — échéance du ${fmtJour(delai)}`
+      : delai ? `Échéance le ${fmtJour(delai)}` : "Sous suivi d'engagement";
+  return <span className={`eng-marque eng-${ton}`} title={titre}>
+    <Icone nom={solde ? 'valider' : enRetard ? 'drapeau' : 'sablier'} taille={13} />
+    {solde ? 'Soldé' : enRetard ? 'En retard' : 'Engagé'}
+  </span>;
+}
+
+/** Colonnes qui désignent un véhicule par son châssis. */
+const COLONNES_VEHICULE = new Set(['chassis', 'numeroChassis']);
+
+/**
+ * Une valeur precedee de son dessin : entrepot, magasin, ce qu'on veut.
+ * L'icone est DEMANDEE colonne par colonne (`icones`), jamais deduite du nom de
+ * la colonne : `nom` designe un magasin ici et un agent ailleurs, et deviner
+ * aurait fini par coller une icone d'entrepot devant une personne.
+ */
+function ValeurIllustree({ icone, valeur }: { icone: string; valeur: unknown }) {
+  const v = String(valeur ?? '').trim();
+  if (!v) return <>—</>;
+  return <span className="val-illustree"><Icone nom={icone} taille={15} /><span>{v}</span></span>;
+}
+
+function Table({ cols, rows, onRow, icones, actions }: {
+  cols: [string, string][]; rows: O[]; onRow?: (r: O) => void;
+  /** Boutons de fin de ligne (Modifier / Supprimer). Leur clic n'ouvre pas la fiche. */
+  actions?: (r: O) => ReactNode;
+  /** Colonne -> nom d'icone, posee devant la valeur. */
+  icones?: Record<string, string>;
+}) {
   if (!rows.length) return <div className="empty">Aucune donnée.</div>;
-  return <div className="tbl"><table>
-    <thead><tr>{cols.map((c) => <th key={c[0]}>{c[1]}</th>)}</tr></thead>
+  // `avec-actions` : sur téléphone, la colonne des boutons reste collée au bord
+  // droit pendant qu'on fait défiler le tableau (voir styles.css).
+  return <div className={`tbl ${actions ? 'avec-actions' : ''}`}><table>
+    <thead><tr>{cols.map((c) => <th key={c[0]}>{c[1]}</th>)}{actions && <th>Actions</th>}</tr></thead>
     <tbody>{rows.map((r, i) => (
       <tr key={i} className={onRow ? 'clk' : ''} onClick={() => onRow?.(r)}>
-        {cols.map((c) => <td key={c[0]}>{c[0] === 'statut' ? <Tag statut={String(r['statut'])} o={r} /> : c[0].startsWith('date') ? fmtDate(r[c[0]]) : String(r[c[0]] ?? '—')}</td>)}
+        {cols.map((c) => <td key={c[0]}>{
+          c[0] === 'statut' ? <Tag statut={String(r['statut'])} o={r} />
+            : c[0].startsWith('date') ? fmtDate(r[c[0]])
+              : c[0] === 'suiviEngagement' ? <MarqueEngagement c={r} />
+        : COLONNES_MOBILES.has(c[0]) ? <NumeroMobile valeur={r[c[0]]} />
+                : COLONNES_VEHICULE.has(c[0]) ? <ChassisVehicule valeur={r[c[0]]} />
+                  : icones?.[c[0]] ? <ValeurIllustree icone={icones[c[0]]!} valeur={r[c[0]]} />
+                    : String(r[c[0]] ?? '—')}</td>)}
+        {actions && <td onClick={(e) => e.stopPropagation()}>{actions(r)}</td>}
       </tr>
     ))}</tbody>
   </table></div>;
+}
+
+/* ------------------ Modifier / supprimer un dossier --------------------- */
+/**
+ * 2026-09-12 — DEMANDE UTILISATEUR : des agents créent le même camion plusieurs
+ * fois (le châssis 732382 trois fois à 12:23). La correction et l'annulation
+ * existaient, mais enfouies au fond de la fiche, dans un bloc replié : personne
+ * ne les trouvait. Elles sont maintenant AU BOUT DE CHAQUE LIGNE.
+ *
+ *   · « Modifier » — visible pour TOUS les rôles. Motif obligatoire et tracé ;
+ *     le serveur garde ses deux verrous (camion sorti ; dossier signé, sauf ADMIN).
+ *   · « Supprimer » — visible pour l'ADMIN SEUL. Annulation logique : le dossier
+ *     sort des listes et des compteurs mais reste en base, au journal d'audit.
+ */
+function ActionsDossier({ r, admin, onFait }: { r: O; admin: boolean; onFait: () => void }) {
+  const [ouvert, setOuvert] = useState<'' | 'modifier' | 'supprimer'>('');
+  const fermer = () => setOuvert('');
+  const fait = () => { setOuvert(''); onFait(); };
+  return <div className="acts-dossier">
+    <button className="ghost xs" title="Corriger le N° de camion / châssis" aria-label="Modifier" onClick={() => setOuvert('modifier')}>
+      ✎<span className="acts-lib"> Modifier</span>
+    </button>
+    {admin && <button className="ghost xs acts-suppr" title="Supprimer ce dossier (doublon)" aria-label="Supprimer" onClick={() => setOuvert('supprimer')}>
+      ✕<span className="acts-lib"> Supprimer</span>
+    </button>}
+    {ouvert === 'modifier' && <ModaleCorrigerNumero r={r} onClose={fermer} onFait={fait} />}
+    {ouvert === 'supprimer' && <ModaleSupprimerDossier r={r} onClose={fermer} onFait={fait} />}
+  </div>;
+}
+
+const estLigneVehicule = (r: O) => r['typeOperation'] === OPERATIONS.VEHICULE || r['estVehicule'] === true;
+
+function ModaleCorrigerNumero({ r, onClose, onFait }: { r: O; onClose: () => void; onFait: () => void }) {
+  const libelle = estLigneVehicule(r) ? 'N° de châssis' : 'N° de camion';
+  const ancien = String(r['numeroCamion'] ?? '');
+  const [num, setNum] = useState(ancien);
+  const [motif, setMotif] = useState('');
+  const { busy, envoyer } = useEnvoiUnique();
+  const inchange = !num.trim() || num.trim() === ancien.trim();
+  const valider = () => envoyer(async () => {
+    try {
+      await call('cargo.editcamion', { id: r['id'], numeroCamion: num, motif });
+      toast(`${libelle} corrigé.`, 'ok'); onFait();
+    } catch (e) { toast((e as Error).message, 'err'); }
+  });
+  return <Modal onClose={onClose}>
+    <h2>Modifier le {libelle}</h2>
+    <p className="help">Dossier <b className="mono">{String(r['id'])}</b> — actuellement <b className="mono">{ancien || '—'}</b>.
+      La correction suit le camion sur toute la fiche et ses conteneurs. Le motif part à l'historique.</p>
+    <ChampCamion value={num} onChange={setNum} label={libelle} />
+    <label className="help">Motif (obligatoire)</label>
+    <input value={motif} onChange={(e) => setMotif(e.target.value)} placeholder="Erreur de frappe, plaque illisible…" />
+    <div className="row" style={{ marginTop: 12, justifyContent: 'flex-end' }}>
+      <button className="ghost" onClick={onClose}>Annuler</button>
+      <button disabled={busy || inchange || !motif.trim()} onClick={valider}>{busy ? 'Enregistrement…' : 'Corriger'}</button>
+    </div>
+  </Modal>;
+}
+
+function ModaleSupprimerDossier({ r, onClose, onFait }: { r: O; onClose: () => void; onFait: () => void }) {
+  const [motif, setMotif] = useState('');
+  const { busy, envoyer } = useEnvoiUnique();
+  const valider = () => envoyer(async () => {
+    try {
+      await call('cargo.delete', { id: r['id'], motif });
+      toast('Dossier supprimé des listes et des compteurs.', 'ok'); onFait();
+    } catch (e) { toast((e as Error).message, 'err'); }
+  });
+  return <Modal onClose={onClose}>
+    <h2>Supprimer ce dossier ?</h2>
+    <p className="help">
+      <b className="mono">{String(r['numeroCamion'] ?? '—')}</b> · {String(r['typeOperation'] ?? '')} · dossier <b className="mono">{String(r['id'])}</b>
+      {' '}— statut « {String(r['statut'] ?? '')} ».
+    </p>
+    <p className="help">
+      Le dossier disparaît des listes, de la recherche, des rapports et de tous les compteurs ; ses conteneurs
+      repassent « En stock » et l'apurement de sa déclaration est rendu. Il reste <b>conservé en base</b> et
+      l'opération est inscrite au journal d'audit.
+    </p>
+    <label className="help">Motif (obligatoire)</label>
+    <input value={motif} onChange={(e) => setMotif(e.target.value)} placeholder="ex. doublon : créé trois fois à 12:23" autoFocus />
+    <div className="row" style={{ marginTop: 12, justifyContent: 'flex-end' }}>
+      <button className="ghost" onClick={onClose}>Annuler</button>
+      <button className="acts-suppr-plein" disabled={busy || !motif.trim()} onClick={valider}>{busy ? 'Suppression…' : 'Supprimer le dossier'}</button>
+    </div>
+  </Modal>;
+}
+
+/**
+ * UN SEUL ENVOI À LA FOIS — 2026-09-12.
+ * Un `useState` ne suffit pas contre le double clic : deux clics dans la même
+ * image lisent tous deux « pas occupé » avant que React n'ait rendu. Le verrou
+ * est donc tenu dans une référence, lue et posée de façon synchrone.
+ */
+function useEnvoiUnique() {
+  const enCours = useRef(false);
+  const [busy, setBusy] = useState(false);
+  const envoyer = async (fn: () => Promise<void>) => {
+    if (enCours.current) return;
+    enCours.current = true; setBusy(true);
+    try { await fn(); } finally { enCours.current = false; setBusy(false); }
+  };
+  return { busy, envoyer };
 }
 
 /* --------------------------- Liste de cargaisons ----------------------- */
@@ -38,7 +241,7 @@ function Table({ cols, rows, onRow }: { cols: [string, string][]; rows: O[]; onR
  */
 const etatListe: Record<string, { statut: string; search: string; page: number }> = {};
 
-function CargoList({ go, screen, filtre, titre, barre }: Nav & { filtre: O; titre?: string; barre?: boolean }) {
+function CargoList({ go, screen, user, filtre, titre, barre }: Nav & { filtre: O; titre?: string; barre?: boolean }) {
   // Un statut porté par l'ARGUMENT d'écran (tuile du tableau de bord) exprime une
   // intention FRAÎCHE : il prime sur la mémoire, qui repart alors de zéro.
   const impose = filtre['statut'] === undefined ? null : String(filtre['statut']);
@@ -48,34 +251,56 @@ function CargoList({ go, screen, filtre, titre, barre }: Nav & { filtre: O; titr
   const [page, setPage] = useState(reprise?.page ?? 1);
   const [statut, setStatut] = useState(impose ?? reprise?.statut ?? 'tous');
   const [search, setSearch] = useState(reprise?.search ?? '');
+  // Suivi des engagements (2026-09-12) : '' | 'avec' | 'sans'.
+  const [engagement, setEngagement] = useState('');
   const reset = () => setPage(1);
   // Écrit APRÈS le rendu (jamais pendant : le rendu doit rester sans effet de bord).
   useEffect(() => { if (barre) etatListe[screen] = { statut, search, page }; }, [barre, screen, statut, search, page]);
-  const eff = barre ? { ...filtre, statut, search } : filtre;
-  const { data, loading, error } = useAsync<{ rows: O[]; total: number; pages: number }>(
-    () => call('cargo.list', { ...eff, page }), [JSON.stringify(filtre), statut, search, page]);
-  return <div className="card">
-    {titre && <h2>{titre}</h2>}
-    {barre && <div className="row" style={{ alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
-      <input className="mono" value={search} onChange={(e) => { setSearch(e.target.value); reset(); }}
-        placeholder="Rechercher — N° conteneur, ID, camion, GPS" style={{ flex: 1, minWidth: 220 }} />
-      <select value={statut} onChange={(e) => { setStatut(e.target.value); reset(); }} style={{ maxWidth: 220 }}>
-        <option value="tous">Tous les statuts</option>
-        {STATUT_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
-      </select>
-    </div>}
-    {barre && <ExportCargaisons statutListe={statut} searchListe={search} />}
+  const eff = barre ? { ...filtre, statut, search, engagement } : filtre;
+  const { data, loading, error, reload } = useAsync<{ rows: O[]; total: number; pages: number }>(
+    () => call('cargo.list', { ...eff, page }), [JSON.stringify(filtre), statut, search, engagement, page]);
+  /* En-tête illustré (2026-09-11). L'icône vient de `iconeDeLEcran`, la MÊME
+     table que le menu et que la barre supérieure : la liste affiche donc le
+     dessin de la pilule qu'on vient de cliquer, sans qu'on ait à le redire ici.
+     La teinte suit l'étape filtrée quand il y en a une — « En attente T1 »
+     s'ouvre en sarcelle, comme la tuile et comme le parcours. */
+  const teinte = ({ CFS: 'cfs', T1: 't1', BALISE: 'balise', BS: 'bs', PP: 'pp' } as Record<string, string>)[String(filtre['etape'] ?? '')];
+  return <>
+    {titre && <BandeauModule icone={iconeDeLEcran(user.role, screen)} titre={titre}
+      sous={!loading && data ? `${data.total} dossier(s)` : undefined}
+      action={<div className="bm-outils">
+        {/* LE TRI DANS L'ANGLE (2026-09-12) : ce qui commande la liste se range
+            a droite du titre, au lieu de courir sur une ligne a part. */}
+        {barre && <>
+          <input className="mono" value={search} onChange={(e) => { setSearch(e.target.value); reset(); }}
+            placeholder="Rechercher…" style={{ width: 190 }} />
+          <select value={statut} onChange={(e) => { setStatut(e.target.value); reset(); }} style={{ maxWidth: 190 }}>
+            <option value="tous">Tous les statuts</option>
+            {STATUT_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
+          </select>
+          {/* Suivi des engagements (2026-09-12) : un chef doit pouvoir ne
+              demander que les camions engages, sans ouvrir chaque dossier. */}
+          <select value={engagement} onChange={(e) => { setEngagement(e.target.value); reset(); }}
+            style={{ maxWidth: 190 }} aria-label="Suivi des engagements">
+            <option value="">Engagement : indifferent</option>
+            <option value="avec">Avec engagement</option>
+            <option value="sans">Sans engagement</option>
+          </select>
+          <ExportCargaisons statutListe={statut} searchListe={search} />
+        </>}
+      </div>} />}
+    <div className={`card ${teinte ? 'et-' + teinte : ''}`}>
     {loading ? <Spinner /> : error ? <div className="err-msg">{error}</div> : <>
-      {barre && <div className="help" style={{ marginBottom: 6 }}>{data?.total ?? 0} cargaison(s)</div>}
-      <Table cols={[['id', 'ID'], ['dateCreation', 'Date'], ['numeroCamion', 'Camion'], ['typeOperation', 'Opération'], ['statut', 'Statut'], ['numeroGps', 'GPS']]}
-        rows={data?.rows ?? []} onRow={(r) => go('detail', r['id'])} />
+      <Table cols={[['id', 'ID'], ['dateCreation', 'Date'], ['numeroCamion', 'Camion'], ['typeOperation', 'Opération'], ['statut', 'Statut'], ['suiviEngagement', 'Engagement'], ['numeroGps', 'GPS']]}
+        rows={data?.rows ?? []} onRow={(r) => go('detail', r['id'])}
+        actions={(r) => <ActionsDossier r={r} admin={user.role === ROLES.ADMIN} onFait={reload} />} />
       {(data?.pages ?? 1) > 1 && <div className="row" style={{ marginTop: 10, justifyContent: 'center' }}>
         <button className="ghost xs" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>‹</button>
         <span>Page {page} / {data?.pages}</span>
         <button className="ghost xs" disabled={page >= (data?.pages ?? 1)} onClick={() => setPage((p) => p + 1)}>›</button>
       </div>}
     </>}
-  </div>;
+  </div></>;
 }
 
 /**
@@ -100,6 +325,7 @@ function ExportCargaisons({ statutListe, searchListe }: { statutListe?: string; 
   useEffect(() => { if (!critTouche) setCrit(critInitial); }, [critInitial, critTouche]);
   const [limiterPeriode, setLimiterPeriode] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [ouvert, setOuvert] = useState(false);
   async function exporter(fmt: 'xlsx' | 'pdf') {
     const params: O = { format: fmt };
     if (limiterPeriode) { params['du'] = p.du; params['au'] = p.au; }
@@ -112,93 +338,297 @@ function ExportCargaisons({ statutListe, searchListe }: { statutListe?: string; 
       if (fmt === 'pdf') imprimerHtml(String(r['html'] ?? '')); else telecharger(r);
     } catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(false); }
   }
-  return <details style={{ border: '1px solid var(--line)', borderRadius: 6, padding: '8px 12px', marginBottom: 10 }}>
-    <summary style={{ cursor: 'pointer', fontWeight: 600 }}>⤓ Extraire (Excel / PDF) — reprend le filtre affiché</summary>
-    {searchListe && searchListe.trim() &&
-      <p className="help" style={{ margin: '8px 0 0' }}>Recherche appliquée : <b className="mono">{searchListe.trim()}</b></p>}
-    <div className="row" style={{ alignItems: 'center', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
-      <select value={crit} onChange={(e) => { setCritTouche(true); setCrit(e.target.value); }} style={{ maxWidth: 240 }}>
-        <option value="">Tous les statuts</option>
-        {STATUT_OPTIONS.map((s) => <option key={s} value={`statut:${s}`}>{s}</option>)}
-        <option value="etape:VALIDATION">En attente — À valider</option>
-        <option value="etape:T1">En attente — T1</option>
-        <option value="etape:BALISE">En attente — Balise</option>
-        <option value="etape:BS">En attente — Bon de sortie</option>
-        <option value="etape:PP">En attente — Sortie (PP)</option>
-      </select>
-      <label className="help" style={{ display: 'flex', alignItems: 'center', gap: 6, margin: 0 }}>
-        <input type="checkbox" checked={limiterPeriode} onChange={(e) => setLimiterPeriode(e.target.checked)} />
-        Limiter à une période
-      </label>
-      {limiterPeriode && <PeriodPicker p={p} />}
-      <button className="ghost xs" disabled={busy} onClick={() => exporter('xlsx')}>⤓ Excel</button>
-      <button className="ghost xs" disabled={busy} onClick={() => exporter('pdf')}>⤓ PDF</button>
+  /* BOUTON D'EN-TÊTE + FENÊTRE (2026-09-11, demande utilisateur). Le panneau
+     repliable qui servait jusqu'ici s'intercalait entre les filtres et le
+     tableau : il poussait la liste vers le bas sur TOUS les écrans, alors qu'on
+     n'exporte qu'une fois de temps en temps. Le geste rare quitte donc le flux
+     de lecture pour un bouton, et ses options s'ouvrent dans une fenêtre. */
+  return <>
+    <button className="btn-export" onClick={() => setOuvert(true)} title="Extraire la liste affichée">
+      <Icone nom="telecharger" taille={15} />Extraire
+    </button>
+    {ouvert && <Modal onClose={() => setOuvert(false)}>
+      <h2><span className="tp-pastille" aria-hidden="true"><Icone nom="telecharger" taille={18} /></span>
+        Extraire les cargaisons</h2>
+      <p className="help" style={{ marginTop: 0 }}>
+        L'extraction reprend <b>le filtre affiché dans la liste</b> — vous n'exportez jamais
+        autre chose que ce que vous avez sous les yeux.
+        {searchListe && searchListe.trim() ? <> Recherche appliquée : <b className="mono">{searchListe.trim()}</b>.</> : null}
+      </p>
+      <div className="fen-corps">
+        <div><label className="help">Statut ou étape</label>
+          <select value={crit} onChange={(e) => { setCritTouche(true); setCrit(e.target.value); }}>
+            <option value="">Tous les statuts</option>
+            {STATUT_OPTIONS.map((s) => <option key={s} value={`statut:${s}`}>{s}</option>)}
+            <option value="etape:VALIDATION">En attente — À valider</option>
+            <option value="etape:T1">En attente — T1</option>
+            <option value="etape:BALISE">En attente — Balise</option>
+            <option value="etape:BS">En attente — Bon de sortie</option>
+            <option value="etape:PP">En attente — Sortie (PP)</option>
+          </select></div>
+        <div>
+          <label className="help" style={{ display: 'flex', alignItems: 'center', gap: 8, textTransform: 'none', fontSize: 13.5 }}>
+            <input type="checkbox" checked={limiterPeriode} onChange={(e) => setLimiterPeriode(e.target.checked)} />
+            Limiter à une période
+          </label>
+          {limiterPeriode ? <div style={{ marginTop: 8 }}><PeriodPicker p={p} /><PeriodeLue p={p} /></div>
+            : <p className="help" style={{ margin: '6px 0 0' }}>Toute la base — cochez pour restreindre.</p>}
+        </div>
+      </div>
+      <div className="fen-pied">
+        <button className="ghost" onClick={() => setOuvert(false)}>Annuler</button>
+        <button className="ghost" disabled={busy} onClick={() => exporter('pdf')}><Icone nom="telecharger" taille={15} />PDF</button>
+        <button disabled={busy} onClick={() => exporter('xlsx')}><Icone nom="telecharger" taille={15} />Excel</button>
+      </div>
+    </Modal>}
+  </>;
+}
+
+/**
+ * BANDEAU DE MODULE — 2026-09-11.
+ *
+ * L'en-tête des écrans généraux : pastille, titre, sous-titre, et une action
+ * facultative à droite. Mis en commun plutôt que recopié sur chaque écran —
+ * cinq copies auraient divergé à la première retouche.
+ */
+export function BandeauModule({ icone, titre, sous, action, sansRetour, auto }: {
+  icone: string; titre: string; sous?: ReactNode; action?: ReactNode;
+  /** Ecran de depart (tableau de bord, hub) : il n'y a nulle part ou revenir. */
+  sansRetour?: boolean;
+  /**
+   * BANDEAU DE SECOURS, pose par l'application - 2026-09-12.
+   *
+   * Vingt et un ecrans n'avaient pas de bandeau, et les doter un par un
+   * demandait de rouvrir vingt et un blocs de JSX - avec autant d'occasions
+   * d'en oublier un, et rien pour empecher le suivant d'arriver sans.
+   *
+   * `App` en pose donc UN pour tout ecran, bati sur les memes tables que le
+   * menu et la barre du haut. Quand l'ecran fournit le sien - plus precis,
+   * avec son sous-titre et ses commandes -, une regle CSS (`:has`) efface
+   * celui-ci. Il ne peut donc y en avoir ni zero, ni deux.
+   */
+  auto?: boolean;
+}) {
+  // Le bouton n'apparait que s'il y a VRAIMENT un ecran precedent : a la racine,
+  // un « Retour » qui ne mene nulle part est pire que pas de bouton du tout.
+  const nav = useNav();
+  const precedent = sansRetour ? null : nav?.ecranPrecedent ?? null;
+  const ou = precedent ? `Retour — ${TITLES[precedent] ?? precedent}` : 'Retour';
+  return <div className={`bandeau-module ${auto ? 'bm-auto' : ''}`}>
+    <span className="bm-pastille" aria-hidden="true"><Icone nom={icone} taille={24} /></span>
+    {/* Une CLASSE, et non un `style` en ligne : le style en ligne l'emportait
+        sur la feuille, et sa base de 0 empechait de regler qui, du titre ou des
+        commandes, cede la place quand la largeur manque. */}
+    <div className="bm-textes">
+      <div className="bm-titre">{titre}</div>
+      {sous && <div className="bm-sous">{sous}</div>}
     </div>
-    {limiterPeriode ? <PeriodeLue p={p} />
-      : <p className="help" style={{ margin: '6px 0 0' }}>Toute la base (aucune limite de période) — cochez pour restreindre.</p>}
-  </details>;
+    {/* DANS L'ANGLE : le retour d'abord, les commandes de l'ecran ensuite.
+        Les deux vivent dans UN SEUL groupe (`bm-droite`) : tant qu'ils etaient
+        deux blocs separes, le repli formait un escalier - le retour se centrait
+        sur la hauteur du groupe d'outils au lieu de s'aligner sur sa premiere
+        ligne. Reunis, ils se replient ensemble et restent alignes. */}
+    {(precedent || action) && <div className="bm-droite">
+      {precedent && <button type="button" className="bm-retour" title={ou} aria-label={ou}
+        onClick={() => nav?.retour()}>
+        <Icone nom="fleche" taille={16} />Retour
+      </button>}
+      {action}
+    </div>}
+  </div>;
 }
 
 /* ------------------------------ Écrans --------------------------------- */
 const SCREENS: Record<string, Screen> = {};
 
+/**
+ * ÉCHÉANCIER DES ENGAGEMENTS (2026-09-10) — bandeau du tableau de bord.
+ *
+ * N'apparaît que pour les rôles qui portent le suivi, et seulement s'il reste
+ * quelque chose à envoyer : un bandeau permanent et vide se met à ne plus être
+ * lu, et c'est précisément ce qu'on ne veut pas d'une relance.
+ *
+ * L'alerte s'allume à J-1 (« à envoyer demain »), passe à « échéance
+ * aujourd'hui », puis compte les jours de retard — et ne disparaît qu'au clic
+ * sur « Effectué ». Elle ne bloque rien : le camion sort normalement (décision
+ * du 2026-09-10).
+ */
+function BandeauEngagements({ role, go }: { role: string; go: Nav['go'] }) {
+  const [n, setN] = useState(0); // force le rechargement après un solde
+  const { data, loading } = useAsync<O>(() => call('report.engagements'), [n]);
+  const [busy, setBusy] = useState('');
+
+  if (!SUIVENT_ENGAGEMENTS.includes(role as never)) return null;
+  if (loading || !data) return null;
+  const lignes = (data['lignes'] as O[]) ?? [];
+  if (!lignes.length) return null;
+  const cpt = (data['compte'] as O) ?? {};
+
+  async function solder(id: string) {
+    setBusy(id);
+    try {
+      await call('cargo.engagementfait', { id });
+      toast('Engagement soldé : informations marquées comme transmises.', 'ok');
+      setN((x) => x + 1);
+    } catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(''); }
+  }
+
+  const retard = Number(cpt['retard'] ?? 0);
+  return <div className="card" style={{
+    marginTop: 10,
+    borderLeft: `4px solid var(--${retard ? 'err' : 'warn'})`,
+  }}>
+    <h2 style={{ margin: 0 }}>
+      Engagements à transmettre — {lignes.length}
+      {retard ? <span style={{ color: 'var(--err)' }}> · {retard} en retard</span> : null}
+    </h2>
+    <div className="help" style={{ marginBottom: 8 }}>
+      Ces cargaisons doivent faire l'objet d'un envoi d'informations. Cliquez sur
+      « Effectué » une fois l'envoi réalisé.
+    </div>
+    {lignes.map((l) => {
+      const id = String(l['id']);
+      const enRetard = l['etat'] === 'retard';
+      return <div key={id} className="row" style={{
+        alignItems: 'center', gap: 10, flexWrap: 'wrap',
+        padding: '6px 0', borderTop: '1px solid var(--line)',
+      }}>
+        <a className="mono" style={{ minWidth: 120 }} onClick={() => nav_go(go, id)}>{String(l['numeroCamion'] || id)}</a>
+        <span style={{ flex: 1, minWidth: 160 }}>{String(l['engagementType'] || '—')}</span>
+        <span className="help" style={{ minWidth: 130 }}>{fmtJour(l['engagementDelai'])}</span>
+        <span style={{ color: `var(--${enRetard ? 'err' : 'warn'})`, fontWeight: 600, minWidth: 150 }}>
+          {String(l['libelle'] || '')}
+        </span>
+        <button disabled={busy === id} onClick={() => solder(id)}>
+          {busy === id ? '…' : '✔ Effectué'}
+        </button>
+      </div>;
+    })}
+  </div>;
+}
+
+/** Ouvre la fiche d'une cargaison depuis l'échéancier. */
+const nav_go = (go: Nav['go'], id: string) => go('detail', { id });
+
 SCREENS.dash = (nav) => {
   // Même sélecteur de période que les rapports, plage personnalisée comprise.
   const p = useReportRange();
   const { du, au } = p;
-  const { data, loading } = useAsync<O>(() => call('dashboard.stats', { du, au }), [du, au]);
+  /* ACTUALISATION AUTOMATIQUE (2026-09-12) : un camion qui passe du CFS au T1
+     doit se voir quitter une tuile et rejoindre la suivante sans que le chef
+     recharge la page. Toutes les 60 s — le cache de lecture (15 s) est alors
+     périmé, la requête repart donc bien au serveur. Les tuiles restent affichées
+     pendant la mise à jour : pas de clignotement. */
+  const [tic, setTic] = useState(0);
+  useEffect(() => { const t = window.setInterval(() => setTic((x) => x + 1), 60000); return () => window.clearInterval(t); }, []);
+  const { data, loading } = useAsync<O>(() => call('dashboard.stats', { du, au }), [du, au, tic]);
   const s = data ?? {};
+  /* PART DE LA FILE pour les compteurs d'attente. FILE UNIQUE (serveur,
+     2026-08-19) : chaque dossier actif est dans UNE file, celle de sa prochaine
+     étape. Quand il avance, il quitte une tuile et rejoint la suivante ; la
+     somme des tuiles égale donc le nombre de dossiers en cours, et les parts
+     font 100 %. La file CFS (chargement non terminé) y entre le 2026-09-12, les véhicules en
+     attente le 2026-09-13 (demande utilisateur) : les sept tuiles font 100 %. */
+  const fileTotale = ['attCFS', 'attValidation', 'attT1', 'attBalise', 'attBs', 'attPP', 'vehiculesAttente']
+    .reduce((t, k) => t + Number(s[k] ?? 0), 0);
+  /* INDICATEURS DES TUILES D'ÉTAPE (2026-09-13, demande utilisateur) : deux
+     indicateurs sans mots, du même dessin — ↗ vert, la part des ARRIVÉES de
+     camions à l'étape ; ↘ rouge, la part des DÉPARTS — sur l'ensemble des
+     mouvements de la période (voir `repartition`). Arrivées et départs viennent
+     de `flux`, calculé par le serveur ; absent (serveur plus ancien), rien ne
+     s'affiche. Ils remplacent la comparaison avec la période précédente. */
+  const flux = (cle: string) => ((s['flux'] as Record<string, { entres: number; sortis: number }> | undefined)?.[cle]) ?? null;
+  const rep = (cle: string) => { const f = flux(cle); return f ? repartition(f.entres, f.sortis) : null; };
+  const part = (cle: string): number | null =>
+    fileTotale > 0 ? Math.round((Number(s[cle] ?? 0) / fileTotale) * 100) : null;
   const go = (statut: string) => nav.go('list', { statut });
-  return <>
-    <div className="card"><div className="row" style={{ alignItems: 'center', flexWrap: 'wrap' }}>
-      <h2 style={{ flex: 1, margin: 0 }}>Tableau de bord</h2>
-      <label className="help" style={{ margin: 0 }}>Période</label>
-      <PeriodPicker p={p} />
-    </div><div className="help">
-      <b>Événements du {fmtJour(du)} au {fmtJour(au)}</b> (« (période) ») : ce qui s'est passé à chaque cellule
-      sur la période, compté <b>à la date de chaque passage</b> — une sortie du jour reste une sortie du jour,
-      même si le camion est entré avant. Les tuiles <b>« Attente »</b> montrent l'état <b>à l'instant T</b>,
-      indépendamment de la période.
-      {p.inversee && <span style={{ color: 'var(--warn)' }}> — dates inversées, remises à l'endroit</span>}</div></div>
-    {loading ? <Spinner /> : <div className="stats">
+  /* `ecran-dash` (2026-09-11) : le tableau de bord — et lui seul — se détache
+     sur un fond bleu profond. Les cartes y deviennent des plaques de verre
+     claires, et c'est ce contraste sombre/clair qui rend l'effet lisible. */
+  return <div className="ecran-dash">
+    <BandeauEngagements role={nav.user.role} go={nav.go} />
+    {/* Le tableau de bord est l'ecran de DEPART : `sansRetour` y coupe le bouton,
+        qui ne menerait nulle part. La note de lecture passe en sous-titre du
+        bandeau, ou elle herite du blanc. */}
+    <BandeauModule icone="tableau" titre="Tableau de bord" sansRetour
+      sous={<>
+        {/* NOTE COURTE (2026-09-13, demande utilisateur) : le texte tenait sur cinq
+            lignes et grossissait le bandeau. Une ligne suffit : la période, ce que
+            montrent les tuiles « Attente », et la légende des deux flèches. */}
+        <b>Du {fmtJour(du)} au {fmtJour(au)}</b> · « Attente » : situation actuelle ·{' '}
+        <span className="leg-arrivee">↗ arrivées</span>{' '}<span className="leg-depart">↘ départs</span>
+        {/* 2026-09-13 : sens du « % de la file », en une phrase (demande utilisateur). */}
+        {' '}· <b>% de la file</b> : part des dossiers en attente
+        {p.inversee && <span className="bm-alerte"> — dates inversées, remises à l'endroit</span>}
+      </>}
+      action={<div className="bm-outils">
+        <label className="help">Période</label>
+        <PeriodPicker p={p} />
+      </div>} />
+    {/* GRILLE BENTO (2026-09-11) : toutes les tuiles n'ont pas le même poids.
+        Les cinq compteurs d'ÉVÉNEMENTS occupent deux colonnes — ce sont eux qui
+        portent le travail de la période et la comparaison. « Attente
+        validation » est large aussi : c'est la file la plus chargée, et celle
+        qu'un chef regarde en premier. Les autres restent en petit format. */}
+    {/* CADRE COLORÉ derrière les tuiles (2026-09-11). Il n'est pas décoratif :
+        sans lui, les tuiles en verre reposaient sur un fond presque uni et
+        n'avaient RIEN à dépolir — elles ressemblaient à de simples cartes
+        blanches. Les halos qu'il porte sont ce que le verre diffuse. */}
+    {loading && !data ? <Spinner /> : <div className="bento-cadre"><div className="stats bento">
       {/* Événements datés sur la période — le travail EFFECTIF de chaque cellule
           sur la période, compté à la date de la cellule (pas à la création). */}
-      <StatCard n={Number(s['creesPeriode'] ?? 0)} l="Entrées CFS (période)" onClick={() => nav.go('cfsreport')} />
-      <StatCard n={Number(s['t1Periode'] ?? 0)} l="T1 saisis (période)" onClick={() => go(STATUTS.T1)} />
-      <StatCard n={Number(s['balisesPeriode'] ?? 0)} l="Balisés (période)" onClick={() => nav.go('baliserep')} />
-      <StatCard n={Number(s['bonsPeriode'] ?? 0)} l="Bons de sortie (période)" onClick={() => go(STATUTS.BS)} />
-      <StatCard n={Number(s['sortiePeriode'] ?? 0)} l="Sortis (période)" tone="ok" onClick={() => nav.go('pprep')} />
+      <StatCard n={Number(s['creesPeriode'] ?? 0)} l="Entrées CFS (période)" onClick={() => nav.go('cfsreport')}
+        etape="cfs" comparable={!!flux('CFS')} repartition={rep('CFS')} />
+      <StatCard n={Number(s['t1Periode'] ?? 0)} l="T1 saisis (période)" onClick={() => go(STATUTS.T1)}
+        etape="t1" comparable={!!flux('T1')} repartition={rep('T1')} />
+      <StatCard n={Number(s['balisesPeriode'] ?? 0)} l="Balisés (période)" onClick={() => nav.go('baliserep')}
+        etape="balise" comparable={!!flux('BALISE')} repartition={rep('BALISE')} />
+      <StatCard n={Number(s['bonsPeriode'] ?? 0)} l="Bons de sortie (période)" onClick={() => go(STATUTS.BS)}
+        etape="bs" comparable={!!flux('BS')} repartition={rep('BS')} />
+      <StatCard n={Number(s['sortiePeriode'] ?? 0)} l="Sortis (période)" onClick={() => nav.go('pprep')}
+        etape="pp" comparable={!!flux('PP')} repartition={rep('PP')} />
       {/* En attente — état instantané (hors période). */}
-      <StatCard n={Number(s['attValidation'] ?? 0)} l="Attente validation" tone="warn" onClick={() => nav.go('wait_valid')} />
-      <StatCard n={Number(s['attT1'] ?? 0)} l="Attente T1" onClick={() => nav.go('wait_t1')} />
-      <StatCard n={Number(s['attBalise'] ?? 0)} l="Attente Balise" onClick={() => nav.go('wait_gps')} />
-      <StatCard n={Number(s['attBs'] ?? 0)} l="Attente Bon de sortie" onClick={() => nav.go('wait_bs')} />
-      <StatCard n={Number(s['attPP'] ?? 0)} l="Attente sortie" onClick={() => nav.go('wait_sortie')} />
-      <StatCard n={Number(s['vehiculesAttente'] ?? 0)} l="Véhicules en attente" onClick={() => nav.go('vehicules')} />
-    </div>}
+      <StatCard n={Number(s['attCFS'] ?? 0)} l="En cours au CFS" onClick={() => nav.go('wait_cfs')} etape="cfs" part={part('attCFS')} />
+      <StatCard n={Number(s['attValidation'] ?? 0)} l="Attente validation" onClick={() => nav.go('wait_valid')} etape="validation" part={part('attValidation')} />
+      <StatCard n={Number(s['attT1'] ?? 0)} l="Attente T1" onClick={() => nav.go('wait_t1')} etape="t1" part={part('attT1')} />
+      <StatCard n={Number(s['attBalise'] ?? 0)} l="Attente Balise" onClick={() => nav.go('wait_gps')} etape="balise" part={part('attBalise')} />
+      <StatCard n={Number(s['attBs'] ?? 0)} l="Attente Bon de sortie" onClick={() => nav.go('wait_bs')} etape="bs" part={part('attBs')} />
+      <StatCard n={Number(s['attPP'] ?? 0)} l="Attente sortie" onClick={() => nav.go('wait_sortie')} etape="pp" part={part('attPP')} />
+      <StatCard n={Number(s['vehiculesAttente'] ?? 0)} l="Véhicules en attente" onClick={() => nav.go('vehicules')} etape="vehicule" part={part('vehiculesAttente')} />
+    </div></div>}
     {/* Neuf tuiles disent COMBIEN, aucune ne dit OÙ ÇA BLOQUE : c'est pourtant
         la première question d'un chef le matin. Le classement des files répond
         d'un coup d'œil, et chaque barre ouvre la file concernée. */}
-    {!loading && <div className="card"><h2>Où sont les dossiers en attente</h2>
+    {!!data && <div className="card"><h2>Où sont les dossiers en attente</h2>
       <BarresClassees
         lignes={[
+          { nom: 'Chargement au CFS', valeur: Number(s['attCFS'] ?? 0) },
           { nom: 'Validation chef de brigade', valeur: Number(s['attValidation'] ?? 0) },
           { nom: 'Cellule T1', valeur: Number(s['attT1'] ?? 0) },
           { nom: 'Cellule Balise', valeur: Number(s['attBalise'] ?? 0) },
           { nom: 'Bon de sortie', valeur: Number(s['attBs'] ?? 0) },
           { nom: 'Sortie (Porte Principale)', valeur: Number(s['attPP'] ?? 0) },
         ]}
-        onClic={(nom) => nav.go(nom.startsWith('Validation') ? 'wait_valid'
+        teintes={{
+          'Chargement au CFS': 'var(--etape-cfs)',
+          'Validation chef de brigade': 'var(--etape-validation)',
+          'Cellule T1': 'var(--etape-t1)',
+          'Cellule Balise': 'var(--etape-balise)',
+          'Bon de sortie': 'var(--etape-bs)',
+          'Sortie (Porte Principale)': 'var(--etape-pp)',
+        }}
+        onClic={(nom) => nav.go(nom.startsWith('Chargement') ? 'wait_cfs' : nom.startsWith('Validation') ? 'wait_valid'
           : nom.startsWith('Cellule T1') ? 'wait_t1'
             : nom.startsWith('Cellule Balise') ? 'wait_gps'
               : nom.startsWith('Bon') ? 'wait_bs' : 'wait_sortie')} />
       <p className="help" style={{ marginBottom: 0 }}>
-        Les files sont <b>parallèles</b> : un même camion peut attendre à plusieurs postes à la fois.
-        Le total dépasse donc le nombre de dossiers — les parts se lisent poste par poste.
+        Chaque dossier en cours est dans <b>une seule file</b>, celle de sa prochaine étape : quand un camion
+        avance (CFS → validation → T1 → Balise → Bon de sortie → sortie), il quitte une file et rejoint la
+        suivante. Mise à jour automatique chaque minute.
       </p>
     </div>}
     <FicheBord p={p} />
-  </>;
+  </div>;
 };
 
 /* ------------- Fiche de synthèse repliable (fiche papier) -------------- */
@@ -251,8 +681,13 @@ function FicheBord({ p }: { p: Periode }) {
   const pp = (data?.['pp'] ?? {}) as O;
 
   return <div className="card" style={{ marginTop: 12 }}>
-    <button className="ghost" onClick={() => setOuvert((v) => !v)} style={{ width: '100%', textAlign: 'left', fontWeight: 700 }}>
-      {ouvert ? '▾' : '▸'} Fiche de synthèse — CFS · T1 · Balise · Bon de sortie · PP
+    {/* Le repli (2026-09-11) : un chevron qui PIVOTE plutôt que deux caractères
+        « ▸ / ▾ », dont le dessin variait d'un poste à l'autre. Le mouvement dit
+        l'état — ouvert ou fermé — mieux qu'un glyphe. */}
+    <button className={`repli ${ouvert ? 'ouvert' : ''}`} onClick={() => setOuvert((v) => !v)}
+      aria-expanded={ouvert}>
+      <Icone nom="chevron" taille={16} />
+      <span>Fiche de synthèse — CFS · T1 · Balise · Bon de sortie · PP</span>
     </button>
     {!ouvert && <div className="help" style={{ marginTop: 6 }}>Appuyez pour déplier la fiche détaillée de la période.</div>}
     {ouvert && (loading ? <Spinner /> : error ? <div className="err-msg">{error}</div> : <div className="fiche-bord">
@@ -311,33 +746,60 @@ SCREENS.list = (nav) => <CargoList {...nav} filtre={{ categorie: 'camion', ...((
  * regroupés (décision utilisateur 2026-07-27, le menu déroulant était trop
  * long). Les items dépendent du rôle : on n'affiche que ce que le rôle utilise.
  */
-function Hub({ nav, titre, desc, items }: { nav: Nav; titre: string; desc?: string; items: [string, string, string][] }) {
-  return <div className="card"><h2>{titre}</h2>
-    {desc && <p className="help" style={{ marginTop: 0 }}>{desc}</p>}
+/**
+ * Grille de raccourcis d'un module.
+ *
+ * 2026-09-11 — en-tête illustré, et le 3ᵉ champ des items porte désormais un
+ * NOM D'ICÔNE au lieu d'un caractère (▦ ◉ ◧ ⮉ ✔…). Mêmes raisons que pour le
+ * menu : ces glyphes n'avaient ni graisse ni optique communes, et certains
+ * s'affichaient en carré vide sur les postes dépourvus de la police.
+ */
+function Hub({ nav, titre, desc, items, icone = 'boites', etape }: {
+  nav: Nav; titre: string; desc?: string; items: [string, string, string][];
+  icone?: string; etape?: string;
+}) {
+  return <div className="card hub-carte">
+    {/* EN-TETE ILLUSTRE (2026-09-12) - le logo de l'ecran de connexion, repris
+        ici avec l'icone DU HUB en orbite : conteneur pour le parc, camion pour
+        les vehicules. Un hub est une page d'accueil de module ; il merite la
+        meme entree que l'ecran de creation, pas un simple titre de ligne. */}
+    <div className={`hub-entete ${etape ? 'et-' + etape : ''}`}>
+      <div className="hub-logo">
+        <span className="hub-piste" aria-hidden="true" />
+        <span className="hub-onde" aria-hidden="true" />
+        <img className="logo-rond" src="/logo_PIA.jpg" alt=""
+          onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />
+        <span className="hub-orbite" aria-hidden="true">
+          <span className="hub-mobile"><Icone nom={icone} taille={15} /></span>
+        </span>
+      </div>
+      <h2>{titre}</h2>
+      {desc && <p className="help">{desc}</p>}
+    </div>
     <div className="hubgrid">
       {items.map(([s, l, ic]) => <button key={s} className="hubitem" onClick={() => nav.go(s)}>
-        <span className="hubic">{ic}</span><span>{l}</span></button>)}
+        <span className="hubic"><Icone nom={ic} taille={20} /></span><span>{l}</span></button>)}
     </div>
   </div>;
 }
 function itemsConteneurs(role: string): [string, string, string][] {
-  const stock: [string, string, string] = ['stock', 'Stock conteneurs', '▦'];
-  const pointage: [string, string, string] = ['pointage', 'Pointage matinal', '◉'];
-  const stockjour: [string, string, string] = ['stockjour', 'Stock CFS journalier', '◧'];
-  const imp: [string, string, string] = ['import', 'Stock initial (import)', '⮉'];
-  const impAnn: [string, string, string] = ['importannonce', 'Annonce de transfert', '⮈'];
-  const annonce: [string, string, string] = ['annonce', 'Stock annoncé', '▦'];
-  const pointEntree: [string, string, string] = ['pointentree', 'Pointage entrée', '◉'];
-  const confEntree: [string, string, string] = ['confentree', 'Confirmer entrée', '✔'];
+  const stock: [string, string, string] = ['stock', 'Stock conteneurs', 'conteneur'];
+  const pointage: [string, string, string] = ['pointage', 'Pointage matinal', 'presse'];
+  const stockjour: [string, string, string] = ['stockjour', 'Stock CFS journalier', 'liste'];
+  const imp: [string, string, string] = ['import', 'Stock initial (import)', 'televerser'];
+  const impAnn: [string, string, string] = ['importannonce', 'Annonce de transfert', 'megaphone'];
+  const annonce: [string, string, string] = ['annonce', 'Stock annoncé', 'boites'];
+  const pointEntree: [string, string, string] = ['pointentree', 'Pointage entrée', 'presse'];
+  const confEntree: [string, string, string] = ['confentree', 'Confirmer entrée', 'valider'];
   // v4.2 — positionnés / dépotés / restant par jour (demande CFS).
-  const depot: [string, string, string] = ['depotstats', 'Statistiques de dépotage', '◭'];
+  const depot: [string, string, string] = ['depotstats', 'Statistiques de dépotage', 'rapport'];
   if (role === 'ADMIN') return [stock, pointage, stockjour, depot, imp, impAnn, annonce, pointEntree, confEntree];
   if (role === 'PP') return [annonce, pointEntree, confEntree];
   if (role === 'CFS') return [stock, pointage, stockjour, depot, imp, annonce, confEntree];
   // Chefs : lecture seule, mais les statistiques de dépotage les intéressent.
   return [stock, depot, annonce];
 }
-SCREENS.conteneurs = (nav) => <Hub nav={nav} titre="Opérations sur conteneurs"
+SCREENS.conteneurs = (nav) => <Hub nav={nav} titre="Opérations sur conteneurs" icone="conteneur"
   desc="Stock du parc, pointages, imports et entrées annoncées — tout au même endroit." items={itemsConteneurs(nav.user.role)} />;
 // v4.1 — MAD & Entrepôt industriel : même module, unité d'apurement différente
 // (MAD = colis ; INDUSTRIEL = poids kg).
@@ -351,16 +813,17 @@ function VehiculesEcran({ nav }: { nav: Nav }) {
   // sans période (présents sur site = non sortis ; sortis = déjà sortis).
   const { data, loading } = useAsync<{ compte: O }>(() => call('report.vehicule', {}), []);
   const cp = (data?.compte ?? {}) as O;
+  const peutCreer = nav.user.role === 'CFS' || nav.user.role === 'ADMIN';
   return <>
-    <div className="card"><div className="row" style={{ alignItems: 'center', flexWrap: 'wrap' }}>
-      <h2 style={{ flex: 1, margin: 0 }}>Véhicules dépotés</h2>
-      {(nav.user.role === 'CFS' || nav.user.role === 'ADMIN') && <button onClick={() => nav.go('vehnew')}>＋ Dépotage de véhicules</button>}
-    </div>
-    <p className="help" style={{ marginBottom: 6 }}>Les véhicules dépotés sont suivis à part des camions.</p>
+    <BandeauModule icone="voiture" titre="Véhicules dépotés"
+      sous="Sortis d'un conteneur, ils sont suivis à part des camions."
+      action={peutCreer ? <button className="bm-action" onClick={() => nav.go('vehnew')}>
+        <Icone nom="plus" taille={15} /> Dépotage de véhicules</button> : undefined} />
+    <div className="card">
     {loading ? <Spinner /> : <div className="stats">
-      <StatCard n={Number(cp['total'] ?? 0)} l="Total véhicules" />
-      <StatCard n={Number(cp['attente'] ?? 0)} l="Présents sur site" tone="warn" />
-      <StatCard n={Number(cp['sortis'] ?? 0)} l="Sortis" tone="ok" />
+      <StatCard n={Number(cp['total'] ?? 0)} l="Total véhicules" icone="voiture" />
+      <StatCard n={Number(cp['attente'] ?? 0)} l="Présents sur site" tone="warn" icone="entrepot" />
+      <StatCard n={Number(cp['sortis'] ?? 0)} l="Sortis" tone="ok" icone="sortie" />
     </div>}
     </div>
     <VehiculeRecherche nav={nav} />
@@ -377,18 +840,21 @@ function VehiculeRecherche({ nav }: { nav: Nav }) {
   const { data, loading } = useAsync<{ rows: O[]; total: number }>(() => call('vehicule.list', { search: q.trim() }), [q]);
   const rows = data?.rows ?? [];
   return <div className="card">
-    <h2>Rechercher un véhicule</h2>
+    <TitrePanneau icone="loupe">Rechercher un véhicule</TitrePanneau>
     <input className="mono" value={q} onChange={(e) => setQ(e.target.value)}
       placeholder="N° de châssis (même les 6 derniers chiffres) ou marque…" autoFocus />
-    <div className="help" style={{ margin: '8px 0' }}>{loading ? 'Recherche…' : `${data?.total ?? 0} véhicule(s)`}</div>
+    <div className="help lbl-icone" style={{ margin: '8px 0' }}>
+      <Icone nom={loading ? 'sablier' : 'voiture'} taille={14} />
+      {loading ? 'Recherche…' : `${data?.total ?? 0} véhicule(s)`}</div>
     {loading ? <Spinner /> : <Table
       cols={[['chassis', 'Châssis'], ['marque', 'Marque'], ['modele', 'Modèle'], ['couleur', 'Couleur'], ['destination', 'Destination'], ['statut', 'Statut'], ['conteneurOrigine', 'TC origine']]}
       rows={rows} onRow={(r) => nav.go('detail', r['id'])} />}
   </div>;
 }
-SCREENS.vehnew = ({ go }) => <div className="card"><h2>Dépotage de véhicules</h2>
-  <p className="help" style={{ marginTop: 0 }}>Un conteneur d'origine, puis un ou plusieurs véhicules (châssis). Les véhicules ne sont pas des camions.</p>
-  <FormVehicule go={go} /></div>;
+SCREENS.vehnew = ({ go }) => <>
+  <BandeauModule icone="voiture" titre="Dépotage de véhicules"
+    sous={<>Un conteneur d'origine, puis un ou plusieurs châssis — un véhicule n'est pas un camion.</>} />
+  <div className="card"><FormVehicule go={go} /></div></>;
 SCREENS.madsortie = ({ go }) => <div className="card"><h2>Sortie Magasin / MAD</h2><FormMagasin go={go} /></div>;
 SCREENS.conso = ({ go }) => <div className="card"><h2>Conso (type C)</h2><FormConso go={go} /></div>;
 
@@ -412,39 +878,163 @@ function EcranEntrepot({ nav, type }: { nav: Nav; type: EntrepotType }) {
   const T: [string, string][] = [['entree', 'Entrée'], ['sortie', 'Sortie (apurement)'], ['stats', 'Statistiques']];
   if (peutGerer) T.push(['gerer', 'Entrepôts']);
   return <>
-    <div className="card"><div className="row" style={{ alignItems: 'center', flexWrap: 'wrap' }}>
-      <h2 style={{ flex: 1, margin: 0 }}>{titre}</h2>
-      {T.map(([k, l]) => <button key={k} className={onglet === k ? '' : 'ghost'} onClick={() => setOnglet(k as never)}>{l}</button>)}
-    </div>
-    <p className="help" style={{ marginBottom: 0 }}>Apurement par {estIndus(type) ? <b>poids (kg)</b> : <b>quantités (colis)</b>}. {entrepots.length} entrepôt(s) {titre}.</p></div>
+    {/* Bandeau de module, comme sur les autres volets généraux : il porte
+        l'identité du magasin et son UNITÉ D'APUREMENT, qui décide de tout ce
+        qui suit — des colis d'un côté, des kilos de l'autre. */}
+    <BandeauModule icone={estIndus(type) ? 'usine' : 'entrepot'} titre={titre}
+      sous={<>Apurement par <b>{estIndus(type) ? 'poids (kg)' : 'quantités (colis)'}</b> - {entrepots.length} magasin(s) en service</>} />
+    <div className="card"><div className="row" style={{ alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+      {/* Chaque onglet porte son icône : entrée, sortie, chiffres, gestion —
+          quatre gestes distincts, qu'un libellé seul faisait lire comme quatre
+          mots de même poids. */}
+      {T.map(([k, l]) => <button key={k} className={`onglet-mag ${onglet === k ? '' : 'ghost'}`} onClick={() => setOnglet(k as never)}>
+        <Icone nom={({ entree: 'televerser', sortie: 'sortie', stats: 'rapport', gerer: 'entrepot' } as Record<string, string>)[k] ?? 'liste'} taille={15} />
+        {l}
+      </button>)}
+    </div></div>
     {loading ? <Spinner /> : entrepots.length === 0 && onglet !== 'gerer'
       ? <div className="card"><div className="empty">Aucun entrepôt {titre}. {peutGerer ? 'Créez-en un dans l\'onglet « Entrepôts ».' : 'Demandez à un chef d\'en créer un.'}</div></div>
       : onglet === 'entree' ? <EntrepotEntree type={type} entrepots={entrepots} />
         : onglet === 'sortie' ? <EntrepotSortie type={type} entrepots={entrepots} nav={nav} />
           : onglet === 'stats' ? <EntrepotStats type={type} />
-            : <EntrepotGerer type={type} entrepots={entrepots} reload={reload} />}
+            : <EntrepotGerer type={type} reload={reload} admin={nav.user.role === 'ADMIN'} />}
   </>;
 }
 
-/** Gestion des entrepôts (création — admin / chef brigade / division). */
-function EntrepotGerer({ type, entrepots, reload }: { type: EntrepotType; entrepots: O[]; reload: () => void }) {
+/**
+ * Gestion des entrepôts — création (admin / chef brigade / division), et depuis
+ * le 2026-09-11 MODIFICATION par les mêmes, SUPPRESSION par l'ADMIN seul.
+ *
+ * Trois gestes, et la raison de chacun :
+ *   · RENOMMER — une faute de frappe restait affichée pour toujours.
+ *   · DÉSACTIVER — un magasin fermé encombrait les listes de saisie. Désactivé,
+ *     il en sort tout en gardant son historique consultable ; il se réactive.
+ *   · SUPPRIMER — réservé à l'ADMIN, et refusé par le serveur dès qu'une entrée
+ *     s'y rattache. Ne sert donc qu'à effacer un magasin créé par erreur.
+ *
+ * Le TYPE ne se change pas ici : cet écran est déjà cadré par un type (MAD ou
+ * industriel), un magasin qui changerait de type disparaîtrait sous les yeux de
+ * celui qui vient de le modifier. Créé du mauvais type et encore vierge : on le
+ * supprime et on le recrée.
+ *
+ * La liste inclut ici les magasins DÉSACTIVÉS (`tous: true`) — sans quoi les
+ * désactiver reviendrait à les perdre, donc à ne plus pouvoir les réactiver.
+ */
+function EntrepotGerer({ type, reload, admin }: { type: EntrepotType; reload: () => void; admin: boolean }) {
   const [code, setCode] = useState('');
   const [nom, setNom] = useState('');
   const [busy, setBusy] = useState(false);
-  async function creer() {
-    if (!code.trim() || !nom.trim()) { toast('Code et nom requis.', 'err'); return; }
+  const [n, setN] = useState(0);
+  // Édition en place : le code de la ligne en cours de renommage, et le nom saisi.
+  const [edit, setEdit] = useState<{ code: string; nom: string } | null>(null);
+
+  const { data, loading } = useAsync<{ rows: O[] }>(() => call('entrepot.list', { type, tous: true }), [type, n]);
+  const rows = (data?.rows ?? []) as O[];
+  // On rafraîchit CETTE liste et celle du parent : les onglets Entrée / Sortie
+  // travaillent sur les seuls entrepôts actifs, une désactivation les concerne.
+  const rafraichir = () => { setN((x) => x + 1); reload(); };
+
+  async function agir(travail: () => Promise<unknown>, succes: string) {
     setBusy(true);
-    try { await call('entrepot.create', { code, nom, type }); toast('Entrepôt créé.', 'ok'); setCode(''); setNom(''); reload(); }
+    try { await travail(); toast(succes, 'ok'); rafraichir(); }
     catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(false); }
   }
+
+  const pret = !!code.trim() && !!nom.trim();
+  const creer = () => {
+    // Le garde-fou reste — un clavier peut déclencher le bouton autrement —,
+    // mais il ne devrait plus jamais se déclencher : le bouton est désactivé
+    // tant que les deux champs ne sont pas remplis. Reprocher un oubli APRÈS
+    // le clic est la plus mauvaise façon de le signaler.
+    if (!pret) { toast('Renseignez le code ET le nom du magasin.', 'err'); return; }
+    return agir(async () => { await call('entrepot.create', { code, nom, type }); setCode(''); setNom(''); }, 'Entrepôt créé.');
+  };
+
+  const enregistrerNom = () => {
+    if (!edit || !edit.nom.trim()) { toast('Nom requis.', 'err'); return; }
+    return agir(async () => { await call('entrepot.edit', { code: edit.code, nom: edit.nom }); setEdit(null); }, 'Nom modifié.');
+  };
+
+  function basculer(e: O) {
+    const actif = e['actif'] !== false;
+    const c = String(e['code']);
+    const avertissement = actif
+      ? `DÉSACTIVER LE MAGASIN ${c}\n\n`
+        + `« ${String(e['nom'])} » ne sera plus proposé à la saisie des entrées ni des\n`
+        + `sorties. Son historique reste consultable, et vous pourrez le réactiver.\n\n`
+        + `Confirmer ?`
+      : `RÉACTIVER LE MAGASIN ${c}\n\n« ${String(e['nom'])} » sera de nouveau proposé à la saisie.\n\nConfirmer ?`;
+    if (!window.confirm(avertissement)) return;
+    return agir(() => call('entrepot.edit', { code: c, actif: !actif }), actif ? 'Magasin désactivé.' : 'Magasin réactivé.');
+  }
+
+  function supprimer(e: O) {
+    const c = String(e['code']);
+    const motif = window.prompt(
+      `⚠ SUPPRESSION DÉFINITIVE DU MAGASIN ${c}\n\n`
+      + `« ${String(e['nom'])} » sera effacé de la base. L'opération est inscrite au\n`
+      + `journal d'audit et ne peut pas être annulée.\n\n`
+      + `Elle sera REFUSÉE si le magasin contient la moindre entrée — dans ce cas,\n`
+      + `désactivez-le plutôt.\n\n`
+      + `Indiquez le motif :`, '');
+    if (motif === null) return;              // l'agent a renoncé
+    if (!motif.trim()) { toast('Motif obligatoire.', 'err'); return; }
+    if (!window.confirm(`Supprimer définitivement ${c} ?\n\nMotif : ${motif.trim()}`)) return;
+    return agir(() => call('entrepot.delete', { code: c, motif }), 'Magasin supprimé.');
+  }
+
   return <div className="card"><h2>Entrepôts {estIndus(type) ? 'industriels' : 'MAD'}</h2>
     <div className="grid2">
       <div><label className="help">Code</label><input className="mono" value={code} onChange={(e) => setCode(masks.alnum(e.target.value))} placeholder="ex. MAD-01" /></div>
       <div><label className="help">Nom</label><input value={nom} onChange={(e) => setNom(masks.upper(e.target.value))} /></div>
     </div>
-    <div style={{ marginTop: 10 }}><button disabled={busy} onClick={creer}>Créer l'entrepôt</button></div>
-    <div className="section-title" style={{ marginTop: 14 }}>Existants ({entrepots.length})</div>
-    <Table cols={[['code', 'Code'], ['nom', 'Nom'], ['creePar', 'Créé par']]} rows={entrepots} />
+    <div className="row" style={{ marginTop: 12, alignItems: 'center', gap: 10 }}>
+      <button disabled={busy || !pret} onClick={creer}>
+        <Icone nom="plus" taille={15} />Créer l'entrepôt
+      </button>
+      {!pret && <span className="help" style={{ margin: 0 }}>Renseignez le code et le nom pour activer le bouton.</span>}
+    </div>
+
+    <div className="section-title" style={{ marginTop: 14 }}>Existants ({rows.length})</div>
+    {loading ? <Spinner /> : rows.length === 0 ? <div className="empty">Aucun entrepôt {estIndus(type) ? 'industriel' : 'MAD'}.</div>
+      : <div className="tbl"><table>
+        <thead><tr><th>Code</th><th>Nom</th><th>Créé par</th><th>État</th><th>Actions</th></tr></thead>
+        <tbody>{rows.map((e) => {
+          const c = String(e['code']);
+          const actif = e['actif'] !== false;
+          const enEdition = edit?.code === c;
+          return <tr key={c} style={actif ? undefined : { opacity: .6 }}>
+            <td className="mono">{c}</td>
+            <td>{enEdition
+              ? <input value={edit.nom} autoFocus onChange={(ev) => setEdit({ code: c, nom: masks.upper(ev.target.value) })}
+                  onKeyDown={(ev) => { if (ev.key === 'Enter') enregistrerNom(); if (ev.key === 'Escape') setEdit(null); }} />
+              : String(e['nom'] ?? '')}</td>
+            <td>{String(e['creePar'] ?? '—')}</td>
+            <td><span className={`pastille-statut ${actif ? 'ok' : 'ko'}`}>{actif ? 'Actif' : 'Désactivé'}</span></td>
+            <td><div className="actions-u" style={{ justifyContent: 'flex-start' }}>
+              {enEdition
+                ? <>
+                  <button className="ghost xs" disabled={busy} onClick={enregistrerNom}>Enregistrer</button>
+                  <button className="ghost xs" onClick={() => setEdit(null)}>Annuler</button>
+                </>
+                : <>
+                  {/* Icônes plutôt que trois libellés : la colonne passait de
+                      280 px à 110, et les mêmes dessins servent déjà dans la
+                      liste des comptes — un seul vocabulaire à apprendre. */}
+                  <button className="acte" title="Renommer le magasin" aria-label={`Renommer ${c}`}
+                    disabled={busy} onClick={() => setEdit({ code: c, nom: String(e['nom'] ?? '') })}><Icone nom="crayon" taille={16} /></button>
+                  <button className={`acte ${actif ? 'acte-warn' : 'acte-ok'}`}
+                    title={actif ? 'Désactiver le magasin' : 'Réactiver le magasin'}
+                    aria-label={`${actif ? 'Désactiver' : 'Réactiver'} ${c}`}
+                    disabled={busy} onClick={() => basculer(e)}><Icone nom="interrupteur" taille={16} /></button>
+                  {/* Suppression : ADMIN seulement. Le serveur le revérifie. */}
+                  {admin && <button className="acte acte-err" title="Supprimer le magasin" aria-label={`Supprimer ${c}`}
+                    disabled={busy} onClick={() => supprimer(e)}><Icone nom="poubelle" taille={16} /></button>}
+                </>}
+            </div></td>
+          </tr>;
+        })}</tbody>
+      </table></div>}
   </div>;
 }
 
@@ -623,7 +1213,7 @@ function EntrepotSortie({ type, entrepots, nav }: { type: EntrepotType; entrepot
         </div>}
         <div className="section-title" style={{ marginTop: 12 }}>Camion</div>
         <div className="grid2">
-          <div><label className="help">N° camion</label><input className="mono" value={numCamion} onChange={(e) => setNumCamion(masks.alnum(e.target.value))} /></div>
+          <ChampCamion value={numCamion} onChange={setNumCamion} label="N° camion" />
           {[0, 1, 2].map((k) => <div key={k}><label className="help">Scellé {k + 1}</label>
             <input value={scelles[k] ?? ''} onChange={(e) => setScelles((a) => a.map((x, j) => j === k ? masks.upper(e.target.value) : x))} /></div>)}
         </div>
@@ -652,10 +1242,12 @@ function EntrepotStats({ type }: { type: EntrepotType }) {
     <div className="card"><h2>Par {lib.toLowerCase()} ({u})</h2>
       <p className="help" style={{ marginTop: 0 }}>Cliquez un {lib.toLowerCase()} pour voir le détail des entrées et des apurements.</p>
       <Table cols={[['nom', lib], ['entrees', `Entrées (${u})`], ['sorties', `Sorties (${u})`], ['restant', `Restant (${u})`]]}
+        icones={{ nom: indus ? 'usine' : 'entrepot' }}
         rows={ents} onRow={(r) => setSel(r)} /></div>
     <div className="card"><h2>Par déclaration ({u})</h2>
       {decls.length === 0 ? <div className="empty">Aucune entrée enregistrée.</div>
-        : <Table cols={[['libelle', 'Déclaration'], ['entrepotCode', lib], ['entrees', `Entrées (${u})`], ['sorties', `Sorties (${u})`], ['restant', `Restant (${u})`]]} rows={decls} />}
+        : <Table cols={[['libelle', 'Déclaration'], ['entrepotCode', lib], ['entrees', `Entrées (${u})`], ['sorties', `Sorties (${u})`], ['restant', `Restant (${u})`]]}
+          icones={{ libelle: 'document', entrepotCode: indus ? 'usine' : 'entrepot' }} rows={decls} />}
     </div>
     {sel && <DetailEntrepotStats entrepot={sel} unite={u} lib={lib} onClose={() => setSel(null)} />}
   </>;
@@ -668,7 +1260,7 @@ function DetailEntrepotStats({ entrepot, unite, lib, onClose }: { entrepot: O; u
   const entrees = (data?.rows ?? []) as O[];
   const [apur, setApur] = useState<{ entreeId: string; numero: number; designation: string } | null>(null);
   return <Modal onClose={onClose}>
-    <h2>{lib} {String(entrepot['nom'])} ({code})</h2>
+    <h2><span className="tp-pastille" aria-hidden="true"><Icone nom="entrepot" taille={18} /></span>{lib} {String(entrepot['nom'])} ({code})</h2>
     <div className="help" style={{ marginBottom: 8 }}>Entrées : {String(entrepot['entrees'])} {unite} · Sorties : {String(entrepot['sorties'])} {unite} · Restant : <b>{String(entrepot['restant'])}</b> {unite}</div>
     {loading ? <Spinner /> : entrees.length === 0 ? <div className="empty">Aucune entrée.</div>
       : entrees.map((e) => <div key={String(e['id'])} style={{ border: '1px solid var(--line)', borderRadius: 6, padding: 10, marginTop: 10 }}>
@@ -707,15 +1299,39 @@ function DetailApurements({ code, apur, unite, onClose }: { code: string; apur: 
     return { ...r, camion: camion || '—' };
   });
   return <Modal onClose={onClose}>
-    <h2>Apurements — article n°{apur.numero}{apur.designation ? ` (${apur.designation})` : ''}</h2>
+    <h2><span className="tp-pastille" aria-hidden="true"><Icone nom="boites" taille={18} /></span>Apurements — article n°{apur.numero}{apur.designation ? ` (${apur.designation})` : ''}</h2>
     <p className="help" style={{ marginTop: 0 }}>Déclarations venues apurer cet article ({unite}).</p>
     {loading ? <Spinner /> : rows.length === 0 ? <div className="empty">Aucun apurement.</div>
       : <Table cols={[['declaration', 'Déclaration d\'apurement'], [champ, `Quantité (${unite})`], ['dateSortie', 'Date'], ['camion', 'Camion / scellés'], ['agent', 'Agent']]} rows={rows} />}
   </Modal>;
 }
 
+/**
+ * AVIS D'ÉCHEC D'AFFICHAGE APRÈS UNE SIGNATURE — 2026-09-11.
+ *
+ * Mesuré sur la base réelle : la signature (`cargo.validerlot`) aboutit, puis
+ * le `reload()` qui la suit — la requête LOURDE de l'écran — échoue une fois
+ * sur trois environ (HTTP 546, worker tué faute de ressources). Le chef voyait
+ * alors un message ROUGE, en concluait que sa validation n'était pas passée, et
+ * recliquait. Pour un ADMIN, recliquer écrit une seconde ligne dans
+ * `validations` : du bruit dans la trace probante, causé par un simple défaut
+ * d'affichage.
+ *
+ * Quand une signature vient d'aboutir, l'erreur qui suit ne parle donc plus
+ * d'échec : elle dit ce qui est acquis, ce qui a manqué, et quoi faire.
+ */
+function AvisApresSignature({ error, signee }: { error: string; signee: number }) {
+  if (!signee) return <div className="err-msg">{error}</div>;
+  return <div className="avis-signature">
+    <b>✔ {signee} cargaison(s) ont bien été signées.</b> Seul l'affichage de la liste n'a pas pu se
+    rafraîchir — <b>ne resignez pas</b>. Rouvrez l'écran dans quelques secondes pour le voir à jour.
+    <span className="detail">Détail technique : {error}</span>
+  </div>;
+}
+
 SCREENS.completer = (nav) => <CargoList {...nav} filtre={{ etape: 'CFS' }} titre="À compléter (CFS)" />;
 SCREENS.wait_valid = (nav) => <ValidationDeclaration {...nav} />;
+SCREENS.wait_cfs = (nav) => <CargoList {...nav} filtre={{ etape: 'CFS' }} titre="En cours au CFS" />;
 SCREENS.wait_t1 = (nav) => <CargoList {...nav} filtre={{ etape: 'T1' }} titre="En attente T1" />;
 SCREENS.wait_gps = (nav) => <CargoList {...nav} filtre={{ etape: 'BALISE' }} titre="En attente Balise" />;
 SCREENS.wait_bs = (nav) => <CargoList {...nav} filtre={{ etape: 'BS' }} titre="En attente Bon de Sortie" />;
@@ -754,7 +1370,7 @@ function ModaleMixte({ match, quoi, onOuvrir, onCreer, onAnnuler }: {
   match: O; quoi: string; onOuvrir: () => void; onCreer: () => void; onAnnuler: () => void;
 }) {
   return <Modal onClose={onAnnuler}>
-    <h2>Ce {quoi} existe déjà</h2>
+    <h2><span className="tp-pastille" aria-hidden="true"><Icone nom="camion" taille={18} /></span>Ce {quoi} existe déjà</h2>
     <p className="help" style={{ marginTop: 0 }}>
       <b className="mono">{String(match['numeroCamion'])}</b> est déjà enregistré (statut « {String(match['statut'])} »),
       encore en cours de saisie. Voulez-vous l'<b>ouvrir pour y ajouter</b> (chargement mixte) plutôt que d'en créer un nouveau&nbsp;?
@@ -777,7 +1393,7 @@ function ModaleSimilaires({ similaires, quoi, onOuvrir, onCreer, onAnnuler }: {
 }) {
   const plur = similaires.length > 1;
   return <Modal onClose={onAnnuler}>
-    <h2>Ce numéro ressemble à un {quoi} existant</h2>
+    <h2><span className="tp-pastille" aria-hidden="true"><Icone nom="loupe" taille={18} /></span>Ce numéro ressemble à un {quoi} existant</h2>
     <p className="help" style={{ marginTop: 0 }}>
       Le numéro saisi ressemble de très près à {plur ? `des ${quoi}s déjà enregistrés` : `un ${quoi} déjà enregistré`},
       encore présent{plur ? 's' : ''} dans l'enceinte — peut-être une <b>faute de frappe</b>.
@@ -796,18 +1412,103 @@ function ModaleSimilaires({ similaires, quoi, onOuvrir, onCreer, onAnnuler }: {
   </Modal>;
 }
 
+/**
+ * ARRIVEE SUR LE SITE - pied de l'ecran de creation (2026-09-12).
+ *
+ * Pendant a la scene de quai de l'ecran de connexion, mais racontant l'etape
+ * SUIVANTE : le camion se presente au poste d'entree de la PIA, la barriere
+ * se leve, il franchit le portail et rentre sur le parc. C'est exactement le
+ * geste que l'agent est en train d'enregistrer au-dessus.
+ *
+ * SVG dessine a la main, aucune image : `netlify.toml` interdit les ressources
+ * tierces. Tout le mouvement est en CSS (`@keyframes pia-*`), sur UN SEUL
+ * cycle partage - c'est ce qui garantit que la barriere se leve quand le
+ * camion est devant, et pas dans le vide. Decoratif : `aria-hidden`, et
+ * neutralise en << mouvement reduit >>.
+ */
+function SceneEntreePIA() {
+  return (
+    <div className="entree-pia" aria-hidden="true">
+      <svg viewBox="0 0 600 118" preserveAspectRatio="xMidYMax meet" width="100%" height="100%">
+        {/* LE PARC, derriere la cloture : des piles de conteneurs en retrait.
+            Volontairement pales - c'est l'arriere-plan, pas le sujet. */}
+        <g opacity="0.42">
+          <rect x="452" y="74" width="42" height="15" rx="2" fill="#0e5a8a" />
+          <rect x="452" y="59" width="42" height="15" rx="2" fill="#b4531f" />
+          <rect x="498" y="74" width="42" height="15" rx="2" fill="#1f7a5c" />
+          <rect x="544" y="74" width="42" height="15" rx="2" fill="#b4531f" />
+          <rect x="544" y="59" width="42" height="15" rx="2" fill="#0e5a8a" />
+        </g>
+        {/* La cloture du parc, a droite du portail. */}
+        <g stroke="#c3d0da" strokeWidth="2" strokeLinecap="round">
+          <path d="M546 89 H600" />
+          <path d="M552 89 V78 M566 89 V78 M580 89 V78 M594 89 V78" />
+        </g>
+
+        {/* LA CHAUSSEE : la bande sur laquelle tout se pose. */}
+        <rect x="0" y="89" width="600" height="29" fill="#e2e8ee" />
+        <rect x="0" y="89" width="600" height="3" fill="#c9d5df" />
+        <path d="M0 104 H600" stroke="#cfdae3" strokeWidth="3" strokeDasharray="20 16" />
+
+        {/* LE PORTAIL : deux piles et le bandeau qui porte le nom du site. */}
+        <rect x="404" y="34" width="10" height="55" rx="2" fill="#8ea0b0" />
+        <rect x="530" y="34" width="10" height="55" rx="2" fill="#8ea0b0" />
+        <rect x="396" y="18" width="152" height="19" rx="4" fill="#0e5a8a" />
+        <text x="472" y="32" textAnchor="middle" fill="#ffffff"
+          fontSize="12" fontWeight="700" letterSpacing="2.5">PIA</text>
+
+        {/* LE POSTE DE GARDE, a l'ecart de la voie. */}
+        <path d="M548 60 h46 l-6 -9 h-34 z" fill="#8ea0b0" />
+        <rect x="552" y="60" width="38" height="29" rx="2" fill="#eef3f7" stroke="#c3d0da" strokeWidth="1.5" />
+        <rect x="559" y="66" width="24" height="14" rx="2" fill="#9fb6c8" />
+
+        {/* LA BARRIERE : elle pivote sur son pied, a gauche de la voie. Le
+            pivot est pose en unites du viewBox (`transform-box:view-box`),
+            sinon la barre tournerait autour du centre de sa propre boite et
+            decollerait du pied. */}
+        <rect x="330" y="66" width="8" height="23" rx="2" fill="#7c8fa0" />
+        <circle className="pia-temoin" cx="334" cy="62" r="3.4" fill="#d94f2a" />
+        <g className="pia-barriere">
+          <rect x="333" y="70" width="96" height="7" rx="3.5" fill="#ffffff" stroke="#b4531f" strokeWidth="1.6" />
+          <path d="M348 73.5 h13 M378 73.5 h13 M408 73.5 h13" stroke="#d94f2a" strokeWidth="7" />
+        </g>
+
+        {/* LE CAMION : il arrive de la route, marque l'arret au poste, puis
+            franchit le portail. Dessine autour de l'origine, positionne par
+            l'animation seule. */}
+        <g className="pia-camion">
+          <rect x="0" y="60" width="70" height="27" rx="3" fill="#1f7a5c" />
+          <path d="M12 62 V85 M26 62 V85 M40 62 V85 M54 62 V85" stroke="rgba(255,255,255,.35)" strokeWidth="2" />
+          <rect x="-2" y="86" width="104" height="5" rx="2" fill="#44586b" />
+          <path d="M74 86 V64 h18 l14 16 v6 z" fill="#32485c" />
+          <rect x="79" y="68" width="16" height="11" rx="2" fill="#cfdbe5" />
+          <circle cx="16" cy="92" r="7" fill="#2b3b49" />
+          <circle cx="44" cy="92" r="7" fill="#2b3b49" />
+          <circle cx="90" cy="92" r="7" fill="#2b3b49" />
+          <circle cx="16" cy="92" r="2.6" fill="#7f8e9c" />
+          <circle cx="44" cy="92" r="2.6" fill="#7f8e9c" />
+          <circle cx="90" cy="92" r="2.6" fill="#7f8e9c" />
+        </g>
+      </svg>
+    </div>
+  );
+}
+
 SCREENS.creercamion = ({ go }) => {
   const [num, setNum] = useState('');
   const [routage, setRoutage] = useState(OPERATIONS.ENLEVEMENT as string);
   const [busy, setBusy] = useState(false);
+  const verrou = useRef(false); // double clic : cf. useEnvoiUnique
   const [match, setMatch] = useState<O | null>(null);
   const [simil, setSimil] = useState<O[] | null>(null);
   async function faireCreer() {
+    if (verrou.current) return;
+    verrou.current = true;
     setBusy(true);
     try {
       const r = await call<{ id: string }>('cargo.createcamion', { numeroCamion: num, routage });
       toast('Camion créé.', 'ok'); go('detail', r.id);
-    } catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(false); }
+    } catch (e) { toast((e as Error).message, 'err'); } finally { verrou.current = false; setBusy(false); }
   }
   async function creer() {
     if (!num) { toast('N° camion requis.', 'err'); return; }
@@ -818,10 +1519,25 @@ SCREENS.creercamion = ({ go }) => {
     if (similaires.length) { setSimil(similaires); return; } // N° ressemblant → avertir
     await faireCreer();
   }
-  return <div className="card" style={{ maxWidth: 480 }}>
-    <h2>Créer un camion à l'entrée</h2>
-    <p className="help">Le CFS crée le camion vide et choisit le type d'opération ; l'association des conteneurs se fait ensuite dans le détail.</p>
-    <label className="help">N° camion</label><input className="mono" value={num} onChange={(e) => setNum(masks.alnum(e.target.value))} />
+  return <div className="ecran-creer"><div className="card" style={{ maxWidth: 520 }}>
+    {/* EN-TÊTE ILLUSTRÉ (2026-09-11) — le logo comme sur l'écran de connexion,
+        mais l'animation raconte ici ce qu'on vient y faire : un camion ENTRE
+        dans le cercle, puis un « + » apparaît. L'écran de connexion montre un
+        suivi ; celui-ci montre une création. */}
+    <div className="creer-entete">
+      <div className="creer-logo">
+        <span className="creer-piste" aria-hidden="true" />
+        <span className="creer-onde" aria-hidden="true" />
+        <img className="logo-rond" src="/logo_PIA.jpg" alt=""
+          onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />
+        <span className="creer-camion" aria-hidden="true"><Icone nom="camion" taille={17} /></span>
+        <span className="creer-plus" aria-hidden="true"><Icone nom="plus" taille={14} /></span>
+      </div>
+      <h2>Créer un camion à l'entrée</h2>
+      <p className="help">Le CFS crée le camion vide et choisit le type d'opération ;
+        l'association des conteneurs se fait ensuite dans le détail.</p>
+    </div>
+    <ChampCamion value={num} onChange={setNum} label="N° camion" />
     <label className="help">Type d'opération</label>
     <select value={routage} onChange={(e) => setRoutage(e.target.value)}><option>{OPERATIONS.ENLEVEMENT}</option><option>{OPERATIONS.DEPOTAGE}</option></select>
     <div style={{ marginTop: 12 }}><button disabled={busy} onClick={creer}>Créer</button></div>
@@ -833,6 +1549,13 @@ SCREENS.creercamion = ({ go }) => {
       onOuvrir={(id) => { setSimil(null); go('detail', id); }}
       onCreer={() => { setSimil(null); faireCreer(); }}
       onAnnuler={() => setSimil(null)} />}
+    {/* Mot d'accueil en pied de carte (2026-09-11) : une ligne, dans la même
+        mise en page que celle de l'écran de connexion — deux filets qui
+        s'effacent de part et d'autre. L'écran de saisie du CFS est le premier
+        geste de la journée ; il n'y a pas de raison qu'il soit sec. */}
+    <p className="mot-accueil creer-mot">Bienvenue, et bonne saisie</p>
+  </div>
+  <SceneEntreePIA />
   </div>;
 };
 
@@ -914,7 +1637,7 @@ SCREENS.lotcamions = ({ go }) => {
     {lignes.map((l, i) => <div key={i} style={{ border: '1px solid var(--line)', borderRadius: 6, padding: 10, marginTop: 8 }}>
       <div className="row" style={{ alignItems: 'center' }}>
         <div style={{ flex: 1 }}><label className="help">N° camion {i + 1}</label>
-          <input className="mono" value={l.numeroCamion} onChange={(e) => majLigne(i, { numeroCamion: masks.alnum(e.target.value) })} /></div>
+          <ChampCamion value={l.numeroCamion} onChange={(v) => majLigne(i, { numeroCamion: v })} label="" /></div>
         <button className="ghost xs" onClick={() => majLigne(i, { conteneurs: [...l.conteneurs, ctVide()] })}>＋ Conteneur</button>
         {lignes.length > 1 && <button className="ghost xs" onClick={() => setLignes((a) => a.filter((_, j) => j !== i))}>Retirer</button>}
       </div>
@@ -953,34 +1676,38 @@ SCREENS.lotcamions = ({ go }) => {
  * il est où ? » — et non une consultation de l'historique, qui reste l'écran
  * « Cargaisons ». Camions ET véhicules sont cherchés ensemble.
  */
-SCREENS.search = ({ go }) => {
+SCREENS.search = ({ go, user }) => {
   const [q, setQ] = useState('');
   const cherche = q.trim().length >= 2;
-  const { data, loading } = useAsync<{ rows: O[]; total: number }>(
+  const { data, loading, reload } = useAsync<{ rows: O[]; total: number }>(
     () => (cherche ? call('cargo.list', { categorie: 'tous', actifs: true, search: q.trim(), pageSize: 100 })
       : call('cargo.list', { categorie: 'tous', actifs: true, pageSize: 100 })), [q]);
   const rows = data?.rows ?? [];
-  return <div className="card">
-    <h2>Rechercher une cargaison en cours</h2>
-    <p className="help" style={{ marginTop: 0 }}>
-      Uniquement les cargaisons <b>encore présentes</b> (non sorties). Cherchez par
-      N° de camion, N° de conteneur, ID de cargaison ou N° de balise — les espaces et
-      tirets sont ignorés.
-    </p>
-    <input className="mono" value={q} onChange={(e) => setQ(e.target.value)}
-      placeholder="N° camion, conteneur, ID ou balise…" autoFocus />
-    <div className="help" style={{ marginTop: 8 }}>
-      {loading ? 'Recherche…' : cherche
-        ? `${data?.total ?? 0} résultat(s) actif(s)`
-        : `${data?.total ?? 0} cargaison(s) active(s) — tapez au moins 2 caractères pour filtrer`}
-    </div>
-    <div style={{ marginTop: 10 }}>
+  return <>
+    {/* Le champ de recherche EST la commande de l'ecran : il se range dans
+        l'angle du bandeau, avec le compteur de resultats en sous-titre. */}
+    <BandeauModule icone="loupe" titre="Rechercher une cargaison en cours"
+      sous={<>
+        Uniquement les cargaisons <b>encore présentes</b> (non sorties) — par
+        N° de camion, de conteneur, de balise ou ID ; espaces et tirets ignorés.
+        {' · '}
+        {loading ? 'Recherche…' : cherche
+          ? `${data?.total ?? 0} résultat(s)`
+          : `${data?.total ?? 0} cargaison(s) active(s), tapez au moins 2 caractères pour filtrer`}
+      </>}
+      action={<div className="bm-outils">
+        <input className="mono" value={q} onChange={(e) => setQ(e.target.value)}
+          placeholder="N° camion, conteneur, ID…" style={{ width: 230 }} autoFocus />
+      </div>} />
+    <div className="card">
+    <div>
       {loading ? <Spinner /> : <Table
         cols={[['numeroCamion', 'Camion / Châssis'], ['conteneur1', 'Conteneur'], ['typeOperation', 'Opération'],
           ['statut', 'Statut'], ['etapeEnCours', 'Attendu à'], ['dateCreation', 'Entré le']]}
-        rows={rows.map(avecEtape)} onRow={(r) => go('detail', r['id'])} />}
+        rows={rows.map(avecEtape)} onRow={(r) => go('detail', r['id'])}
+        actions={(r) => <ActionsDossier r={r} admin={user.role === ROLES.ADMIN} onFait={reload} />} />}
     </div>
-  </div>;
+  </div></>;
 };
 
 /** Prochaine cellule qui doit traiter la cargaison — la réponse cherchée au guichet. */
@@ -1041,6 +1768,8 @@ function FormVehicule({ go }: { go: Nav['go'] }) {
   const majCam = (i: number, patch: Partial<CamEffets>) => setCams((a) => a.map((c, j) => (j === i ? { ...c, ...patch } : c)));
   const [match, setMatch] = useState<O | null>(null); // v4.1 : véhicule déjà présent → mixte ?
   const [simil, setSimil] = useState<O[] | null>(null); // 2026-08-19 : châssis ressemblant → avertir
+  // 2026-09-12 — le bouton n'avait AUCUNE garde : 732382 créé trois fois à 12:23.
+  const { busy, envoyer } = useEnvoiUnique();
 
   async function faireCreer() {
     try {
@@ -1109,7 +1838,7 @@ function FormVehicule({ go }: { go: Nav['go'] }) {
     </div>
     {cams.map((c, i) => <div key={i} style={{ border: '1px solid var(--line)', borderRadius: 6, padding: 10, marginTop: 8 }}>
       <div className="row" style={{ alignItems: 'center' }}>
-        <div style={{ flex: 1 }}><label className="help">N° camion</label><input className="mono" value={c.numeroCamion} onChange={(e) => majCam(i, { numeroCamion: masks.alnum(e.target.value) })} /></div>
+        <ChampCamion value={c.numeroCamion} onChange={(v) => majCam(i, { numeroCamion: v })} label="N° camion" />
         <button className="ghost xs" onClick={() => setCams((a) => a.filter((_, j) => j !== i))}>Retirer</button>
       </div>
       <div style={{ marginTop: 6 }}><label className="help">Désignation des effets divers</label>
@@ -1126,14 +1855,14 @@ function FormVehicule({ go }: { go: Nav['go'] }) {
       </div>}
     </div>)}
 
-    <div style={{ marginTop: 12 }}><button onClick={creer}>Créer le véhicule</button></div>
+    <div style={{ marginTop: 12 }}><button disabled={busy} onClick={() => envoyer(creer)}>{busy ? 'Enregistrement…' : 'Créer le véhicule'}</button></div>
     {match && <ModaleMixte match={match} quoi="véhicule"
       onOuvrir={() => { setMatch(null); go('detail', match['id']); }}
-      onCreer={() => { setMatch(null); faireCreer(); }}
+      onCreer={() => { setMatch(null); envoyer(faireCreer); }}
       onAnnuler={() => setMatch(null)} />}
     {simil && <ModaleSimilaires similaires={simil} quoi="véhicule"
       onOuvrir={(id) => { setSimil(null); go('detail', id); }}
-      onCreer={() => { setSimil(null); faireCreer(); }}
+      onCreer={() => { setSimil(null); envoyer(faireCreer); }}
       onAnnuler={() => setSimil(null)} />}
   </div>;
 }
@@ -1170,6 +1899,33 @@ function FormMagasin({ go }: { go: Nav['go'] }) {
   const [chargementTermine, setChargementTermine] = useState(true);
   const [scelles, setScelles] = useState(['', '', '']);
   const set = (k: string, val: unknown) => setD((o) => ({ ...o, [k]: val }));
+
+  /* ANTI-DOUBLON À LA SAISIE (2026-09-10).
+   *
+   * Le serveur refuse déjà un camion déjà présent, mais seulement à l'envoi —
+   * c'est-à-dire après que l'agent a rempli toute la déclaration. On l'avertit
+   * donc dès qu'il quitte le champ ou appuie sur Entrée, avant qu'il ne travaille
+   * pour rien.
+   *
+   * Et surtout on lui propose LA SORTIE : un même camion qui emporte de la
+   * marchandise relevant d'une autre déclaration n'est pas un doublon, c'est un
+   * chargement mixte, et il se saisit sur la fiche déjà ouverte. Sans cette
+   * proposition, l'agent bloqué invente une plaque pour passer outre. */
+  const [dejaLa, setDejaLa] = useState<O | null>(null);
+
+  async function verifierDoublon(plaque: string) {
+    setDejaLa(null);
+    if (!plaque.trim()) return;
+    try {
+      const r = await call<{ camion: O[] }>('cargo.checkdup', { numeroCamion: plaque });
+      // `checkdup` renvoie AUSSI les camions déjà sortis. Ceux-là ne sont pas des
+      // doublons : un camion qui revient est normal, et le serveur ne les bloque
+      // pas non plus (cf. camionActif). On n'alerte que sur un camion ENCORE
+      // dans l'enceinte — sinon l'avertissement crierait au loup à chaque retour.
+      setDejaLa((r.camion ?? []).find((x) => x['actif'] === true) ?? null);
+    } catch { /* l'avertissement est un confort : son échec ne bloque pas la saisie */ }
+  }
+
   async function creer() {
     if (!num) { toast('N° camion requis.', 'err'); return; }
     if (chargementTermine && scelles.filter(Boolean).length < 2) { toast('Au moins 2 scellés camion (ou décochez « chargement terminé »).', 'err'); return; }
@@ -1181,12 +1937,32 @@ function FormMagasin({ go }: { go: Nav['go'] }) {
       toast('Sortie magasin créée.', 'ok'); go('detail', r.camions[0]?.id);
     } catch (e) { toast((e as Error).message, 'err'); }
   }
+  const { busy, envoyer } = useEnvoiUnique();
   return <div style={{ marginTop: 12 }}>
     <div className="section-title">Déclaration</div>
     <InfoTypeDecl d={d} mode={mode} setMode={setMode} />
     <DeclFields d={d} set={set} />
     <div className="section-title" style={{ marginTop: 14 }}>Camion</div>
-    <div className="grid2"><div><label className="help">N° camion</label><input className="mono" value={num} onChange={(e) => setNum(masks.alnum(e.target.value))} /></div></div>
+    <div className="grid2"><div>
+      <ChampCamion value={num} onChange={(v) => { setNum(v); setDejaLa(null); }} label="N° camion"
+        onBlur={() => verifierDoublon(num)} onEnter={() => verifierDoublon(num)} />
+    </div></div>
+    {dejaLa && <div className="card" style={{ marginTop: 8, borderLeft: '4px solid var(--warn)' }}>
+      <b style={{ color: 'var(--warn)' }}>⚠ Ce camion est déjà dans le système</b>
+      <div className="help" style={{ marginTop: 4 }}>
+        <span className="mono">{String(dejaLa['numeroCamion'] ?? '')}</span> —
+        dossier <span className="mono">{String(dejaLa['id'] ?? '')}</span>,
+        statut « {String(dejaLa['statut'] ?? '')} ».
+      </div>
+      <p className="help" style={{ marginTop: 8 }}>
+        S'il emporte <b>aussi</b> cette marchandise, ce n'est pas un nouveau dossier
+        mais un <b>chargement mixte</b> : ajoutez cette déclaration sur la fiche
+        existante. S'il s'agit d'un autre camion, vérifiez la plaque.
+      </p>
+      <button onClick={() => go('detail', String(dejaLa['id'] ?? ''))}>
+        Ouvrir {String(dejaLa['id'] ?? '')} pour un chargement mixte
+      </button>
+    </div>}
     <label className="help" style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 10 }}>
       <input type="checkbox" style={{ width: 'auto' }} checked={chargementTermine} onChange={(e) => setChargementTermine(e.target.checked)} />
       <span>Chargement terminé (scellés posés) — sinon « En cours de chargement »</span>
@@ -1195,7 +1971,7 @@ function FormMagasin({ go }: { go: Nav['go'] }) {
       {[0, 1, 2].map((k) => <div key={k}><label className="help">Scellé camion {k + 1}{k < 2 ? ' *' : ''}</label>
         <input value={scelles[k] ?? ''} onChange={(e) => setScelles((a) => a.map((x, j) => j === k ? masks.upper(e.target.value) : x))} /></div>)}
     </div>}
-    <div style={{ marginTop: 12 }}><button onClick={creer}>Créer</button></div>
+    <div style={{ marginTop: 12 }}><button disabled={busy} onClick={() => envoyer(creer)}>{busy ? 'Enregistrement…' : 'Créer'}</button></div>
   </div>;
 }
 
@@ -1216,19 +1992,20 @@ function FormConso({ go }: { go: Nav['go'] }) {
       toast('Conso créée.', 'ok'); go('detail', r.camions[0]?.id);
     } catch (e) { toast((e as Error).message, 'err'); }
   }
+  const { busy, envoyer } = useEnvoiUnique();
   return <div style={{ marginTop: 12 }}>
     <div className="section-title">Déclaration</div>
     <InfoTypeDecl d={d} mode={mode} setMode={setMode} />
     <DeclFields d={d} set={set} />
     <div className="section-title" style={{ marginTop: 14 }}>Camion & conteneur</div>
     <div className="grid2">
-      <div><label className="help">N° camion</label><input className="mono" value={num} onChange={(e) => setNum(masks.alnum(e.target.value))} /></div>
+      <div><ChampCamion value={num} onChange={setNum} label="N° camion" /></div>
       <div><label className="help">Conteneur</label><input className="mono" value={String(ct['num'])} onChange={(e) => setC('num', masks.tc(e.target.value))} /></div>
       <div><label className="help">Taille</label><input value={String(ct['taille'])} onChange={(e) => setC('taille', masks.upper(e.target.value))} /></div>
       <div><label className="help">Type</label><input value={String(ct['type'])} onChange={(e) => setC('type', masks.upper(e.target.value))} /></div>
       <div><label className="help">Scellé</label><input value={String(ct['plomb'])} onChange={(e) => setC('plomb', masks.upper(e.target.value))} /></div>
     </div>
-    <div style={{ marginTop: 12 }}><button onClick={creer}>Créer</button></div>
+    <div style={{ marginTop: 12 }}><button disabled={busy} onClick={() => envoyer(creer)}>{busy ? 'Enregistrement…' : 'Créer'}</button></div>
   </div>;
 }
 
@@ -1250,12 +2027,9 @@ function StatsDepotage() {
   const { data, loading, error } = useAsync<{ rows: O[]; compte: O }>(
     () => call('report.depotage', { du: p.du, au: p.au }), [p.du, p.au]);
   const c = (data?.compte ?? {}) as O;
-  return <div className="card">
-    <div className="row" style={{ alignItems: 'center', flexWrap: 'wrap' }}>
-      <h2 style={{ flex: 1, margin: 0 }}>Statistiques de dépotage</h2>
-      <PeriodPicker p={p} />
-    </div>
-    <PeriodeLue p={p} />
+  return <><BandeauModule icone="conteneur" titre="Statistiques de dépotage" sous={<PeriodeLue p={p} />}
+    action={<div className="bm-outils"><PeriodPicker p={p} /></div>} />
+  <div className="card">
     {/* Netlify déploie le front dès le push, l'Edge Function quelques minutes
         plus tard : entre les deux, cette action n'existe pas encore côté
         serveur. On l'annonce comme telle plutôt que d'afficher une erreur
@@ -1268,7 +2042,9 @@ function StatsDepotage() {
       <div className="stats" style={{ marginTop: 10 }}>
         <StatCard n={Number(c['pointes'] ?? 0)} l="Positionnés (période)" />
         <StatCard n={Number(c['depotes'] ?? 0)} l="Dépotés (période)" tone="ok" />
-        <StatCard n={Number(c['restant'] ?? 0)} l="Restant à dépoter" tone="warn" />
+        {/* Même flèche que les étapes du tableau de bord : positionnés = arrivées, dépotés = départs. */}
+        <StatCard n={Number(c['restant'] ?? 0)} l="Restant à dépoter" tone="warn"
+          comparable repartition={repartition(Number(c['pointes'] ?? 0), Number(c['depotes'] ?? 0))} />
         <StatCard n={Number(c['evp'] ?? 0)} l="EVP restants" />
         <StatCard n={Number(c['jamaisPointes'] ?? 0)} l="Au parc, jamais pointés" tone="warn" />
       </div>
@@ -1308,7 +2084,7 @@ function StatsDepotage() {
             rows={data?.rows ?? []} />
         </>}
     </>}
-  </div>;
+  </div></>;
 }
 function StockList({ statut, titre }: { statut: string; titre?: string }) {
   const { data, loading, error } = useAsync<{ rows: O[]; compte: O }>(() => call('stock.list', { statut }), [statut]);
@@ -1612,7 +2388,7 @@ function ConflitsImport({ a, busy, onChoix, onAnnuler }: { a: O; busy: boolean; 
   const nouveaux = Number(a['nouveaux'] ?? 0);
   const manuels = Number(a['manuels'] ?? 0);
   return <Modal onClose={onAnnuler}>
-    <h2>{doublons.length} conteneur(s) déjà connu(s) du système</h2>
+    <h2><span className="tp-pastille" aria-hidden="true"><Icone nom="conteneur" taille={18} /></span>{doublons.length} conteneur(s) déjà connu(s) du système</h2>
     <p className="help" style={{ marginTop: 0 }}>
       Le fichier apporte <b>{nouveaux} nouveau(x)</b> conteneur(s) — ceux-là seront ajoutés dans tous les cas.
       Les {doublons.length} ci-dessous existent déjà{engages > 0 && <> et <b style={{ color: 'var(--warn)' }}>{engages} sont déjà engagés</b> (positionnés, dépotés ou rattachés à un camion)</>}.
@@ -1688,10 +2464,28 @@ SCREENS.etatcfs = ({ go }) => {
 function imprimerHtml(html: string) {
   const w = window.open('', '_blank');
   if (!w) { toast('Autorisez les fenêtres surgissantes pour imprimer.', 'err'); return; }
-  w.document.write(html);
+  /* UNE BALISE `base` INJECTEE (2026-09-12).
+   *
+   * La fenetre est ouverte sur `about:blank` : une adresse relative comme
+   * `/logo_PIA.jpg` n'y resout PAS vers l'application, et le logo des editions
+   * ne s'affichait pas. La `base` ancre le document sur l'origine de
+   * l'application ; toutes les adresses relatives suivent.
+   *
+   * Elle est posee ICI, et non dans le gabarit du serveur : celui-ci n'a aucun
+   * moyen de connaitre l'origine du navigateur (preview, Netlify, domaine
+   * propre), et n'a pas a la connaitre. */
+  const avecBase = html.replace(/<head>/i, `<head><base href="${location.origin}/">`);
+  w.document.write(avecBase);
   w.document.close();
   w.focus();
-  setTimeout(() => w.print(), 300); // laisse le rendu se poser avant l'impression
+  /* On attend que les IMAGES soient chargees avant d'ouvrir l'impression :
+   * sans cela, le logo arrivait apres le rendu et l'apercu sortait sans lui.
+   * Le delai reste une SECURITE, pas le mecanisme - si `load` ne vient jamais
+   * (image absente), l'impression part quand meme. */
+  let lance = false;
+  const imprimer = () => { if (!lance) { lance = true; w.print(); } };
+  w.addEventListener('load', imprimer);
+  setTimeout(imprimer, 1200);
 }
 
 /* ------------- Bon de chargement — recherche par déclaration ----------- */
@@ -1809,8 +2603,19 @@ function ValidationDeclaration({ go, arg, retour, ecranPrecedent }: Nav) {
   const { data, loading, error, reload } = useAsync<O>(
     () => call('report.validationdecl', ouverte ?? {}), [JSON.stringify(ouverte)]);
 
+  // 2026-09-11 — nombre de cargaisons signées à l'instant, retenu le temps que
+  // l'écran se rafraîchisse. Sert UNIQUEMENT à ne pas présenter un échec
+  // d'affichage comme un échec de signature (voir `AvisApresSignature`).
+  const [signee, setSignee] = useState(0);
+  useEffect(() => {
+    // Le rafraîchissement a fini par aboutir : la liste est à jour, l'avis n'a
+    // plus lieu d'être.
+    if (!loading && !error) setSignee(0);
+  }, [loading, error]);
+
   if (ouverte) return <DossierValidation decl={ouverte} data={data} loading={loading} error={error}
-    reload={reload} fermer={() => (ecranPrecedent === 'wait_valid' ? retour() : go('wait_valid'))} go={go} />;
+    reload={reload} signee={signee} onSigne={setSignee}
+    fermer={() => (ecranPrecedent === 'wait_valid' ? retour() : go('wait_valid'))} go={go} />;
 
   const decls = (data?.['declarations'] as O[]) ?? [];
   const selCles = Object.keys(sel);
@@ -1825,25 +2630,30 @@ function ValidationDeclaration({ go, arg, retour, ecranPrecedent }: Nav) {
 
   if (groupe) return <ValidationGroupee cles={Object.values(sel)} go={go}
     fermer={() => setGroupe(false)}
-    onDone={() => { setSel({}); setGroupe(false); reload(); }} />;
+    onDone={(nb) => { setSignee(nb); setSel({}); setGroupe(false); reload(); }} />;
 
-  return <div className="card">
-    <h2>Déclarations à valider</h2>
-    <p className="help" style={{ marginTop: 0 }}>
-      Ouvrez une déclaration pour examiner <b>tous</b> ses camions, véhicules et conteneurs,
-      puis signer l'ensemble en une fois — ou <b>cochez plusieurs déclarations</b> et validez-les
-      toutes d'un même geste.
-    </p>
-    <div className="row" style={{ alignItems: 'flex-end', gap: 8, marginBottom: 12 }}>
-      <div style={{ flex: 1, minWidth: 200 }}><label className="help">Ouvrir directement un N° de déclaration</label>
-        <input className="mono" value={q.numeroDeclaration} onChange={(e) => setQ({ ...q, numeroDeclaration: masks.upper(e.target.value) })}
-          onKeyDown={(e) => e.key === 'Enter' && q.numeroDeclaration.trim() && ouvrir(q)} /></div>
-      <div><label className="help">Année</label><input value={q.anneeDeclaration} style={{ maxWidth: 90 }}
-        onChange={(e) => setQ({ ...q, anneeDeclaration: e.target.value })} /></div>
-      <button disabled={!q.numeroDeclaration.trim()} onClick={() => ouvrir(q)}>Ouvrir</button>
-    </div>
+  return <>
+    {/* Bandeau de module (2026-09-12) : l'acces direct a un N° de declaration
+        est LE geste d'entree de cet ecran - il se range donc dans l'angle, avec
+        le reste des commandes. */}
+    <BandeauModule icone="valider" titre="Déclarations à valider"
+      sous={<>
+        Ouvrez une déclaration pour examiner <b>tous</b> ses camions, véhicules et conteneurs,
+        puis signer l'ensemble en une fois — ou <b>cochez plusieurs déclarations</b> et validez-les
+        toutes d'un même geste.
+        {decls.length > 0 && <> — <b>{decls.length}</b> en attente.</>}
+      </>}
+      action={<div className="bm-outils">
+        <input className="mono" placeholder="N° de déclaration" style={{ width: 170 }}
+          value={q.numeroDeclaration} onChange={(e) => setQ({ ...q, numeroDeclaration: masks.upper(e.target.value) })}
+          onKeyDown={(e) => e.key === 'Enter' && q.numeroDeclaration.trim() && ouvrir(q)} />
+        <input value={q.anneeDeclaration} style={{ width: 88 }} aria-label="Année" placeholder="Année"
+          onChange={(e) => setQ({ ...q, anneeDeclaration: e.target.value })} />
+        <button disabled={!q.numeroDeclaration.trim()} onClick={() => ouvrir(q)}>Ouvrir</button>
+      </div>} />
+    <div className="card et-validation">
 
-    {loading ? <Spinner /> : error ? <div className="err-msg">{error}</div> : decls.length === 0
+    {loading ? <Spinner /> : error ? <AvisApresSignature error={error} signee={signee} /> : decls.length === 0
       ? <div className="empty">Aucune déclaration en attente de validation.</div>
       : <>
         <div className="row" style={{ alignItems: 'center', justifyContent: 'space-between', marginBottom: 6, gap: 8 }}>
@@ -1881,7 +2691,7 @@ function ValidationDeclaration({ go, arg, retour, ecranPrecedent }: Nav) {
           ))}</tbody>
         </table></div>
       </>}
-  </div>;
+  </div></>;
 }
 
 /**
@@ -1893,7 +2703,10 @@ function ValidationDeclaration({ go, arg, retour, ecranPrecedent }: Nav) {
  * lot n'aurait aucune valeur probante sur une fiche isolée.
  */
 function ValidationGroupee({ cles, fermer, go, onDone }: {
-  cles: QDecl[]; fermer: () => void; go: Nav['go']; onDone: () => void;
+  // `onDone` reçoit le NOMBRE de cargaisons effectivement signées (2026-09-11) :
+  // l'écran de retour en a besoin pour distinguer un échec d'affichage d'un
+  // échec de signature.
+  cles: QDecl[]; fermer: () => void; go: Nav['go']; onDone: (signees: number) => void;
 }) {
   const [busy, setBusy] = useState(false);
   const [pesees, setPesees] = useState<Record<string, Pesee>>({});
@@ -1905,20 +2718,26 @@ function ValidationGroupee({ cles, fermer, go, onDone }: {
   const aPeser = idsAPeser(dossiers);
   const setPesee = (id: string, p: Pesee) => setPesees((o) => ({ ...o, [id]: p }));
   const peseesPretes = peseesLotPretes(aValider, aPeser, pesees);
+  /* Suivi des engagements (2026-09-10) — UNE valeur pour tout le lot.
+   * La pesée est un fait physique propre à chaque camion ; l'engagement est un
+   * régime attaché à la déclaration, et le lot est précisément l'ensemble des
+   * camions d'une même déclaration. */
+  const eng = useSuiviEngagement();
 
   async function signer() {
     if (!peseesPretes) { toast('Renseignez la pesée de chaque dépotage avant de signer.', 'err'); return; }
+    if (!eng.pret) { toast('Renseignez le suivi des engagements avant de signer.', 'err'); return; }
     if (!window.confirm(
       `Valider et signer ${aValider.length} cargaison(s) réparties sur ${cles.length} déclaration(s) ?\n\n`
       + 'Votre signature numérique sera apposée sur chacune.')) return;
     setBusy(true);
     try {
-      const r = await call<{ compte: O; erreurs: O[] }>('cargo.validerlot', { ids: aValider, pesees: payloadPesees(aValider, pesees) });
+      const r = await call<{ compte: O; erreurs: O[] }>('cargo.validerlot', { ids: aValider, pesees: payloadPesees(aValider, pesees), ...eng.payload });
       const nb = Number(r.compte['validees'] ?? 0);
       toast(`${nb} cargaison(s) validée(s)${r.erreurs.length ? ` · ${r.erreurs.length} en erreur` : ''}.`,
         r.erreurs.length ? 'err' : 'ok');
       r.erreurs.forEach((e) => toast(`${String(e['id'])} : ${String(e['message'])}`, 'err'));
-      onDone();
+      onDone(nb);
     } catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(false); }
   }
 
@@ -1927,8 +2746,9 @@ function ValidationGroupee({ cles, fermer, go, onDone }: {
     <div className="card" style={{ marginTop: 10 }}>
       <h2 style={{ margin: 0 }}>Validation groupée — {cles.length} déclaration(s)</h2>
       {loading ? <Spinner /> : error ? <div className="err-msg">{error}</div> : <>
+        {eng.champ}
         <div className="row" style={{ alignItems: 'center', marginTop: 12 }}>
-          <button disabled={busy || !peseesPretes || !aValider.length} onClick={signer}>
+          <button disabled={busy || !peseesPretes || !eng.pret || !aValider.length} onClick={signer}>
             {busy ? 'Signature…' : `✔ Valider et signer les ${aValider.length} cargaison(s)`}
           </button>
           <span className="help">{!aValider.length ? 'Rien à valider dans la sélection.'
@@ -1960,9 +2780,13 @@ function ValidationGroupee({ cles, fermer, go, onDone }: {
 }
 
 /** Dossier complet d'une déclaration + signature en lot. */
-function DossierValidation({ decl, data, loading, error, reload, fermer, go }: {
+function DossierValidation({ decl, data, loading, error, reload, signee, onSigne, fermer, go }: {
   decl: QDecl; data: O | null; loading: boolean; error: string | null;
-  reload: () => void; fermer: () => void; go: Nav['go'];
+  reload: () => void;
+  // 2026-09-11 — cargaisons signées à l'instant, portées par l'écran parent
+  // (c'est lui qui tient la requête, donc lui qui sait quand elle aboutit).
+  signee: number; onSigne: (n: number) => void;
+  fermer: () => void; go: Nav['go'];
 }) {
   const [busy, setBusy] = useState(false);
   const [pesees, setPesees] = useState<Record<string, Pesee>>({});
@@ -1976,39 +2800,45 @@ function DossierValidation({ decl, data, loading, error, reload, fermer, go }: {
   const setPesee = (id: string, p: Pesee) => setPesees((o) => ({ ...o, [id]: p }));
   // Chaque DÉPOTAGE à valider doit avoir une pesée complète ; le reste est prêt d'office.
   const peseesPretes = peseesLotPretes(aValider, aPeser, pesees);
+  // Suivi des engagements (2026-09-10) — une valeur pour toute la déclaration.
+  const eng = useSuiviEngagement();
 
   async function signer() {
     if (!peseesPretes) { toast('Renseignez la pesée de chaque dépotage avant de signer.', 'err'); return; }
+    if (!eng.pret) { toast('Renseignez le suivi des engagements avant de signer.', 'err'); return; }
     if (!window.confirm(
       `Valider et signer ${aValider.length} cargaison(s) de la déclaration ${String(d['numeroDeclaration'] ?? decl.numeroDeclaration)} ?\n\n`
       + `${Number(cpt['conteneursAValider'] ?? 0)} conteneur(s) concerné(s). Votre signature numérique sera apposée sur chacune.`)) return;
     setBusy(true);
     try {
-      const r = await call<{ compte: O; erreurs: O[] }>('cargo.validerlot', { ids: aValider, pesees: payloadPesees(aValider, pesees) });
+      const r = await call<{ compte: O; erreurs: O[] }>('cargo.validerlot', { ids: aValider, pesees: payloadPesees(aValider, pesees), ...eng.payload });
       const nb = Number(r.compte['validees'] ?? 0);
       toast(`${nb} cargaison(s) validée(s)${r.erreurs.length ? ` · ${r.erreurs.length} en erreur` : ''}.`,
         r.erreurs.length ? 'err' : 'ok');
       r.erreurs.forEach((e) => toast(`${String(e['id'])} : ${String(e['message'])}`, 'err'));
+      onSigne(nb);
       reload();
     } catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(false); }
   }
 
-  return <div>
-    <button className="ghost" onClick={fermer}>← Retour aux déclarations</button>
-    <div className="card" style={{ marginTop: 10 }}>
-      <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
-        <div>
-          <h2 style={{ margin: 0 }}>Déclaration {String(d['numeroDeclaration'] ?? decl.numeroDeclaration)}</h2>
-          <div className="help" style={{ marginTop: 2 }}>
-            {[d['anneeDeclaration'], d['bureauDeclaration'], d['typeDeclaration']].filter(Boolean).join(' · ') || '—'}
-            {' · Déclarant '}<b>{String(d['declarant'] || '—')}</b>
-            {apu?.['exists'] ? ` · Apurement ${String(apu['apures'])}/${String(apu['nombreConteneurs'])} (restant ${String(apu['restant'])})` : ''}
-          </div>
-        </div>
-        <button className="ghost xs" onClick={reload}>⟳ Actualiser</button>
-      </div>
+  return <>
+    {/* Le dossier d'une declaration reprend le bandeau des volets : le long
+        bouton « Retour aux declarations » et le titre nu tenaient deux lignes
+        pour dire ce qu'une bande dit en une. */}
+    <BandeauModule icone="valider" titre={`Déclaration ${String(d['numeroDeclaration'] ?? decl.numeroDeclaration)}`}
+      sous={<>
+        {[d['anneeDeclaration'], d['bureauDeclaration'], d['typeDeclaration']].filter(Boolean).join(' · ') || '—'}
+        {' · Déclarant '}<b>{String(d['declarant'] || '—')}</b>
+        {apu?.['exists'] ? ` · Apurement ${String(apu['apures'])}/${String(apu['nombreConteneurs'])} (restant ${String(apu['restant'])})` : ''}
+      </>}
+      sansRetour
+      action={<div className="bm-outils">
+        <button onClick={fermer}><Icone nom="fleche" taille={15} />Les déclarations</button>
+        <button onClick={reload}><Icone nom="attente" taille={15} />Actualiser</button>
+      </div>} />
+    <div className="card">
 
-      {loading ? <Spinner /> : error ? <div className="err-msg">{error}</div> : <>
+      {loading ? <Spinner /> : error ? <AvisApresSignature error={error} signee={signee} /> : <>
         <div className="stats" style={{ marginTop: 12 }}>
           <StatCard n={Number(cpt['camions'] ?? 0)} l="Camions" />
           <StatCard n={Number(cpt['vehicules'] ?? 0)} l="Véhicules" />
@@ -2017,10 +2847,12 @@ function DossierValidation({ decl, data, loading, error, reload, fermer, go }: {
           <StatCard n={Number(cpt['dejaValidees'] ?? 0)} l="Déjà validées" tone="ok" />
         </div>
 
+        {aValider.length > 0 && eng.champ}
         {aValider.length > 0
-          ? <div className="row" style={{ alignItems: 'center', marginTop: 4 }}>
-            <button disabled={busy || !peseesPretes} onClick={signer}>
-              {busy ? 'Signature…' : `✔ Valider et signer les ${aValider.length} cargaison(s)`}
+          ? <div className="row" style={{ alignItems: 'center', marginTop: 4, gap: 12, flexWrap: 'wrap' }}>
+            <button className="acte-signer" disabled={busy || !peseesPretes || !eng.pret} onClick={signer}>
+              <Icone nom="valider" taille={17} />
+              {busy ? 'Signature…' : `Valider et signer les ${aValider.length} cargaison(s)`}
             </button>
             <span className="help">{peseesPretes ? 'Signature apposée sur chacune ; débloque T1, Balise et Bon de sortie.' : 'Renseignez d\'abord la pesée de chaque camion ci-dessous.'}</span>
           </div>
@@ -2034,7 +2866,7 @@ function DossierValidation({ decl, data, loading, error, reload, fermer, go }: {
         </div> : null)}
       </>}
     </div>
-  </div>;
+  </>;
 }
 
 /** Pesée d'un camion : en surcharge OUI/NON (+ poids si OUI). */
@@ -2105,11 +2937,11 @@ function LigneValidation({ r, go, pesee, onPesee }: { r: O; go: Nav['go']; pesee
     {/* v4.1 — pesée à renseigner AVANT la signature (seulement à valider, et
         seulement en DÉPOTAGE : enlèvement / véhicule ne sont pas pesés). */}
     {!valide && onPesee && exigePesee && <div className="row" style={{ alignItems: 'center', gap: 12, flexWrap: 'wrap', marginTop: 8, paddingTop: 8, borderTop: '1px dotted var(--line)' }}>
-      <span className="help" style={{ fontWeight: 600 }}>Pesée :</span>
-      <label className="help" style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
-        <input type="radio" style={{ width: 'auto' }} checked={pe.enSurcharge === 'oui'} onChange={() => onPesee({ enSurcharge: 'oui', poids: pe.poids })} /> En surcharge</label>
-      <label className="help" style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
-        <input type="radio" style={{ width: 'auto' }} checked={pe.enSurcharge === 'non'} onChange={() => onPesee({ enSurcharge: 'non', poids: '' })} /> Hors surcharge</label>
+      <span className="help lbl-icone" style={{ fontWeight: 600 }}>
+        <Icone nom="balance" taille={15} />Pesée</span>
+      <ChoixSegmente libelle="Pesée du camion" valeur={pe.enSurcharge === 'oui' ? 'oui' : pe.enSurcharge === 'non' ? 'non' : ''}
+        options={[{ valeur: 'oui', libelle: 'En surcharge' }, { valeur: 'non', libelle: 'Hors surcharge' }]}
+        onChange={(v) => onPesee(v === 'oui' ? { enSurcharge: 'oui', poids: pe.poids } : { enSurcharge: 'non', poids: '' })} />
       {pe.enSurcharge === 'oui' && <input value={pe.poids} onChange={(e) => onPesee({ enSurcharge: 'oui', poids: e.target.value.replace(/[^0-9.,]/g, '') })}
         placeholder="Poids surcharge (kg)" style={{ maxWidth: 160 }} />}
     </div>}
@@ -2174,8 +3006,16 @@ function PeriodeLue({ p }: { p: Periode }) {
  */
 type MetriqueCellule = 'camions' | 'twins' | 't20' | 't40' | 't45' | 'autres' | 'conteneurs';
 
-function RapportCellule({ action, detail, titre, twins, camLabel, go }: {
+/**
+ * Rapport d'une cellule — sert CINQ écrans (CFS, Balise, PP, T1, Bon de sortie).
+ *
+ * 2026-09-11 : `etape` et `icone` donnent à chacun l'identité visuelle de son
+ * poste — la pastille du menu, la teinte du parcours et des tuiles. Un chef qui
+ * passe d'un rapport à l'autre sait où il est avant d'avoir lu le titre.
+ */
+function RapportCellule({ action, detail, titre, twins, camLabel, go, etape, icone }: {
   action: string; detail: string; titre: string; twins?: boolean; camLabel: string; go: Nav['go'];
+  etape?: string; icone?: string;
 }) {
   const p = useReportRange();
   const { m, du, au } = p;
@@ -2188,13 +3028,27 @@ function RapportCellule({ action, detail, titre, twins, camLabel, go }: {
   const total = (data?.['total'] ?? {}) as O;
   const evpDe = (o: O) => Number(o['t20'] ?? 0) + 2 * (Number(o['t40'] ?? 0) + Number(o['t45'] ?? 0));
 
+  /* La tuile prend la TEINTE DU POSTE, et un chevron quand elle ouvre un
+     détail : rien ne distinguait jusqu'ici une carte cliquable d'un simple
+     compteur — le curseur ne se voit pas sur un poste tactile. */
   function Carte({ n, l, op: o, metric, tone }: { n: unknown; l: string; op?: string; metric?: MetriqueCellule; tone?: 'ok' }) {
-    if (!metric) return <div className={`stat ${tone ?? ''}`}><div className="n">{Number(n ?? 0)}</div><div className="l">{l}</div></div>;
-    return <div className={`stat ${tone ?? ''}`} role="button" title="Voir le détail" onClick={() => setModal({ op: o ?? '', metric })}>
-      <div className="n">{Number(n ?? 0)}</div><div className="l">{l}</div></div>;
+    const cls = `stat ${tone ?? ''} ${etape && !tone ? 'et-' + etape : ''}`;
+    if (!metric) return <div className={cls}><div className="n">{Number(n ?? 0)}</div><div className="l">{l}</div></div>;
+    return <div className={`${cls} cliquable`} role="button" tabIndex={0} title="Voir le détail"
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setModal({ op: o ?? '', metric }); } }}
+      onClick={() => setModal({ op: o ?? '', metric })}>
+      <div className="n">{Number(n ?? 0)}</div><div className="l">{l}</div>
+      <span className="stat-clic" aria-hidden="true"><Icone nom="chevron" taille={15} /></span>
+    </div>;
   }
   function Bloc({ nom, o, a }: { nom: string; o: string; a: O }) {
-    return <div className="card"><h2>{nom}</h2><div className="stats">
+    return <div className={`card ${etape ? 'et-' + etape : ''}`}>
+      <div className="ecran-tete">
+        <span className="tete-pastille" aria-hidden="true">
+          <Icone nom={nom === OPERATIONS.DEPOTAGE ? 'conteneur' : 'camion'} taille={20} />
+        </span>
+        <h2 style={{ flex: 1, margin: 0, minWidth: 0 }}>{nom}</h2>
+      </div><div className="stats">
       <Carte n={a['camions']} l={camLabel} op={o} metric="camions" />
       {twins && <Carte n={a['twins']} l="TWINS" op={o} metric="twins" />}
       <Carte n={a['t20']} l="20'" op={o} metric="t20" />
@@ -2207,15 +3061,16 @@ function RapportCellule({ action, detail, titre, twins, camLabel, go }: {
   }
 
   return <>
-    <div className="card"><div className="row" style={{ flexWrap: 'wrap', alignItems: 'center' }}>
-      <h2 style={{ flex: 1 }}>{titre}</h2>
-      <select value={op} onChange={(e) => setOp(e.target.value)} style={{ maxWidth: 200 }}>
-        <option value="">Toutes opérations</option><option>{OPERATIONS.ENLEVEMENT}</option><option>{OPERATIONS.DEPOTAGE}</option>
-      </select>
-      <PeriodPicker p={p} />
-      <button className="ghost xs" onClick={() => exporter('xlsx')}>⤓ Excel</button>
-      <button className="ghost xs" onClick={() => exporter('pdf')}>⤓ PDF</button>
-    </div><PeriodeLue p={p} /></div>
+    <BandeauModule icone={icone ?? 'rapport'} titre={titre}
+      sous={<PeriodeLue p={p} />}
+      action={<div className="bm-outils">
+        <select value={op} onChange={(e) => setOp(e.target.value)} style={{ maxWidth: 190 }}>
+          <option value="">Toutes opérations</option><option>{OPERATIONS.ENLEVEMENT}</option><option>{OPERATIONS.DEPOTAGE}</option>
+        </select>
+        <PeriodPicker p={p} />
+        <button onClick={() => exporter('xlsx')}><Icone nom="telecharger" taille={14} />Excel</button>
+        <button onClick={() => exporter('pdf')}><Icone nom="telecharger" taille={14} />PDF</button>
+      </div>} />
     {loading ? <Spinner /> : <>
       {(op === '' || op === OPERATIONS.ENLEVEMENT) && <Bloc nom={OPERATIONS.ENLEVEMENT} o={OPERATIONS.ENLEVEMENT} a={parOp[OPERATIONS.ENLEVEMENT] ?? {}} />}
       {(op === '' || op === OPERATIONS.DEPOTAGE) && <Bloc nom={OPERATIONS.DEPOTAGE} o={OPERATIONS.DEPOTAGE} a={parOp[OPERATIONS.DEPOTAGE] ?? {}} />}
@@ -2240,7 +3095,7 @@ function DetailCellule({ detail, du, au, op, metric, go, onClose }: {
   const estCamions = data?.['kind'] === 'camions' || metric === 'camions' || metric === 'twins';
   const ouvrir = (id: unknown) => { onClose(); if (id) go('detail', id); };
   return <Modal onClose={onClose}>
-    <h2>{(op || 'Toutes opérations')} — {data?.titre ?? '…'} ({rows.length})</h2>
+    <h2><span className="tp-pastille" aria-hidden="true"><Icone nom="liste" taille={18} /></span>{(op || 'Toutes opérations')} — {data?.titre ?? '…'} ({rows.length})</h2>
     {loading ? <Spinner /> : rows.length === 0 ? <div className="empty">Aucun élément sur la période.</div>
       : estCamions
         ? <Table cols={[['numeroCamion', 'Camion'], ['typeOperation', 'Opération'], ['statut', 'Statut'], ['numeroGps', 'N° GPS'], ['nbConteneurs', 'Nb cont.']]} rows={rows} onRow={(r) => ouvrir(r['id'])} />
@@ -2248,24 +3103,26 @@ function DetailCellule({ detail, du, au, op, metric, go, onClose }: {
   </Modal>;
 }
 
-SCREENS.cfsreport = ({ go }) => <RapportCellule action="report.cfs" detail="report.cfsdetail" titre="Rapport CFS" camLabel="Camions" go={go} />;
-SCREENS.baliserep = ({ go }) => <RapportCellule action="report.balise" detail="report.balisedetail" titre="Rapport Balise (pose balise)" twins camLabel="Camions balisés" go={go} />;
-SCREENS.pprep = ({ go }) => <RapportCellule action="report.pp" detail="report.ppdetail" titre="Rapport Porte Principale (sorties)" camLabel="Camions sortis" go={go} />;
+SCREENS.cfsreport = ({ go }) => <RapportCellule action="report.cfs" detail="report.cfsdetail" titre="Rapport CFS" camLabel="Camions" go={go} etape="cfs" icone="presse" />;
+SCREENS.baliserep = ({ go }) => <RapportCellule action="report.balise" detail="report.balisedetail" titre="Rapport Balise (pose balise)" twins camLabel="Camions balisés" go={go} etape="balise" icone="balise" />;
+SCREENS.pprep = ({ go }) => <RapportCellule action="report.pp" detail="report.ppdetail" titre="Rapport Porte Principale (sorties)" camLabel="Camions sortis" go={go} etape="pp" icone="sortie" />;
 // v4.3 — rapports des cellules T1 et Bon de sortie, datés à leur propre cellule.
-SCREENS.t1report = ({ go }) => <RapportCellule action="report.t1" detail="report.t1detail" titre="Rapport T1 (T1 saisis)" camLabel="Camions (T1)" go={go} />;
-SCREENS.bonsortiereport = ({ go }) => <RapportCellule action="report.bonsortie" detail="report.bonsortiedetail" titre="Rapport Bon de sortie (bons émis)" camLabel="Camions (bons émis)" go={go} />;
+SCREENS.t1report = ({ go }) => <RapportCellule action="report.t1" detail="report.t1detail" titre="Rapport T1 (T1 saisis)" camLabel="Camions (T1)" go={go} etape="t1" icone="t1" />;
+SCREENS.bonsortiereport = ({ go }) => <RapportCellule action="report.bonsortie" detail="report.bonsortiedetail" titre="Rapport Bon de sortie (bons émis)" camLabel="Camions (bons émis)" go={go} etape="bs" icone="bonSortie" />;
 
 SCREENS.vehreport = () => {
   const p = useReportRange();
   const { m, du, au } = p;
   const { data, loading } = useAsync<O>(() => call('report.vehicule', { du, au, periode: m }), [du, au]);
   const cp = (data?.['compte'] ?? {}) as O; const pd = (data?.['parDest'] ?? {}) as O;
-  return <div className="card"><div className="row" style={{ flexWrap: 'wrap' }}><h2 style={{ flex: 1 }}>Rapport véhicules</h2><PeriodPicker p={p} /></div><PeriodeLue p={p} />
+  return <><BandeauModule icone="voiture" titre="Rapport véhicules" sous={<PeriodeLue p={p} />}
+    action={<div className="bm-outils"><PeriodPicker p={p} /></div>} />
+  <div className="card">
     {loading ? <Spinner /> : <div className="stats">
       <StatCard n={Number(cp['total'] ?? 0)} l="Total" /><StatCard n={Number(cp['attente'] ?? 0)} l="En attente" /><StatCard n={Number(cp['sortis'] ?? 0)} l="Sortis" tone="ok" />
       {VEHICULE_DESTINATIONS.map((x) => <StatCard key={x} n={Number(pd[x] ?? 0)} l={x} />)}
     </div>}
-  </div>;
+  </div></>;
 };
 
 SCREENS.kpi = () => {
@@ -2336,7 +3193,8 @@ SCREENS.flux = () => {
   ];
   return <>
     <div className="card">
-      <div className="row" style={{ flexWrap: 'wrap' }}><h2 style={{ flex: 1 }}>Analyse des flux</h2><PeriodPicker p={p} /></div>
+      <BandeauModule icone="flux" titre="Analyse des flux" sous={<PeriodeLue p={p} />}
+        action={<div className="bm-outils"><PeriodPicker p={p} /></div>} />
       <div className="row" style={{ alignItems: 'center', marginTop: 6 }}>
         <label className="help" style={{ margin: 0 }}>Répartition de la période</label>
         <select value={gran} onChange={(e) => setGran(e.target.value)} style={{ maxWidth: 160 }}>
@@ -2374,16 +3232,32 @@ SCREENS.controles = () => {
   const hg = (data?.['horsGabarit'] ?? {}) as O;
   const su = (data?.['surcharge'] ?? {}) as O;
   const tn = (data?.['transitNational'] ?? {}) as O;
-  const bloc = (titre: string, o: O, tone?: 'warn') => <div className="card"><h2>{titre}</h2><div className="stats">
-    <StatCard n={Number(o['camions'] ?? 0)} l="Camions" tone={tone} />
-    <StatCard n={Number(o['conteneurs'] ?? 0)} l="Conteneurs" tone={tone} />
-  </div></div>;
+  /* Chaque motif de contrôle porte SON icône : un gabarit se mesure (balance),
+     une surcharge aussi, un transit national est un régime de déclaration. Les
+     deux tuiles d'un bloc disent camions et conteneurs — elles reçoivent donc
+     l'icône correspondante, comme dans les tableaux. */
+  const bloc = (titre: string, o: O, icone: string, tone?: 'warn') =>
+    <div className="card">
+      <div className="ecran-tete">
+        <span className="tete-pastille" aria-hidden="true"><Icone nom={icone} taille={20} /></span>
+        <h2 style={{ flex: 1, margin: 0, minWidth: 0 }}>{titre}</h2>
+      </div>
+      <div className="stats">
+        <StatCard n={Number(o['camions'] ?? 0)} l="Camions" tone={tone} etape="cfs" />
+        <StatCard n={Number(o['conteneurs'] ?? 0)} l="Conteneurs" tone={tone} etape="t1" />
+      </div>
+    </div>;
   return <>
-    <div className="card"><div className="row" style={{ flexWrap: 'wrap' }}><h2 style={{ flex: 1 }}>Statistiques de contrôle</h2><PeriodPicker p={p} /></div><PeriodeLue p={p} /></div>
+    <BandeauModule icone="balance" titre="Statistiques de contrôle" sous={<PeriodeLue p={p} />}
+      action={<div className="bm-outils"><PeriodPicker p={p} /></div>} />
     {loading ? <Spinner /> : <>
       {/* Trois blocs de cartes se lisent isolément mais ne se COMPARENT pas :
           on ne voit pas lequel pèse le plus, ni dans quelle proportion. */}
-      <div className="card"><h2>Comparaison des motifs de contrôle</h2>
+      <div className="card">
+        <div className="ecran-tete">
+          <span className="tete-pastille" aria-hidden="true"><Icone nom="rapport" taille={20} /></span>
+          <h2 style={{ flex: 1, margin: 0, minWidth: 0 }}>Comparaison des motifs de contrôle</h2>
+        </div>
         <Graphique
           cats={['Hors gabarit', 'Surcharge', 'Transit national (TG)']}
           series={[
@@ -2391,9 +3265,9 @@ SCREENS.controles = () => {
             { nom: 'Conteneurs', valeurs: [Number(hg['conteneurs'] ?? 0), Number(su['conteneurs'] ?? 0), Number(tn['conteneurs'] ?? 0)] },
           ]}
           type="barres" ordonnee="Nombre" hauteur={250} valeursSurBarres /></div>
-      {bloc('Hors gabarit', hg, 'warn')}
-      {bloc('Surcharge', su, 'warn')}
-      {bloc('Transit national (TG)', tn)}
+      {bloc('Hors gabarit', hg, 'balance', 'warn')}
+      {bloc('Surcharge', su, 'camion', 'warn')}
+      {bloc('Transit national (TG)', tn, 'drapeau')}
     </>}
   </>;
 };
@@ -2413,7 +3287,8 @@ SCREENS.destinations = () => {
   const series = (actifs.length ? actifs : codes).map((c) => ({ nom: c, valeurs: seriesData.map((s) => Number(s[c] ?? 0)) }));
   return <>
     <div className="card">
-      <div className="row" style={{ flexWrap: 'wrap' }}><h2 style={{ flex: 1 }}>Répartition des cargaisons par destination</h2><PeriodPicker p={p} /></div>
+      <BandeauModule icone="carte" titre="Répartition par destination" sous={<PeriodeLue p={p} />}
+        action={<div className="bm-outils"><PeriodPicker p={p} /></div>} />
       <div className="row" style={{ alignItems: 'center', marginTop: 6 }}>
         <label className="help" style={{ margin: 0 }}>Répartition de la période</label>
         <select value={gran} onChange={(e) => setGran(e.target.value)} style={{ maxWidth: 160 }}>
@@ -2482,7 +3357,8 @@ SCREENS.temps = ({ go }) => {
 
   return <>
     <div className="card">
-      <div className="row" style={{ flexWrap: 'wrap' }}><h2 style={{ flex: 1 }}>Temps de passage par poste</h2><PeriodPicker p={p} /></div>
+      <BandeauModule icone="sablier" titre="Temps de passage par poste" sous={<PeriodeLue p={p} />}
+        action={<div className="bm-outils"><PeriodPicker p={p} /></div>} />
       <div className="row" style={{ alignItems: 'center', flexWrap: 'wrap', gap: 8, marginTop: 6 }}>
         <label className="help" style={{ display: 'flex', gap: 6, alignItems: 'center', margin: 0 }}>
           <input type="checkbox" style={{ width: 'auto' }} checked={avecVeh} onChange={(e) => setAvecVeh(e.target.checked)} />
@@ -2600,11 +3476,9 @@ SCREENS.horodatage = () => {
     try { telecharger(await call<O>('report.horodatage', { du, au, cellule, format: 'xlsx' })); }
     catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(false); }
   }
-  return <div className="card">
-    <div className="row" style={{ flexWrap: 'wrap', alignItems: 'center' }}>
-      <h2 style={{ flex: 1 }}>Plage d'activité par cellule</h2><PeriodPicker p={p} />
-    </div>
-    <PeriodeLue p={p} />
+  return <><BandeauModule icone="horloge" titre="Plage d'activité par cellule" sous={<PeriodeLue p={p} />}
+    action={<div className="bm-outils"><PeriodPicker p={p} /></div>} />
+  <div className="card">
     <p className="help" style={{ marginTop: 0 }}>
       Pour chaque cellule et chaque agent, PAR JOUR : heure de <b>début</b> (première action),
       heure de <b>fin</b> (dernière action), <b>durée</b> d'activité et <b>volume</b> traité.
@@ -2621,7 +3495,7 @@ SCREENS.horodatage = () => {
       : <Table cols={[['celluleLibelle', 'Cellule'], ['agent', 'Agent'], ['jourTxt', 'Jour'],
         ['debut', 'Début'], ['fin', 'Fin'], ['dureeTxt', 'Durée'], ['camions', 'Camions'], ['conteneurs', 'Conteneurs']]}
         rows={rows} />}
-  </div>;
+  </div></>;
 };
 
 /* --------- v4.3 : Nettoyage des vieux dossiers « goulots » -------------- */
@@ -2648,13 +3522,13 @@ function BlocArchives() {
     <summary style={{ cursor: 'pointer', fontWeight: 600 }}>Dossiers archivés {data ? `(${data.total})` : ''} — désarchiver</summary>
     {loading ? <Spinner /> : rows.length === 0 ? <p className="help">Aucun dossier archivé.</p> : <>
       <div className="row" style={{ margin: '8px 0' }}>
-        <button disabled={busy || !sel.size} onClick={desarchiver}>↺ Désarchiver la sélection ({sel.size})</button>
+        <button disabled={busy || !sel.size} onClick={desarchiver}><Icone nom="fleche" taille={15} /> Désarchiver la sélection ({sel.size})</button>
       </div>
       <div className="tbl"><table><thead><tr>
         <th style={{ width: 28 }}></th><th>ID</th><th>Camion</th><th>Statut</th><th>Archivé le</th><th>Par</th><th>Motif</th>
       </tr></thead><tbody>{rows.map((r) => <tr key={String(r['id'])}>
         <td><input type="checkbox" checked={sel.has(String(r['id']))} onChange={() => toggle(String(r['id']))} /></td>
-        <td className="mono">{String(r['id'])}</td><td className="mono">{String(r['numeroCamion'] || '—')}</td>
+        <td className="mono">{String(r['id'])}</td><td><NumeroMobile valeur={r['numeroCamion']} /></td>
         <td>{String(r['statut'])}</td><td>{fmtDate(r['archiveLe'])}</td><td>{String(r['archivePar'] || '—')}</td>
         <td>{String(r['archiveMotif'] || '—')}</td>
       </tr>)}</tbody></table></div>
@@ -2687,11 +3561,13 @@ SCREENS.goulots = (nav) => {
     } catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(false); }
   }
   return <>
+    <BandeauModule icone="nettoyage" titre="Nettoyage des goulots"
+      sous={<>Vieux dossiers restés en attente — l'archivage est <b>réversible</b> et <b>tracé</b>.</>} />
     <div className="card">
-      <h2>Nettoyage — vieux dossiers (goulots)</h2>
+      <h2>Dossiers retenus</h2>
       <p className="help" style={{ marginTop: 0 }}>
         Dossiers encore « en attente » (non sortis, non annulés) plus vieux que le seuil choisi.
-        Les <b>archiver</b> les sort des files et des rapports — <b>rien n'est supprimé</b>, c'est <b>réversible</b> et <b>tracé</b>.
+        Les <b>archiver</b> les sort des files et des rapports — <b>rien n'est supprimé</b>.
       </p>
       <div className="row" style={{ alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
         <label className="help" style={{ margin: 0 }}>Plus vieux que</label>
@@ -2727,14 +3603,14 @@ SCREENS.goulots = (nav) => {
       {!admin && <p className="help">Lecture seule — seul un administrateur peut archiver.</p>}
       {admin && <div className="row" style={{ alignItems: 'center', gap: 8, flexWrap: 'wrap', margin: '8px 0' }}>
         <input value={motif} onChange={(e) => setMotif(e.target.value)} placeholder="Motif de l'archivage (obligatoire)" style={{ flex: 1, minWidth: 240 }} />
-        <button disabled={busy || !sel.size} onClick={archiver}>🗄 Archiver la sélection ({sel.size})</button>
+        <button disabled={busy || !sel.size} onClick={archiver}><Icone nom="archive" taille={15} /> Archiver la sélection ({sel.size})</button>
       </div>}
       {rows.length === 0 ? <p className="help">Aucun dossier au-delà de ce seuil.</p>
         : <div className="tbl"><table><thead><tr>
           {admin && <th style={{ width: 28 }}></th>}<th>ID</th><th>Camion</th><th>Statut</th><th>En attente à</th><th>Âge (j)</th><th>Entré le</th>
         </tr></thead><tbody>{rows.map((r) => <tr key={String(r['id'])} className="clk" onClick={() => nav.go('detail', r['id'])}>
           {admin && <td onClick={(e) => e.stopPropagation()}><input type="checkbox" checked={sel.has(String(r['id']))} onChange={() => toggle(String(r['id']))} /></td>}
-          <td className="mono">{String(r['id'])}</td><td className="mono">{String(r['numeroCamion'] || '—')}</td>
+          <td className="mono">{String(r['id'])}</td><td><NumeroMobile valeur={r['numeroCamion']} /></td>
           <td>{String(r['statut'])}</td><td>{String(r['etapeLibelle'] || '—')}</td>
           <td>{String(r['age'])}</td><td>{fmtDate(r['dateCreation'])}</td>
         </tr>)}</tbody></table></div>}
@@ -2786,34 +3662,214 @@ SCREENS.users = () => {
     try { await call('user.create', f); toast('Compte créé.', 'ok'); setForm(null); reload(); }
     catch (e) { toast((e as Error).message, 'err'); }
   }
-  return <div className="card"><div className="row"><h2 style={{ flex: 1 }}>Utilisateurs</h2>
-    <button className="xs" onClick={() => setForm({ username: '', nomComplet: '', role: 'CFS', password: '' })}>+ Nouveau</button></div>
-    {loading ? <Spinner /> : <Table cols={[['username', 'Identifiant'], ['nomComplet', 'Nom'], ['role', 'Rôle'], ['derniereConnexion', 'Dernière connexion']]}
-      rows={data ?? []} onRow={async (u) => {
-        const action = prompt(`Action pour ${u['username']} : 1=activer/désactiver, 2=réinit. mdp, 3=réinit. 2FA`);
-        try {
-          if (action === '1') { await call('user.toggle', { username: u['username'] }); }
-          // SEC-03 : 12 caractères minimum, 3 familles. L'agent devra le
-          // remplacer à sa prochaine connexion — ce mot de passe ne sert qu'à
-          // lui rendre l'accès, il ne l'engage pas.
-          else if (action === '2') { const p = prompt('Nouveau mot de passe provisoire — 12 caractères minimum, mêlant minuscules, majuscules, chiffres et/ou signes.\nÀ remettre en main propre : l\'agent devra le changer à sa prochaine connexion.'); if (p) await call('user.resetpwd', { username: u['username'], password: p }); }
-          else if (action === '3') { await call('user.resetmfa', { username: u['username'] }); }
-          else return; toast('Fait.', 'ok'); reload();
-        } catch (e) { toast((e as Error).message, 'err'); }
-      }} />}
-    {form && <Modal onClose={() => setForm(null)}><h2>Nouveau compte</h2>
-      <div className="grid2">
-        <div><label className="help">Identifiant</label><input value={String(form['username'])} onChange={(e) => setForm({ ...form, username: e.target.value.toLowerCase() })} /></div>
-        <div><label className="help">Nom complet</label><input value={String(form['nomComplet'])} onChange={(e) => setForm({ ...form, nomComplet: e.target.value })} /></div>
-        <div><label className="help">Rôle</label><select value={String(form['role'])} onChange={(e) => setForm({ ...form, role: e.target.value })}>{ROLES_LISTE.map((r) => <option key={r}>{r}</option>)}</select></div>
-        <div><label className="help">Mot de passe provisoire — 12 caractères minimum, 3 familles (minuscules, majuscules, chiffres, signes)</label>
-          <input value={String(form['password'])} onChange={(e) => setForm({ ...form, password: e.target.value })} minLength={12} />
-          <p className="help" style={{ marginTop: 4 }}>À remettre en main propre. L'agent devra le remplacer à sa première connexion.</p></div>
+  const comptes = data ?? [];
+  const [acces, setAcces] = useState<O | null>(null);
+  const [edition, setEdition] = useState<O | null>(null);
+
+  /**
+   * Les quatre gestes d'une ligne. Ils remplacent l'invite
+   * `prompt('1=activer, 2=mdp, 3=2FA')` qui servait jusqu'ici : elle ne disait
+   * pas ce que chaque numéro faisait, n'offrait aucun retour en arrière, et un
+   * chiffre tapé de travers lançait une autre action que celle voulue.
+   */
+  async function agir(quoi: string, u: O) {
+    const nom = String(u['nomComplet'] || u['username']);
+    try {
+      if (quoi === 'acces') { setAcces(u); return; }
+      if (quoi === 'modifier') { setEdition({ ...u }); return; }
+      if (quoi === 'basculer') {
+        const off = u['actif'] === false;
+        if (!window.confirm((off ? 'RÉACTIVER' : 'DÉSACTIVER') + ' le compte de ' + nom + ' ?\n\n'
+          + (off ? 'Il pourra de nouveau se connecter.'
+            : 'Il ne pourra plus se connecter. Son historique et ses signatures restent intacts.'))) return;
+        await call('user.toggle', { username: u['username'] });
+        toast(off ? 'Compte réactivé.' : 'Compte désactivé.', 'ok'); reload(); return;
+      }
+      if (quoi === 'supprimer') {
+        // L'avertissement vient AVANT la demande de motif : on ne fait pas remplir
+        // un champ à quelqu'un pour lui apprendre ensuite ce qu'il s'apprête à faire.
+        if (!window.confirm('⚠ SUPPRESSION DÉFINITIVE DU COMPTE\n\n' + nom + ' (' + String(u['username']) + ')\n\n'
+          + 'Le serveur REFUSERA si ce compte a déjà travaillé sur la plateforme :\n'
+          + 'son nom doit rester consultable devant une signature contestée.\n'
+          + 'Dans ce cas, désactivez-le plutôt.\n\nContinuer ?')) return;
+        const motif = window.prompt('Motif de la suppression (inscrit au journal d\'audit) :', '');
+        if (motif === null) return;
+        if (!motif.trim()) { toast('Motif obligatoire.', 'err'); return; }
+        await call('user.delete', { username: u['username'], motif });
+        toast('Compte supprimé.', 'ok'); reload(); return;
+      }
+    } catch (e) { toast((e as Error).message, 'err'); }
+  }
+
+  async function enregistrer(f: O) {
+    try {
+      await call('user.update', { username: f['username'], nomComplet: f['nomComplet'], role: f['role'] });
+      toast('Compte modifié.', 'ok'); setEdition(null); reload();
+    } catch (e) { toast((e as Error).message, 'err'); }
+  }
+
+  return <>
+    {/* BANDEAU DE MODULE (2026-09-11) — repris de la disposition fournie : un
+        panneau coloré qui annonce le module, son volume et son action
+        principale. Il remplace un titre nu suivi d'un petit bouton. */}
+    <div className="bandeau-module">
+      <span className="bm-pastille" aria-hidden="true"><Icone nom="utilisateurs" taille={24} /></span>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div className="bm-titre">Gestion des utilisateurs</div>
+        <div className="bm-sous">{comptes.length} compte(s) — rôles et accès aux modules</div>
       </div>
-      <div style={{ marginTop: 12 }}><button onClick={() => creer(form)}>Créer</button></div>
+      <button className="bm-action" onClick={() => setForm({ username: '', nomComplet: '', role: 'CFS', password: '' })}>
+        <Icone nom="plus" taille={15} />Nouvel utilisateur
+      </button>
+    </div>
+    <div className="card">
+    {loading ? <Spinner /> : <TableUtilisateurs rows={comptes} onAction={agir} />}
+    </div>
+    {/* FENÊTRE D'AJOUT — refaite le 2026-09-11 sur le modèle fourni : un bandeau
+        coloré en tête, qui annonce ce qu'on est en train de créer et reflète le
+        rôle choisi EN DIRECT. Le formulaire dessous, en une colonne centrée —
+        quatre champs courts n'ont pas besoin de deux colonnes, qui obligent
+        l'œil à faire des allers-retours. */}
+    {form && <Modal onClose={() => setForm(null)}>
+      <div className="fen-tete">
+        <span className="fen-pastille" aria-hidden="true"><Icone nom="utilisateurs" taille={26} /></span>
+        <div style={{ minWidth: 0 }}>
+          <div className="fen-titre">Nouvel utilisateur</div>
+          <div className="fen-sous">{roleLabel(String(form['role'])) || 'Choisissez un rôle'}</div>
+        </div>
+      </div>
+      <div className="fen-corps">
+        <div><label className="help">Identifiant</label>
+          <input className="mono" value={String(form['username'])} placeholder="ex. adjo.kossi"
+            onChange={(e) => setForm({ ...form, username: e.target.value.toLowerCase() })} /></div>
+        <div><label className="help">Nom complet</label>
+          <input value={String(form['nomComplet'])} placeholder="Nom et prénoms"
+            onChange={(e) => setForm({ ...form, nomComplet: e.target.value })} /></div>
+        <div><label className="help">Rôle</label>
+          <select value={String(form['role'])} onChange={(e) => setForm({ ...form, role: e.target.value })}>
+            {ROLES_LISTE.map((r) => <option key={r}>{r}</option>)}</select></div>
+        <div><label className="help">Mot de passe provisoire</label>
+          <input value={String(form['password'])} minLength={12} placeholder="12 caractères minimum"
+            onChange={(e) => setForm({ ...form, password: e.target.value })} />
+          <p className="help" style={{ marginTop: 5 }}>
+            12 caractères minimum, mêlant minuscules, majuscules, chiffres et/ou signes.
+            À remettre <b>en main propre</b> : l'agent devra le remplacer à sa première connexion.
+          </p></div>
+      </div>
+      <div className="fen-pied">
+        <button className="ghost" onClick={() => setForm(null)}>Annuler</button>
+        <button onClick={() => creer(form)}>Créer le compte</button>
+      </div>
     </Modal>}
-  </div>;
+
+    {/* L'ŒIL — les volets auxquels ce rôle accède. La liste est lue dans la MÊME
+        table que le menu : ce qui s'affiche ici est exactement ce que l'agent
+        verra en se connectant, sans risque de divergence.
+        ⚠ C'est un aperçu de MENU, pas la matrice des droits. L'autorité reste
+        `PERMISSIONS`, côté serveur — le texte le dit, pour qu'un administrateur
+        ne prenne pas cet écran pour un état des permissions. */}
+    {acces && <Modal onClose={() => setAcces(null)}>
+      <h2><span className="tp-pastille" aria-hidden="true"><Icone nom="oeil" taille={18} /></span>
+        Accès de {String(acces['nomComplet'] || acces['username'])}</h2>
+      <p className="help" style={{ marginTop: 0 }}>
+        Rôle <b>{roleLabel(String(acces['role']))}</b> — {(MENUS[String(acces['role'])] ?? []).length} volet(s).
+        Voici ce que cet agent voit dans sa barre latérale. Les droits d'ÉCRITURE, eux,
+        sont vérifiés par le serveur à chaque action, indépendamment de ce menu.
+      </p>
+      <div className="grille-acces">
+        {(MENUS[String(acces['role'])] ?? []).map((m) => <span key={m[0]} className="acces-item">
+          <Icone nom={m[2]} taille={16} />{m[1]}
+        </span>)}
+      </div>
+    </Modal>}
+
+    {/* LE CRAYON — nom et rôle. L'identifiant ne se modifie pas : il est la clé
+        du compte et se retrouve dans chaque ligne du journal d'audit. */}
+    {edition && <Modal onClose={() => setEdition(null)}>
+      <h2><span className="tp-pastille" aria-hidden="true"><Icone nom="crayon" taille={18} /></span>
+        Modifier {String(edition['username'])}</h2>
+      <div className="grid2">
+        <div><label className="help">Nom complet</label>
+          <input value={String(edition['nomComplet'] ?? '')} onChange={(e) => setEdition({ ...edition, nomComplet: e.target.value })} /></div>
+        <div><label className="help">Rôle</label>
+          <select value={String(edition['role'])} onChange={(e) => setEdition({ ...edition, role: e.target.value })}>
+            {ROLES_LISTE.map((r) => <option key={r}>{r}</option>)}</select></div>
+      </div>
+      <p className="help">L'identifiant n'est pas modifiable : il identifie le compte dans tout le journal d'audit.</p>
+      <div className="row" style={{ marginTop: 12 }}>
+        <button onClick={() => enregistrer(edition)}>Enregistrer</button>
+        <button className="ghost" onClick={() => setEdition(null)}>Annuler</button>
+      </div>
+    </Modal>}
+  </>;
 };
+
+/**
+ * LISTE DES COMPTES — 2026-09-11, reprise de la disposition fournie.
+ *
+ * Chaque ligne porte un AVATAR à l'initiale, le nom avec son rôle en dessous,
+ * l'identifiant en chasse fixe et une pastille de rôle. La couleur de l'avatar
+ * est TIRÉE DU NOM, jamais du rang dans la liste : le même agent garde sa
+ * couleur quand on filtre ou qu'on ajoute un compte — sinon les repères de
+ * couleur se déplaceraient à chaque changement et ne serviraient à rien.
+ */
+function TableUtilisateurs({ rows, onAction }: { rows: O[]; onAction: (quoi: string, u: O) => void }) {
+  if (!rows.length) return <div className="empty">Aucun compte.</div>;
+  return <div className="tbl"><table>
+    <thead><tr>
+      <th>Utilisateur</th><th>Identifiant</th><th>Rôle</th>
+      <th>Dernière connexion</th><th>Statut</th><th style={{ textAlign: 'right' }}>Actions</th>
+    </tr></thead>
+    <tbody>{rows.map((u, i) => {
+      const nom = String(u['nomComplet'] || u['username'] || '?').trim();
+      const inactif = u['actif'] === false;
+      return <tr key={i}>
+        <td>
+          <span className="compte-ligne-u">
+            <span className="avatar-u" style={{ backgroundColor: couleurDepuisNom(nom) }}>{nom.charAt(0).toUpperCase()}</span>
+            <span style={{ minWidth: 0 }}>
+              <span className="nom-u">{nom}{inactif && <span className="badge-inactif">désactivé</span>}</span>
+              <span className="role-u">{roleLabel(String(u['role']))}</span>
+            </span>
+          </span>
+        </td>
+        <td><span className="mono ident-u">{String(u['username'] ?? '—')}</span></td>
+        <td><span className="pastille-role">{String(u['role'] ?? '—')}</span></td>
+        <td>{fmtDate(u['derniereConnexion'])}</td>
+        <td><span className={`pastille-statut ${inactif ? 'ko' : 'ok'}`}>{inactif ? 'Désactivé' : 'Actif'}</span></td>
+        <td>
+          {/* Quatre gestes distincts, quatre boutons — l'invite `prompt('1, 2
+              ou 3 ?')` qui servait jusqu'ici ne disait pas ce que chaque
+              numéro faisait, et ne laissait aucun moyen de revenir en arrière. */}
+          <span className="actions-u">
+            <button className="acte" title="Voir les volets accessibles à ce rôle"
+              aria-label={`Accès de ${nom}`} onClick={() => onAction('acces', u)}><Icone nom="oeil" taille={16} /></button>
+            <button className="acte" title="Modifier le compte"
+              aria-label={`Modifier ${nom}`} onClick={() => onAction('modifier', u)}><Icone nom="crayon" taille={16} /></button>
+            <button className={`acte ${inactif ? 'acte-ok' : 'acte-warn'}`}
+              title={inactif ? 'Réactiver le compte' : 'Désactiver le compte'}
+              aria-label={`${inactif ? 'Réactiver' : 'Désactiver'} ${nom}`}
+              onClick={() => onAction('basculer', u)}><Icone nom="interrupteur" taille={16} /></button>
+            <button className="acte acte-err" title="Supprimer le compte"
+              aria-label={`Supprimer ${nom}`} onClick={() => onAction('supprimer', u)}><Icone nom="poubelle" taille={16} /></button>
+          </span>
+        </td>
+      </tr>;
+    })}</tbody>
+  </table></div>;
+}
+
+/**
+ * Couleur d'avatar déduite du nom — somme des codes de caractères ramenée à la
+ * palette validée des graphiques. Déterministe : le même nom donne toujours la
+ * même couleur, sur tous les postes et d'une session à l'autre.
+ */
+function couleurDepuisNom(nom: string): string {
+  const teintes = ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4', '#008300', '#4a3aa7', '#e34948'];
+  let somme = 0;
+  for (const c of nom) somme = (somme + c.charCodeAt(0)) % 9973;
+  return teintes[somme % teintes.length]!;
+}
 
 // Types d'événements du journal (connexions/déconnexions volontairement exclues).
 const EVENEMENTS = [
@@ -2845,9 +3901,12 @@ SCREENS.history = () => {
   const { data, loading } = useAsync<{ rows: O[]; pages: number; total: number }>(
     () => call('log.list', { page, du, au, username, action }), [page, du, au, username, action]);
 
-  return <div className="card">
+  return <>
+    <BandeauModule icone="historique" titre="Journal d'activité"
+      sous="Qui a fait quoi, et quand — chaque écriture de la plateforme y est scellée." />
+    <div className="card">
     <div className="row" style={{ alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
-      <h2 style={{ flex: 1, margin: 0 }}>Historique</h2>
+      <h2 style={{ flex: 1, margin: 0 }}>Filtrer le journal</h2>
       <select value={m} onChange={(e) => { setM(e.target.value); reset(); }} style={{ maxWidth: 190 }}>
         <option value="tout">Toute la période</option>
         <option value="jour">Aujourd'hui</option>
@@ -2879,7 +3938,7 @@ SCREENS.history = () => {
         <button className="ghost xs" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>‹</button><span>Page {page} / {data?.pages}</span>
         <button className="ghost xs" disabled={page >= (data?.pages ?? 1)} onClick={() => setPage((p) => p + 1)}>›</button></div>}
     </>}
-  </div>;
+  </div></>;
 };
 
 SCREENS.account = ({ user }) => {
@@ -2888,13 +3947,39 @@ SCREENS.account = ({ user }) => {
     try { await call('account.changepwd', { ancien: anc, nouveau: nouv }); toast('Mot de passe changé.', 'ok'); setAnc(''); setNouv(''); }
     catch (e) { toast((e as Error).message, 'err'); }
   }
-  return <div className="card" style={{ maxWidth: 460 }}><h2>Mon compte</h2>
-    <div className="kv"><b>Identifiant</b>{user.username}</div><div className="kv"><b>Nom</b>{user.nomComplet}</div><div className="kv"><b>Rôle</b>{user.role}</div>
-    <div className="section-title">Changer mon mot de passe</div>
-    <label className="help">Ancien</label><input type="password" value={anc} onChange={(e) => setAnc(e.target.value)} />
-    <label className="help">Nouveau — 12 caractères minimum, 3 familles</label><input type="password" value={nouv} onChange={(e) => setNouv(e.target.value)} minLength={12} />
-    <div style={{ marginTop: 12 }}><button onClick={changer} disabled={!anc || nouv.length < 6}>Changer</button></div>
-  </div>;
+  return <><BandeauModule icone="compte" titre="Mon compte"
+    sous={<>{user.nomComplet} — <b>{roleLabel(user.role)}</b></>} />
+    <div className="ecran-compte">
+      <div className="card">
+        {/* EN-TETE ILLUSTRE (2026-09-12) - le logo, un anneau qui tourne, et
+            DEUX pastilles qui disent de quoi l'ecran parle : le compte, et le
+            crayon de la modification. La carte est centree : c'est un ecran a
+            une seule colonne, il n'a pas de raison de se coller a gauche. */}
+        <div className="compte-entete">
+          <div className="compte-logo">
+            <span className="compte-piste" aria-hidden="true" />
+            <span className="compte-onde" aria-hidden="true" />
+            <img className="logo-rond" src="/logo_PIA.jpg" alt=""
+              onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />
+            <span className="compte-jeton cj-compte" aria-hidden="true"><Icone nom="compte" taille={16} /></span>
+            <span className="compte-jeton cj-crayon" aria-hidden="true"><Icone nom="crayon" taille={14} /></span>
+          </div>
+          <h2>{user.nomComplet}</h2>
+          <p className="help">{roleLabel(user.role)}</p>
+        </div>
+        <div className="kv"><b>Identifiant</b>{user.username}</div>
+        <div className="kv"><b>Nom</b>{user.nomComplet}</div>
+        <div className="kv"><b>Rôle</b>{user.role}</div>
+        <TitrePanneau icone="interrupteur">Changer mon mot de passe</TitrePanneau>
+        <label className="help lbl-icone"><Icone nom="oeil" taille={14} />Ancien</label>
+        <input type="password" value={anc} onChange={(e) => setAnc(e.target.value)} />
+        <label className="help lbl-icone"><Icone nom="valider" taille={14} />Nouveau — 12 caractères minimum, 3 familles</label>
+        <input type="password" value={nouv} onChange={(e) => setNouv(e.target.value)} minLength={12} />
+        <div style={{ marginTop: 14 }}>
+          <button onClick={changer} disabled={!anc || nouv.length < 6}>Changer le mot de passe</button>
+        </div>
+      </div>
+    </div></>;
 };
 
 SCREENS.reports = () => <div className="card"><h2>Rapports</h2><p className="help">Sélectionnez un rapport dans le menu (CFS, véhicules, Balise, PP, KPI, dispenses, flux, séjour).</p></div>;
@@ -2909,3 +3994,98 @@ function telecharger(f: O) {
 }
 
 export { SCREENS };
+
+/**
+ * ARCHIVE — dossiers de plus d'un an (ADMIN, 2026-09-10).
+ *
+ * DISTINCT de l'écran « Nettoyage (goulots) », qui liste les dossiers archivés à
+ * la main. Ici, aucun geste : c'est l'ancienneté seule qui définit l'archive.
+ *
+ * Les données ne sont PAS déplacées ailleurs — voir `archiveAncienne` côté
+ * serveur pour le raisonnement. Une cargaison de plus d'un an reste consultable
+ * et recherchable comme n'importe quelle autre ; cet écran est une VUE sur elle,
+ * pas un entrepôt séparé.
+ *
+ * La pagination est faite côté SQL : on ne remonte que la page affichée, jamais
+ * la table entière (GOV-05).
+ */
+SCREENS.archive = ({ go }) => {
+  const [page, setPage] = useState(1);
+  const [mois, setMois] = useState(12);
+  const [recherche, setRecherche] = useState('');
+  const [q, setQ] = useState(''); // terme réellement envoyé (validé par Entrée)
+  const { data, loading, error } = useAsync<O>(
+    () => call('report.archive', { page, pageSize: 50, mois, search: q }),
+    [page, mois, q],
+  );
+
+  const rows = (data?.['rows'] as O[]) ?? [];
+  const total = Number(data?.['total'] ?? 0);
+  const pages = Math.max(1, Math.ceil(total / 50));
+
+  return <>
+    <BandeauModule icone="archive" titre="Archive"
+      sous={<>Dossiers entrés il y a plus de <b>{mois} mois</b>{data?.['total'] ? <> — <b>{String(data['total'])}</b> dossier(s)</> : null}</>} />
+    <div className="card">
+      <p className="help" style={{ marginTop: 0 }}>
+        Cargaisons entrées avant le <b>{fmtJour(data?.['seuil'])}</b>. Elles restent
+        entièrement consultables : cet écran est une vue par ancienneté, aucune
+        donnée n'a été déplacée ni retirée des recherches.
+      </p>
+      <div className="row" style={{ gap: 10, flexWrap: 'wrap', alignItems: 'end', marginTop: 8 }}>
+        <div>
+          <label className="help">Ancienneté</label>
+          <select value={mois} onChange={(e) => { setMois(Number(e.target.value)); setPage(1); }}>
+            <option value={12}>Plus de 1 an</option>
+            <option value={24}>Plus de 2 ans</option>
+            <option value={36}>Plus de 3 ans</option>
+            <option value={60}>Plus de 5 ans</option>
+          </select>
+        </div>
+        <div style={{ flex: 1, minWidth: 200 }}>
+          <label className="help">Rechercher un camion</label>
+          <input className="mono" value={recherche} placeholder="TG2489BK/2725BP"
+            onChange={(e) => setRecherche(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') { setQ(recherche); setPage(1); } }} />
+        </div>
+        <button className="ghost" onClick={() => { setQ(recherche); setPage(1); }}>Rechercher</button>
+        {q && <button className="ghost" onClick={() => { setRecherche(''); setQ(''); setPage(1); }}>Effacer</button>}
+      </div>
+    </div>
+
+    {loading ? <Spinner /> : error ? <div className="err-msg">{error}</div> : <div className="card">
+      <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+        <b>{total} dossier(s)</b>
+        <span className="help">Page {page} / {pages}</span>
+      </div>
+      {!rows.length ? <div className="empty">Aucun dossier de cette ancienneté.</div> : <>
+        <div style={{ overflowX: 'auto', marginTop: 8 }}>
+          <table>
+            <thead><tr>
+              <th>Camion</th><th>Dossier</th><th>Opération</th><th>Statut</th>
+              <th>Entré le</th><th>Sorti le</th><th>Déclarant</th><th>Décl.</th>
+            </tr></thead>
+            <tbody>
+              {rows.map((r) => <tr key={String(r['id'])} style={{ cursor: 'pointer' }}
+                onClick={() => go('detail', String(r['id']))}>
+                <td className="mono">{String(r['numeroCamion'] ?? '')}</td>
+                <td className="mono help">{String(r['id'] ?? '')}</td>
+                <td>{String(r['typeOperation'] ?? '')}</td>
+                <td><Tag statut={String(r['statut'] ?? '')} o={r} /></td>
+                <td>{fmtJour(r['dateCreation'])}</td>
+                <td>{r['dateSortie'] ? fmtJour(r['dateSortie']) : '—'}</td>
+                <td>{String(r['declarant'] ?? '')}</td>
+                <td className="mono help">{String(r['numeroDeclaration'] ?? '')}</td>
+              </tr>)}
+            </tbody>
+          </table>
+        </div>
+        <div className="row" style={{ gap: 8, marginTop: 10, alignItems: 'center' }}>
+          <button className="ghost" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>← Précédent</button>
+          <button className="ghost" disabled={page >= pages} onClick={() => setPage((p) => p + 1)}>Suivant →</button>
+          <span className="help">Cliquez une ligne pour ouvrir la fiche.</span>
+        </div>
+      </>}
+    </div>}
+  </>;
+};

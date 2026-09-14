@@ -37,6 +37,17 @@ export const ACTIONS: Record<string, H> = {
   'cargo.visite': d(ecr.visite),
   'cargo.valider': d(ecr.valider),
   'cargo.validerlot': d(ecr.validerLot), // v4 : validation de toute une déclaration
+  'cargo.engagementfait': d(ecr.engagementFait), // 2026-09-10 : solde d'un engagement
+  'cargo.engagementedit': d(ecr.engagementEdit), // 2026-09-10 : correction d'un engagement
+  'report.engagements': d((ctx) => lecture.engagementsDus(ctx)), // échéancier du tableau de bord
+  'cargo.historique': d(rap.historiqueCargaison), // 2026-09-10 : parcours complet d'un camion
+  'report.archive': d(lecture.archiveAncienne), // 2026-09-10 : cargaisons de plus d'un an (ADMIN)
+  'cargo.passages': d(lecture.passagesCamion), // 2026-09-10 : passages antérieurs d'une plaque
+  // Corrections de cellules remplies (2026-09-10) — pendant de `cargo.gpsedit`.
+  'cargo.t1edit': d(ecr.t1edit),
+  'cargo.bsedit': d(ecr.bsedit),
+  'decl.apurementedit': d(stk.apurementEdit), // CFS + ADMIN : rattrapage d'un compteur
+  'decl.apurementdelete': d(stk.apurementSupprimer), // ADMIN : retrait d'une ligne à zéro
   'cargo.horsgabarit': d(ecr.horsgabarit),
   'cargo.t1': d(ecr.t1),
   'cargo.gps': d(ecr.gps),
@@ -59,6 +70,9 @@ export const ACTIONS: Record<string, H> = {
   /* ----- Entrepôts : MAD & Entrepôt industriel (v4.1) ----- */
   'entrepot.list': d(entrepot.entrepotList),
   'entrepot.create': d(entrepot.entrepotCreate),
+  // 2026-09-11 — un magasin créé devait pouvoir être corrigé et retiré.
+  'entrepot.edit': d(entrepot.entrepotEdit), // renommer / type / (dés)activer
+  'entrepot.delete': d(entrepot.entrepotSupprimer), // ADMIN, et seulement s'il est vierge
   'entrepot.entree': d(entrepot.entrepotEntree),
   'entrepot.entrees': d(entrepot.entrepotEntrees),
   'entrepot.sortie': d(entrepot.entrepotSortie),
@@ -130,6 +144,8 @@ export const ACTIONS: Record<string, H> = {
   'user.toggle': d(usr.userToggle),
   'user.resetpwd': d(usr.userResetpwd),
   'user.resetmfa': d(usr.userResetmfa),
+  // 2026-09-11 — suppression d'un compte JAMAIS UTILISÉ (voir `userSupprimer`).
+  'user.delete': d(usr.userSupprimer),
 
   /* ----- Compte courant ----- */
   'account.me': d((ctx) => Promise.resolve({
