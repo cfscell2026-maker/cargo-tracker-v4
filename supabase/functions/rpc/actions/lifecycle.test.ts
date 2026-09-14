@@ -2259,23 +2259,23 @@ test('dépotage — un conteneur NON pointé est refusé, sauf régularisation e
   assert.ok(s['date_pointage'], 'le pointage à la volée doit être horodaté');
 });
 
-test('dépotage — la SAISIE MANUELLE ne peut plus masquer un conteneur présent au parc', async () => {
+/* 2026-09-14 — RÈGLE MODIFIÉE (demande utilisateur). Ce test vérifiait le refus.
+ * La saisie manuelle d'un conteneur au parc non pointé est désormais permise ;
+ * ce qui protégeait le parc est conservé autrement : la fiche est RATTACHÉE et
+ * passe à « Dépoté », elle ne reste plus « En stock » pour toujours. */
+test('dépotage — saisie manuelle d\'un conteneur AU PARC : permise, et rattachée à sa fiche (2026-09-14)', async () => {
   const db = new FakeDB();
   db.store['stock'].push({ numero_tc: 'MSKU6660002', taille: "20'", statut: 'En stock' });
   const { cfs, id } = await depotagePret(db, 'PNT002/RM01');
-
-  // C'était la porte dérobée : cocher « saisie manuelle » sautait le pointage.
-  await assert.rejects(
-    () => ecr.cfs(cfs, {
-      id, declaration: DECL_PNT,
-      conteneur: { num: 'MSKU6660002', taille: "20'", type: 'DRY', manuel: true },
-    }),
-    /EST au parc.*saisie manuelle ne lui est pas destinée/is,
-  );
-
-  // Le conteneur n'a pas bougé : rien n'a été écrit à la faveur du refus.
+  // Aucun pointage exigé : l'agent a choisi la saisie manuelle.
+  await ecr.cfs(cfs, {
+    id, declaration: DECL_PNT,
+    conteneur: { num: 'MSKU6660002', taille: "20'", type: 'DRY', manuel: true },
+  });
   const s = db.store['stock'].find((x) => x['numero_tc'] === 'MSKU6660002')!;
-  assert.equal(s['statut'], 'En stock');
+  assert.equal(s['statut'], 'Dépoté', 'le conteneur ne doit pas rester « En stock » au parc');
+  assert.equal(s['cargaison_id'], id, 'la fiche est rattachée au camion');
+  assert.ok(!s['date_pointage'], 'aucune date de pointage inventée');
 });
 
 /* 2026-09-12 — CE TEST DISAIT L'INVERSE, et la production a tranché.
@@ -2299,20 +2299,22 @@ test('dépotage — un conteneur ABSENT du stock passe en saisie manuelle, et sa
   const fiche = db.store['stock'].find((x) => x['numero_tc'] === 'MSKU6660003');
   assert.ok(fiche, 'LE POINT ESSENTIEL : une fiche de stock doit exister, sinon on recrée '
     + 'le défaut qui avait fait fermer la saisie manuelle');
-  assert.equal(fiche!['statut'], 'Positionné');
+  // 2026-09-14 : la fiche créée est aussi rattachée au camion — un conteneur dépoté
+  // ne reste plus « Positionné » au parc.
+  assert.equal(fiche!['statut'], 'Dépoté');
 });
 
-test('dépotage — la saisie manuelle reste REFUSÉE si le conteneur est déjà fiché', async () => {
+test('enlèvement — la saisie manuelle reste REFUSÉE pour un conteneur présent au stock (2026-09-14)', async () => {
   const db = new FakeDB();
-  // Présent au parc : c'est là que la saisie manuelle servait à éviter le pointage.
   db.store['stock'].push({ numero_tc: 'MSKU6660004', taille: "20'", statut: 'En stock' });
-  const { cfs, id } = await depotagePret(db, 'PNT004/RM01');
+  const cfs = ctxAvec(db);
+  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'PNT005/RM01', routage: 'Enlèvement' })) as { id: string };
   await assert.rejects(
     () => ecr.cfs(cfs, {
       id, declaration: DECL_PNT,
-      conteneur: { num: 'MSKU6660004', taille: "20'", type: 'DRY', manuel: true },
+      conteneur: { num: 'MSKU6660004', taille: "20'", type: 'DRY', plomb: 'S1', manuel: true },
     }),
-    /EST au parc/i,
+    /EST au stock/i,
   );
 });
 test("enlèvement — la saisie manuelle reste permise : le conteneur part scellé, hors parc", async () => {
@@ -2631,17 +2633,17 @@ test('balise — le même numéro est libre une fois l\'autre camion SORTI', asy
  * pas du code : c'est une décision métier, et c'est à ce titre qu'elles sont
  * verrouillées ici.
  */
-test('douanier 1 — AU PARC mais NON POINTÉ : saisie manuelle INTERDITE', async () => {
+test('douanier 1 (modifiée le 2026-09-14) — AU PARC mais NON POINTÉ : saisie manuelle PERMISE', async () => {
   const db = new FakeDB();
   db.store['stock'].push({ numero_tc: 'MSKU5550001', taille: "20'", statut: 'En stock' });
   const { cfs, id } = await depotagePret(db, 'DOU001/RM01');
-  await assert.rejects(
-    () => ecr.cfs(cfs, {
-      id, declaration: DECL_PNT,
-      conteneur: { num: 'MSKU5550001', taille: "20'", type: 'DRY', manuel: true },
-    }),
-    /EST au parc/i,
-  );
+  await ecr.cfs(cfs, {
+    id, declaration: DECL_PNT,
+    conteneur: { num: 'MSKU5550001', taille: "20'", type: 'DRY', manuel: true },
+  });
+  const c = db.store['cargaisons'].find((x) => x['id'] === id)!;
+  assert.match(JSON.stringify(c['conteneurs_details']), /MSKU5550001/);
+  assert.equal(db.store['stock'].find((x) => x['numero_tc'] === 'MSKU5550001')!['statut'], 'Dépoté');
 });
 
 test('douanier 2 — DÉJÀ RATTACHÉ à un camion : saisie manuelle AUTORISÉE', async () => {
@@ -2753,4 +2755,56 @@ test('tableau de bord : ↑ entrés / ↓ sortis de chaque file sur la période 
   const h = `${hier.getFullYear()}-${String(hier.getMonth() + 1).padStart(2, '0')}-${String(hier.getDate()).padStart(2, '0')}`;
   const s2 = (await lec.dashboardStats(cfs, { du: h, au: h })) as { flux: Record<string, { entres: number; sortis: number }> };
   assert.deepEqual(s2.flux['T1'], { entres: 0, sortis: 0 });
+});
+
+/* ===== CONTENEUR PARTAGÉ : NON COMPTÉ — 2026-09-14 (demande utilisateur) ===== */
+const lignes = (db: FakeDB, id: string) =>
+  (db.store['cargaisons'].find((x) => x['id'] === id)!['conteneurs_details'] as { conteneurs: Record<string, unknown>[] }).conteneurs;
+
+test('partagé — marqué sur le 2e camion, et compté UNE fois (fiche CFS, KPI, flux)', async () => {
+  const db = new FakeDB();
+  db.store['stock'].push({ numero_tc: 'MSKU5550009', taille: "40'", statut: 'Positionné' });
+  // 1er camion : dépotage normal.
+  const a = await depotagePret(db, 'DOU009/RM01');
+  await ecr.cfs(a.cfs, { id: a.id, declaration: DECL_PNT, conteneur: { num: 'MSKU5550009', taille: "40'", type: 'DRY' } });
+  const lienAvant = db.store['stock'].find((x) => x['numero_tc'] === 'MSKU5550009')!['cargaison_id'];
+  // 2e camion : même conteneur, en saisie manuelle.
+  const b = await depotagePret(db, 'DOU010/RM01');
+  await ecr.cfs(b.cfs, { id: b.id, declaration: DECL_PNT, conteneur: { num: 'MSKU5550009', taille: "40'", type: 'DRY', manuel: true } });
+
+  assert.equal(lignes(db, b.id)[0]!['partage'], true, 'la ligne du 2e camion est marquée partagée');
+  assert.ok(!lignes(db, a.id)[0]!['partage'], 'le premier dépotage reste compté');
+  assert.equal(db.store['stock'].find((x) => x['numero_tc'] === 'MSKU5550009')!['cargaison_id'], lienAvant,
+    'la fiche garde son premier camion');
+
+  const f = (await rap.ficheBord(a.cfs, {})) as { cfs: { total: { conteneurs: number } } };
+  assert.equal(f.cfs.total.conteneurs, 1, 'une seule boîte dépotée');
+  const kpi = (await rap.rapportKPI(a.cfs, {})) as { videsDepotage: number; evpVides: number };
+  assert.equal(kpi.videsDepotage, 1, 'KPI : le partagé comptait deux fois avant le 14/09');
+  assert.equal(kpi.evpVides, 2);
+  const flux = (await rap.rapportFlux(a.cfs, {})) as { totaux: { depotesC: number; evp: number } };
+  assert.equal(flux.totaux.depotesC, 1, 'flux : le partagé comptait deux fois avant le 14/09');
+  assert.equal(flux.totaux.evp, 2);
+});
+
+test('partagé — compté NULLE PART, même quand le premier dépotage tombe dans une autre période', async () => {
+  // Le repérage par numéro ne voyait que la période choisie : ce cas lui échappait.
+  const db = new FakeDB();
+  const cfs = ctxRole(db, 'CFS', 'A');
+  const j = new Date();
+  const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const du = iso(new Date(j.getTime() - 86400000)), au = iso(new Date(j.getTime() + 86400000));
+  const now = j.toISOString();
+  db.store['cargaisons'].push({
+    id: 'P1', reference: 'P1', numero_camion: 'P1', statut: 'Balisée', date_creation: now, date_pose_gps: now, rapport_id: 'R',
+    type_operation: 'Dépotage', type_declaration: 'T', agent_balise: 'B', nb_conteneurs: 1,
+    conteneurs_details: { conteneurs: [{ num: 'MSKU5550010', taille: "40'", type: 'DRY', plomb: '', partage: true }], scellesCamion: [] },
+  });
+  const f = (await rap.ficheBord(cfs, { du, au })) as { cfs: { camionsCfs: number; total: { conteneurs: number } } };
+  assert.equal(f.cfs.camionsCfs, 1, 'le camion, lui, est bien compté');
+  assert.equal(f.cfs.total.conteneurs, 0);
+  const r = (await rap.rapportActivite(cfs, { kind: 'balise', du, au })) as { total: { camions: number; conteneurs: number; evp: number } };
+  assert.equal(r.total.camions, 1);
+  assert.equal(r.total.conteneurs, 0);
+  assert.equal(r.total.evp, 0);
 });

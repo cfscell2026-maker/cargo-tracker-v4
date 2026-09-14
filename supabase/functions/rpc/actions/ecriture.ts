@@ -134,13 +134,6 @@ export async function cfs(ctx: Ctx, p: Record<string, unknown>) {
       'Conteneur « ' + ct.num + ' » introuvable dans le stock. '
       + "Importez-le par « Stock initial », ou pointez-le d'abord.",
     );
-  if (manuel && stk)
-    throw new ErreurMetier(
-      `Le conteneur « ${ct.num} » EST au parc (statut « ${String(stk['statut'])} ») : `
-      + `la saisie manuelle ne lui est pas destinée. Elle ne sert qu'aux conteneurs absents du parc. `
-      + `Retirez la case « saisie manuelle » — le conteneur sera rattaché à sa fiche de stock, `
-      + `et pointé au passage s'il ne l'est pas encore.`,
-    );
 
   const cargo = await getCargo(ctx, id);
   const c = cargo.o;
@@ -154,6 +147,15 @@ export async function cfs(ctx: Ctx, p: Record<string, unknown>) {
   const estEnl = type === OPERATIONS.ENLEVEMENT;
   if (estEnl && !ct.plomb) throw new Error('Enlèvement : le scellé (plomb) du conteneur est obligatoire.');
   else if (!estEnl) ct.plomb = '';
+  // ENLÈVEMENT : un conteneur présent au stock se rattache à sa fiche, pas à la main.
+  // (En DÉPOTAGE, la saisie manuelle d'un conteneur au parc est permise depuis le
+  // 2026-09-14 — voir les règles plus bas.)
+  if (estEnl && manuel && stk)
+    throw new ErreurMetier(
+      `Le conteneur « ${ct.num} » EST au stock (statut « ${String(stk['statut'])} ») : `
+      + `la saisie manuelle ne lui est pas destinée en enlèvement. Retirez la case « saisie manuelle » — `
+      + `le conteneur sera rattaché à sa fiche de stock.`,
+    );
 
   /* DÉPOTAGE : PLUS AUCUNE SAISIE MANUELLE (décision utilisateur 2026-09-10).
    *
@@ -205,7 +207,11 @@ export async function cfs(ctx: Ctx, p: Record<string, unknown>) {
    *
    * Le cas « déjà rattaché » ne crée AUCUNE fiche — elle existe déjà — et ne
    * touche pas au stock : le repasser à « positionné » ferait réapparaître au
-   * parc un conteneur qui en est parti. */
+   * parc un conteneur qui en est parti.
+   *
+   * ⚠ 2026-09-14 — LA PREMIÈRE RÈGLE A CHANGÉ (demande utilisateur) : un conteneur
+   * au parc non pointé ACCEPTE désormais la saisie manuelle, et un conteneur
+   * partagé n'est plus compté du tout dans les conteneurs dépotés. */
   const dejaRattache = !estEnl && !!fiche && fiche['statut'] === STOCK_STATUTS.DEPOTE;
   if (dejaRattache && manuel) {
     await ctx.log('Saisie manuelle — conteneur déjà rattaché', ct.num,
@@ -222,19 +228,21 @@ export async function cfs(ctx: Ctx, p: Record<string, unknown>) {
     if (eFiche) throw new Error(eFiche.message);
     await ctx.log('Fiche de stock créée au dépotage', ct.num,
       "conteneur absent du parc, déclaré présent par l'agent en saisie manuelle");
-  } else if (!estEnl && manuel)
-    throw new ErreurMetier(
-      `Dépotage : la saisie manuelle n'est plus permise. Tout conteneur dépoté au port sec `
-      + `est présent au parc et doit être pointé.\n\n`
-      + `Si « ${ct.num} » est bien sur le site sans figurer au stock, faites-le entrer par `
-      + `« Stock initial — import » ou « Pointage matinal ». S'il est au parc sans avoir été `
-      + `pointé, décochez « saisie manuelle » : il sera pointé au moment du dépotage.
-
-`
-      + `CONTENEUR PARTAGÉ entre plusieurs camions ? Décochez aussi « saisie manuelle » : `
-      + `depuis le 12/09/2026, un conteneur déjà dépoté se rattache directement à un `
-      + `camion supplémentaire, sans re-pointage.`,
-    );
+  } else if (!estEnl && manuel && stk) {
+    /* RÈGLE MODIFIÉE LE 2026-09-14 (demande utilisateur) — AU PARC, NON POINTÉ.
+     *
+     * La règle du 12/09 refusait ici la saisie manuelle et imposait le pointage.
+     * Elle est désormais PERMISE, proposée comme option à côté du pointage.
+     *
+     * Ce qui rendait le refus nécessaire est traité autrement : la saisie
+     * manuelle détachait le conteneur de sa fiche, qui restait « En stock » pour
+     * toujours. On la RATTACHE donc quand même (`lierStock` plus bas) : la fiche
+     * passe à « Dépoté » sur ce camion, le parc reste juste, et l'opération est
+     * tracée au journal. Seule différence avec le pointage : aucune date de
+     * pointage n'est inventée. */
+    await ctx.log('Saisie manuelle — conteneur présent au parc', ct.num,
+      'statut « ' + String(stk['statut']) + ' » : rattaché à sa fiche et marqué dépoté, sans pointage');
+  }
 
   /* v4.2 — CONTENEUR AU PARC MAIS PAS POINTÉ « POSITIONNÉ ».
    *
@@ -269,10 +277,9 @@ export async function cfs(ctx: Ctx, p: Record<string, unknown>) {
       'déjà dépoté : rattaché à un camion supplémentaire, sans re-pointage');
   }
 
-  // `manuel` n'apparaît plus dans cette condition : un conteneur présent au parc
-  // ne peut plus être saisi manuellement (contrôle ci-dessus), donc `stk` est
-  // renseigné dès qu'il existe, et la règle de pointage s'applique sans échappatoire.
-  if (!estPartage && !estEnl && stk && stk['statut'] !== STOCK_STATUTS.POSITIONNE) {
+  // Pointage exigé pour un conteneur au parc non positionné — SAUF si l'agent a
+  // choisi la saisie manuelle, permise pour ce cas depuis le 2026-09-14.
+  if (!estPartage && !estEnl && !manuel && stk && stk['statut'] !== STOCK_STATUTS.POSITIONNE) {
     if (p['pointerSiNonPositionne'] !== true)
       throw new Error(
         'Dépotage : le conteneur « ' + ct.num + ' » est au parc (statut « ' + String(stk['statut']) +
@@ -328,6 +335,14 @@ export async function cfs(ctx: Ctx, p: Record<string, unknown>) {
         bureauDeclaration: declRef.bureauDeclaration, typeDeclaration: declRef.typeDeclaration, declarant: declRef.declarant }
     : declCont(contInput, declRefCamion);
   const ctExt = ct as Record<string, unknown>;
+  /* CONTENEUR PARTAGÉ : NON COMPTÉ — 2026-09-14 (demande utilisateur).
+   * La ligne est marquée `partage`. Tous les compteurs de conteneurs (rapport
+   * CFS, rapports de cellule, fiche de synthèse, KPI, flux) l'ignorent : la boîte
+   * a déjà été comptée sur le camion qui l'a dépotée le premier. Le repérage par
+   * numéro, lui, échouait dès que ce premier dépotage tombait dans une AUTRE
+   * période. Le serveur seul pose ce drapeau : `normaliserConteneur` ne le
+   * reprend pas de la saisie. */
+  if (estPartage) ctExt['partage'] = true;
   ctExt['numeroDeclaration'] = dc.numeroDeclaration; ctExt['anneeDeclaration'] = dc.anneeDeclaration;
   ctExt['bureauDeclaration'] = dc.bureauDeclaration; ctExt['typeDeclaration'] = dc.typeDeclaration;
   if (declRef) {
@@ -380,9 +395,13 @@ export async function cfs(ctx: Ctx, p: Record<string, unknown>) {
   await ajouterConteneurs(ctx, String(c['rapportId']), id, String(c['numeroCamion']), type, [ct], conts.length);
   if (declRef) await majApurement(ctx, declRef, Number(declInput?.['nombreConteneurs']) || undefined, 1);
   else await majApurementSafe(ctx, dc, 1);
-  if (!manuel) await lierStock(ctx, ct.num, id);
+  /* Rattachement à la fiche du parc (2026-09-14) : aussi en saisie manuelle —
+   * conteneur au parc, ou fiche créée ci-dessus pour un absent — afin qu'aucun
+   * conteneur dépoté ne reste « En stock » ou « Positionné ». JAMAIS pour un
+   * conteneur partagé : sa fiche garde le camion et la date du premier dépotage. */
+  if (!estPartage && (!manuel || !estEnl)) await lierStock(ctx, ct.num, id);
 
-  await ctx.log('CFS — ajout conteneur', id, ct.num + ' (' + type + (manuel ? ', partagé/manuel' : '') + (mixte ? ', mixte' : '') + ')');
+  await ctx.log('CFS — ajout conteneur', id, ct.num + ' (' + type + (estPartage ? ', partagé : non compté' : manuel ? ', saisie manuelle' : '') + (mixte ? ', mixte' : '') + ')');
   return { id, statut: resultStatut, conteneur: ct.num, mixte, manuel };
 }
 

@@ -426,13 +426,14 @@ function EtatConteneurParc({
    * conteneur absent. Il disait aussi à l'agent ce que le logiciel NE FAIT PAS,
    * au lieu de lui dire QUAND s'en servir — d'où trois blocages en une journée. */
   if (manuel) return <div className="help" style={{ marginTop: 6 }}>
-    <b>Saisie manuelle</b> — à réserver à deux cas :
+    {/* Règles du 2026-09-14 (demande utilisateur). */}
+    <b>Saisie manuelle</b> — possible dans trois cas :
     <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>
-      <li>le conteneur est <b>absent du parc</b> — sa fiche sera créée et pointée à votre nom ;</li>
-      <li>il est <b>déjà rattaché</b> à un autre camion (marchandise partagée) — il ne sera
-        compté qu'une fois dans les statistiques.</li>
+      <li>le conteneur est <b>absent du parc</b> — sa fiche sera créée à votre nom ;</li>
+      <li>il est <b>au parc sans avoir été pointé</b> — il sera rattaché à sa fiche et marqué dépoté ;</li>
+      <li>il est <b>déjà dépoté sur un autre camion</b> (marchandise partagée) — il ne sera
+        <b> pas compté</b> dans les conteneurs dépotés.</li>
     </ul>
-    S'il est <b>au parc sans avoir été pointé</b>, décochez : il faut le pointer.
   </div>;
   if (cherche) return <p className="help" style={{ marginTop: 6 }}>Recherche dans le parc…</p>;
   if (!fiche) return null;
@@ -472,7 +473,7 @@ function EtatConteneurParc({
       /* Dépotage : marchandise partagée entre plusieurs camions — permis par le
          serveur en saisie manuelle, compté une seule fois (2026-09-12). */
       : <> Vérifiez le numéro. S'il s'agit d'un conteneur <b>partagé</b> entre plusieurs
-        camions, passez en saisie manuelle : il ne sera compté qu'une fois.
+        camions, passez en saisie manuelle : il ne sera <b>pas compté</b> dans les conteneurs dépotés.
         <div style={{ marginTop: 6 }}><button className="ghost xs" onClick={activerManuel}>Passer en saisie manuelle</button></div></>}
   </div>;
 
@@ -499,9 +500,12 @@ function EtatConteneurParc({
       <input type="checkbox" style={{ width: 'auto' }} checked={regulariser} onChange={(e) => setRegulariser(e.target.checked)} />
       <span>Le pointer maintenant et poursuivre le dépotage</span>
     </label>
-    <div className="help" style={{ marginTop: 4 }}>
-      Préférez ceci à la saisie manuelle : le conteneur restera rattaché à sa fiche
-      de parc, et le pointage sera tracé au nom de l'agent.
+    {/* 2026-09-14 (demande utilisateur) : la saisie manuelle est proposée en option.
+        Le serveur rattache quand même le conteneur à sa fiche et le marque dépoté. */}
+    <div className="help" style={{ marginTop: 6 }}>
+      Ou passez en <b>saisie manuelle</b> : le conteneur sera rattaché à sa fiche et marqué dépoté,
+      sans pointage.
+      <div style={{ marginTop: 6 }}><button className="ghost xs" onClick={activerManuel}>Passer en saisie manuelle</button></div>
     </div>
   </div>;
 }
