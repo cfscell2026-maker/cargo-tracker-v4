@@ -328,7 +328,10 @@ function htmlTableau(titre: string, sousTitre: string, entetes: string[], lignes
     `font-size:8.5pt;color:#6b7a89;display:flex;justify-content:space-between}` +
     `</style></head><body>` +
     `<div class="entete">` +
-    `<img src="/logo_PIA.jpg" alt="" onerror="this.remove()">` +
+    // Nouveau logo (2026-09-14). Repli sur l'ancien fichier le temps que le site
+    // publie le nouveau — le serveur et le site ne se déploient pas au même instant —,
+    // puis retrait de l'image si aucun des deux n'est disponible.
+    `<img src="/logo.png" alt="" onerror="if(this.dataset.r){this.remove()}else{this.dataset.r='1';this.src='/logo_PIA.jpg'}">` +
     `<div class="ent-textes">` +
     `<div class="plateforme">PIA Dry Port — Adétikopé · Suivi des cargaisons</div>` +
     `<h1>${esc(titre)}</h1><div class="sub">${esc(sousTitre)}</div></div>` +

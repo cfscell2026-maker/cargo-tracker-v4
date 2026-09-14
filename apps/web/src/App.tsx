@@ -165,12 +165,13 @@ export function App() {
               Le halo reste visible même si l'image manque : c'est le repère
               vivant de l'application, pas une décoration de l'image. */}
           <div className="logo-halo">
-            <img className="logo-rond" src="/logo_PIA.jpg" alt="PIA_Suivi_Cargo"
+            <img className="logo-rond" src="/logo.png" alt="PIA_Suivi_Cargo"
               onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />
           </div>
           <div style={{ minWidth: 0 }}>
             <div className="brand-nom">Suivi des cargaisons</div>
-            <div className="brand-sous">PIA</div>
+            {/* Sigle sous le nom de l'application : « SDC », Suivi Des Cargaisons (2026-09-14). */}
+            <div className="brand-sous">SDC</div>
           </div>
         </div>
 
@@ -361,9 +362,13 @@ function SceneQuai() {
         </g>
         <rect x="256" y="56" width="10" height="94" rx="2" fill="#8ea0b0" />
         <rect x="372" y="56" width="10" height="94" rx="2" fill="#8ea0b0" />
+        {/* Enseigne « Porte Principale » (2026-09-14, demande utilisateur) : le
+            texte est contraint a la largeur du bandeau par `textLength`, pour
+            ne jamais deborder quelle que soit la police du poste. */}
         <rect x="246" y="34" width="146" height="22" rx="5" fill="#0e5a8a" />
-        <text x="319" y="51" textAnchor="middle" fill="#ffffff"
-          fontSize="15" fontWeight="700" letterSpacing="3">PIA</text>
+        <text x="319" y="50" textAnchor="middle" fill="#ffffff"
+          fontSize="12.5" fontWeight="700" letterSpacing="0.6"
+          textLength="132" lengthAdjust="spacingAndGlyphs">Porte Principale</text>
         {/* La guerite, posee 10 unites au-dessus du sol : ce simple decalage
             suffit a la mettre EN RETRAIT de la voie, sans perspective. */}
         <path d="M392 106 h56 l-7 -11 h-42 z" fill="#8ea0b0" />
@@ -595,7 +600,7 @@ function AuthGate({ phase, setPhase, onReady, onApp }: { phase: Phase; setPhase:
           <span className="suivi-orbite" aria-hidden="true">
             <span className="suivi-mobile"><Icone nom="camion" taille={15} /></span>
           </span>
-          <img className="logo-rond" src="/logo_PIA.jpg" alt="PIA_Suivi_Cargo"
+          <img className="logo-rond" src="/logo.png" alt="PIA_Suivi_Cargo"
             onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />
         </div>
         <h1 className="titre-hero">Suivi des Cargaisons</h1>
