@@ -213,6 +213,113 @@ export function typeDeRoutage(routage: string): Operation {
 export const ETATS_SORTIE = ['En cours de chargement', 'Fin de chargement', 'Vide'] as const;
 export type EtatSortie = (typeof ETATS_SORTIE)[number];
 
+/**
+ * SUIVI DES ENGAGEMENTS (2026-09-10) — renseigné par le chef de brigade au
+ * moment de la validation, sur TOUTES les opérations.
+ *
+ * Ces libellés sont des PROPOSITIONS, pas une liste fermée : le chef peut
+ * toujours saisir autre chose. Le champ stocké est donc du texte libre, et
+ * cette liste ne sert qu'à éviter de retaper les trois cas courants — ce qui
+ * limite au passage les variantes d'orthographe dans les rapports.
+ */
+export const ENGAGEMENTS = ['Transit national', 'Transit côtier', 'BFE 03 Sinkase'] as const;
+export type Engagement = (typeof ENGAGEMENTS)[number];
+
+/**
+ * Rôles qui suivent les engagements : ils voient l'échéancier au tableau de bord
+ * et peuvent solder un engagement (« Effectué »).
+ *
+ * C'est le chef de brigade qui prend l'engagement en signant ; c'est donc lui,
+ * et son encadrement, qui en répondent. Les cellules d'exécution (T1, Balise,
+ * Bon de sortie, PP) n'ont pas à porter cette relance — elle n'est pas de leur
+ * ressort et n'apparaît pas sur leur tableau de bord.
+ *
+ * Volontairement DISTINCT de `CHEFS_HORSGABARIT`, qui a aujourd'hui la même
+ * composition : les deux listes répondent à des questions différentes et
+ * doivent pouvoir diverger sans effet de bord.
+ */
+export const SUIVENT_ENGAGEMENTS: Role[] = [
+  ROLES.CHEF_BRIGADE, ROLES.CHEF_BRIGADE_ADJOINT, ROLES.CHEF_VISITE, ROLES.CHEF_DIVISION, ROLES.ADMIN,
+];
+
+/**
+ * Échéance calculée à partir d'un NOMBRE DE JOURS (décision utilisateur
+ * 2026-09-10) : le chef de brigade raisonne en délai (« sous 5 jours »), pas en
+ * date de calendrier. C'est le logiciel qui convertit, à compter du jour de la
+ * saisie.
+ *
+ * Le calcul se fait sur les composantes LOCALES de la date, jamais en
+ * millisecondes ajoutées à un horodatage : passer par `Date.now() + n * 86400000`
+ * puis `toISOString()` bascule d'un jour dès que le fuseau s'écarte d'UTC, ou au
+ * changement d'heure. `setDate` gère aussi les fins de mois et les années
+ * bissextiles sans qu'on ait à y penser.
+ *
+ * Renvoie '' si `n` n'est pas un entier strictement positif — un délai de zéro
+ * jour n'a pas de sens pour un envoi de pièces.
+ */
+export function dateDansNJours(n: unknown, depuis: Date = new Date()): string {
+  const jours = Number(n);
+  if (!Number.isInteger(jours) || jours < 1) return '';
+  const d = new Date(depuis.getFullYear(), depuis.getMonth(), depuis.getDate());
+  d.setDate(d.getDate() + jours);
+  const p2 = (v: number) => String(v).padStart(2, '0');
+  return `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`;
+}
+
+/** État d'un engagement vis-à-vis de son échéance, du plus calme au plus urgent. */
+export type EtatEngagement = 'aucun' | 'solde' | 'a_venir' | 'demain' | 'aujourdhui' | 'retard';
+
+/**
+ * Où en est un engagement aujourd'hui.
+ *
+ * Le calcul se fait en JOURS CALENDAIRES, jamais en millisecondes : « demain »
+ * doit rester « demain » qu'il soit 8 h ou 23 h. On compare donc des dates
+ * normalisées à minuit, ce qui rend la fonction stable dans la journée et
+ * testable sans dépendre de l'heure d'exécution.
+ *
+ * `joursRestants` est négatif en cas de retard — c'est ce qui permet d'afficher
+ * « en retard de 3 jours » sans recalculer quoi que ce soit côté écran.
+ */
+export function etatEngagement(
+  delai: unknown,
+  effectueLe: unknown,
+  aujourdhui: Date = new Date(),
+): { etat: EtatEngagement; joursRestants: number } {
+  if (effectueLe) return { etat: 'solde', joursRestants: 0 };
+  const brut = String(delai ?? '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(brut)) return { etat: 'aucun', joursRestants: 0 };
+
+  const [a, m, j] = brut.split('-').map(Number) as [number, number, number];
+  const echeance = Date.UTC(a, m - 1, j);
+  const jour = Date.UTC(aujourdhui.getFullYear(), aujourdhui.getMonth(), aujourdhui.getDate());
+  const jours = Math.round((echeance - jour) / 86400000);
+
+  if (jours < 0) return { etat: 'retard', joursRestants: jours };
+  if (jours === 0) return { etat: 'aujourdhui', joursRestants: 0 };
+  if (jours === 1) return { etat: 'demain', joursRestants: 1 };
+  return { etat: 'a_venir', joursRestants: jours };
+}
+
+/** true si l'engagement doit remonter au tableau de bord (J-1 et au-delà). */
+export function engagementAlerte(delai: unknown, effectueLe: unknown, aujourdhui?: Date): boolean {
+  const { etat } = etatEngagement(delai, effectueLe, aujourdhui);
+  return etat === 'demain' || etat === 'aujourdhui' || etat === 'retard';
+}
+
+/** Libellé d'alerte prêt à afficher, aligné sur `etatEngagement`. */
+export function libelleEngagement(delai: unknown, effectueLe: unknown, aujourdhui?: Date): string {
+  const { etat, joursRestants } = etatEngagement(delai, effectueLe, aujourdhui);
+  if (etat === 'retard') {
+    const n = Math.abs(joursRestants);
+    return `En retard de ${n} jour${n > 1 ? 's' : ''}`;
+  }
+  if (etat === 'aujourdhui') return "Échéance aujourd'hui";
+  if (etat === 'demain') return 'À envoyer demain';
+  if (etat === 'a_venir') return `Dans ${joursRestants} jours`;
+  if (etat === 'solde') return 'Effectué';
+  return '';
+}
+
 /** Statuts du stock physique. */
 export const STOCK_STATUTS = { STOCK: 'En stock', POSITIONNE: 'Positionné', DEPOTE: 'Dépoté' } as const;
 export type StatutStock = (typeof STOCK_STATUTS)[keyof typeof STOCK_STATUTS];

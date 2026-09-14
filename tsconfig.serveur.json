@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "noEmit": true,
+    "target": "esnext",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "skipLibCheck": true,
+    "allowJs": false
+  },
+  "include": [
+    "supabase/functions/**/*.ts"
+  ],
+  "exclude": [
+    "**/*.test.ts"
+  ]
+}

@@ -10,14 +10,15 @@ import { ErreurMetier, type Ctx } from '../ctx.ts';
 import { versCamel } from '../ctx.ts';
 import {
   ROLES, STATUTS, STOCK_STATUTS, OPERATIONS, ETATS_SORTIE, HAUTEUR_HORS_GABARIT, CONTENEURS_MAX, exigeControlePoids,
-  alphaNumMaj, maj, txt, tcValide, normaliserConteneur, normaliserDeclaration, parseConteneursDetails,
+  alphaNumMaj, maj, txt, tcValide, camionValide, messageCamionFormat,
+  normaliserConteneur, normaliserDeclaration, parseConteneursDetails,
   declKey, typeDeRoutage, tailleBucket, construireCamion, verifierBinome, apercuConteneurs,
   etapesEnAttente, etatCellules, estOui, aFait, sautsTypeC,
 } from '../../_shared/domaine/src/index.ts';
 import {
   getCargo, patchCargo, nextId, nextRapportId, ajouterConteneurs, supprimerConteneursDe,
-  renommerCamionConteneurs, lierStock, delierStock, stockDisponible, lookupDeclaration, majApurement,
-  majApurementSafe, declCont, signature,
+  renommerCamionConteneurs, lierStock, delierStock, stockDisponible, stockFiche, lookupDeclaration, majApurement,
+  majApurementSafe, majApurementDec, declCont, signature,
 } from './helpers.ts';
 
 const b = (v: boolean) => v; // clarté d'intention : on stocke des booléens typés
@@ -40,7 +41,7 @@ const EXIGE_PIECES =
 
 /* --------------------------- createcamion ------------------------------ */
 
-async function camionActif(ctx: Ctx, numeroCamion: string): Promise<Record<string, unknown> | null> {
+export async function camionActif(ctx: Ctx, numeroCamion: string): Promise<Record<string, unknown> | null> {
   const q = String(numeroCamion || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
   if (!q) return null;
   const { data, error } = await ctx.db
@@ -58,6 +59,8 @@ async function camionActif(ctx: Ctx, numeroCamion: string): Promise<Record<strin
 export async function createcamion(ctx: Ctx, p: { numeroCamion?: string; routage?: string; typeOperation?: string }) {
   const numeroCamion = alphaNumMaj(p.numeroCamion);
   if (!numeroCamion) throw new Error('N° camion requis.');
+  // Format tracteur/remorque imposé le 2026-09-10 (voir camionValide).
+  if (!camionValide(numeroCamion)) throw new ErreurMetier(messageCamionFormat(p.numeroCamion));
   const routage = String(p.routage || p.typeOperation || '').trim();
   if ([OPERATIONS.ENLEVEMENT, OPERATIONS.DEPOTAGE].indexOf(routage as never) === -1)
     throw new Error("Type d'opération requis : Enlèvement ou Dépotage.");
@@ -94,10 +97,49 @@ export async function cfs(ctx: Ctx, p: Record<string, unknown>) {
   if (!ct.taille) throw new Error('Taille du conteneur obligatoire.');
   // v3.1 — le TYPE de conteneur est saisi à la main et n'est plus obligatoire.
 
-  const stk = manuel ? null : await stockDisponible(ctx, ct.num);
-  if (!manuel && !stk)
+  /* La saisie manuelle NE PEUT PLUS masquer un conteneur présent au parc
+   * (2026-09-10).
+   *
+   * `manuel` existe pour les conteneurs ABSENTS du stock : partagés, arrivés
+   * hors circuit d'import. C'était sa raison d'être. Mais il était appliqué
+   * AVANT toute lecture du stock, si bien qu'il court-circuitait aussi les deux
+   * contrôles suivants — l'existence, et l'exigence de pointage au dépotage.
+   *
+   * Conséquence : un conteneur bien présent au parc, mais non pointé, se
+   * dépotait quand même en cochant la case. Et comme la saisie manuelle ne
+   * rattache pas le conteneur à sa fiche stock, celui-ci restait « En stock »
+   * indéfiniment — le parc affichait des conteneurs partis depuis longtemps, et
+   * l'apurement portait à faux.
+   *
+   * On lit donc TOUJOURS le stock. `manuel` ne dispense plus que du cas
+   * « absent du parc », qui reste son usage légitime. */
+  const stk = await stockDisponible(ctx, ct.num);
+  /* CONTENEUR PARTAGE - 2026-09-12.
+   *
+   * `stockDisponible` rend `null` pour un conteneur deja DEPOTE : il n'est plus
+   * disponible. Or un conteneur depote au port sec alimente souvent PLUSIEURS
+   * camions, sa marchandise etant repartie entre eux - le deuxieme tombait donc
+   * sur << introuvable dans le stock >>, et le message invitait lui-meme a
+   * cocher << saisie manuelle >>. C'est ainsi que la saisie manuelle, faite pour
+   * les conteneurs ABSENTS du parc, est devenue l'outil du partage - en
+   * detachant chaque fois le conteneur de sa fiche, ce que la regle voulait
+   * precisement empecher.
+   *
+   * On separe donc les deux questions : << est-il disponible ? >> et
+   * << existe-t-il ? >>. Un conteneur depote EXISTE, et cela suffit a l'attacher
+   * a un camion de plus, sans saisie manuelle et sans perdre le lien. */
+  const fiche = stk ? null : await stockFiche(ctx, ct.num);
+  if (!manuel && !stk && !fiche)
     throw new Error(
-      'Conteneur « ' + ct.num + ' » introuvable dans le stock (ou déjà dépoté). Importez / pointez-le d\'abord, ou cochez « saisie manuelle » s\'il est partagé.',
+      'Conteneur « ' + ct.num + ' » introuvable dans le stock. '
+      + "Importez-le par « Stock initial », ou pointez-le d'abord.",
+    );
+  if (manuel && stk)
+    throw new ErreurMetier(
+      `Le conteneur « ${ct.num} » EST au parc (statut « ${String(stk['statut'])} ») : `
+      + `la saisie manuelle ne lui est pas destinée. Elle ne sert qu'aux conteneurs absents du parc. `
+      + `Retirez la case « saisie manuelle » — le conteneur sera rattaché à sa fiche de stock, `
+      + `et pointé au passage s'il ne l'est pas encore.`,
     );
 
   const cargo = await getCargo(ctx, id);
@@ -112,6 +154,87 @@ export async function cfs(ctx: Ctx, p: Record<string, unknown>) {
   const estEnl = type === OPERATIONS.ENLEVEMENT;
   if (estEnl && !ct.plomb) throw new Error('Enlèvement : le scellé (plomb) du conteneur est obligatoire.');
   else if (!estEnl) ct.plomb = '';
+
+  /* DÉPOTAGE : PLUS AUCUNE SAISIE MANUELLE (décision utilisateur 2026-09-10).
+   *
+   * Le contrôle précédent fermait la porte pour les conteneurs PRÉSENTS au parc.
+   * Celui-ci la ferme entièrement, et il repose sur un fait métier : tout
+   * conteneur qui se dépote au port sec est un conteneur qui a été ACHEMINÉ SUR
+   * LE SITE DE LA PIA. Il figure donc au parc et doit être pointé — il n'existe
+   * pas de conteneur à dépoter qui serait légitimement absent du stock.
+   *
+   * La saisie manuelle n'était donc plus une exception : c'était le moyen de ne
+   * pas pointer. Chaque usage laissait un conteneur non rattaché à sa fiche, qui
+   * restait « En stock » pour toujours — le parc se remplissait de conteneurs
+   * partis, et l'apurement portait à faux.
+   *
+   * La voie normale couvre tous les cas réels : conteneur pointé le matin, ou
+   * pointé À LA VOLÉE au moment du dépotage (`pointerSiNonPositionne`, v4.2).
+   *
+   * ⚠ L'ENLÈVEMENT n'est pas concerné : le conteneur y part scellé, et il peut
+   * légitimement ne pas être passé par le parc. */
+  /* CONTENEUR INCONNU DU STOCK — 2026-09-12.
+   *
+   * La règle du 2026-09-10 fermait la saisie manuelle en dépotage, en posant
+   * que « tout conteneur dépoté au port sec figure au parc ». CONSTATÉ EN
+   * PRODUCTION : c'est faux. « CCLU7731903 », présent physiquement, n'existait
+   * dans aucune fiche — et l'écran ne proposait alors AUCUNE issue : la case de
+   * régularisation ne s'affiche que pour un conteneur déjà fiché, et
+   * « Pointage matinal » refuse ce qu'il ne connaît pas. Seul restait l'import
+   * d'un fichier Excel — pour un conteneur. L'agent était bloqué.
+   *
+   * La saisie manuelle retrouve donc sa raison d'être D'ORIGINE, et elle seule :
+   * les conteneurs ABSENTS du parc. Elle reste refusée dès que le conteneur est
+   * fiché (contrôle juste au-dessus) — c'est là qu'elle servait à éviter le
+   * pointage, et c'est ce détournement que la règle visait.
+   *
+   * ET ON CRÉE LA FICHE. C'est ce qui rend la réouverture sûre : le grief contre
+   * la saisie manuelle était qu'elle laissait un conteneur SANS fiche, donc hors
+   * du parc et hors de l'apurement. En créant la fiche au passage, on obtient
+   * l'inverse de ce que la règle redoutait — un conteneur de plus rattaché,
+   * tracé, et compté. */
+  /* RÈGLES DU DOUANIER — 2026-09-12, dictées après trois blocages successifs.
+   *
+   *   · conteneur AU PARC mais NON POINTÉ  → pas de saisie manuelle. Il faut
+   *     pointer : c'est exactement l'abus que la règle du 10 septembre visait.
+   *   · conteneur DÉJÀ RATTACHÉ à un camion → saisie manuelle AUTORISÉE. Sa
+   *     marchandise se répartit sur plusieurs camions ; il est déjà pointé et
+   *     déjà sorti du parc, il n'y a plus rien à pointer.
+   *   · conteneur ABSENT du parc → saisie manuelle autorisée, et sa fiche est
+   *     créée au passage.
+   *
+   * Le cas « déjà rattaché » ne crée AUCUNE fiche — elle existe déjà — et ne
+   * touche pas au stock : le repasser à « positionné » ferait réapparaître au
+   * parc un conteneur qui en est parti. */
+  const dejaRattache = !estEnl && !!fiche && fiche['statut'] === STOCK_STATUTS.DEPOTE;
+  if (dejaRattache && manuel) {
+    await ctx.log('Saisie manuelle — conteneur déjà rattaché', ct.num,
+      'partagé entre plusieurs camions : compté UNE SEULE FOIS dans les statistiques');
+  } else if (!estEnl && manuel && !stk && !fiche) {
+    const maintenant = new Date().toISOString();
+    const { error: eFiche } = await ctx.db.from('stock').insert({
+      numero_tc: ct.num, taille: ct.taille ?? '', type_conteneur: ct.type ?? '',
+      provenance: 'PORT SEC', date_entree: maintenant,
+      statut: STOCK_STATUTS.POSITIONNE, date_positionne: maintenant,
+      date_pointage: maintenant, pointe_par: ctx.session.nomComplet,
+      observations: 'Fiche créée au dépotage (conteneur absent du stock)',
+    });
+    if (eFiche) throw new Error(eFiche.message);
+    await ctx.log('Fiche de stock créée au dépotage', ct.num,
+      "conteneur absent du parc, déclaré présent par l'agent en saisie manuelle");
+  } else if (!estEnl && manuel)
+    throw new ErreurMetier(
+      `Dépotage : la saisie manuelle n'est plus permise. Tout conteneur dépoté au port sec `
+      + `est présent au parc et doit être pointé.\n\n`
+      + `Si « ${ct.num} » est bien sur le site sans figurer au stock, faites-le entrer par `
+      + `« Stock initial — import » ou « Pointage matinal ». S'il est au parc sans avoir été `
+      + `pointé, décochez « saisie manuelle » : il sera pointé au moment du dépotage.
+
+`
+      + `CONTENEUR PARTAGÉ entre plusieurs camions ? Décochez aussi « saisie manuelle » : `
+      + `depuis le 12/09/2026, un conteneur déjà dépoté se rattache directement à un `
+      + `camion supplémentaire, sans re-pointage.`,
+    );
 
   /* v4.2 — CONTENEUR AU PARC MAIS PAS POINTÉ « POSITIONNÉ ».
    *
@@ -128,7 +251,28 @@ export async function cfs(ctx: Ctx, p: Record<string, unknown>) {
    * un pointage à part, distinct du pointage matinal.
    */
   let pointeALaVolee = false;
-  if (!estEnl && !manuel && stk && stk['statut'] !== STOCK_STATUTS.POSITIONNE) {
+
+  /* LE CAS PARTAGÉ, NOMMÉ PLUTÔT QUE SUBI — 2026-09-12.
+   *
+   * Un conteneur DÉJÀ DÉPOTÉ qu'on rattache à un camion supplémentaire est
+   * légitime : sa marchandise se répartit entre plusieurs camions. Il ne doit
+   * donc PAS repasser par la règle de pointage — celle-ci réclamait un pointage
+   * sur un conteneur déjà pointé et déjà sorti du parc, et la mise à jour qui
+   * suivait, portant un `.neq('statut', DEPOTE)`, ne touchait de toute façon
+   * aucune ligne. Le rendre « positionné » le ferait réapparaître au parc alors
+   * qu'il en est parti : ce serait fausser le stock pour satisfaire une règle.
+   *
+   * On le trace, parce qu'un partage doit rester lisible dans le journal. */
+  const estPartage = !estEnl && !!fiche && fiche['statut'] === STOCK_STATUTS.DEPOTE;
+  if (estPartage) {
+    await ctx.log('Conteneur partagé (dépotage)', ct.num,
+      'déjà dépoté : rattaché à un camion supplémentaire, sans re-pointage');
+  }
+
+  // `manuel` n'apparaît plus dans cette condition : un conteneur présent au parc
+  // ne peut plus être saisi manuellement (contrôle ci-dessus), donc `stk` est
+  // renseigné dès qu'il existe, et la règle de pointage s'applique sans échappatoire.
+  if (!estPartage && !estEnl && stk && stk['statut'] !== STOCK_STATUTS.POSITIONNE) {
     if (p['pointerSiNonPositionne'] !== true)
       throw new Error(
         'Dépotage : le conteneur « ' + ct.num + ' » est au parc (statut « ' + String(stk['statut']) +
@@ -403,6 +547,90 @@ function peseePatch(p: Record<string, unknown>, exige: boolean): Record<string, 
 }
 
 /**
+ * SUIVI DES ENGAGEMENTS (2026-09-10) — renseigné par le chef de brigade à la
+ * validation, sur TOUTES les opérations, et BLOQUANT.
+ *
+ * Même forme que `peseePatch` : une réponse OUI/NON, puis une précision exigée
+ * si OUI. La garde vit ICI, côté serveur — l'écran désactive le bouton, mais
+ * c'est cette fonction qui fait autorité : un appel direct à l'API ne peut pas
+ * contourner la saisie.
+ *
+ * Le régime est du TEXTE LIBRE : les trois libellés d'`ENGAGEMENTS` ne sont que
+ * des propositions, le chef doit pouvoir écrire autre chose. On ne valide donc
+ * pas la valeur contre la liste — ce serait refuser le cas prévu par le besoin.
+ */
+function engagementPatch(p: Record<string, unknown>): Record<string, unknown> {
+  const brut = p['suiviEngagement'];
+  /* CHAMP ABSENT = ON N'EN TIENT PAS COMPTE — correctif du 2026-09-12.
+   *
+   * Cette garde refusait toute validation quand `suiviEngagement` manquait.
+   * Elle a bloqué la production : le serveur a été déployé avant le front, or
+   * l'écran alors en ligne — celui du 25 août — ignorait ce champ. Plus aucun
+   * chef de brigade ne pouvait signer.
+   *
+   * LA LEÇON, qui vaut au-delà de ce champ : un serveur ne peut pas EXIGER ce
+   * qu'un client déjà déployé n'a aucun moyen d'envoyer. Entre deux
+   * déploiements, les deux versions coexistent forcément ; le serveur doit
+   * tolérer l'absence, et c'est à l'écran d'exiger la réponse — ce qu'il fait
+   * déjà : le bouton de signature y reste inerte tant qu'on n'a pas répondu.
+   *
+   * L'exigence n'est donc pas perdue, elle est portée là où elle est tenable.
+   * Une valeur FOURNIE reste, elle, intégralement vérifiée ci-dessous. */
+  if (brut === undefined || brut === null || brut === '') return {};
+  const suivi = brut === true || String(brut).toLowerCase() === 'oui' || String(brut).toLowerCase() === 'true';
+  const type = txt(p['engagementType'], 120);
+  const delai = String(p['engagementDelai'] ?? '').slice(0, 10);
+
+  if (!suivi) return { suivi_engagement: false, engagement_type: '', engagement_delai: null };
+
+  if (!type)
+    throw new ErreurMetier("Suivi des engagements : précisez l'engagement (liste ou saisie libre).");
+  // Le délai est OBLIGATOIRE : un engagement sans échéance n'est pas suivi, il
+  // est seulement noté. C'est lui qui fait vivre l'échéancier du tableau de bord.
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(delai))
+    throw new ErreurMetier("Suivi des engagements : indiquez le délai (date d'envoi des informations).");
+  // Une échéance déjà passée serait en retard dès la signature : c'est une faute
+  // de frappe, pas une intention. On refuse, plutôt que de créer une alerte
+  // immédiate que personne ne comprendrait.
+  const aujourdhui = new Date().toISOString().slice(0, 10);
+  if (delai < aujourdhui)
+    throw new ErreurMetier(`Le délai (${delai}) est déjà passé. Indiquez une date à venir.`);
+
+  return { suivi_engagement: true, engagement_type: type, engagement_delai: delai };
+}
+
+/**
+ * Solde d'un engagement — le bouton « Effectué » de l'échéancier.
+ *
+ * Réservé aux rôles qui portent le suivi (voir SUIVENT_ENGAGEMENTS et la matrice
+ * de permissions) : c'est le chef de brigade qui a pris l'engagement en signant,
+ * c'est lui et son encadrement qui le soldent.
+ *
+ * Écriture en AJOUT SEUL du point de vue de l'engagement : on n'efface ni le
+ * type, ni le délai. La fiche garde donc trace de ce qui était dû ET de quand
+ * cela a été fourni — sans quoi le solde effacerait l'obligation qu'il honore.
+ */
+export async function engagementFait(ctx: Ctx, p: Record<string, unknown>) {
+  const id = String(p['id'] ?? '').trim();
+  const cargo = await getCargo(ctx, id);
+  const c = cargo.o;
+
+  if (c['suiviEngagement'] !== true)
+    throw new ErreurMetier("Cette cargaison n'est pas sous suivi d'engagement.");
+  if (aFait(c['engagementEffectueLe']))
+    throw new ErreurMetier('Engagement déjà soldé le ' + fmtDate(c['engagementEffectueLe']) + '.');
+
+  const now = new Date().toISOString();
+  await patchCargo(ctx, cargo, {
+    engagement_effectue_le: now,
+    engagement_effectue_par: ctx.session.nomComplet,
+  });
+  await ctx.log('Engagement — informations transmises', id,
+    String(c['engagementType'] ?? '') + ' · délai ' + String(c['engagementDelai'] ?? '—'));
+  return { id, effectueLe: now };
+}
+
+/**
  * SEC-10 — EMPREINTE DU CONTENU VALIDÉ.
  *
  * L'ancienne « signature » était `sha256(id | username | horodatage)` tronqué à
@@ -416,13 +644,20 @@ function peseePatch(p: Record<string, unknown>, exige: boolean): Record<string, 
  * liste ordonnée des conteneurs avec leurs scellés. Toute retouche ultérieure de
  * l'un de ces éléments rend l'empreinte non reproductible — donc détectable.
  */
-async function empreinteValidation(c: Record<string, unknown>, pesee: Record<string, unknown>): Promise<string> {
+async function empreinteValidation(
+  c: Record<string, unknown>,
+  pesee: Record<string, unknown>,
+  engagement: Record<string, unknown>,
+): Promise<string> {
   const pd = parseConteneursDetails(c['conteneursDetails']);
   const conts = pd.conteneurs
     .map((ct) => [ct.num, ct.plomb ?? '', ct.taille ?? '', ct.type ?? ''].join('~'))
     .join(',');
   const base = [
-    'v1',
+    // 'v2' depuis le 2026-09-10 : le suivi des engagements entre dans l'empreinte.
+    // Le numéro de version fait PARTIE du haché — les empreintes 'v1' restent donc
+    // distinctes et reproductibles avec l'ancien jeu de champs, sans ambiguïté.
+    'v2',
     String(c['id'] ?? ''),
     String(c['numeroCamion'] ?? ''),
     String(c['typeOperation'] ?? ''),
@@ -438,6 +673,11 @@ async function empreinteValidation(c: Record<string, unknown>, pesee: Record<str
     (pd.scellesCamion ?? []).join('~'),
     String(pesee['en_surcharge']),
     String(pesee['poids_surcharge'] ?? ''),
+    // Le suivi des engagements est attesté par le chef au même titre que la
+    // pesée : le retoucher après signature doit rendre l'empreinte irreproductible.
+    String(engagement['suivi_engagement']),
+    String(engagement['engagement_type'] ?? ''),
+    String(engagement['engagement_delai'] ?? ''),
   ].join('|');
   return await signature(base);
 }
@@ -453,8 +693,11 @@ export async function valider(ctx: Ctx, p: Record<string, unknown>) {
     throw new ErreurMetier('Cargaison déjà validée le ' + fmtDate(c['dateValidation']) + '.');
   // Pesée exigée uniquement en dépotage (2026-08-19).
   const pesee = peseePatch(p, exigeControlePoids(c['typeOperation']));
+  // Suivi des engagements (2026-09-10) : exigé sur TOUTES les opérations,
+  // contrairement à la pesée qui ne concerne que le dépotage.
+  const engagement = engagementPatch(p);
   const now = new Date().toISOString();
-  const empreinte = await empreinteValidation(c, pesee);
+  const empreinte = await empreinteValidation(c, pesee, engagement);
   const sig = await signature(id + '|' + ctx.session.username + '|' + now + '|' + empreinte);
 
   await patchCargo(ctx, cargo, {
@@ -464,7 +707,7 @@ export async function valider(ctx: Ctx, p: Record<string, unknown>) {
     // ne dit pas à quel titre la personne a signé ; la table `validations` en garde
     // déjà l'historique, on le remonte ici pour l'affichage direct.
     role_validation: ctx.session.role,
-    signature_validation: sig, ...pesee,
+    signature_validation: sig, ...pesee, ...engagement,
   });
 
   // SEC-10 — La ligne `cargaisons` ne porte qu'UNE validation : une re-validation
@@ -502,13 +745,26 @@ export async function validerLot(ctx: Ctx, p: Record<string, unknown>) {
   if (!ids.length) throw new Error('Aucune cargaison à valider.');
   // v4.1 — la pesée est PAR CAMION : le lot porte une entrée de pesée par id.
   const pesees = (p['pesees'] ?? {}) as Record<string, { enSurcharge?: unknown; poidsSurcharge?: unknown }>;
+  /* Le suivi des engagements, lui, vaut POUR TOUT LE LOT (2026-09-10).
+   *
+   * La pesée est un fait physique propre à chaque camion — d'où une entrée par
+   * id. L'engagement est un régime attaché à la DÉCLARATION, et ce lot est
+   * précisément l'ensemble des camions d'une même déclaration : le répéter
+   * camion par camion inviterait à des réponses divergentes sur une seule et
+   * même déclaration. Une valeur unique, donc, recopiée sur chaque fiche pour
+   * qu'elle reste lisible prise isolément. */
+  const suiviEngagement = p['suiviEngagement'];
+  const engagementType = p['engagementType'];
 
   const validees: string[] = [];
   const erreurs: Record<string, unknown>[] = [];
   for (const id of ids) {
     try {
       const ps = pesees[id] ?? {};
-      await valider(ctx, { id, enSurcharge: ps.enSurcharge, poidsSurcharge: ps.poidsSurcharge });
+      await valider(ctx, {
+        id, enSurcharge: ps.enSurcharge, poidsSurcharge: ps.poidsSurcharge,
+        suiviEngagement, engagementType,
+      });
       validees.push(id);
     } catch (e) {
       erreurs.push({ id, message: (e as Error).message });
@@ -594,6 +850,38 @@ export async function gps(ctx: Ctx, p: Record<string, unknown>) {
 
   const cargo = await getCargo(ctx, id);
   const c = cargo.o;
+
+  /* BALISE DÉJÀ POSÉE SUR UN AUTRE CAMION — 2026-09-12.
+   *
+   * La migration 00170 pose un index unique : deux cargaisons NON SORTIES ne
+   * peuvent plus porter la même balise. C'est la bonne règle — sinon plus
+   * personne ne sait quel camion est réellement suivi.
+   *
+   * Mais un refus venu de l'index arrive sous forme de « duplicate key value »,
+   * que `estMessageMetier` masque à juste titre (il cartographierait le schéma).
+   * L'agent verrait donc une erreur technique générique, sans savoir que c'est
+   * le NUMÉRO DE BALISE qui est en cause ni sur quel camion il est déjà posé.
+   *
+   * On vérifie donc AVANT d'écrire, et on nomme le camion fautif. L'index reste
+   * la garantie dure — lui seul résiste à deux agents qui saisissent en même
+   * temps ; ce contrôle-ci ne sert qu'à rendre le refus compréhensible. */
+  if (requise && numeroGPS) {
+    const { data: dejaPosee } = await ctx.db.from('cargaisons')
+      .select('id, numero_camion')
+      .eq('numero_gps', numeroGPS)
+      .neq('id', id)
+      .neq('statut', STATUTS.SORTIE)
+      .is('date_sortie', null)
+      .limit(1);
+    const autre = (dejaPosee ?? [])[0];
+    if (autre)
+      throw new ErreurMetier(
+        `La balise « ${numeroGPS} » est déjà posée sur le camion `
+        + `« ${String(autre['numero_camion'] ?? autre['id'])} », qui n'est pas encore sorti. `
+        + `Une balise ne peut suivre qu'un camion à la fois : vérifiez le numéro, `
+        + `ou enregistrez d'abord la sortie de l'autre camion.`,
+      );
+  }
   if (c['estVehicule'] === true || c['estVehicule'] === 'Oui') throw new Error('Les véhicules ne passent pas par la cellule Balise.');
   if (ctx.session.role !== ROLES.ADMIN && etapesEnAttente(c as never).indexOf('BALISE') < 0)
     throw new Error('Étape Balise impossible : chargement non terminé ou déjà balisée (statut « ' + c['statut'] + ' »).');
@@ -796,6 +1084,8 @@ export async function editcamion(ctx: Ctx, p: Record<string, unknown>) {
   const id = String(p['id'] ?? '').trim();
   const nouveau = alphaNumMaj(p['numeroCamion']);
   if (!nouveau) throw new ErreurMetier('N° camion invalide (alphanumérique, majuscules).');
+  // La correction est précisément l'endroit où l'on remet un numéro au format.
+  if (!camionValide(nouveau)) throw new ErreurMetier(messageCamionFormat(p['numeroCamion'], 'Nouveau n° de camion'));
   const motif = txt(p['motif'], 300);
   if (!motif)
     throw new ErreurMetier('Indiquez le motif de la correction du N° de camion (erreur de saisie, plaque illisible…).');
@@ -851,13 +1141,23 @@ export async function supprimerCargo(ctx: Ctx, p: Record<string, unknown>) {
   const cargo = await getCargo(ctx, id);
   const c = cargo.o;
 
-  if (c['statut'] === STATUTS.SORTIE)
-    throw new ErreurMetier('Camion déjà sorti : cette cargaison ne peut plus être annulée.');
-  if (aFait(c['dateValidation']))
-    throw new ErreurMetier(
-      'Cargaison déjà validée et signée par le chef de brigade : elle ne peut plus être annulée. ' +
-        'Une erreur à ce stade se corrige par une note motivée, pas par un retrait.',
-    );
+  /* ANNULATION OUVERTE À TOUS LES STADES (décision utilisateur 2026-09-10).
+   *
+   * L'annulation était fermée après la signature du chef de brigade et après la
+   * sortie. En exploitation, cette rigidité laissait sans recours les erreurs
+   * découvertes tard — un doublon repéré après coup restait dans les compteurs
+   * pour toujours.
+   *
+   * Ce qui rendait la fermeture nécessaire n'existe plus : l'action reste
+   * réservée à l'ADMIN, l'annulation est LOGIQUE (aucune pièce n'est détruite,
+   * cf. SEC-12), le motif est obligatoire, l'enregistrement complet est recopié
+   * au journal, et depuis 00170 l'apurement de la déclaration est rendu.
+   *
+   * On ne bloque donc plus — on TRACE PLUS FORT : le journal dit désormais
+   * explicitement qu'une écriture engagée a été annulée, et à quel stade. */
+  const engagee: string[] = [];
+  if (aFait(c['dateValidation'])) engagee.push('VALIDÉE ET SIGNÉE le ' + fmtDate(c['dateValidation']));
+  if (c['statut'] === STATUTS.SORTIE) engagee.push('DÉJÀ SORTIE le ' + fmtDate(c['dateSortie']));
 
   // Libère les conteneurs de stock rattachés à cette cargaison.
   const { error: eStock } = await ctx.db.from('stock')
@@ -883,9 +1183,46 @@ export async function supprimerCargo(ctx: Ctx, p: Record<string, unknown>) {
   }).eq('id', id);
   if (error) throw new Error(error.message);
 
-  await ctx.log('Annulation cargaison (doublon)', id,
-    String(c['numeroCamion'] || '') + ' · ' + String(c['typeOperation'] || '') + ' · motif : ' + motif + ' · ' + empreinte);
-  return { id, annule: true };
+  /* 00170 — APUREMENT : une cargaison annulée ne doit plus rien apurer.
+   *
+   * EFFET DE BORD DE SEC-12. Le passage à la suppression LOGIQUE était une
+   * correction de sécurité — ne plus détruire de pièce douanière. Mais en
+   * laissant les compteurs intacts, elle a créé une fuite : la cargaison
+   * disparaissait des listes et des rapports pendant que ses conteneurs
+   * restaient comptés comme apurés sur leur déclaration. Un doublon écarté
+   * apurait donc une déclaration deux fois.
+   *
+   * On regroupe par déclaration (un camion en chargement MIXTE en porte
+   * plusieurs) et on retire le compte exact. Best-effort : l'annulation ne doit
+   * pas échouer parce qu'un compteur n'a pas pu être rattrapé.
+   */
+  const parDecl = new Map<string, { decl: Record<string, unknown>; n: number }>();
+  for (const ct of parseConteneursDetails(c['conteneursDetails']).conteneurs) {
+    const s = ct as unknown as Record<string, unknown>;
+    // Repli sur la déclaration du camion : les conteneurs migrés depuis la v3.6
+    // ne portent pas toujours la leur (LOT D postérieur à l'import).
+    const decl = {
+      numeroDeclaration: s['numeroDeclaration'] || c['numeroDeclaration'],
+      anneeDeclaration: s['anneeDeclaration'] || c['anneeDeclaration'],
+      bureauDeclaration: s['bureauDeclaration'] || c['bureauDeclaration'],
+      typeDeclaration: s['typeDeclaration'] || c['typeDeclaration'],
+      declarant: s['declarant'] || c['declarant'],
+    };
+    const k = declKey(decl as never);
+    const e = parDecl.get(k);
+    if (e) e.n++;
+    else parDecl.set(k, { decl, n: 1 });
+  }
+  for (const { decl, n } of parDecl.values()) await majApurementDec(ctx, decl as never, n);
+
+  await ctx.log(
+    engagee.length ? 'Annulation cargaison — ÉCRITURE ENGAGÉE' : 'Annulation cargaison (doublon)',
+    id,
+    String(c['numeroCamion'] || '') + ' · ' + String(c['typeOperation'] || '')
+      + (engagee.length ? ' · ⚠ ' + engagee.join(' · ') : '')
+      + ' · motif : ' + motif + ' · ' + empreinte,
+  );
+  return { id, annule: true, engagee };
 }
 
 /* --------------------------- archivage goulots ------------------------- */
@@ -995,6 +1332,43 @@ export async function edittype(ctx: Ctx, p: Record<string, unknown>) {
   return { id, typeOperation: nouveau, ancien };
 }
 
+/* ===== SAISIE DE LA DÉCLARATION À TOUTES LES ÉTAPES — 2026-09-11 ==========
+ *
+ * (décision utilisateur) Jusqu'ici, passé le statut « Créée », un agent CFS se
+ * heurtait à un refus sec sur les deux points où se saisit un numéro de
+ * déclaration : `editdecl` (le camion) et `editconteneur` (une ligne). Or c'est
+ * précisément plus loin dans le parcours qu'on s'aperçoit qu'une déclaration
+ * manque ou qu'un numéro est faux — et le CFS est le seul à savoir lequel
+ * écrire. Le renvoyer vers l'administrateur pour une faute de frappe bloquait
+ * le dossier sans rien protéger.
+ *
+ * L'ÉTAPE NE BLOQUE DONC PLUS. Ce qui la remplace n'est pas rien : un MOTIF
+ * OBLIGATOIRE, inscrit au journal d'audit. On n'interdit pas le geste, on en
+ * garde la trace — ce qui vaut mieux qu'un refus contourné par un appel à
+ * l'administrateur, lequel ne laissait, lui, aucune trace du vrai demandeur.
+ *
+ * ⚠ L'ADMIN garde EXACTEMENT son comportement d'avant : aucun motif ne lui est
+ * réclamé, à aucune étape. Seule la porte fermée au CFS s'ouvre.
+ *
+ * ⚠ SIGNATURE DU CHEF. L'empreinte de validation couvre la déclaration (voir
+ * `empreinteValidation`). Corriger une cargaison DÉJÀ SIGNÉE rend l'empreinte
+ * stockée non concordante : c'est voulu, c'est ainsi qu'une modification
+ * d'après-signature se détecte. Le journal le mentionne, pour que le
+ * rapprochement reste lisible des mois plus tard.
+ */
+function exigerMotifSiAvancee(ctx: Ctx, c: Record<string, unknown>, p: Record<string, unknown>): string {
+  const avancee = [STATUTS.CAMION, STATUTS.CHARGEMENT, STATUTS.CREEE].indexOf(c['statut'] as never) === -1;
+  if (!avancee) return '';
+  const motif = txt(p['motif'], 200).trim();
+  if (ctx.session.role !== ROLES.ADMIN && !motif) {
+    throw new ErreurMetier(
+      'Cette cargaison a déjà avancé (statut « ' + c['statut'] + ' ») : indiquez le MOTIF de la '
+      + "correction dans le champ prévu, puis enregistrez. Le motif est inscrit au journal d'audit.");
+  }
+  const suffixe = aFait(c['dateValidation']) ? ' · APRÈS VALIDATION (empreinte de signature non concordante)' : '';
+  return (motif ? ' · motif : ' + motif : ' · correction ADMIN') + suffixe;
+}
+
 /* ---------------------------- editconteneur ---------------------------- */
 
 /**
@@ -1014,8 +1388,7 @@ export async function editconteneur(ctx: Ctx, p: Record<string, unknown>) {
   const cargo = await getCargo(ctx, id);
   const c = cargo.o;
   const estAdmin = ctx.session.role === ROLES.ADMIN;
-  if (!estAdmin && [STATUTS.CAMION, STATUTS.CHARGEMENT, STATUTS.CREEE].indexOf(c['statut'] as never) === -1)
-    throw new Error('Correction impossible : la cargaison a déjà avancé (statut « ' + c['statut'] + ' »).');
+  const motifAvance = exigerMotifSiAvancee(ctx, c, p);
 
   const type = String(c['typeOperation'] || '');
   const estEnl = type === OPERATIONS.ENLEVEMENT;
@@ -1026,6 +1399,17 @@ export async function editconteneur(ctx: Ctx, p: Record<string, unknown>) {
   // normaliserConteneur ne retient PAS la déclaration : on la capture à part
   // pour pouvoir tracer un changement de déclaration sur cette ligne.
   const declAvant = declKey(conts[index] as never);
+  // 00170 — l'OBJET déclaration, et pas seulement sa clé : il faut pouvoir
+  // décrémenter l'apurement de la déclaration quittée. Capturé AVANT mutation,
+  // car `conts[index]` va être remplacé ou retiré juste après.
+  const declObjAvant = ((): Record<string, unknown> => {
+    const s = (conts[index] ?? {}) as unknown as Record<string, unknown>;
+    return {
+      numeroDeclaration: s['numeroDeclaration'], anneeDeclaration: s['anneeDeclaration'],
+      bureauDeclaration: s['bureauDeclaration'], typeDeclaration: s['typeDeclaration'],
+      declarant: s['declarant'],
+    };
+  })();
 
   if (supprimer) {
     conts.splice(index, 1);
@@ -1091,11 +1475,38 @@ export async function editconteneur(ctx: Ctx, p: Record<string, unknown>) {
   await ajouterConteneurs(ctx, rapportId, id, String(c['numeroCamion']), type, conts.map((x) => normaliserConteneur(x)));
 
   const declApres = supprimer ? declAvant : declKey(conts[index] as never);
+
+  /* 00170 — APUREMENT : le compteur suit enfin le conteneur.
+   *
+   * Jusqu'ici cette fonction CONSTATAIT le changement de déclaration et se
+   * contentait de l'écrire dans le journal. Le +1 posé à l'ajout restait donc
+   * sur la déclaration d'origine, que le conteneur soit retiré du camion ou
+   * réaffecté à une autre déclaration — et la nouvelle déclaration ne recevait
+   * jamais le sien. Relevé du 2026-09-09 : 34 des 121 déclarations portant un
+   * nombre déclaré étaient sur-apurées, jusqu'à +8 conteneurs.
+   *
+   * Best-effort des deux côtés (cf. majApurementDec / majApurementSafe) : une
+   * correction de conteneur ne doit jamais échouer parce qu'un compteur n'a pas
+   * pu être rattrapé.
+   */
+  if (supprimer) {
+    await majApurementDec(ctx, declObjAvant as never, 1);
+  } else if (declApres !== declAvant) {
+    await majApurementDec(ctx, declObjAvant as never, 1);
+    const s = conts[index] as unknown as Record<string, unknown>;
+    await majApurementSafe(ctx, {
+      numeroDeclaration: s['numeroDeclaration'], anneeDeclaration: s['anneeDeclaration'],
+      bureauDeclaration: s['bureauDeclaration'], typeDeclaration: s['typeDeclaration'],
+      declarant: s['declarant'],
+    } as never, 1);
+  }
+
   await ctx.log(
     supprimer ? 'Correction — suppression conteneur' : 'Correction conteneur',
     id,
-    supprimer ? ancien.num + ' retiré'
-      : ancien.num + ' → ' + nouveauNum + (declApres !== declAvant ? ' · déclaration ' + declAvant + ' → ' + declApres : ''),
+    (supprimer ? ancien.num + ' retiré'
+      : ancien.num + ' → ' + nouveauNum + (declApres !== declAvant ? ' · déclaration ' + declAvant + ' → ' + declApres : ''))
+      + motifAvance,
   );
   return { id, conteneurs: conts.length, ancien: ancien.num, nouveau: nouveauNum };
 }
@@ -1113,8 +1524,7 @@ export async function editdecl(ctx: Ctx, p: Record<string, unknown>) {
   const cargo = await getCargo(ctx, id);
   const c = cargo.o;
   const estAdmin = ctx.session.role === ROLES.ADMIN;
-  if (!estAdmin && [STATUTS.CAMION, STATUTS.CHARGEMENT, STATUTS.CREEE].indexOf(c['statut'] as never) === -1)
-    throw new Error('Correction impossible : la cargaison a déjà avancé (statut « ' + c['statut'] + ' »).');
+  const motifAvance = exigerMotifSiAvancee(ctx, c, p);
   const type = String(c['typeOperation'] || '');
   // CORRECTION, pas création : contact / destination / désignation absents des
   // données migrées ne doivent pas bloquer la correction d'un numéro.
@@ -1159,7 +1569,7 @@ export async function editdecl(ctx: Ctx, p: Record<string, unknown>) {
   await patchCargo(ctx, cargo, patch);
 
   const ancienne = [c['numeroDeclaration'], c['anneeDeclaration'], c['bureauDeclaration'], c['typeDeclaration']].filter(Boolean).join('|');
-  await ctx.log('Correction déclaration', id, ancienne + ' → ' + declKey(decl));
+  await ctx.log('Correction déclaration', id, ancienne + ' → ' + declKey(decl) + motifAvance);
   return { id, declaration: decl };
 }
 
@@ -1306,4 +1716,103 @@ function fmtDate(v: unknown): string {
   if (!v) return '';
   const d = new Date(String(v));
   return isNaN(d.getTime()) ? String(v) : d.toLocaleDateString('fr-FR');
+}
+
+/* ================== CORRECTIONS DE CELLULES REMPLIES (2026-09-10) ==========
+ *
+ * Ajout, sans rien retirer : chaque cellule déjà renseignée devient corrigible
+ * par la cellule qui l'a saisie, et par l'ADMIN. Jusqu'ici seule la Balise avait
+ * son `gpsedit` ; une erreur de frappe sur un numéro T1 ou un bon de sortie
+ * n'avait aucun recours, sinon annuler tout le camion.
+ *
+ * TROIS PRINCIPES COMMUNS, calqués sur `gpsedit` :
+ *  · on ne crée jamais la donnée par ces actions — elles CORRIGENT ce qui existe
+ *    déjà, et refusent une cellule vide (sinon elles contourneraient le workflow
+ *    et ses gardes) ;
+ *  · l'ancienne valeur est portée au journal, sans quoi la correction efface ce
+ *    qu'elle corrige et devient invérifiable ;
+ *  · aucun statut n'est modifié : corriger n'est pas refaire l'étape.
+ * ========================================================================== */
+
+/** Correction des numéros T1 / bureau de destination déjà saisis. */
+export async function t1edit(ctx: Ctx, p: Record<string, unknown>) {
+  const id = String(p['id'] ?? '').trim();
+  const cargo = await getCargo(ctx, id);
+  const c = cargo.o;
+  if (!aFait(c['dateT1']))
+    throw new ErreurMetier("Le T1 n'a pas encore été saisi : utilisez la cellule T1.");
+
+  const bureau = maj(p['bureauDestination'], 60) || String(c['bureauDestination'] ?? '');
+  const brut = Array.isArray(p['t1Numeros']) ? (p['t1Numeros'] as unknown[]) : null;
+  if (!brut || !brut.length) throw new ErreurMetier('Indiquez au moins un numéro T1.');
+
+  const avant = JSON.stringify(c['t1Numeros'] ?? []);
+  await patchCargo(ctx, cargo, {
+    bureau_destination: bureau,
+    t1_numeros: brut,
+    observations_t1: p['observations'] !== undefined ? txt(p['observations'], 1000) : c['observationsT1'],
+  });
+  await ctx.log('Correction T1', id,
+    'Avant ' + avant.slice(0, 300) + ' → après ' + JSON.stringify(brut).slice(0, 300) + ' · bureau ' + bureau);
+  return { id };
+}
+
+/** Correction du numéro de bon de sortie déjà émis. */
+export async function bsedit(ctx: Ctx, p: Record<string, unknown>) {
+  const id = String(p['id'] ?? '').trim();
+  const cargo = await getCargo(ctx, id);
+  const c = cargo.o;
+  if (!aFait(c['dateBonSortie']))
+    throw new ErreurMetier("Aucun bon de sortie émis : utilisez la cellule Bon de sortie.");
+
+  const numero = p['bonSortieNumero'];
+  const vide = numero === undefined || numero === null || numero === ''
+    || (Array.isArray(numero) && !numero.length);
+  if (vide) throw new ErreurMetier('Indiquez le numéro du bon de sortie.');
+
+  const avant = JSON.stringify(c['bonSortieNumero'] ?? '');
+  await patchCargo(ctx, cargo, {
+    bon_sortie_numero: numero,
+    observations_bon_sortie: p['observations'] !== undefined
+      ? txt(p['observations'], 1000) : c['observationsBonSortie'],
+  });
+  await ctx.log('Correction bon de sortie', id,
+    'Avant ' + avant.slice(0, 300) + ' → après ' + JSON.stringify(numero).slice(0, 300));
+  return { id };
+}
+
+/**
+ * Correction d'un suivi d'engagement après la validation.
+ *
+ * ⚠ L'engagement entre dans l'empreinte SEC-10. On NE recalcule PAS la signature :
+ * elle reste celle de ce que le chef a réellement signé. La conséquence est
+ * voulue — l'écart entre l'empreinte enregistrée et le contenu courant devient
+ * détectable, ce qui est précisément le rôle de SEC-10. La correction est donc
+ * possible, et elle se voit.
+ *
+ * Le délai est saisi en JOURS, comme à la validation, et court à compter du jour
+ * de la correction.
+ */
+export async function engagementEdit(ctx: Ctx, p: Record<string, unknown>) {
+  const id = String(p['id'] ?? '').trim();
+  const motif = txt(p['motif'], 300);
+  if (!motif) throw new ErreurMetier('Indiquez le motif de la correction.');
+
+  const cargo = await getCargo(ctx, id);
+  const c = cargo.o;
+  if (c['suiviEngagement'] !== true)
+    throw new ErreurMetier("Cette cargaison n'est pas sous suivi d'engagement.");
+  if (aFait(c['engagementEffectueLe']))
+    throw new ErreurMetier('Engagement déjà soldé : il n\'y a plus rien à corriger.');
+
+  const type = txt(p['engagementType'], 120) || String(c['engagementType'] ?? '');
+  if (!type) throw new ErreurMetier("Précisez l'engagement.");
+  const delai = String(p['engagementDelai'] ?? '').slice(0, 10) || String(c['engagementDelai'] ?? '');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(delai)) throw new ErreurMetier('Indiquez le délai.');
+
+  const avant = `${String(c['engagementType'] ?? '')} · ${String(c['engagementDelai'] ?? '')}`;
+  await patchCargo(ctx, cargo, { engagement_type: type, engagement_delai: delai });
+  await ctx.log('Correction engagement (après signature)', id,
+    'Avant ' + avant + ' → après ' + type + ' · ' + delai + ' · motif : ' + motif);
+  return { id, engagementType: type, engagementDelai: delai };
 }

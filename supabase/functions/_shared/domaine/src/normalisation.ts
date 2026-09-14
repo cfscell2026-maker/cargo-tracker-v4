@@ -23,8 +23,85 @@ export function maj(v: unknown, max?: number): string {
 }
 
 /** _alphaNumMaj_ : alphanumérique MAJUSCULES (tolère / et -). */
+/**
+ * Normalisation d'un N° DE CAMION — élargie le 2026-09-12.
+ *
+ * Ne servait qu'aux plaques, et n'en gardait que `A-Z 0-9 / -`. Tout le reste
+ * était silencieusement effacé : un agent qui tapait « TG.2489 » ou
+ * « TG\2489 » voyait ses caractères disparaître sans explication.
+ *
+ * On accepte désormais les séparateurs usuels d'une plaque : `/ \ - . _`.
+ * La barre oblique garde son sens (tracteur/remorque) sans être obligatoire.
+ *
+ * LES ESPACES RESTENT SUPPRIMÉS, et c'est délibéré : « TG2489BK » et
+ * « TG 2489 BK » désignent le MÊME camion. Les conserver créerait deux dossiers
+ * distincts pour un seul véhicule — exactement le genre de doublon qu'on passe
+ * ensuite des semaines à démêler. L'agent peut donc les taper : ils sont
+ * absorbés, pas refusés.
+ */
 export function alphaNumMaj(v: unknown): string {
-  return txt(v).toUpperCase().replace(/[^A-Z0-9/-]/g, '');
+  return txt(v).toUpperCase().replace(/[^A-Z0-9/\\._-]/g, '');
+}
+
+/* ============ FORMAT DU N° DE CAMION — imposé le 2026-09-10 ==============
+ *
+ * Au port sec, un « camion » est un ENSEMBLE : un tracteur et sa remorque, qui
+ * portent chacun leur plaque. Le numéro les associe, séparés par une barre
+ * oblique — « TG2489BK/2725BP ».
+ *
+ * Ce n'était jusqu'ici qu'un usage : rien n'empêchait de n'entrer qu'une seule
+ * plaque. Or les deux servent à des choses différentes — la remorque porte la
+ * marchandise, le tracteur change en cours de route — et une saisie incomplète
+ * rend le camion introuvable pour qui cherche l'autre moitié.
+ *
+ * La règle vaut pour la SAISIE. Elle ne juge pas l'historique : les cargaisons
+ * enregistrées avant cette date gardent leur numéro tel quel, et la recherche
+ * continue de fonctionner puisqu'elle ignore les séparateurs (normAlphaNum).
+ * ======================================================================== */
+
+/** Séparateur tracteur / remorque. */
+export const CAMION_SEPARATEUR = '/';
+
+/**
+ * true si le numéro de camion est exploitable.
+ *
+ * LA BARRE OBLIQUE N'EST PLUS OBLIGATOIRE — 2026-09-12, décision utilisateur.
+ *
+ * Le format « TRACTEUR/REMORQUE » avait été imposé le 2026-09-10 pour que la
+ * remorque, qui porte la marchandise, ne se perde pas quand le tracteur change
+ * en route. L'exigence s'est révélée trop raide à l'usage : tous les véhicules
+ * qui se présentent ne sont pas des ensembles, et un agent bloqué devant un
+ * porteur unique ne peut plus rien enregistrer.
+ *
+ * On accepte donc les DEUX formes, et on continue d'écarter ce qui n'est
+ * manifestement pas une plaque :
+ *   · « TG2489BK/2725BP » — l'ensemble, deux parties d'au moins 2 caractères ;
+ *   · « TG2489BK »        — une plaque seule, au moins 4 caractères.
+ *
+ * Le seuil de 4 n'est pas décoratif : il refuse les saisies avortées (« AB »,
+ * « 12 ») sans rien préjuger de la longueur réelle des plaques de la région.
+ */
+export function camionValide(v: unknown): boolean {
+  const brut = alphaNumMaj(v);
+  if (brut.indexOf(CAMION_SEPARATEUR) > -1) {
+    const parts = brut.split(CAMION_SEPARATEUR);
+    return parts.length === 2 && parts[0]!.length >= 2 && parts[1]!.length >= 2;
+  }
+  return brut.length >= 4;
+}
+
+/**
+ * Message d'erreur du format camion.
+ *
+ * Il dit QUOI faire et OÙ : un « format invalide » laisse l'agent devant son
+ * écran sans savoir quoi corriger. On rappelle donc la structure attendue, on
+ * donne un exemple, et on nomme le champ concerné.
+ */
+export function messageCamionFormat(saisi: unknown, champ = 'N° de camion'): string {
+  const v = String(saisi ?? '').trim();
+  return `N° de camion « ${v || '(vide)'} » non exploitable : saisissez la plaque `
+    + `(par exemple TG2489BK), ou l'ensemble TRACTEUR/REMORQUE séparé par « / » `
+    + `(TG2489BK/2725BP). Corrigez la saisie dans le champ « ${champ} ».`;
 }
 
 /** Normalisation « recherche » : MAJUSCULES, alphanumérique strict. */

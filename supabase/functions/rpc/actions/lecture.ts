@@ -13,7 +13,12 @@ import {
   APP,
   ROLES,
   VOIENT_HORSGABARIT,
+  engagementAlerte,
+  etatEngagement,
+  libelleEngagement,
   fileAttente,
+  passagesDesFiles,
+  ORDRE_FILES,
   estOui,
   aFait,
   normAlphaNum,
@@ -23,11 +28,46 @@ import {
 } from '../../_shared/domaine/src/index.ts';
 
 /** Résumé (v_cargaisons_resume) en camelCase — équivalent RESUME_KEYS. */
-async function chargerResume(ctx: Ctx): Promise<Record<string, unknown>[]> {
+async function chargerResume(
+  ctx: Ctx,
+  // deno-lint-ignore no-explicit-any
+  affiner?: (q: any) => any,
+): Promise<Record<string, unknown>[]> {
   // fetchAll : pagine pour ne PAS tronquer au-delà de ~1000 lignes (5000+ migrées).
-  const data = await fetchAll(ctx, 'v_cargaisons_resume', '*', { colonne: 'date_creation', ascendant: false });
+  const data = await fetchAll(ctx, 'v_cargaisons_resume', '*', { colonne: 'date_creation', ascendant: false }, affiner);
   return data.map((r) => versCamel(r));
 }
+
+/* ===== PRÉ-FILTRES SQL DES LISTES — 2026-09-12 ===========================
+ *
+ * MESURE, depuis le navigateur, sur la base réelle (14 417 dossiers) :
+ *   cargo.list renvoyant 14 450 lignes ....... 3 851 ms
+ *   cargo.list renvoyant    275 lignes ....... 3 687 ms
+ *   cargo.list renvoyant      6 lignes ....... 3 732 ms
+ * Le temps ne dépend PAS du résultat : `chargerResume` rapatriait la vue
+ * ENTIÈRE — quinze allers-retours de 1 000 lignes — avant de trier en mémoire
+ * pour n'en afficher que cinquante. C'est aussi ce qui faisait tuer le worker
+ * (HTTP 546).
+ *
+ * ⚠ RÈGLE ABSOLUE : un pré-filtre doit être ÉQUIVALENT au tri JS qu'il précède,
+ * jamais plus restrictif. Un filtre trop étroit fait disparaître des dossiers
+ * EN SILENCE d'une file d'attente — infiniment plus grave qu'une lenteur. Seuls
+ * les critères dont l'équivalence se DÉMONTRE sont traduits ; `search` (qui
+ * compare aussi en alphanumérique pur) et `categorie` restent en JS.
+ *
+ * L'équivalence du filtre des files se lit dans `workflow.ts` :
+ *   · `etatCellules` pose  `sorti = statut === SORTIE || aFait(dateSortie)` ;
+ *   · `fileAttente`  rend  `null` dès que `sorti`.
+ * Un dossier figurant dans une file vérifie donc EXACTEMENT
+ * `statut <> SORTIE` ET `date_sortie IS NULL` — ni plus, ni moins.
+ *
+ * Deux propriétés du schéma, vérifiées, rendent la traduction sûre :
+ *   · `statut` est `not null`, donc `neq` n'écarte aucune ligne à NULL ;
+ *   · `date_sortie` est un `timestamptz` : NULL ou une vraie date, jamais la
+ *     chaîne vide — `aFait()` et `IS NULL` disent donc la même chose.
+ */
+// deno-lint-ignore no-explicit-any
+const SQL_PAS_SORTI = (q: any) => q.neq('statut', STATUTS.SORTIE).is('date_sortie', null);
 
 function ts(v: unknown): number {
   if (!v) return 0;
@@ -111,7 +151,12 @@ export async function cargoSearch(ctx: Ctx, data: { valeur?: string }) {
 
 export async function cargoList(
   ctx: Ctx,
-  opts: { statut?: string; etape?: string; categorie?: string; page?: number; pageSize?: number; search?: string; actifs?: boolean },
+  opts: {
+    statut?: string; etape?: string; categorie?: string; page?: number; pageSize?: number;
+    search?: string; actifs?: boolean;
+    /** '' = indifferent | 'avec' = sous suivi d'engagement | 'sans' = hors suivi. */
+    engagement?: string;
+  },
 ) {
   const statut = opts.statut || 'tous';
   const etape = opts.etape || '';
@@ -120,8 +165,24 @@ export async function cargoList(
   const page = Math.max(1, Number(opts.page || 1));
   const pageSize = Math.min(200, Number(opts.pageSize || APP.PAGE_SIZE));
   const search = String(opts.search ?? '').trim().toLowerCase();
+  const engagement = String(opts.engagement ?? '').trim();
 
-  let all = await chargerResume(ctx);
+  /* Le pré-filtre est composé ICI, à partir des seuls critères traduisibles.
+     Il est passé à SQL ; le tri JS qui suit reste en place, inchangé, et
+     tranche — de sorte qu'un filtre trop large ne peut rien fausser. */
+  // deno-lint-ignore no-explicit-any
+  const filtres: ((q: any) => any)[] = [];
+  // Une file d'attente ne contient JAMAIS un dossier sorti (voir la note).
+  if (etape) filtres.push(SQL_PAS_SORTI);
+  // « Actifs » = tout ce qui n'est pas sorti par la PP : la même chose, en SQL.
+  else if (actifs) filtres.push((q) => q.neq('statut', STATUTS.SORTIE));
+  // Un statut exact se traduit tel quel.
+  if (statut !== 'tous') filtres.push((q) => q.eq('statut', statut));
+
+  let all = await chargerResume(
+    ctx,
+    filtres.length ? (q) => filtres.reduce((acc, f) => f(acc), q) : undefined,
+  );
 
   if (etape) {
     // File d'attente d'une cellule (modèle parallèle : un camion post-T1 figure
@@ -138,6 +199,20 @@ export async function cargoList(
   }
   // ACTIFS = encore dans l'enceinte : tout ce qui n'est pas sorti par la PP.
   if (actifs) all = all.filter((r) => r['statut'] !== STATUTS.SORTIE);
+
+  /* SUIVI DES ENGAGEMENTS — filtre 2026-09-12.
+   *
+   * Trie en JAVASCRIPT, et non en SQL, DÉLIBÉRÉMENT : la colonne n'apparaît
+   * dans la vue qu'avec la migration 00190. Un filtre SQL ferait ÉCHOUER toute
+   * la liste tant qu'elle n'est pas appliquée — un écran blanc parce qu'une
+   * migration manque est le pire des deux maux. En JS, la colonne absente vaut
+   * `undefined` : « avec engagement » ne rend alors rien, « sans » rend tout,
+   * et la liste continue de fonctionner.
+   *
+   * Le volume n'est pas en jeu ici : ce filtre s'applique après les pré-filtres
+   * SQL, sur ce qui est déjà en mémoire. */
+  if (engagement === 'avec') all = all.filter((r) => r['suiviEngagement'] === true);
+  else if (engagement === 'sans') all = all.filter((r) => r['suiviEngagement'] !== true);
   if (statut !== 'tous') all = all.filter((r) => r['statut'] === statut);
   if (search) {
     // Recherche tolérante : on compare AUSSI en alphanumérique pur, pour que
@@ -318,8 +393,11 @@ export async function dashboardStats(ctx: Ctx, opts: { du?: string; au?: string 
     creesPeriode: 0, t1Periode: 0, balisesPeriode: 0, bonsPeriode: 0, sortiePeriode: 0,
     vehiculesSortisPeriode: 0,
     // En attente — état instantané, hors période.
-    attValidation: 0, attT1: 0, attBalise: 0, attBs: 0, attPP: 0,
+    attCFS: 0, attValidation: 0, attT1: 0, attBalise: 0, attBs: 0, attPP: 0,
     camion: 0, chargement: 0, vehiculesAttente: 0,
+    // Entrées / sorties de chaque file SUR LA PÉRIODE (2026-09-13) : elles
+    // orientent la flèche des tuiles d'étape. Clés : ORDRE_FILES + VEHICULES.
+    flux: {} as Record<string, { entres: number; sortis: number }>,
     // Divers / compat.
     total: 0, sortie: 0, aujourdHui: 0,
   };
@@ -334,6 +412,22 @@ export async function dashboardStats(ctx: Ctx, opts: { du?: string; au?: string 
     if (auEx && d >= auEx) return false;
     return true;
   };
+
+  for (const k of [...ORDRE_FILES, 'VEHICULES']) stats.flux[k] = { entres: 0, sortis: 0 };
+  const dansPeriodeMs = (t: number | null): boolean =>
+    t !== null && (!du || t >= du.getTime()) && (!auEx || t < auEx.getTime());
+
+  /* FIN DE CHARGEMENT — lue sur la table, pas sur la vue résumé qui ne la porte
+     pas : on évite ainsi une migration. Seules comptent celles posées à partir
+     de la veille du début de période (index partiel 00110). Une fin plus
+     ancienne tombe avant la période : l'ignorer ne change aucun compte, puisque
+     l'entrée et la sortie qu'elle date sont alors, elles aussi, avant la période. */
+  const finsChargement = new Map<string, unknown>();
+  const depuis = du ? new Date(du.getTime() - 86400000).toISOString() : '1970-01-01T00:00:00.000Z';
+  for (const f of await fetchAll(ctx, 'cargaisons', 'id, date_fin_chargement', { colonne: 'id' },
+    (q) => q.gte('date_fin_chargement', depuis))) {
+    if (f['date_fin_chargement']) finsChargement.set(String(f['id']), f['date_fin_chargement']);
+  }
 
   const data = await chargerResume(ctx);
   const today = new Date();
@@ -357,15 +451,28 @@ export async function dashboardStats(ctx: Ctx, opts: { du?: string; au?: string 
     /* --- EN ATTENTE MAINTENANT (instant T, hors période) --- */
     if (veh) {
       if (r['statut'] !== STATUTS.SORTIE) stats.vehiculesAttente++;
+      if (dansPeriode(r['dateCreation'])) stats.flux['VEHICULES']!.entres++;
+      if (dansPeriode(r['dateSortie'])) stats.flux['VEHICULES']!.sortis++;
       continue;
     }
     stats.total++;
+    const passages = passagesDesFiles({ ...r, dateFinChargement: finsChargement.get(String(r['id'])) } as never);
+    for (const k of ORDRE_FILES) {
+      const ps = passages[k];
+      if (!ps) continue;
+      if (dansPeriodeMs(ps.entree)) stats.flux[k]!.entres++;
+      if (dansPeriodeMs(ps.sortie)) stats.flux[k]!.sortis++;
+    }
     if (r['statut'] === STATUTS.CAMION) stats.camion++;
     else if (r['statut'] === STATUTS.CHARGEMENT) stats.chargement++;
     // FILE UNIQUE (2026-08-19) : chaque camion ne compte QUE dans sa prochaine
     // étape. Les files ne se chevauchent plus → la somme des tuiles « en attente »
     // égale le nombre de dossiers réellement en cours (fin des totaux gonflés).
     switch (fileAttente(r as never)) {
+      // 2026-09-12 — la file CFS n'était comptée nulle part : un camion encore
+      // en chargement n'apparaissait dans AUCUNE tuile, et le passage CFS → validation
+      // ne se voyait que d'un côté. Chaque dossier actif est maintenant dans une file.
+      case 'CFS': stats.attCFS++; break;
       case 'VALIDATION': stats.attValidation++; break;
       case 'T1': stats.attT1++; break;
       case 'BALISE': stats.attBalise++; break;
@@ -394,7 +501,10 @@ export async function etatCfsList(ctx: Ctx) {
     rows: [] as unknown[],
     compte: { total: 0, camions: 0, vehicules: 0, enCours: 0, fin: 0, vide: 0, np: 0 },
   };
-  const data = await chargerResume(ctx);
+  /* Première ligne de la boucle ci-dessous : « sorti à la PP → défalqué ». Le
+     filtre SQL dit exactement cela, un cran plus tôt — et évite de rapatrier
+     les 14 000 dossiers déjà sortis pour les jeter aussitôt. */
+  const data = await chargerResume(ctx, (q) => q.neq('statut', STATUTS.SORTIE));
   for (const r of data) {
     if (r['statut'] === STATUTS.SORTIE) continue; // sorti à la PP → défalqué
     if (aFait(r['datePoseGps'])) continue; // a déjà pris la balise → défalqué
@@ -413,4 +523,169 @@ export async function etatCfsList(ctx: Ctx) {
     });
   }
   return out;
+}
+
+/* -------------------------- échéancier engagements --------------------------- */
+
+/**
+ * ÉCHÉANCIER DES ENGAGEMENTS (2026-09-10) — ce qui reste dû, et pour quand.
+ *
+ * Alimente le bandeau du tableau de bord. Ne remonte QUE les engagements non
+ * soldés dont l'échéance est à J-1 ou déjà atteinte : c'est la règle retenue
+ * (« à envoyer demain », puis « aujourd'hui », puis « en retard de N jours »).
+ * Les engagements plus lointains existent en base mais n'ont pas à occuper le
+ * tableau de bord — ils y deviendraient du bruit permanent.
+ *
+ * Lecture directe sur `cargaisons` et non sur la vue de résumé : les colonnes
+ * d'engagement n'y figurent pas (voir migration 00180), et l'index partiel
+ * `cargaisons_engagement_du_idx` couvre exactement ce filtre.
+ *
+ * Le tri place les retards en tête : le plus ancien dû est le plus urgent.
+ */
+export async function engagementsDus(ctx: Ctx) {
+  const { data, error } = await ctx.db
+    .from('cargaisons')
+    .select('id, numero_camion, type_operation, statut, declarant, numero_declaration, '
+      + 'engagement_type, engagement_delai, agent_validation, date_validation')
+    .eq('suivi_engagement', true)
+    .is('engagement_effectue_le', null)
+    // `neq` plutôt que `eq(false)` : c'est la forme déjà employée ailleurs pour
+    // SEC-12, et elle reste juste quelle que soit la valeur par défaut.
+    .neq('annule', true)
+    .neq('archive', true)
+    .order('engagement_delai', { ascending: true });
+  if (error) throw new Error(error.message);
+
+  const lignes = (data ?? [])
+    .map((r) => versCamel(r as unknown as Record<string, unknown>))
+    .filter((o) => engagementAlerte(o['engagementDelai'], null))
+    .map((o) => ({
+      ...o,
+      ...etatEngagement(o['engagementDelai'], null),
+      libelle: libelleEngagement(o['engagementDelai'], null),
+    }));
+
+  return {
+    lignes,
+    compte: {
+      total: lignes.length,
+      retard: lignes.filter((l) => l.etat === 'retard').length,
+      aujourdhui: lignes.filter((l) => l.etat === 'aujourdhui').length,
+      demain: lignes.filter((l) => l.etat === 'demain').length,
+    },
+  };
+}
+
+
+/* ============== ARCHIVE PAR ANCIENNETÉ — 2026-09-10 ======================
+ *
+ * DISTINCT de `report.archives` (v4.3), qui liste les dossiers archivés À LA
+ * MAIN par un ADMIN — les « goulots », vieux dossiers restés bloqués. Ici, aucun
+ * geste : l'archive est définie par le SEUL critère de l'âge.
+ *
+ * POURQUOI LES DONNÉES NE SONT PAS DÉPLACÉES.
+ *
+ * « Archiver » évoque un rangement ailleurs. On s'en est tenu à une LECTURE
+ * FILTRÉE, et c'est un choix, pas un raccourci :
+ *
+ *  · rien ne peut se perdre pendant un déplacement, ni se désynchroniser entre
+ *    deux tables ;
+ *  · une cargaison de plus d'un an reste consultable, recherchable et liée à ses
+ *    conteneurs comme n'importe quelle autre — un dossier douanier archivé ne
+ *    doit pas devenir moins accessible ;
+ *  · le seuil d'un an devient un simple paramètre : le changer ne demande aucune
+ *    migration, aucun rattrapage.
+ *
+ * Une vraie table d'archive n'aurait d'intérêt que pour SOULAGER la table
+ * principale (GOV-05). C'est un autre chantier, avec sa propre décision.
+ * ======================================================================== */
+
+/** Un an en arrière, en date ISO — le seuil de l'archive. */
+function seuilArchive(mois = 12): string {
+  const d = new Date();
+  d.setMonth(d.getMonth() - mois);
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * ARCHIVE — les cargaisons de plus d'un an (ADMIN).
+ *
+ * Requête PAGINÉE côté SQL, et non `fetchAll` : à 14 055 cargaisons dont une
+ * part croissante dépasse l'année, tout charger en mémoire dans l'Edge Function
+ * est exactement le défaut relevé en GOV-05. On ne remonte que la page affichée.
+ */
+export async function archiveAncienne(ctx: Ctx, p: Record<string, unknown>) {
+  const mois = Math.max(1, Number(p['mois'] ?? 12));
+  const seuil = seuilArchive(mois);
+  const page = Math.max(1, Number(p['page'] ?? 1));
+  const pageSize = Math.min(200, Math.max(10, Number(p['pageSize'] ?? 50)));
+  const debut = (page - 1) * pageSize;
+  const recherche = String(p['search'] ?? '').trim();
+
+  let q = ctx.db
+    .from('cargaisons')
+    .select('id, numero_camion, type_operation, statut, date_creation, date_sortie, '
+      + 'declarant, numero_declaration, annee_declaration, nb_conteneurs', { count: 'exact' })
+    .lt('date_creation', seuil + 'T00:00:00')
+    .neq('annule', true);
+
+  // Recherche sur la plaque NORMALISÉE : l'agent tape « TG 2489 BK » ou
+  // « tg2489bk/2725bp », on retrouve la même chose.
+  if (recherche) q = q.ilike('numero_camion_norm', '%' + normAlphaNum(recherche) + '%');
+
+  const { data, error, count } = await q
+    .order('date_creation', { ascending: false })
+    .range(debut, debut + pageSize - 1);
+  if (error) throw new Error(error.message);
+
+  return {
+    seuil,
+    mois,
+    page,
+    pageSize,
+    total: Number(count ?? 0),
+    rows: (data ?? []).map((r) => versCamel(r as unknown as Record<string, unknown>)),
+  };
+}
+
+/**
+ * PASSAGES ANTÉRIEURS D'UN CAMION (2026-09-10).
+ *
+ * Répond à : « ce camion est-il déjà venu, et quand ? ». C'est ce qui donne son
+ * intérêt à l'archive — un camion qui revient trois ans après doit être reconnu
+ * au moment où l'on saisit sa plaque, pas retrouvé après coup.
+ *
+ * La comparaison se fait sur `numero_camion_norm`, la colonne générée qui
+ * ignore espaces, tirets et barres obliques : un camion saisi « TG2489BK/2725BP »
+ * hier et « tg 2489 bk / 2725 bp » aujourd'hui est le même.
+ *
+ * Ouvert à tous les rôles : c'est une information d'exploitation, et la fiche de
+ * chaque passage leur est déjà accessible.
+ */
+export async function passagesCamion(ctx: Ctx, p: Record<string, unknown>) {
+  const norm = normAlphaNum(p['numeroCamion']);
+  if (!norm) return { numeroCamion: '', total: 0, passages: [], dernierPassage: null };
+
+  const { data, error } = await ctx.db
+    .from('cargaisons')
+    .select('id, numero_camion, type_operation, statut, date_creation, date_sortie, '
+      + 'declarant, numero_declaration, annee_declaration')
+    .eq('numero_camion_norm', norm)
+    .neq('annule', true)
+    .order('date_creation', { ascending: false })
+    .limit(50);
+  if (error) throw new Error(error.message);
+
+  const passages = (data ?? []).map((r) => versCamel(r as unknown as Record<string, unknown>));
+  // Le dossier EN COURS n'est pas un « passage précédent » : on l'écarte, sinon
+  // l'écran annoncerait comme antécédent la saisie qu'on est en train de faire.
+  const exclure = String(p['excludeId'] ?? '').trim();
+  const anterieurs = passages.filter((x) => x['id'] !== exclure);
+
+  return {
+    numeroCamion: String(p['numeroCamion'] ?? ''),
+    total: anterieurs.length,
+    passages: anterieurs,
+    dernierPassage: anterieurs[0] ?? null,
+  };
 }

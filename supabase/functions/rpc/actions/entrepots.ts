@@ -23,12 +23,115 @@ const num = (v: unknown) => { const n = Number(String(v ?? '').replace(',', '.')
 
 /* ------------------------------ Entrepôts ------------------------------ */
 
-export async function entrepotList(ctx: Ctx, opts: { type?: string }) {
+export async function entrepotList(ctx: Ctx, opts: { type?: string; tous?: unknown }) {
   const data = await fetchAll(ctx, 'entrepots', '*');
-  let rows = data.map((r) => versCamel(r)).filter((r) => r['actif'] !== false);
+  // `tous` (2026-09-11) : inclut les entrepôts DÉSACTIVÉS. Sans cela, désactiver
+  // un magasin revenait à le perdre de vue — donc à ne plus pouvoir le
+  // réactiver. Les écrans de saisie n'envoient pas ce drapeau : pour eux, rien
+  // ne change, un magasin désactivé reste hors de portée.
+  let rows = data.map((r) => versCamel(r));
+  if (opts?.tous !== true) rows = rows.filter((r) => r['actif'] !== false);
   if (opts?.type) rows = rows.filter((r) => String(r['type']) === opts.type);
   rows.sort((a, b) => String(a['nom']).localeCompare(String(b['nom'])));
   return { rows };
+}
+
+/** Nombre d'entrées rattachées à un entrepôt — ce qui décide de sa suppressibilité. */
+async function compterEntrees(ctx: Ctx, code: string): Promise<number> {
+  const { data } = await ctx.db.from('entrepot_entrees').select('id').eq('entrepot_code', code);
+  return (data ?? []).length;
+}
+
+/**
+ * MODIFICATION d'un entrepôt — ADMIN / chef brigade / chef division
+ * (2026-09-11, demande utilisateur). Renommer, changer le type, activer ou
+ * désactiver.
+ *
+ * ⚠ LE CODE NE SE MODIFIE PAS. C'est la clé primaire, référencée par chaque
+ * entrée et chaque sortie (`entrepot_code`) : la changer romprait le lien avec
+ * tout l'historique du magasin.
+ *
+ * ⚠ LE TYPE NE SE CHANGE PLUS DÈS QU'IL Y A UNE ENTRÉE. MAD et INDUSTRIEL ne
+ * comptent pas la même chose — colis d'un côté, kilos de l'autre (voir
+ * `uniteApurement`). Basculer le type d'un magasin déjà garni ne convertirait
+ * rien : il relirait simplement les quantités existantes dans la mauvaise
+ * unité. Une erreur de frappe sur le nom se corrige ; un stock réinterprété, non.
+ */
+export async function entrepotEdit(ctx: Ctx, p: Record<string, unknown>) {
+  const code = maj(p['code'], 20).replace(/[^A-Z0-9-]/g, '');
+  if (!code) throw new Error('Code de l\'entrepôt requis.');
+  const { data: ent } = await ctx.db.from('entrepots').select('*').eq('code', code).maybeSingle();
+  if (!ent) throw new Error('Entrepôt « ' + code + ' » introuvable.');
+
+  const patch: Record<string, unknown> = {};
+  const trace: string[] = [];
+
+  if (p['nom'] !== undefined) {
+    const nom = maj(p['nom'], 80);
+    if (!nom) throw new Error('Nom de l\'entrepôt requis.');
+    if (nom !== String(ent['nom'])) { patch['nom'] = nom; trace.push('nom « ' + ent['nom'] + ' » → « ' + nom + ' »'); }
+  }
+
+  if (p['type'] !== undefined) {
+    const type = String(p['type']) === ENTREPOT_TYPES.INDUSTRIEL ? ENTREPOT_TYPES.INDUSTRIEL : ENTREPOT_TYPES.MAD;
+    if (type !== String(ent['type'])) {
+      const n = await compterEntrees(ctx, code);
+      if (n > 0) {
+        throw new Error(
+          'Type non modifiable : ce magasin contient déjà ' + n + ' entrée(s). '
+          + 'MAD compte en colis, Industriel en kilos — changer le type relirait '
+          + 'ces quantités dans la mauvaise unité. Créez un nouveau magasin du bon '
+          + 'type et désactivez celui-ci.');
+      }
+      patch['type'] = type;
+      trace.push('type ' + ent['type'] + ' → ' + type);
+    }
+  }
+
+  if (p['actif'] !== undefined) {
+    const actif = p['actif'] === true;
+    if (actif !== (ent['actif'] !== false)) {
+      patch['actif'] = actif;
+      trace.push(actif ? 'réactivé' : 'désactivé');
+    }
+  }
+
+  if (!trace.length) throw new Error('Aucune modification : les valeurs sont identiques.');
+  const { error } = await ctx.db.from('entrepots').update(patch).eq('code', code);
+  if (error) throw new Error(error.message);
+  await ctx.log('Modification entrepôt', code, trace.join(' · '));
+  return { code, ...patch };
+}
+
+/**
+ * SUPPRESSION d'un entrepôt — ADMIN seul (2026-09-11, demande utilisateur).
+ *
+ * Refusée dès qu'une entrée s'y rattache, et le message dit alors quoi faire :
+ * désactiver. Ce n'est pas une précaution de confort — `entrepot_entrees` et
+ * `entrepot_sorties` référencent `entrepots(code)` par clé étrangère : la base
+ * refuserait de toute façon, mais avec un message PostgreSQL illisible pour un
+ * agent. Autant le dire nous-mêmes, et proposer la sortie.
+ */
+export async function entrepotSupprimer(ctx: Ctx, p: Record<string, unknown>) {
+  const code = maj(p['code'], 20).replace(/[^A-Z0-9-]/g, '');
+  const motif = maj(p['motif'], 200);
+  if (!code) throw new Error('Code de l\'entrepôt requis.');
+  if (!motif) throw new Error('Motif obligatoire pour supprimer un magasin.');
+  const { data: ent } = await ctx.db.from('entrepots').select('*').eq('code', code).maybeSingle();
+  if (!ent) throw new Error('Entrepôt « ' + code + ' » introuvable.');
+
+  const n = await compterEntrees(ctx, code);
+  if (n > 0) {
+    throw new Error(
+      'Suppression impossible : ce magasin contient ' + n + ' entrée(s), qui doivent '
+      + 'rester consultables. Désactivez-le plutôt — il disparaîtra des écrans de '
+      + 'saisie tout en gardant son historique.');
+  }
+
+  const { error } = await ctx.db.from('entrepots').delete().eq('code', code);
+  if (error) throw new Error(error.message);
+  await ctx.log('Suppression entrepôt', code, String(ent['nom']) + ' (' + ent['type'] + ') · ' + motif);
+  return { code };
 }
 
 /** Création d'un entrepôt (ADMIN / chef brigade / chef division — vérifié en amont). */
@@ -156,7 +259,7 @@ export async function entrepotSortie(ctx: Ctx, p: Record<string, unknown>) {
   // v4.1 — la marchandise (vrac) sort sur un CAMION scellé, pas des véhicules :
   // N° camion + scellés (comme une sortie Magasin/MAD). `vehicules` reste accepté
   // pour compatibilité mais n'est plus saisi côté écran.
-  const numeroCamion = maj(p['numeroCamion'], 30).replace(/[^A-Z0-9-]/g, '');
+  const numeroCamion = maj(p['numeroCamion'], 30).replace(/[^A-Z0-9/-]/g, ''); // 2026-09-10 : la barre oblique du format tracteur/remorque ne doit plus être retirée
   const scelles = (Array.isArray(p['scelles']) ? (p['scelles'] as unknown[]) : []).map((s) => maj(s, 30)).filter(Boolean);
   const vehicules = Array.isArray(p['vehicules']) ? p['vehicules'] : [];
 
