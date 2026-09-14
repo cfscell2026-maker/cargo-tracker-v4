@@ -170,7 +170,8 @@ export function App() {
           </div>
           <div style={{ minWidth: 0 }}>
             <div className="brand-nom">Suivi des cargaisons</div>
-            <div className="brand-sous">PIA</div>
+            {/* Sigle sous le nom de l'application : « SDC », Suivi Des Cargaisons (2026-09-14). */}
+            <div className="brand-sous">SDC</div>
           </div>
         </div>
 
