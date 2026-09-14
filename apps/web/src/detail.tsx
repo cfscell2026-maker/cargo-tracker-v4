@@ -457,15 +457,23 @@ function EtatConteneurParc({
       ? <> S'il s'agit d'un conteneur partagé ou arrivé hors circuit, cochez
         « saisie manuelle » ; sinon vérifiez le numéro.
         <div style={{ marginTop: 6 }}><button className="ghost xs" onClick={activerManuel}>Passer en saisie manuelle</button></div></>
-      : <> Or tout conteneur dépoté au port sec est présent au parc. <b>Vérifiez le
-        numéro</b> ; s'il est bien sur le site, faites-le entrer par « Stock initial
-        — import » ou « Pointage matinal », puis revenez ici.</>}
+      /* Dépotage (règles du douanier, 2026-09-12) : saisie manuelle permise pour
+         un conteneur absent du parc — le serveur crée sa fiche et la pointe. */
+      : <> <b>Vérifiez d'abord le numéro.</b> S'il est juste, passez en saisie
+        manuelle : la fiche du conteneur sera créée et pointée à votre nom.
+        <div style={{ marginTop: 6 }}><button className="ghost xs" onClick={activerManuel}>Passer en saisie manuelle</button></div></>}
   </div>;
 
   // Déjà dépoté : c'est une erreur de numéro, ou un doublon.
   if (fiche['depote']) return <div style={enc('#fef2f2', '#fca5a5')}>
     <b>Conteneur déjà dépoté</b>{fiche['cargaisonId'] ? <> sur la cargaison <b>{String(fiche['cargaisonId'])}</b></> : null}.
-    Vérifiez le numéro : un conteneur ne se dépote qu'une fois.
+    {estEnl
+      ? <> Vérifiez le numéro : un conteneur ne se dépote qu'une fois.</>
+      /* Dépotage : marchandise partagée entre plusieurs camions — permis par le
+         serveur en saisie manuelle, compté une seule fois (2026-09-12). */
+      : <> Vérifiez le numéro. S'il s'agit d'un conteneur <b>partagé</b> entre plusieurs
+        camions, passez en saisie manuelle : il ne sera compté qu'une fois.
+        <div style={{ marginTop: 6 }}><button className="ghost xs" onClick={activerManuel}>Passer en saisie manuelle</button></div></>}
   </div>;
 
   // Au parc et pointé positionné : rien à signaler.
@@ -595,10 +603,14 @@ function PanneauCFS({ c, dets, action, prefillDecl }: { c: O; dets: ReturnType<t
         <Champ label="Taille" value={String(f['taille'])} onChange={(e) => set('taille', masks.upper(e.target.value))} placeholder="20' / 40' / 45'" />
         <Champ label="Type (facultatif)" value={String(f['type'])} onChange={(e) => set('type', masks.upper(e.target.value))} />
         {estEnl && <Champ label="Scellé / Plomb" value={String(f['plomb'])} onChange={(e) => set('plomb', masks.upper(e.target.value))} />}
-        {/* Dépotage : plus de saisie manuelle (2026-09-10) — tout conteneur dépoté
-            au port sec est au parc et doit être pointé. La case ne subsiste qu'en
-            ENLÈVEMENT, où le conteneur part scellé sans forcément passer par le parc. */}
-        {estEnl && <label className="help" style={{ alignSelf: 'end' }}><input type="checkbox" style={{ width: 'auto' }} checked={!!f['manuel']} onChange={(e) => set('manuel', e.target.checked)} /> Saisie manuelle (conteneur hors stock)</label>}
+        {/* SAISIE MANUELLE — rétablie en DÉPOTAGE le 2026-09-14.
+            Elle avait été retirée du dépotage le 2026-09-10. Le 2026-09-12, les
+            règles du douanier l'ont rouverte côté SERVEUR (conteneur absent du parc :
+            fiche créée ; conteneur déjà dépoté sur un autre camion : compté une fois),
+            mais la case restait cachée ici : un agent devant « Conteneur absent du
+            parc » n'avait plus aucune issue. Le serveur garde le seul refus utile :
+            un conteneur AU PARC non pointé doit être pointé, pas saisi à la main. */}
+        <label className="help" style={{ alignSelf: 'end' }}><input type="checkbox" style={{ width: 'auto' }} checked={!!f['manuel']} onChange={(e) => set('manuel', e.target.checked)} /> {estEnl ? 'Saisie manuelle (conteneur hors stock)' : 'Saisie manuelle (conteneur absent du parc ou partagé)'}</label>
       </div>
       <div className="help" style={{ marginTop: 6 }}>{estEnl ? 'Enlèvement' : 'Dépotage'} : {tcOptions.length} conteneur(s) {estEnl ? 'en stock (PIA)' : 'positionné(s) du jour'} — tapez pour choisir.</div>
       <EtatConteneurParc
@@ -1051,7 +1063,9 @@ function PanneauEditConteneurs({ c, dets, action, admin }: { c: O; dets: ReturnT
         <Champ label="Taille" value={String(f['taille'])} onChange={(e) => set('taille', masks.upper(e.target.value))} placeholder="20' / 40' / 45'" />
         <Champ label="Type (facultatif)" value={String(f['type'])} onChange={(e) => set('type', masks.upper(e.target.value))} />
         {estEnl && <Champ label="Scellé / Plomb" value={String(f['plomb'])} onChange={(e) => set('plomb', masks.upper(e.target.value))} />}
-        {estEnl && <label className="help" style={{ alignSelf: 'end' }}><input type="checkbox" style={{ width: 'auto' }} checked={!!f['manuel']} onChange={(e) => set('manuel', e.target.checked)} /> Saisie manuelle (conteneur hors stock / partagé)</label>}
+        {/* 2026-09-14 — aussi en DÉPOTAGE : le serveur (`editconteneur`) l'accepte
+            pour tout type d'opération, et son propre refus conseille de la cocher. */}
+        <label className="help" style={{ alignSelf: 'end' }}><input type="checkbox" style={{ width: 'auto' }} checked={!!f['manuel']} onChange={(e) => set('manuel', e.target.checked)} /> Saisie manuelle (conteneur hors stock / partagé)</label>
       </div>
       <div className="section-title" style={{ marginTop: 12 }}>Déclaration de CE conteneur</div>
       <p className="help" style={{ marginTop: 0 }}>Laissez un champ vide pour ne pas y toucher. Le déclarant et la marchandise restent portés par le camion.</p>
