@@ -333,11 +333,27 @@ function EtatConteneurParc({
     <div style={{ marginTop: 6 }}><button className="ghost xs" onClick={activerManuel}>Passer en saisie manuelle</button></div>
   </div>;
 
-  // Déjà dépoté : c'est une erreur de numéro, ou un doublon.
-  if (fiche['depote']) return <div style={enc('#fef2f2', '#fca5a5')}>
-    <b>Conteneur déjà dépoté</b>{fiche['cargaisonId'] ? <> sur la cargaison <b>{String(fiche['cargaisonId'])}</b></> : null}.
-    Vérifiez le numéro : un conteneur ne se dépote qu'une fois.
-  </div>;
+  // Déjà dépoté. En ENLÈVEMENT, un conteneur ne sort qu'une fois → c'est une
+  // erreur de numéro / un doublon. En DÉPOTAGE, un même conteneur (ex. un 40′)
+  // peut être ÉCLATÉ sur plusieurs camions : le 2ᵉ / 3ᵉ camion vient chercher une
+  // partie du même TC. Ce cas est LÉGITIME et passe par la saisie manuelle (le TC
+  // n'est plus au parc, mais il ne sera compté qu'UNE fois dans les statistiques).
+  if (fiche['depote']) {
+    if (estEnl) return <div style={enc('#fef2f2', '#fca5a5')}>
+      <b>Conteneur déjà dépoté</b>{fiche['cargaisonId'] ? <> sur la cargaison <b>{String(fiche['cargaisonId'])}</b></> : null}.
+      Vérifiez le numéro : en enlèvement, un conteneur ne sort qu'une fois.
+    </div>;
+    return <div style={enc('#fffbeb', '#fcd34d')}>
+      <b>Conteneur déjà dépoté</b>{fiche['cargaisonId'] ? <> sur la cargaison <b>{String(fiche['cargaisonId'])}</b></> : null}.
+      <div style={{ marginTop: 4 }}>
+        S'il s'agit d'une <b>erreur de numéro</b>, corrigez-le. Si ce même conteneur
+        est <b>réparti sur plusieurs camions</b> (une partie sur celui-ci), passez en
+        saisie manuelle : il sera ajouté ici tout en restant <b>compté une seule fois</b>
+        dans les statistiques.
+      </div>
+      <div style={{ marginTop: 6 }}><button className="ghost xs" onClick={activerManuel}>Passer en saisie manuelle</button></div>
+    </div>;
+  }
 
   // Au parc et pointé positionné : rien à signaler.
   if (!fiche['aRegulariser']) return <div style={enc('#f0fdf4', '#86efac')}>

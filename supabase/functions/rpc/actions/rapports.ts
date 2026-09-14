@@ -251,6 +251,12 @@ function collecteActivite(cargos: Record<string, unknown>[], dateCol: string, ag
   const total = { ...aggVide(), twins: 0, sansBalise: 0 };
   const camions: Record<string, unknown>[] = [];
   const conteneurs: Record<string, unknown>[] = [];
+  // Conteneurs PARTAGÉS (saisie manuelle : un même TC — ex. un 40′ éclaté —
+  // réparti sur plusieurs camions) : comptés UNE SEULE fois par n°, comme dans
+  // le rapport CFS et le tableau de bord (décision client 2026-07-30). Les
+  // camions restent comptés normalement (chaque camion est un passage réel), et
+  // le détail (drill-down) ne liste le TC qu'une fois — cohérent avec le récap.
+  const vus = new Set<string>();
   for (const c of cargos) {
     if (estOui(c['estVehicule'])) continue;
     if (!inRange(c[dateCol], du, au)) continue; // ne compte QUE les balisés/sortis
@@ -264,6 +270,8 @@ function collecteActivite(cargos: Record<string, unknown>[], dateCol: string, ag
     if (String(c['baliseRequise']) === 'Non' || c['baliseRequise'] === false) { a.sansBalise++; total.sansBalise++; }
     camions.push({ id: c['id'], numeroCamion: c['numeroCamion'], typeOperation: op, statut: c['statut'], date: c[dateCol], numeroGps: c['numeroGps'], nbConteneurs: dets.length, twins: c['twins'] });
     for (const ct of dets) {
+      if (ct.num && vus.has(ct.num)) continue; // conteneur partagé : déjà compté
+      if (ct.num) vus.add(ct.num);
       const bk = tailleBucket(ct.taille); const ev = evpDeTaille(bk);
       (a as Record<string, number>)[bk]++; a.conteneurs++; a.evp += ev;
       (total as Record<string, number>)[bk]++; total.conteneurs++; total.evp += ev;
@@ -809,17 +817,30 @@ export async function rapportFlux(ctx: Ctx, p: Record<string, unknown>) {
   const map: Record<string, FluxLigne> = {};
   const bump = (k: string | null) => { if (!k) return null; if (!map[k]) map[k] = fluxVide(k); return map[k]; };
   const tot = fluxVide('');
+  // Conteneurs PARTAGÉS (saisie manuelle : un même TC réparti sur plusieurs
+  // camions) : comptés UNE SEULE fois PAR PÉRIODE, comme le rapport CFS et le
+  // tableau de bord (décision client 2026-07-30, étendu au flux 2026-09-14). La
+  // dédup est par clé de période : un TC ne compte qu'une fois dans un mois donné,
+  // mais un même n° réutilisé dans deux périodes compte dans chacune.
+  const vusFlux: Record<string, Set<string>> = {};
   for (const c of cargos) {
     if (estOui(c['estVehicule'])) continue;
     const op = String(c['typeOperation']);
     const dets = detsDeRow(c);
-    let evp = 0; for (const ct of dets) evp += evpDeTaille(tailleBucket(ct.taille));
     // Enlèvement / dépotage : comptés à l'entrée CFS.
-    const kC = dansPeriode(c['dateCreation']) ? bump(periodeKey(c['dateCreation'], gran)) : null;
-    if (kC) {
-      if (op === OPERATIONS.ENLEVEMENT) { kC.enlevesC += dets.length; tot.enlevesC += dets.length; }
-      else if (op === OPERATIONS.DEPOTAGE) { kC.depotesC += dets.length; tot.depotesC += dets.length; }
-      kC.tc += dets.length; tot.tc += dets.length;
+    const kCle = dansPeriode(c['dateCreation']) ? periodeKey(c['dateCreation'], gran) : null;
+    const kC = bump(kCle);
+    if (kC && kCle) {
+      const vus = (vusFlux[kCle] ??= new Set<string>());
+      let nb = 0; let evp = 0;
+      for (const ct of dets) {
+        if (ct.num && vus.has(ct.num)) continue; // TC partagé : déjà compté sur cette période
+        if (ct.num) vus.add(ct.num);
+        nb++; evp += evpDeTaille(tailleBucket(ct.taille));
+      }
+      if (op === OPERATIONS.ENLEVEMENT) { kC.enlevesC += nb; tot.enlevesC += nb; }
+      else if (op === OPERATIONS.DEPOTAGE) { kC.depotesC += nb; tot.depotesC += nb; }
+      kC.tc += nb; tot.tc += nb;
       kC.evp += evp; tot.evp += evp;
     }
     // Camions balisés : à la pose de balise.
