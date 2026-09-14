@@ -1,12 +1,12 @@
 # Fichiers publics — apps/web/public/
 
-Tout ce qui est déposé ici est servi **à la racine du site** : `public/logo_PIA.jpg`
-devient `/logo_PIA.jpg` dans le navigateur. Ces fichiers ne passent pas par la
+Tout ce qui est déposé ici est servi **à la racine du site** : `public/logo.png`
+devient `/logo.png` dans le navigateur. Ces fichiers ne passent pas par la
 compilation — ils sont copiés tels quels dans `dist/`.
 
-## `logo_PIA.jpg` — le logo de l'application
+## `logo.png` — le logo de l'application
 
-**À déposer ici sous le nom exact `logo_PIA.jpg`.**
+**À déposer ici sous le nom exact `logo.png`.**
 
 Il est référencé à trois endroits, tous déjà en place :
 

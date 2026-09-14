@@ -767,7 +767,7 @@ function Hub({ nav, titre, desc, items, icone = 'boites', etape }: {
       <div className="hub-logo">
         <span className="hub-piste" aria-hidden="true" />
         <span className="hub-onde" aria-hidden="true" />
-        <img className="logo-rond" src="/logo_PIA.jpg" alt=""
+        <img className="logo-rond" src="/logo.png" alt=""
           onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />
         <span className="hub-orbite" aria-hidden="true">
           <span className="hub-mobile"><Icone nom={icone} taille={15} /></span>
@@ -1450,12 +1450,12 @@ function SceneEntreePIA() {
         <rect x="0" y="89" width="600" height="3" fill="#c9d5df" />
         <path d="M0 104 H600" stroke="#cfdae3" strokeWidth="3" strokeDasharray="20 16" />
 
-        {/* LE PORTAIL : deux piles et le bandeau qui porte le nom du site. */}
+        {/* LE PORTAIL : deux piles et le bandeau qui porte le nom du poste (« CFS », 2026-09-14). */}
         <rect x="404" y="34" width="10" height="55" rx="2" fill="#8ea0b0" />
         <rect x="530" y="34" width="10" height="55" rx="2" fill="#8ea0b0" />
         <rect x="396" y="18" width="152" height="19" rx="4" fill="#0e5a8a" />
         <text x="472" y="32" textAnchor="middle" fill="#ffffff"
-          fontSize="12" fontWeight="700" letterSpacing="2.5">PIA</text>
+          fontSize="12" fontWeight="700" letterSpacing="2.5">CFS</text>
 
         {/* LE POSTE DE GARDE, a l'ecart de la voie. */}
         <path d="M548 60 h46 l-6 -9 h-34 z" fill="#8ea0b0" />
@@ -1528,7 +1528,7 @@ SCREENS.creercamion = ({ go }) => {
       <div className="creer-logo">
         <span className="creer-piste" aria-hidden="true" />
         <span className="creer-onde" aria-hidden="true" />
-        <img className="logo-rond" src="/logo_PIA.jpg" alt=""
+        <img className="logo-rond" src="/logo.png" alt=""
           onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />
         <span className="creer-camion" aria-hidden="true"><Icone nom="camion" taille={17} /></span>
         <span className="creer-plus" aria-hidden="true"><Icone nom="plus" taille={14} /></span>
@@ -2467,7 +2467,7 @@ function imprimerHtml(html: string) {
   /* UNE BALISE `base` INJECTEE (2026-09-12).
    *
    * La fenetre est ouverte sur `about:blank` : une adresse relative comme
-   * `/logo_PIA.jpg` n'y resout PAS vers l'application, et le logo des editions
+   * `/logo.png` n'y resout PAS vers l'application, et le logo des editions
    * ne s'affichait pas. La `base` ancre le document sur l'origine de
    * l'application ; toutes les adresses relatives suivent.
    *
@@ -3959,7 +3959,7 @@ SCREENS.account = ({ user }) => {
           <div className="compte-logo">
             <span className="compte-piste" aria-hidden="true" />
             <span className="compte-onde" aria-hidden="true" />
-            <img className="logo-rond" src="/logo_PIA.jpg" alt=""
+            <img className="logo-rond" src="/logo.png" alt=""
               onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />
             <span className="compte-jeton cj-compte" aria-hidden="true"><Icone nom="compte" taille={16} /></span>
             <span className="compte-jeton cj-crayon" aria-hidden="true"><Icone nom="crayon" taille={14} /></span>

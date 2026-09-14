@@ -130,7 +130,7 @@ export function Spinner() {
     <div className="att-logo">
       <span className="att-anneau" aria-hidden="true" />
       <span className="att-orbite" aria-hidden="true"><span className="att-colis" /></span>
-      <img className="logo-rond" src="/logo_PIA.jpg" alt=""
+      <img className="logo-rond" src="/logo.png" alt=""
         onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />
     </div>
     <span className="att-mot">Chargement…</span>
@@ -138,7 +138,7 @@ export function Spinner() {
         Les chargements durent plusieurs secondes ; autant que l'attente
         raconte quelque chose. Le camion arrive A VIDE - son plateau est un
         simple filet, pas un bloc -, la barriere du poste se leve, il se range
-        sous le portique PIA, un conteneur descend sur son plateau, et il repart
+        sous le portique du CFS, un conteneur descend sur son plateau, et il repart
         CHARGE. C'est le geste meme que l'ecran est en train d'aller chercher.
         Minuscule, decorative, et muette pour les lecteurs d'ecran, qui
         entendent deja << Chargement >> juste au-dessus. */}
@@ -148,13 +148,13 @@ export function Spinner() {
       <path className="as-bitume" d="M0 44 H200" stroke="currentColor" strokeWidth="1.6"
         strokeDasharray="9 7" opacity=".22" />
 
-      {/* LE PORTIQUE DE LA PIA. L'enseigne dit ou l'on arrive : sans elle, la
+      {/* LE PORTIQUE DU CFS (enseigne « CFS » depuis le 2026-09-14). L'enseigne dit ou l'on arrive : sans elle, la
           scene montrait un camion quelconque sur une route quelconque. */}
       <path d="M120 40 V10 M176 40 V10 M116 10 H180" stroke="currentColor"
         strokeWidth="1.8" opacity=".4" fill="none" strokeLinecap="round" />
       <rect x="131" y="1" width="34" height="9.5" rx="2" fill="currentColor" opacity=".85" />
       <text x="148" y="8.4" textAnchor="middle" fontSize="6.4" fontWeight="700"
-        letterSpacing="1.2" fill="#fff">PIA</text>
+        letterSpacing="1.2" fill="#fff">CFS</text>
 
       {/* LE POSTE D'ENTREE : le pied, puis la barriere qui pivote dessus. */}
       <rect x="58" y="28" width="2.6" height="12" rx="1" fill="currentColor" opacity=".6" />
