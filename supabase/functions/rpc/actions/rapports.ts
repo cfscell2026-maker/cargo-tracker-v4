@@ -1129,18 +1129,33 @@ export async function rapportFlux(ctx: Ctx, p: Record<string, unknown>) {
   const map: Record<string, FluxLigne> = {};
   const bump = (k: string | null) => { if (!k) return null; if (!map[k]) map[k] = fluxVide(k); return map[k]; };
   const tot = fluxVide('');
+  // Conteneurs PARTAGÉS (saisie manuelle : un même TC réparti sur plusieurs
+  // camions) : comptés UNE SEULE fois PAR PÉRIODE, comme le rapport CFS et le
+  // tableau de bord (décision client 2026-07-30, étendu au flux 2026-09-14). La
+  // dédup est par clé de période : un TC ne compte qu'une fois dans un mois donné,
+  // mais un même n° réutilisé dans deux périodes compte dans chacune.
+  const vusFlux: Record<string, Set<string>> = {};
   for (const c of cargos) {
     if (estOui(c['estVehicule'])) continue;
     const op = String(c['typeOperation']);
-    // Partagés exclus (2026-09-14) : ni conteneurs ni EVP en double.
+    // Deux protections complémentaires contre les conteneurs partagés (2026-09-14) :
+    //  · la ligne marquée `partage` par le serveur n'est comptée NULLE PART ;
+    //  · les anciens partagés, sans marque, restent dédoublonnés par période ci-dessous.
     const dets = detsDeRow(c).filter((ct) => !ct.partage);
-    let evp = 0; for (const ct of dets) evp += evpDeTaille(tailleBucket(ct.taille));
     // Enlèvement / dépotage : comptés à l'entrée CFS.
-    const kC = dansPeriode(c['dateCreation']) ? bump(periodeKey(c['dateCreation'], gran)) : null;
-    if (kC) {
-      if (op === OPERATIONS.ENLEVEMENT) { kC.enlevesC += dets.length; tot.enlevesC += dets.length; }
-      else if (op === OPERATIONS.DEPOTAGE) { kC.depotesC += dets.length; tot.depotesC += dets.length; }
-      kC.tc += dets.length; tot.tc += dets.length;
+    const kCle = dansPeriode(c['dateCreation']) ? periodeKey(c['dateCreation'], gran) : null;
+    const kC = bump(kCle);
+    if (kC && kCle) {
+      const vus = (vusFlux[kCle] ??= new Set<string>());
+      let nb = 0; let evp = 0;
+      for (const ct of dets) {
+        if (ct.num && vus.has(ct.num)) continue; // TC partagé : déjà compté sur cette période
+        if (ct.num) vus.add(ct.num);
+        nb++; evp += evpDeTaille(tailleBucket(ct.taille));
+      }
+      if (op === OPERATIONS.ENLEVEMENT) { kC.enlevesC += nb; tot.enlevesC += nb; }
+      else if (op === OPERATIONS.DEPOTAGE) { kC.depotesC += nb; tot.depotesC += nb; }
+      kC.tc += nb; tot.tc += nb;
       kC.evp += evp; tot.evp += evp;
     }
     // Camions balisés : à la pose de balise.

@@ -1653,6 +1653,43 @@ test('fiche CFS : un conteneur partagé sur 2 camions compté une seule fois', a
   assert.equal(f.cfs.total.conteneurs, 1); // mais 1 seul conteneur (partagé)
 });
 
+test('rapport cellule (balise) : conteneur partagé sur 2 camions compté une seule fois', async () => {
+  const db = new FakeDB();
+  const cfs = ctxRole(db, 'CFS', 'A');
+  const now = new Date().toISOString();
+  // Un même 40′ éclaté sur deux camions (le 2ᵉ pris en saisie manuelle). Les deux
+  // camions sont balisés → deux passages Balise, mais UN SEUL conteneur physique.
+  const dets = { conteneurs: [{ num: 'TCLU7654321', taille: "40'", plomb: 'S', type: 'DRY' }], scellesCamion: [] };
+  const camion = (id: string) => ({
+    id, reference: id, numero_camion: id, statut: 'Balise posée', date_creation: now, rapport_id: 'R',
+    type_operation: 'Dépotage', type_declaration: 'T', conteneurs_details: dets, nb_conteneurs: 1,
+    date_pose_gps: now, agent_balise: 'Agent Balise', numero_gps: 'G-' + id,
+  });
+  db.store['cargaisons'].push(camion('A'), camion('B'));
+  const r = (await rap.rapportActivite(cfs, { kind: 'balise' })) as
+    { total: { camions: number; conteneurs: number; t40: number; evp: number } };
+  assert.equal(r.total.camions, 2);      // 2 camions balisés bien comptés
+  assert.equal(r.total.conteneurs, 1);   // mais 1 seul conteneur (partagé)
+  assert.equal(r.total.t40, 1);          // un seul 40′
+  assert.equal(r.total.evp, 2);          // = 2 EVP, compté une fois
+});
+
+test('analyse des flux : conteneur partagé sur 2 camions compté une fois par période', async () => {
+  const db = new FakeDB();
+  const cfs = ctxRole(db, 'CFS', 'A');
+  const jour = '2026-09-10T08:00:00Z'; // même mois → même période
+  const dets = { conteneurs: [{ num: 'HLXU9990001', taille: "40'", plomb: '', type: 'DRY' }], scellesCamion: [] };
+  const camion = (id: string) => ({
+    id, reference: id, numero_camion: id, statut: 'Créée', date_creation: jour, rapport_id: 'R',
+    type_operation: 'Dépotage', type_declaration: 'T', conteneurs_details: dets, nb_conteneurs: 1,
+  });
+  db.store['cargaisons'].push(camion('A'), camion('B'));
+  const r = (await rap.rapportFlux(cfs, { granularite: 'mois' })) as { totaux: { depotesC: number; tc: number; evp: number } };
+  assert.equal(r.totaux.tc, 1);        // 1 seul TC sur la période
+  assert.equal(r.totaux.depotesC, 1);  // pas 2
+  assert.equal(r.totaux.evp, 2);       // 1 × 40′ = 2 EVP
+});
+
 test('entrepot.sorties : détail des apurements d\'un article avec la déclaration', async () => {
   const db = new FakeDB();
   const cfs = ctxRole(db, 'CFS', 'A');
