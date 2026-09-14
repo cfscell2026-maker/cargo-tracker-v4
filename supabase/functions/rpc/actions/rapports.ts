@@ -515,12 +515,6 @@ function collecteActivite(cargos: Record<string, unknown>[], dateCol: string, ag
   const total = { ...aggVide(), twins: 0, sansBalise: 0 };
   const camions: Record<string, unknown>[] = [];
   const conteneurs: Record<string, unknown>[] = [];
-  // Conteneurs PARTAGÉS (saisie manuelle : un même TC — ex. un 40′ éclaté —
-  // réparti sur plusieurs camions) : comptés UNE SEULE fois par n°, comme dans
-  // le rapport CFS et le tableau de bord (décision client 2026-07-30). Les
-  // camions restent comptés normalement (chaque camion est un passage réel), et
-  // le détail (drill-down) ne liste le TC qu'une fois — cohérent avec le récap.
-  const vus = new Set<string>();
   for (const c of cargos) {
     if (estOui(c['estVehicule'])) continue;
     if (!inRange(c[dateCol], du, au)) continue; // ne compte QUE les balisés/sortis
@@ -534,9 +528,6 @@ function collecteActivite(cargos: Record<string, unknown>[], dateCol: string, ag
     if (String(c['baliseRequise']) === 'Non' || c['baliseRequise'] === false) { a.sansBalise++; total.sansBalise++; }
     camions.push({ id: c['id'], numeroCamion: c['numeroCamion'], typeOperation: op, statut: c['statut'], date: c[dateCol], numeroGps: c['numeroGps'], nbConteneurs: dets.length, twins: c['twins'] });
     for (const ct of dets) {
-<<<<<<< HEAD
-      if (ct.num && vus.has(ct.num)) continue; // conteneur partagé : déjà compté
-=======
       /* CONTENEUR PARTAGÉ : COMPTÉ UNE SEULE FOIS — 2026-09-12, règle dictée
        * par le douanier. Un conteneur dont la marchandise se répartit sur
        * plusieurs camions apparaît sur chacun d'eux. Le compter à chaque fois
@@ -551,7 +542,6 @@ function collecteActivite(cargos: Record<string, unknown>[], dateCol: string, ag
        * quel camion a emporté quoi, et masquer le second passage y serait une
        * perte d'information. Seuls les COMPTEURS sont dédoublonnés. */
       const dejaCompte = !!ct.num && vus.has(ct.num);
->>>>>>> 6b4ff22f410ab5ec671082cb9fe318c775bc25aa
       if (ct.num) vus.add(ct.num);
       const bk = tailleBucket(ct.taille); const ev = evpDeTaille(bk);
       if (!dejaCompte) {
