@@ -79,9 +79,14 @@ export const PERMISSIONS: Record<string, Role[]> = {
   'cargo.engagementfait': SUIVENT_ENGAGEMENTS,
   'report.engagements': SUIVENT_ENGAGEMENTS,
   'cargo.engagementedit': SUIVENT_ENGAGEMENTS, // correction après signature (tracée)
-  // 2026-09-17 : retrait d'un engagement coché par erreur — mêmes rôles que la
-  // correction, motif obligatoire, valeurs retirées recopiées au journal.
-  'cargo.engagementretirer': SUIVENT_ENGAGEMENTS,
+  /* RETRAIT D'UN ENGAGEMENT — ADMINISTRATEUR SEUL (décision utilisateur, 2026-09-17).
+   *
+   * Corriger, c'est rectifier ce qui a été signé ; RETIRER, c'est effacer
+   * l'engagement, son échéance et son solde — le camion sort de l'échéancier et
+   * des rapports. Le geste est donc plus lourd que la correction, et il est
+   * réservé à l'administrateur. Le motif reste obligatoire et ce qui est retiré
+   * part au journal : le retrait se relit, il ne s'efface pas. */
+  'cargo.engagementretirer': [ROLES.ADMIN],
 
   /* Historique d'UNE cargaison — RGPD-03 : le journal d'audit est aussi un
    * relevé d'activité des agents (« qui a travaillé, quand, à quelle cadence »).

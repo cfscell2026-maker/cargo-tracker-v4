@@ -474,3 +474,14 @@ test("format camion — la barre oblique n'est PLUS obligatoire (2026-09-12)", (
   assert.match(m, /N° de camion/); // le champ à corriger
   assert.match(messageCamionFormat('X', 'Nouveau n° de camion'), /Nouveau n° de camion/);
 });
+test('engagements — corriger : tout l\'encadrement ; RETIRER : administrateur seul (2026-09-17)', () => {
+  // Décision utilisateur : le retrait efface l'engagement, son échéance et son
+  // solde — plus lourd que la correction, donc plus étroit.
+  for (const r of [ROLES.CHEF_BRIGADE, ROLES.CHEF_BRIGADE_ADJOINT, ROLES.CHEF_VISITE, ROLES.CHEF_DIVISION, ROLES.ADMIN]) {
+    assert.doesNotThrow(() => verifierPermission(r, 'cargo.engagementedit'));
+    assert.doesNotThrow(() => verifierPermission(r, 'cargo.engagementfait'));
+  }
+  assert.doesNotThrow(() => verifierPermission(ROLES.ADMIN, 'cargo.engagementretirer'));
+  for (const r of [ROLES.CHEF_BRIGADE, ROLES.CHEF_BRIGADE_ADJOINT, ROLES.CHEF_VISITE, ROLES.CHEF_DIVISION, ROLES.CFS, ROLES.BALISE])
+    assert.throws(() => verifierPermission(r, 'cargo.engagementretirer'), /Accès refusé/);
+});

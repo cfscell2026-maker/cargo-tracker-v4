@@ -9,6 +9,7 @@ import { Icone } from './lib/icones.tsx';
 import { iconeDeLEcran, MENUS } from './lib/menu.ts';
 import { Spinner, StatCard, Tag, Modal, masks, toast, fmtDate, fmtJour, ChampDestination, Graphique, BarresClassees, useSuiviEngagement, ChampCamion, roleLabel, TITLES, ChoixSegmente } from './lib/ui.tsx';
 import { bornesDe, isoDate, normaliserPlage, type ModePeriode, repartition } from './lib/periode.ts';
+import { trierEngagements, type TriEngagement, type SensTri } from './lib/tri-engagements.ts';
 import { Detail, TitrePanneau } from './detail.tsx';
 import type { ReactNode } from 'react';
 import type { Nav } from './App.tsx';
@@ -513,7 +514,7 @@ function BandeauEngagements({ role, go }: { role: string; go: Nav['go'] }) {
         </button>
       </div>;
     })}
-    {corrige && <ModaleCorrigerEngagement ligne={corrige}
+    {corrige && <ModaleCorrigerEngagement ligne={corrige} admin={role === ROLES.ADMIN}
       onClose={() => setCorrige(null)}
       onFait={() => { setCorrige(null); setN((x) => x + 1); }} />}
   </div>;
@@ -524,7 +525,7 @@ function BandeauEngagements({ role, go }: { role: string; go: Nav['go'] }) {
  * Mêmes champs que la fiche du camion : l'engagement, un nouveau délai en jours,
  * et un motif obligatoire qui part au journal.
  */
-function ModaleCorrigerEngagement({ ligne, onClose, onFait }: { ligne: O; onClose: () => void; onFait: () => void }) {
+function ModaleCorrigerEngagement({ ligne, onClose, onFait, admin }: { ligne: O; onClose: () => void; onFait: () => void; admin?: boolean }) {
   const id = String(ligne['id']);
   const [type, setType] = useState(String(ligne['engagementType'] ?? ''));
   const [jours, setJours] = useState('');
@@ -577,18 +578,22 @@ function ModaleCorrigerEngagement({ ligne, onClose, onFait }: { ligne: O; onClos
     <label className="help" style={{ marginTop: 6 }}>Motif de la correction (obligatoire)</label>
     <input value={motif} onChange={(e) => setMotif(e.target.value)} placeholder="ex. BFE 03 saisi par erreur" />
     <div className="row" style={{ marginTop: 12, justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
-      {/* RETRAIT — 2026-09-17 (demande utilisateur) : l'engagement coché par erreur
-          n'avait aucune sortie ; il fallait lui inventer un type et une date. */}
-      <button className="ghost" style={{ color: 'var(--err)' }} disabled={busy || !motif.trim()} onClick={retirer}>
-        Retirer l'engagement
-      </button>
+      {/* RETRAIT — 2026-09-17 : l'engagement coché par erreur n'avait aucune sortie ;
+          il fallait lui inventer un type et une date. Réservé à l'ADMINISTRATEUR. */}
+      {admin
+        ? <button className="ghost" style={{ color: 'var(--err)' }} disabled={busy || !motif.trim()} onClick={retirer}>
+          Retirer l'engagement
+        </button>
+        : <span className="help">Retrait : administrateur</span>}
       <span className="row" style={{ gap: 8 }}>
         <button className="ghost" onClick={onClose}>Annuler</button>
         <button disabled={busy || !motif.trim() || !type} onClick={enregistrer}>{busy ? 'Enregistrement…' : 'Enregistrer la correction'}</button>
       </span>
     </div>
     <p className="help" style={{ marginBottom: 0 }}>
-      Le retrait efface l'engagement, son échéance et son solde ; ce qui est retiré part au journal.
+      {admin
+        ? "Le retrait efface l'engagement, son échéance et son solde ; ce qui est retiré part au journal."
+        : "Le retrait d'un engagement relève de l'administrateur ; la correction, elle, vous est ouverte."}
     </p>
   </Modal>;
 }
@@ -1430,10 +1435,19 @@ const FILTRES_ENGAGEMENT: [string, string][] = [
 
 SCREENS.engagements = ({ go, user }) => {
   const [filtre, setFiltre] = useState('encours');
+  // Tri demandé par l'utilisateur (17/09) : par camion et par délai, dans les
+  // deux sens. Par défaut le plus urgent d'abord — c'est ce qu'on vient traiter.
+  const [tri, setTri] = useState<TriEngagement>('delai');
+  const [sens, setSens] = useState<SensTri>('asc');
+  const changerTri = (t: TriEngagement) => {
+    if (t === tri) setSens(sens === 'asc' ? 'desc' : 'asc');
+    else { setTri(t); setSens('asc'); }
+  };
   const [corrige, setCorrige] = useState<O | null>(null);
   const [busy, setBusy] = useState('');
   const { data, loading, error, reload } = useAsync<O>(() => call('report.engagements', { filtre }), [filtre]);
-  const lignes = ((data?.['lignes'] as O[]) ?? []);
+  const lignes = trierEngagements(((data?.['lignes'] as O[]) ?? []), tri, sens) as O[];
+  const fleche = (t: TriEngagement) => (t === tri ? (sens === 'asc' ? ' ▲' : ' ▼') : '');
   const cpt = (data?.['compte'] as O) ?? {};
   const peut = SUIVENT_ENGAGEMENTS.includes(user.role as never);
 
@@ -1465,7 +1479,14 @@ SCREENS.engagements = ({ go, user }) => {
         </div>
         {!lignes.length ? <div className="empty">Aucun engagement dans cette vue.</div>
           : <div className="tbl"><table>
-            <thead><tr><th>Camion</th><th>Engagement</th><th>Échéance</th><th>État</th><th>Signé par</th><th>Actions</th></tr></thead>
+            <thead><tr>
+              <th><button className="ghost xs" onClick={() => changerTri('camion')}
+                title="Trier par camion">Camion{fleche('camion')}</button></th>
+              <th>Engagement</th>
+              <th><button className="ghost xs" onClick={() => changerTri('delai')}
+                title="Trier par échéance">Échéance{fleche('delai')}</button></th>
+              <th>État</th><th>Signé par</th><th>Actions</th>
+            </tr></thead>
             <tbody>{lignes.map((l) => {
               const id = String(l['id']);
               const solde = l['etat'] === 'solde';
@@ -1491,7 +1512,7 @@ SCREENS.engagements = ({ go, user }) => {
           </table></div>}
       </>}
     </div>
-    {corrige && <ModaleCorrigerEngagement ligne={corrige}
+    {corrige && <ModaleCorrigerEngagement ligne={corrige} admin={user.role === ROLES.ADMIN}
       onClose={() => setCorrige(null)}
       onFait={() => { setCorrige(null); reload(); }} />}
   </>;
