@@ -542,13 +542,27 @@ export async function etatCfsList(ctx: Ctx) {
  *
  * Le tri place les retards en tête : le plus ancien dû est le plus urgent.
  */
-export async function engagementsDus(ctx: Ctx) {
-  const { data, error } = await ctx.db
+export async function engagementsDus(ctx: Ctx, p: { filtre?: string } = {}) {
+  /* UN FILTRE, POUR SERVIR DEUX ÉCRANS — 2026-09-17 (demande utilisateur).
+   *
+   * Sans paramètre, la réponse est CELLE D'AVANT : les seuls engagements qui
+   * alertent (J-1, aujourd'hui, en retard), non soldés. C'est ce que l'encadré
+   * du tableau de bord affiche, et ce que le front déjà déployé attend — on ne
+   * change pas sa réponse sous ses pieds.
+   *
+   * Le volet « Engagements » demande, lui, la vue COMPLÈTE : `tous` (soldés
+   * compris), `encours` (tout ce qui n'est pas soldé, échéances lointaines
+   * incluses), `retard`, ou `solde`. L'encadré ne montrait qu'une partie, et
+   * rien ne disait où voir le reste. */
+  const filtre = String(p?.filtre ?? 'alerte');
+  const soldesInclus = filtre === 'tous' || filtre === 'solde';
+  let q = ctx.db
     .from('cargaisons')
     .select('id, numero_camion, type_operation, statut, declarant, numero_declaration, '
-      + 'engagement_type, engagement_delai, agent_validation, date_validation')
-    .eq('suivi_engagement', true)
-    .is('engagement_effectue_le', null)
+      + 'engagement_type, engagement_delai, engagement_effectue_le, agent_validation, date_validation')
+    .eq('suivi_engagement', true);
+  if (!soldesInclus) q = q.is('engagement_effectue_le', null);
+  const { data, error } = await q
     // `neq` plutôt que `eq(false)` : c'est la forme déjà employée ailleurs pour
     // SEC-12, et elle reste juste quelle que soit la valeur par défaut.
     .neq('annule', true)
@@ -556,22 +570,33 @@ export async function engagementsDus(ctx: Ctx) {
     .order('engagement_delai', { ascending: true });
   if (error) throw new Error(error.message);
 
+  const garde = (o: Record<string, unknown>) => {
+    const { etat } = etatEngagement(o['engagementDelai'], o['engagementEffectueLe']);
+    if (filtre === 'tous') return true;
+    if (filtre === 'solde') return etat === 'solde';
+    if (filtre === 'retard') return etat === 'retard';
+    if (filtre === 'encours') return etat !== 'solde';
+    return engagementAlerte(o['engagementDelai'], o['engagementEffectueLe']); // 'alerte' (défaut)
+  };
   const lignes = (data ?? [])
     .map((r) => versCamel(r as unknown as Record<string, unknown>))
-    .filter((o) => engagementAlerte(o['engagementDelai'], null))
+    .filter(garde)
     .map((o) => ({
       ...o,
-      ...etatEngagement(o['engagementDelai'], null),
-      libelle: libelleEngagement(o['engagementDelai'], null),
+      ...etatEngagement(o['engagementDelai'], o['engagementEffectueLe']),
+      libelle: libelleEngagement(o['engagementDelai'], o['engagementEffectueLe']),
     }));
 
   return {
     lignes,
+    filtre,
     compte: {
       total: lignes.length,
       retard: lignes.filter((l) => l.etat === 'retard').length,
       aujourdhui: lignes.filter((l) => l.etat === 'aujourdhui').length,
       demain: lignes.filter((l) => l.etat === 'demain').length,
+      aVenir: lignes.filter((l) => l.etat === 'a_venir').length,
+      solde: lignes.filter((l) => l.etat === 'solde').length,
     },
   };
 }

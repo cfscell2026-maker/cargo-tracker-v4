@@ -491,6 +491,8 @@ function BandeauEngagements({ role, go }: { role: string; go: Nav['go'] }) {
     <div className="help" style={{ marginBottom: 8 }}>
       Ces cargaisons doivent faire l'objet d'un envoi d'informations. Cliquez sur
       « Effectué » une fois l'envoi réalisé.
+      {/* 2026-09-17 : l'encadré ne montre que ce qui alerte — le volet montre tout. */}
+      {' '}<a onClick={() => go('engagements')}>Voir tous les engagements</a>
     </div>
     {lignes.map((l) => {
       const id = String(l['id']);
@@ -1414,6 +1416,87 @@ function AvisApresSignature({ error, signee }: { error: string; signee: number }
 }
 
 SCREENS.completer = (nav) => <CargoList {...nav} filtre={{ etape: 'CFS' }} titre="À compléter (CFS)" />;
+/* ===================== VOLET ENGAGEMENTS — 2026-09-17 =====================
+ *
+ * Demande utilisateur. Les engagements étaient dispersés : l'encadré du tableau
+ * de bord ne montre que ceux qui alertent, la liste « Cargaisons » demandait un
+ * filtre, et les trois gestes (solder, corriger, retirer) vivaient sur la fiche
+ * du camion. Ce volet rassemble : TOUS les camions engagés, et les trois gestes
+ * sur la ligne même.
+ */
+const FILTRES_ENGAGEMENT: [string, string][] = [
+  ['encours', 'En cours'], ['retard', 'En retard'], ['solde', 'Soldés'], ['tous', 'Tous'],
+];
+
+SCREENS.engagements = ({ go, user }) => {
+  const [filtre, setFiltre] = useState('encours');
+  const [corrige, setCorrige] = useState<O | null>(null);
+  const [busy, setBusy] = useState('');
+  const { data, loading, error, reload } = useAsync<O>(() => call('report.engagements', { filtre }), [filtre]);
+  const lignes = ((data?.['lignes'] as O[]) ?? []);
+  const cpt = (data?.['compte'] as O) ?? {};
+  const peut = SUIVENT_ENGAGEMENTS.includes(user.role as never);
+
+  async function solder(id: string) {
+    setBusy(id);
+    try {
+      await call('cargo.engagementfait', { id });
+      toast('Engagement soldé.', 'ok');
+      reload();
+    } catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(''); }
+  }
+
+  return <>
+    <BandeauModule icone="sablier" titre="Engagements"
+      sous={<>Tous les camions sous suivi d'engagement. <b>Effectué</b> : les informations ont été transmises ·
+        <b> Corriger</b> : engagement ou délai erroné · <b>Retirer</b> : engagement coché par erreur.</>}
+      action={<div className="bm-outils">
+        <label className="help">Afficher</label>
+        <select value={filtre} onChange={(e) => setFiltre(e.target.value)} style={{ maxWidth: 170 }}>
+          {FILTRES_ENGAGEMENT.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+        </select>
+      </div>} />
+    <div className="card">
+      {loading ? <Spinner /> : error ? <div className="err-msg">{error}</div> : <>
+        <div className="help" style={{ marginBottom: 8 }}>
+          {lignes.length} engagement(s)
+          {Number(cpt['retard'] ?? 0) ? <span style={{ color: 'var(--err)', fontWeight: 600 }}> · {String(cpt['retard'])} en retard</span> : null}
+          {Number(cpt['solde'] ?? 0) ? <span> · {String(cpt['solde'])} soldé(s)</span> : null}
+        </div>
+        {!lignes.length ? <div className="empty">Aucun engagement dans cette vue.</div>
+          : <div className="tbl"><table>
+            <thead><tr><th>Camion</th><th>Engagement</th><th>Échéance</th><th>État</th><th>Signé par</th><th>Actions</th></tr></thead>
+            <tbody>{lignes.map((l) => {
+              const id = String(l['id']);
+              const solde = l['etat'] === 'solde';
+              const retard = l['etat'] === 'retard';
+              return <tr key={id}>
+                <td><a className="mono" onClick={() => go('detail', { id })}>{String(l['numeroCamion'] || id)}</a></td>
+                <td>{String(l['engagementType'] || '—')}</td>
+                <td>{fmtJour(l['engagementDelai'])}</td>
+                <td style={{ color: retard ? 'var(--err)' : solde ? 'var(--ok)' : 'var(--warn)', fontWeight: 600 }}>
+                  {String(l['libelle'] || '')}
+                </td>
+                <td className="help">{String(l['agentValidation'] || '—')}</td>
+                <td onClick={(e) => e.stopPropagation()}>
+                  <div className="acts-dossier">
+                    {peut && !solde && <button className="ghost xs" disabled={busy === id} onClick={() => solder(id)}>
+                      {busy === id ? '…' : '✔ Effectué'}
+                    </button>}
+                    {peut && <button className="ghost xs" onClick={() => setCorrige(l)}>✎ Corriger</button>}
+                  </div>
+                </td>
+              </tr>;
+            })}</tbody>
+          </table></div>}
+      </>}
+    </div>
+    {corrige && <ModaleCorrigerEngagement ligne={corrige}
+      onClose={() => setCorrige(null)}
+      onFait={() => { setCorrige(null); reload(); }} />}
+  </>;
+};
+
 SCREENS.wait_valid = (nav) => <ValidationDeclaration {...nav} />;
 SCREENS.wait_cfs = (nav) => <CargoList {...nav} filtre={{ etape: 'CFS' }} titre="En cours au CFS" />;
 SCREENS.wait_t1 = (nav) => <CargoList {...nav} filtre={{ etape: 'T1' }} titre="En attente T1" />;

@@ -2886,3 +2886,30 @@ test('engagement — RETRAIT : possible aussi après « Effectué », le solde e
   assert.equal(c['suivi_engagement'], false);
   assert.equal(c['engagement_effectue_le'], null);
 });
+
+test('volet Engagements — le filtre sert les deux ecrans sans changer le tableau de bord', async () => {
+  const db = new FakeDB();
+  const chef = ctxRole(db, 'CHEF_BRIGADE', 'Chef Brigade');
+  const jour = (n: number) => { const d = new Date(); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
+  cargoEngage(db, 'E-RETARD', { engagement_delai: jour(-3) });
+  cargoEngage(db, 'E-DEMAIN', { engagement_delai: jour(1) });
+  cargoEngage(db, 'E-LOIN', { engagement_delai: jour(20) });
+  cargoEngage(db, 'E-SOLDE', { engagement_delai: jour(5), engagement_effectue_le: new Date().toISOString() });
+
+  const ids = async (filtre?: string) => {
+    const r = (await lec.engagementsDus(chef, filtre ? { filtre } : {})) as { lignes: { id: string }[] };
+    return r.lignes.map((l) => l.id).sort();
+  };
+  // Sans parametre : comportement d'avant — seules les alertes, soldes exclus.
+  assert.deepEqual(await ids(), ['E-DEMAIN', 'E-RETARD'], 'le tableau de bord ne doit pas changer');
+  assert.deepEqual(await ids('encours'), ['E-DEMAIN', 'E-LOIN', 'E-RETARD'], 'les echeances lointaines aussi');
+  assert.deepEqual(await ids('retard'), ['E-RETARD']);
+  assert.deepEqual(await ids('solde'), ['E-SOLDE']);
+  assert.deepEqual(await ids('tous'), ['E-DEMAIN', 'E-LOIN', 'E-RETARD', 'E-SOLDE']);
+
+  const tous = (await lec.engagementsDus(chef, { filtre: 'tous' })) as { compte: Record<string, number>; lignes: { etat: string }[] };
+  assert.equal(tous.compte['total'], 4);
+  assert.equal(tous.compte['solde'], 1);
+  assert.equal(tous.compte['retard'], 1);
+  assert.equal(tous.lignes.filter((l) => l.etat === 'solde').length, 1, 'un engagement solde est marque comme tel');
+});
