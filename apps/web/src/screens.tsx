@@ -13,7 +13,7 @@ import { Detail, TitrePanneau } from './detail.tsx';
 import type { ReactNode } from 'react';
 import type { Nav } from './App.tsx';
 import { useNav } from './lib/contexte-nav.ts';
-import { ROLES, OPERATIONS, VEHICULE_DESTINATIONS, TYPES_DECLARATION, STATUTS, SUIVENT_ENGAGEMENTS, tcValide, fileAttente, estTypeSansT1, libelleTypeSansT1, exigeControlePoids, dureeLisible } from '../../../supabase/functions/_shared/domaine/src/index.ts';
+import { ROLES, OPERATIONS, VEHICULE_DESTINATIONS, TYPES_DECLARATION, STATUTS, SUIVENT_ENGAGEMENTS, ENGAGEMENTS, dateDansNJours, tcValide, fileAttente, estTypeSansT1, libelleTypeSansT1, exigeControlePoids, dureeLisible } from '../../../supabase/functions/_shared/domaine/src/index.ts';
 
 const STATUT_OPTIONS = Object.values(STATUTS);
 
@@ -457,6 +457,12 @@ function BandeauEngagements({ role, go }: { role: string; go: Nav['go'] }) {
   const [n, setN] = useState(0); // force le rechargement après un solde
   const { data, loading } = useAsync<O>(() => call('report.engagements'), [n]);
   const [busy, setBusy] = useState('');
+  /* 2026-09-17 (demande utilisateur) : la correction s'ouvre ICI, là où le chef
+     voit ses engagements — elle existait, mais au fond de la fiche du camion.
+     ⚠ DECLARE AVANT les `return null` de garde ci-dessous : un hook place apres
+     change de nombre d'un rendu a l'autre, et React refuse alors de rendre
+     l'encadre entier (« Rendered more hooks than during the previous render »). */
+  const [corrige, setCorrige] = useState<O | null>(null);
 
   if (!SUIVENT_ENGAGEMENTS.includes(role as never)) return null;
   if (loading || !data) return null;
@@ -499,12 +505,68 @@ function BandeauEngagements({ role, go }: { role: string; go: Nav['go'] }) {
         <span style={{ color: `var(--${enRetard ? 'err' : 'warn'})`, fontWeight: 600, minWidth: 150 }}>
           {String(l['libelle'] || '')}
         </span>
+        <button className="ghost" onClick={() => setCorrige(l)}>✎ Corriger</button>
         <button disabled={busy === id} onClick={() => solder(id)}>
           {busy === id ? '…' : '✔ Effectué'}
         </button>
       </div>;
     })}
+    {corrige && <ModaleCorrigerEngagement ligne={corrige}
+      onClose={() => setCorrige(null)}
+      onFait={() => { setCorrige(null); setN((x) => x + 1); }} />}
   </div>;
+}
+
+/**
+ * CORRECTION D'UN ENGAGEMENT, depuis l'échéancier — 2026-09-17 (demande utilisateur).
+ * Mêmes champs que la fiche du camion : l'engagement, un nouveau délai en jours,
+ * et un motif obligatoire qui part au journal.
+ */
+function ModaleCorrigerEngagement({ ligne, onClose, onFait }: { ligne: O; onClose: () => void; onFait: () => void }) {
+  const id = String(ligne['id']);
+  const [type, setType] = useState(String(ligne['engagementType'] ?? ''));
+  const [jours, setJours] = useState('');
+  const [motif, setMotif] = useState('');
+  const [busy, setBusy] = useState(false);
+  const nouveauDelai = dateDansNJours(jours);
+
+  async function enregistrer() {
+    setBusy(true);
+    try {
+      await call('cargo.engagementedit', { id, motif, engagementType: type, ...(nouveauDelai ? { engagementDelai: nouveauDelai } : {}) });
+      toast('Engagement corrigé.', 'ok');
+      onFait();
+    } catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(false); }
+  }
+
+  return <Modal onClose={onClose}>
+    <h2>Corriger l'engagement</h2>
+    <p className="help">
+      Camion <b className="mono">{String(ligne['numeroCamion'] || id)}</b> · dossier <b className="mono">{id}</b>.
+      Actuel : <b>{String(ligne['engagementType'] || '—')}</b> · échéance <b>{fmtJour(ligne['engagementDelai'])}</b>.
+    </p>
+    <p className="help">
+      L'engagement fait partie de ce que le chef de brigade a signé. La signature n'est pas refaite :
+      la correction reste visible lors d'un contrôle.
+    </p>
+    <label className="help">Engagement</label>
+    <select value={type} onChange={(e) => setType(e.target.value)}>
+      {!ENGAGEMENTS.includes(type as never) && type && <option value={type}>{type} (actuel)</option>}
+      {ENGAGEMENTS.map((e) => <option key={e} value={e}>{e}</option>)}
+    </select>
+    <label className="help" style={{ marginTop: 6 }}>Nouveau délai en jours (laisser vide pour conserver l'échéance)</label>
+    <div className="row" style={{ alignItems: 'center', gap: 8 }}>
+      <input inputMode="numeric" style={{ maxWidth: 110 }} value={jours}
+        onChange={(e) => setJours(e.target.value.replace(/[^0-9]/g, ''))} placeholder="Ex. 3" />
+      {nouveauDelai ? <span style={{ fontWeight: 600 }}>→ {fmtJour(nouveauDelai)}</span> : null}
+    </div>
+    <label className="help" style={{ marginTop: 6 }}>Motif de la correction (obligatoire)</label>
+    <input value={motif} onChange={(e) => setMotif(e.target.value)} placeholder="ex. BFE 03 saisi par erreur" />
+    <div className="row" style={{ marginTop: 12, justifyContent: 'flex-end' }}>
+      <button className="ghost" onClick={onClose}>Annuler</button>
+      <button disabled={busy || !motif.trim() || !type} onClick={enregistrer}>{busy ? 'Enregistrement…' : 'Enregistrer la correction'}</button>
+    </div>
+  </Modal>;
 }
 
 /** Ouvre la fiche d'une cargaison depuis l'échéancier. */

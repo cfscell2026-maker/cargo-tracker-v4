@@ -1821,8 +1821,14 @@ export async function engagementEdit(ctx: Ctx, p: Record<string, unknown>) {
   const c = cargo.o;
   if (c['suiviEngagement'] !== true)
     throw new ErreurMetier("Cette cargaison n'est pas sous suivi d'engagement.");
-  if (aFait(c['engagementEffectueLe']))
-    throw new ErreurMetier('Engagement déjà soldé : il n\'y a plus rien à corriger.');
+  /* CORRECTION POSSIBLE MÊME APRÈS « EFFECTUÉ » — 2026-09-17 (demande utilisateur).
+   *
+   * Le refus qui se trouvait ici figeait l'erreur pour toujours : un clic de trop
+   * sur « Effectué », et l'engagement mal saisi restait faux dans les rapports.
+   * Or solder n'est pas contrôler : c'est dire qu'on a transmis les informations.
+   * La correction reste donc ouverte, et le journal dit qu'elle est intervenue
+   * APRÈS le solde — c'est ce qu'un contrôle a besoin de savoir. */
+  const soldeLe = aFait(c['engagementEffectueLe']) ? String(c['engagementEffectueLe']) : '';
 
   const type = txt(p['engagementType'], 120) || String(c['engagementType'] ?? '');
   if (!type) throw new ErreurMetier("Précisez l'engagement.");
@@ -1831,7 +1837,9 @@ export async function engagementEdit(ctx: Ctx, p: Record<string, unknown>) {
 
   const avant = `${String(c['engagementType'] ?? '')} · ${String(c['engagementDelai'] ?? '')}`;
   await patchCargo(ctx, cargo, { engagement_type: type, engagement_delai: delai });
-  await ctx.log('Correction engagement (après signature)', id,
-    'Avant ' + avant + ' → après ' + type + ' · ' + delai + ' · motif : ' + motif);
+  await ctx.log(soldeLe ? 'Correction engagement — APRÈS SOLDE' : 'Correction engagement (après signature)', id,
+    'Avant ' + avant + ' → après ' + type + ' · ' + delai
+      + (soldeLe ? ' · ⚠ engagement déjà soldé le ' + fmtDate(soldeLe) : '')
+      + ' · motif : ' + motif);
   return { id, engagementType: type, engagementDelai: delai };
 }

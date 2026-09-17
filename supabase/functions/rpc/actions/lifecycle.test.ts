@@ -2808,3 +2808,32 @@ test('partagé — compté NULLE PART, même quand le premier dépotage tombe da
   assert.equal(r.total.conteneurs, 0);
   assert.equal(r.total.evp, 0);
 });
+
+test('engagement — la correction reste possible APRÈS « Effectué » (2026-09-17)', async () => {
+  // Demande utilisateur : un clic de trop sur « Effectué » figeait l'erreur.
+  const db = new FakeDB();
+  const chef = ctxRole(db, 'CHEF_BRIGADE', 'Chef Brigade');
+  const traces: { action: string; detail: string }[] = [];
+  const chefTrace = { ...chef, log: async (action: string, _cible: string, detail: string) => { traces.push({ action, detail }); } };
+  db.store['cargaisons'].push({
+    id: 'ENG-1', reference: 'ENG-1', numero_camion: 'TG1234AB', statut: 'Créée', rapport_id: 'R',
+    date_creation: new Date().toISOString(), type_operation: 'Dépotage', nb_conteneurs: 0,
+    conteneurs_details: { conteneurs: [], scellesCamion: [] },
+    suivi_engagement: true, engagement_type: 'BFE 03 Sinkase', engagement_delai: '2026-10-01',
+    date_validation: new Date().toISOString(),
+  });
+  await ecr.engagementFait(chef, { id: 'ENG-1' });
+  const apresSolde = db.store['cargaisons'].find((x) => x['id'] === 'ENG-1')!;
+  assert.ok(apresSolde['engagement_effectue_le'], 'le solde est bien enregistré');
+
+  await ecr.engagementEdit(chefTrace as never, {
+    id: 'ENG-1', engagementType: 'Transit national', engagementDelai: '2026-10-05',
+    motif: 'erreur de saisie : BFE 03 au lieu de Transit national',
+  });
+  const c = db.store['cargaisons'].find((x) => x['id'] === 'ENG-1')!;
+  assert.equal(c['engagement_type'], 'Transit national');
+  assert.equal(String(c['engagement_delai']).slice(0, 10), '2026-10-05');
+  assert.ok(c['engagement_effectue_le'], 'le solde reste : corriger n\'est pas rouvrir');
+  assert.match(traces.map((t) => t.action).join(' '), /APRÈS SOLDE/, 'le journal signale la correction après solde');
+  assert.match(traces.map((t) => t.detail).join(' '), /déjà soldé le/);
+});

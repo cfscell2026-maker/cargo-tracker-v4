@@ -89,7 +89,9 @@ export function Detail({ user, arg, go, retour, ecranPrecedent }: Nav) {
           saisie normale qui s'affiche, et corriger n'aurait aucun sens. */}
       {!!c['dateT1'] && can(ROLES.T1, A) && <PanneauT1Edit c={c} dets={dets} action={action} />}
       {!!c['dateBonSortie'] && can(ROLES.BON_SORTIE, A) && <PanneauBSEdit c={c} action={action} />}
-      {c['suiviEngagement'] === true && !c['engagementEffectueLe']
+      {/* 2026-09-17 : la correction reste offerte APRÈS « Effectué » — un clic de
+          trop ne doit pas figer un engagement mal saisi. */}
+      {c['suiviEngagement'] === true
         && can(ROLES.CHEF_BRIGADE, ROLES.CHEF_BRIGADE_ADJOINT, ROLES.CHEF_VISITE, ROLES.CHEF_DIVISION, A)
         && <PanneauEngagementEdit c={c} action={action} />}
       {c['statut'] === STATUTS.SORTIE && (String(c['baliseRequise']) === 'Non' || estOui(c['sauteBalise'])) && !estOui(c['arriveeBureau']) && can(ROLES.BALISE, A) &&
@@ -1268,6 +1270,10 @@ function PanneauEngagementEdit({ c, action }: { c: O; action: ActionFn }) {
     <p className="help" style={{ marginTop: 10 }}>
       Actuel : <b>{(c['engagementType'] as string) || '—'}</b> · échéance <b>{fmtDate(c['engagementDelai'])}</b>
     </p>
+    {c['engagementEffectueLe'] ? <p className="help">
+      Cet engagement a été marqué <b>« Effectué »</b> le {fmtDate(c['engagementEffectueLe'])}. La correction
+      reste possible ; elle sera inscrite au journal comme intervenue après le solde.
+    </p> : null}
     <p className="help" style={{ color: 'var(--warn)' }}>
       ⚠ L'engagement fait partie de ce que le chef de brigade a signé. La signature
       n'est pas refaite : la correction restera visible lors d'un contrôle.
