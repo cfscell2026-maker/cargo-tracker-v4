@@ -405,6 +405,40 @@ export async function cfs(ctx: Ctx, p: Record<string, unknown>) {
   return { id, statut: resultStatut, conteneur: ct.num, mixte, manuel };
 }
 
+/**
+ * RETRAIT DU SUIVI D'ENGAGEMENT — 2026-09-17 (demande utilisateur).
+ *
+ * La correction (`engagementEdit`) change le type et le délai ; elle ne sait pas
+ * dire « finalement, ce camion n'a pas d'engagement ». Un engagement coché par
+ * erreur restait donc pour toujours dans l'échéancier et dans les rapports, et
+ * le seul contournement était d'inventer un type et une date.
+ *
+ * Le retrait efface le suivi ET ses deux valeurs, y compris le solde : la
+ * cargaison redevient une cargaison sans engagement. RIEN N'EST PERDU pour
+ * autant — l'engagement retiré, son échéance et son éventuel solde sont recopiés
+ * au journal avant l'effacement, avec le motif : c'est ce qui rend le retrait
+ * défendable lors d'un contrôle, puisqu'il porte sur une pièce signée.
+ */
+export async function engagementRetirer(ctx: Ctx, p: Record<string, unknown>) {
+  const id = String(p['id'] ?? '').trim();
+  const motif = txt(p['motif'], 300);
+  if (!motif) throw new ErreurMetier('Indiquez le motif du retrait.');
+
+  const cargo = await getCargo(ctx, id);
+  const c = cargo.o;
+  if (c['suiviEngagement'] !== true)
+    throw new ErreurMetier("Cette cargaison n'est pas sous suivi d'engagement.");
+
+  const avant = `${String(c['engagementType'] ?? '')} · ${String(c['engagementDelai'] ?? '')}`;
+  const soldeLe = aFait(c['engagementEffectueLe']) ? fmtDate(c['engagementEffectueLe']) : '';
+  await patchCargo(ctx, cargo, {
+    suivi_engagement: false, engagement_type: null, engagement_delai: null, engagement_effectue_le: null,
+  });
+  await ctx.log('Retrait du suivi d\'engagement', id,
+    'Retiré : ' + avant + (soldeLe ? ' · soldé le ' + soldeLe : '') + ' · motif : ' + motif);
+  return { id, suiviEngagement: false };
+}
+
 /* ---------------------------- declaration ------------------------------ */
 
 /** v3.2 — DÉPOTAGE : hauteur + colis + scellés → « Créée ». Hors gabarit auto. */

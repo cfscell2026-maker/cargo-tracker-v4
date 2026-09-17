@@ -1266,6 +1266,13 @@ function PanneauEngagementEdit({ c, action }: { c: O; action: ActionFn }) {
     }), 'Engagement corrigé.');
   }
 
+  async function retirer() {
+    if (!window.confirm(`Retirer le suivi d'engagement de ce camion ?\n\nEngagement : ${(c['engagementType'] as string) || '—'}\n`
+      + `Échéance : ${fmtDate(c['engagementDelai'])}\n\nIl disparaîtra de l'échéancier et des rapports.\n`
+      + `Le motif et ce qui est retiré restent au journal.\n\nMotif : ${motif.trim()}`)) return;
+    await action(() => call('cargo.engagementretirer', { id, motif }), 'Engagement retiré.');
+  }
+
   return <details style={EDIT_ITEM}><summary style={{ cursor: 'pointer', fontWeight: 600 }}>Corriger le suivi d'engagement</summary>
     <p className="help" style={{ marginTop: 10 }}>
       Actuel : <b>{(c['engagementType'] as string) || '—'}</b> · échéance <b>{fmtDate(c['engagementDelai'])}</b>
@@ -1291,9 +1298,17 @@ function PanneauEngagementEdit({ c, action }: { c: O; action: ActionFn }) {
     </div>
     <label className="help" style={{ marginTop: 6 }}>Motif de la correction (obligatoire)</label>
     <input value={motif} onChange={(e) => setMotif(e.target.value)} placeholder="ex. délai renégocié avec le déclarant" />
-    <button style={{ marginTop: 8 }} disabled={!motif.trim() || !type} onClick={enregistrer}>
-      Enregistrer la correction
-    </button>
+    <div className="row" style={{ marginTop: 8, gap: 8, flexWrap: 'wrap' }}>
+      <button disabled={!motif.trim() || !type} onClick={enregistrer}>
+        Enregistrer la correction
+      </button>
+      {/* RETRAIT — 2026-09-17 (demande utilisateur) : un engagement coché par
+          erreur ne pouvait pas être enlevé, seulement remplacé par un autre. */}
+      <button className="ghost" style={{ color: 'var(--err)' }} disabled={!motif.trim()} onClick={retirer}>
+        Retirer l'engagement
+      </button>
+    </div>
+    <p className="help">Le retrait efface l'engagement, son échéance et son solde. Ce qui est retiré part au journal.</p>
   </details>;
 }
 

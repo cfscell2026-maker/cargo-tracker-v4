@@ -79,6 +79,9 @@ export const PERMISSIONS: Record<string, Role[]> = {
   'cargo.engagementfait': SUIVENT_ENGAGEMENTS,
   'report.engagements': SUIVENT_ENGAGEMENTS,
   'cargo.engagementedit': SUIVENT_ENGAGEMENTS, // correction après signature (tracée)
+  // 2026-09-17 : retrait d'un engagement coché par erreur — mêmes rôles que la
+  // correction, motif obligatoire, valeurs retirées recopiées au journal.
+  'cargo.engagementretirer': SUIVENT_ENGAGEMENTS,
 
   /* Historique d'UNE cargaison — RGPD-03 : le journal d'audit est aussi un
    * relevé d'activité des agents (« qui a travaillé, quand, à quelle cadence »).

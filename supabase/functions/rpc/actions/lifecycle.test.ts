@@ -2837,3 +2837,52 @@ test('engagement — la correction reste possible APRÈS « Effectué » (2026-0
   assert.match(traces.map((t) => t.action).join(' '), /APRÈS SOLDE/, 'le journal signale la correction après solde');
   assert.match(traces.map((t) => t.detail).join(' '), /déjà soldé le/);
 });
+
+/* ===== RETRAIT D'UN ENGAGEMENT — 2026-09-17 (demande utilisateur) ========== */
+function cargoEngage(db: FakeDB, id: string, over: Record<string, unknown> = {}) {
+  db.store['cargaisons'].push({
+    id, reference: id, numero_camion: 'TG' + id, statut: 'Créée', rapport_id: 'R',
+    date_creation: new Date().toISOString(), type_operation: 'Dépotage', nb_conteneurs: 0,
+    conteneurs_details: { conteneurs: [], scellesCamion: [] },
+    suivi_engagement: true, engagement_type: 'BFE 03 Sinkase', engagement_delai: '2026-10-01',
+    date_validation: new Date().toISOString(), ...over,
+  });
+}
+
+test('engagement — RETRAIT : le suivi disparaît, et le journal garde ce qui a été retiré', async () => {
+  const db = new FakeDB();
+  const traces: { action: string; detail: string }[] = [];
+  const chef = { ...ctxRole(db, 'CHEF_BRIGADE', 'Chef Brigade'),
+    log: async (action: string, _c: string, detail: string) => { traces.push({ action, detail }); } };
+  cargoEngage(db, 'ENG-R1');
+  await ecr.engagementRetirer(chef as never, { id: 'ENG-R1', motif: 'coché par erreur : ce camion n\'a pas d\'engagement' });
+  const c = db.store['cargaisons'].find((x) => x['id'] === 'ENG-R1')!;
+  assert.equal(c['suivi_engagement'], false);
+  assert.equal(c['engagement_type'], null);
+  assert.equal(c['engagement_delai'], null);
+  assert.match(traces.map((t) => t.action).join(' '), /Retrait du suivi d'engagement/);
+  assert.match(traces.map((t) => t.detail).join(' '), /BFE 03 Sinkase/, 'le journal garde l\'engagement retiré');
+  assert.match(traces.map((t) => t.detail).join(' '), /motif : coché par erreur/);
+});
+
+test('engagement — RETRAIT : motif obligatoire, et rien à retirer sans engagement', async () => {
+  const db = new FakeDB();
+  const chef = ctxRole(db, 'CHEF_BRIGADE', 'Chef Brigade');
+  cargoEngage(db, 'ENG-R2');
+  await assert.rejects(() => ecr.engagementRetirer(chef, { id: 'ENG-R2' }), /motif du retrait/i);
+  assert.equal(db.store['cargaisons'].find((x) => x['id'] === 'ENG-R2')!['suivi_engagement'], true,
+    'un refus ne doit rien écrire');
+  cargoEngage(db, 'ENG-R3', { suivi_engagement: false, engagement_type: null, engagement_delai: null });
+  await assert.rejects(() => ecr.engagementRetirer(chef, { id: 'ENG-R3', motif: 'x' }), /pas sous suivi d'engagement/i);
+});
+
+test('engagement — RETRAIT : possible aussi après « Effectué », le solde est efface avec le reste', async () => {
+  const db = new FakeDB();
+  const chef = ctxRole(db, 'CHEF_BRIGADE', 'Chef Brigade');
+  cargoEngage(db, 'ENG-R4');
+  await ecr.engagementFait(chef, { id: 'ENG-R4' });
+  await ecr.engagementRetirer(chef, { id: 'ENG-R4', motif: 'engagement saisi sur le mauvais camion' });
+  const c = db.store['cargaisons'].find((x) => x['id'] === 'ENG-R4')!;
+  assert.equal(c['suivi_engagement'], false);
+  assert.equal(c['engagement_effectue_le'], null);
+});

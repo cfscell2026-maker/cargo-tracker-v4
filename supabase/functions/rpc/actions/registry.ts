@@ -39,6 +39,7 @@ export const ACTIONS: Record<string, H> = {
   'cargo.validerlot': d(ecr.validerLot), // v4 : validation de toute une déclaration
   'cargo.engagementfait': d(ecr.engagementFait), // 2026-09-10 : solde d'un engagement
   'cargo.engagementedit': d(ecr.engagementEdit), // 2026-09-10 : correction d'un engagement
+  'cargo.engagementretirer': d(ecr.engagementRetirer), // 2026-09-17 : engagement coché par erreur
   'report.engagements': d((ctx) => lecture.engagementsDus(ctx)), // échéancier du tableau de bord
   'cargo.historique': d(rap.historiqueCargaison), // 2026-09-10 : parcours complet d'un camion
   'report.archive': d(lecture.archiveAncienne), // 2026-09-10 : cargaisons de plus d'un an (ADMIN)

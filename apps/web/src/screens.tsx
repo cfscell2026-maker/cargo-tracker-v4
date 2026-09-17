@@ -539,6 +539,18 @@ function ModaleCorrigerEngagement({ ligne, onClose, onFait }: { ligne: O; onClos
     } catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(false); }
   }
 
+  async function retirer() {
+    if (!window.confirm(`Retirer le suivi d'engagement du camion ${String(ligne['numeroCamion'] || id)} ?\n\n`
+      + `Engagement : ${String(ligne['engagementType'] || '—')}\n\nIl disparaîtra de l'échéancier et des rapports.\n`
+      + `Le motif et ce qui est retiré restent au journal.\n\nMotif : ${motif.trim()}`)) return;
+    setBusy(true);
+    try {
+      await call('cargo.engagementretirer', { id, motif });
+      toast('Engagement retiré.', 'ok');
+      onFait();
+    } catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(false); }
+  }
+
   return <Modal onClose={onClose}>
     <h2>Corriger l'engagement</h2>
     <p className="help">
@@ -562,10 +574,20 @@ function ModaleCorrigerEngagement({ ligne, onClose, onFait }: { ligne: O; onClos
     </div>
     <label className="help" style={{ marginTop: 6 }}>Motif de la correction (obligatoire)</label>
     <input value={motif} onChange={(e) => setMotif(e.target.value)} placeholder="ex. BFE 03 saisi par erreur" />
-    <div className="row" style={{ marginTop: 12, justifyContent: 'flex-end' }}>
-      <button className="ghost" onClick={onClose}>Annuler</button>
-      <button disabled={busy || !motif.trim() || !type} onClick={enregistrer}>{busy ? 'Enregistrement…' : 'Enregistrer la correction'}</button>
+    <div className="row" style={{ marginTop: 12, justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
+      {/* RETRAIT — 2026-09-17 (demande utilisateur) : l'engagement coché par erreur
+          n'avait aucune sortie ; il fallait lui inventer un type et une date. */}
+      <button className="ghost" style={{ color: 'var(--err)' }} disabled={busy || !motif.trim()} onClick={retirer}>
+        Retirer l'engagement
+      </button>
+      <span className="row" style={{ gap: 8 }}>
+        <button className="ghost" onClick={onClose}>Annuler</button>
+        <button disabled={busy || !motif.trim() || !type} onClick={enregistrer}>{busy ? 'Enregistrement…' : 'Enregistrer la correction'}</button>
+      </span>
     </div>
+    <p className="help" style={{ marginBottom: 0 }}>
+      Le retrait efface l'engagement, son échéance et son solde ; ce qui est retiré part au journal.
+    </p>
   </Modal>;
 }
 
