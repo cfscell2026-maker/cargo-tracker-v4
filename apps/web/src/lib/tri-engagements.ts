@@ -38,3 +38,53 @@ export function trierEngagements(lignes: Ligne[], tri: TriEngagement, sens: Sens
   });
   return copie;
 }
+
+/* ============ RECHERCHE ET DÉLAI — 2026-09-17 (demande utilisateur) ========
+ *
+ * Deux questions que le chef pose au volet :
+ *   · « quels camions sont à échéance dans N jours ? » — pour préparer sa
+ *     semaine ; les DÉPASSÉS en font partie, ils sont déjà dans le délai ;
+ *   · « où en est ce camion-là ? » — la recherche par numéro, qui doit
+ *     retrouver « TG 1234 BK » quand on tape « tg1234bk ».
+ *
+ * Fonction pure, à côté du tri : ce sont les mêmes lignes déjà reçues.
+ */
+export interface FiltreEngagements {
+  /** N° de camion, même partiel. Espaces, tirets et casse sont ignorés. */
+  camion?: string;
+  /** Échéance dans AU PLUS N jours (les dépassées comprises). Vide = pas de filtre. */
+  joursMax?: number | null;
+}
+
+/** Normalisation d'un n° pour la recherche : « TG-1234 BK » → « TG1234BK ». */
+const normNum = (v: unknown) => String(v ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+/** Jours entre aujourd'hui et l'échéance ; null si l'échéance est absente ou illisible. */
+export function joursAvantEcheance(delai: unknown, aujourdhui: Date = new Date()): number | null {
+  const brut = String(delai ?? '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(brut)) return null;
+  const [a, m, j] = brut.split('-').map(Number) as [number, number, number];
+  const echeance = Date.UTC(a, m - 1, j);
+  const jour = Date.UTC(aujourdhui.getFullYear(), aujourdhui.getMonth(), aujourdhui.getDate());
+  return Math.round((echeance - jour) / 86400000);
+}
+
+export function filtrerEngagements(
+  lignes: Record<string, unknown>[],
+  f: FiltreEngagements,
+  aujourdhui: Date = new Date(),
+): Record<string, unknown>[] {
+  const cam = normNum(f.camion);
+  const jours = f.joursMax === null || f.joursMax === undefined || Number.isNaN(f.joursMax)
+    ? null : Number(f.joursMax);
+  return lignes.filter((l) => {
+    if (cam && !normNum(l['numeroCamion']).includes(cam)) return false;
+    if (jours !== null) {
+      const restant = joursAvantEcheance(l['engagementDelai'], aujourdhui);
+      // Sans échéance lisible, la ligne ne peut pas répondre « oui » à une
+      // question qui porte sur un délai : on ne la fait pas passer par défaut.
+      if (restant === null || restant > jours) return false;
+    }
+    return true;
+  });
+}

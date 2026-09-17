@@ -9,7 +9,7 @@ import { Icone } from './lib/icones.tsx';
 import { iconeDeLEcran, MENUS } from './lib/menu.ts';
 import { Spinner, StatCard, Tag, Modal, masks, toast, fmtDate, fmtJour, ChampDestination, Graphique, BarresClassees, useSuiviEngagement, ChampCamion, roleLabel, TITLES, ChoixSegmente } from './lib/ui.tsx';
 import { bornesDe, isoDate, normaliserPlage, type ModePeriode, repartition } from './lib/periode.ts';
-import { trierEngagements, type TriEngagement, type SensTri } from './lib/tri-engagements.ts';
+import { trierEngagements, filtrerEngagements, type TriEngagement, type SensTri } from './lib/tri-engagements.ts';
 import { Detail, TitrePanneau } from './detail.tsx';
 import type { ReactNode } from 'react';
 import type { Nav } from './App.tsx';
@@ -1439,6 +1439,11 @@ SCREENS.engagements = ({ go, user }) => {
   // deux sens. Par défaut le plus urgent d'abord — c'est ce qu'on vient traiter.
   const [tri, setTri] = useState<TriEngagement>('delai');
   const [sens, setSens] = useState<SensTri>('asc');
+  // Deux questions posées au volet (17/09) : « quels camions à échéance dans
+  // N jours ? » et « où en est CE camion ? ». Les deux affinent les lignes déjà
+  // reçues — aucun aller-retour au serveur à chaque frappe.
+  const [jours, setJours] = useState('');
+  const [rechCamion, setRechCamion] = useState('');
   const changerTri = (t: TriEngagement) => {
     if (t === tri) setSens(sens === 'asc' ? 'desc' : 'asc');
     else { setTri(t); setSens('asc'); }
@@ -1446,7 +1451,13 @@ SCREENS.engagements = ({ go, user }) => {
   const [corrige, setCorrige] = useState<O | null>(null);
   const [busy, setBusy] = useState('');
   const { data, loading, error, reload } = useAsync<O>(() => call('report.engagements', { filtre }), [filtre]);
-  const lignes = trierEngagements(((data?.['lignes'] as O[]) ?? []), tri, sens) as O[];
+  const recues = ((data?.['lignes'] as O[]) ?? []);
+  const affinees = filtrerEngagements(recues, {
+    camion: rechCamion,
+    joursMax: jours.trim() === '' ? null : Number(jours),
+  }) as O[];
+  const lignes = trierEngagements(affinees, tri, sens) as O[];
+  const affine = rechCamion.trim() !== '' || jours.trim() !== '';
   const fleche = (t: TriEngagement) => (t === tri ? (sens === 'asc' ? ' ▲' : ' ▼') : '');
   const cpt = (data?.['compte'] as O) ?? {};
   const peut = SUIVENT_ENGAGEMENTS.includes(user.role as never);
@@ -1466,18 +1477,31 @@ SCREENS.engagements = ({ go, user }) => {
         <b> Corriger</b> : engagement ou délai erroné · <b>Retirer</b> : engagement coché par erreur.</>}
       action={<div className="bm-outils">
         <label className="help">Afficher</label>
-        <select value={filtre} onChange={(e) => setFiltre(e.target.value)} style={{ maxWidth: 170 }}>
+        <select value={filtre} onChange={(e) => setFiltre(e.target.value)} style={{ maxWidth: 150 }}>
           {FILTRES_ENGAGEMENT.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
         </select>
+        <label className="help">Échéance ≤</label>
+        <input inputMode="numeric" value={jours} placeholder="jours"
+          onChange={(e) => setJours(e.target.value.replace(/[^0-9]/g, ''))}
+          title="Camions dont l'échéance tombe dans au plus N jours — les dépassées comprises"
+          style={{ width: 80 }} />
+        <input className="mono" value={rechCamion} placeholder="N° camion"
+          onChange={(e) => setRechCamion(e.target.value)}
+          title="Rechercher un camion dans les engagements — espaces et tirets ignorés"
+          style={{ width: 150 }} />
+        {affine && <button className="ghost xs" onClick={() => { setJours(''); setRechCamion(''); }}>Tout afficher</button>}
       </div>} />
     <div className="card">
       {loading ? <Spinner /> : error ? <div className="err-msg">{error}</div> : <>
         <div className="help" style={{ marginBottom: 8 }}>
-          {lignes.length} engagement(s)
+          {affine ? `${lignes.length} engagement(s) sur ${recues.length}` : `${lignes.length} engagement(s)`}
+          {affine && jours.trim() !== '' ? ` · échéance dans ${jours} jour(s) au plus, dépassées comprises` : ''}
           {Number(cpt['retard'] ?? 0) ? <span style={{ color: 'var(--err)', fontWeight: 600 }}> · {String(cpt['retard'])} en retard</span> : null}
           {Number(cpt['solde'] ?? 0) ? <span> · {String(cpt['solde'])} soldé(s)</span> : null}
         </div>
-        {!lignes.length ? <div className="empty">Aucun engagement dans cette vue.</div>
+        {!lignes.length ? <div className="empty">
+          {affine ? 'Aucun engagement ne correspond à cette recherche.' : 'Aucun engagement dans cette vue.'}
+        </div>
           : <div className="tbl"><table>
             <thead><tr>
               <th><button className="ghost xs" onClick={() => changerTri('camion')}
