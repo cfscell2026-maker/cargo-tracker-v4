@@ -2808,3 +2808,137 @@ test('partagé — compté NULLE PART, même quand le premier dépotage tombe da
   assert.equal(r.total.conteneurs, 0);
   assert.equal(r.total.evp, 0);
 });
+
+test('engagement — la correction reste possible APRÈS « Effectué » (2026-09-17)', async () => {
+  // Demande utilisateur : un clic de trop sur « Effectué » figeait l'erreur.
+  const db = new FakeDB();
+  const chef = ctxRole(db, 'CHEF_BRIGADE', 'Chef Brigade');
+  const traces: { action: string; detail: string }[] = [];
+  const chefTrace = { ...chef, log: async (action: string, _cible: string, detail: string) => { traces.push({ action, detail }); } };
+  db.store['cargaisons'].push({
+    id: 'ENG-1', reference: 'ENG-1', numero_camion: 'TG1234AB', statut: 'Créée', rapport_id: 'R',
+    date_creation: new Date().toISOString(), type_operation: 'Dépotage', nb_conteneurs: 0,
+    conteneurs_details: { conteneurs: [], scellesCamion: [] },
+    suivi_engagement: true, engagement_type: 'BFE 03 Sinkase', engagement_delai: '2026-10-01',
+    date_validation: new Date().toISOString(),
+  });
+  await ecr.engagementFait(chef, { id: 'ENG-1' });
+  const apresSolde = db.store['cargaisons'].find((x) => x['id'] === 'ENG-1')!;
+  assert.ok(apresSolde['engagement_effectue_le'], 'le solde est bien enregistré');
+
+  await ecr.engagementEdit(chefTrace as never, {
+    id: 'ENG-1', engagementType: 'Transit national', engagementDelai: '2026-10-05',
+    motif: 'erreur de saisie : BFE 03 au lieu de Transit national',
+  });
+  const c = db.store['cargaisons'].find((x) => x['id'] === 'ENG-1')!;
+  assert.equal(c['engagement_type'], 'Transit national');
+  assert.equal(String(c['engagement_delai']).slice(0, 10), '2026-10-05');
+  assert.ok(c['engagement_effectue_le'], 'le solde reste : corriger n\'est pas rouvrir');
+  assert.match(traces.map((t) => t.action).join(' '), /APRÈS SOLDE/, 'le journal signale la correction après solde');
+  assert.match(traces.map((t) => t.detail).join(' '), /déjà soldé le/);
+});
+
+/* ===== RETRAIT D'UN ENGAGEMENT — 2026-09-17 (demande utilisateur) ========== */
+function cargoEngage(db: FakeDB, id: string, over: Record<string, unknown> = {}) {
+  db.store['cargaisons'].push({
+    id, reference: id, numero_camion: 'TG' + id, statut: 'Créée', rapport_id: 'R',
+    date_creation: new Date().toISOString(), type_operation: 'Dépotage', nb_conteneurs: 0,
+    conteneurs_details: { conteneurs: [], scellesCamion: [] },
+    suivi_engagement: true, engagement_type: 'BFE 03 Sinkase', engagement_delai: '2026-10-01',
+    date_validation: new Date().toISOString(), ...over,
+  });
+}
+
+test('engagement — RETRAIT : le suivi disparaît, et le journal garde ce qui a été retiré', async () => {
+  const db = new FakeDB();
+  const traces: { action: string; detail: string }[] = [];
+  const chef = { ...ctxRole(db, 'CHEF_BRIGADE', 'Chef Brigade'),
+    log: async (action: string, _c: string, detail: string) => { traces.push({ action, detail }); } };
+  cargoEngage(db, 'ENG-R1');
+  await ecr.engagementRetirer(chef as never, { id: 'ENG-R1', motif: 'coché par erreur : ce camion n\'a pas d\'engagement' });
+  const c = db.store['cargaisons'].find((x) => x['id'] === 'ENG-R1')!;
+  assert.equal(c['suivi_engagement'], false);
+  assert.equal(c['engagement_type'], null);
+  assert.equal(c['engagement_delai'], null);
+  assert.match(traces.map((t) => t.action).join(' '), /Retrait du suivi d'engagement/);
+  assert.match(traces.map((t) => t.detail).join(' '), /BFE 03 Sinkase/, 'le journal garde l\'engagement retiré');
+  assert.match(traces.map((t) => t.detail).join(' '), /motif : coché par erreur/);
+});
+
+test('engagement — RETRAIT : motif obligatoire, et rien à retirer sans engagement', async () => {
+  const db = new FakeDB();
+  const chef = ctxRole(db, 'CHEF_BRIGADE', 'Chef Brigade');
+  cargoEngage(db, 'ENG-R2');
+  await assert.rejects(() => ecr.engagementRetirer(chef, { id: 'ENG-R2' }), /motif du retrait/i);
+  assert.equal(db.store['cargaisons'].find((x) => x['id'] === 'ENG-R2')!['suivi_engagement'], true,
+    'un refus ne doit rien écrire');
+  cargoEngage(db, 'ENG-R3', { suivi_engagement: false, engagement_type: null, engagement_delai: null });
+  await assert.rejects(() => ecr.engagementRetirer(chef, { id: 'ENG-R3', motif: 'x' }), /pas sous suivi d'engagement/i);
+});
+
+test('engagement — RETRAIT : possible aussi après « Effectué », le solde est efface avec le reste', async () => {
+  const db = new FakeDB();
+  const chef = ctxRole(db, 'CHEF_BRIGADE', 'Chef Brigade');
+  cargoEngage(db, 'ENG-R4');
+  await ecr.engagementFait(chef, { id: 'ENG-R4' });
+  await ecr.engagementRetirer(chef, { id: 'ENG-R4', motif: 'engagement saisi sur le mauvais camion' });
+  const c = db.store['cargaisons'].find((x) => x['id'] === 'ENG-R4')!;
+  assert.equal(c['suivi_engagement'], false);
+  assert.equal(c['engagement_effectue_le'], null);
+});
+
+test('volet Engagements — le filtre sert les deux ecrans sans changer le tableau de bord', async () => {
+  const db = new FakeDB();
+  const chef = ctxRole(db, 'CHEF_BRIGADE', 'Chef Brigade');
+  const jour = (n: number) => { const d = new Date(); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
+  cargoEngage(db, 'E-RETARD', { engagement_delai: jour(-3) });
+  cargoEngage(db, 'E-DEMAIN', { engagement_delai: jour(1) });
+  cargoEngage(db, 'E-LOIN', { engagement_delai: jour(20) });
+  cargoEngage(db, 'E-SOLDE', { engagement_delai: jour(5), engagement_effectue_le: new Date().toISOString() });
+
+  const ids = async (filtre?: string) => {
+    const r = (await lec.engagementsDus(chef, filtre ? { filtre } : {})) as { lignes: { id: string }[] };
+    return r.lignes.map((l) => l.id).sort();
+  };
+  // Sans parametre : comportement d'avant — seules les alertes, soldes exclus.
+  assert.deepEqual(await ids(), ['E-DEMAIN', 'E-RETARD'], 'le tableau de bord ne doit pas changer');
+  assert.deepEqual(await ids('encours'), ['E-DEMAIN', 'E-LOIN', 'E-RETARD'], 'les echeances lointaines aussi');
+  assert.deepEqual(await ids('retard'), ['E-RETARD']);
+  assert.deepEqual(await ids('solde'), ['E-SOLDE']);
+  assert.deepEqual(await ids('tous'), ['E-DEMAIN', 'E-LOIN', 'E-RETARD', 'E-SOLDE']);
+
+  const tous = (await lec.engagementsDus(chef, { filtre: 'tous' })) as { compte: Record<string, number>; lignes: { etat: string }[] };
+  assert.equal(tous.compte['total'], 4);
+  assert.equal(tous.compte['solde'], 1);
+  assert.equal(tous.compte['retard'], 1);
+  assert.equal(tous.lignes.filter((l) => l.etat === 'solde').length, 1, 'un engagement solde est marque comme tel');
+});
+
+test('engagements — compteurs : le total baisse quand un engagement est soldé (2026-09-17)', async () => {
+  const db = new FakeDB();
+  const chef = ctxRole(db, 'CHEF_BRIGADE', 'Chef Brigade');
+  const jour = (n: number) => { const d = new Date(); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
+  cargoEngage(db, 'K-1', { engagement_delai: jour(-1) });
+  cargoEngage(db, 'K-2', { engagement_delai: jour(2) });
+  cargoEngage(db, 'K-3', { engagement_delai: jour(30) });
+
+  const dash = async () => ((await lec.dashboardStats(chef, {})) as Record<string, number>)['engagementsEnCours'];
+  const volet = async () => ((await lec.engagementsDus(chef, { filtre: 'encours' })) as { global: Record<string, number> }).global;
+
+  assert.equal(await dash(), 3, 'les trois engagements sont en cours');
+  assert.deepEqual(await volet(), { encours: 3, soldes: 0, total: 3 });
+
+  await ecr.engagementFait(chef, { id: 'K-2' });
+  assert.equal(await dash(), 2, 'le tableau de bord baisse d\'un cran');
+  assert.deepEqual(await volet(), { encours: 2, soldes: 1, total: 3 }, 'les deux compteurs du volet se repondent');
+
+  // Les compteurs du volet ne dependent PAS de la vue affichee.
+  const enSolde = (await lec.engagementsDus(chef, { filtre: 'solde' })) as { global: Record<string, number>; lignes: unknown[] };
+  assert.deepEqual(enSolde.global, { encours: 2, soldes: 1, total: 3 });
+  assert.equal(enSolde.lignes.length, 1, 'mais la liste affichee, elle, suit le filtre');
+
+  // Retire : l'engagement quitte les deux compteurs.
+  await ecr.engagementRetirer(ctxRole(db, 'ADMIN', 'Admin'), { id: 'K-1', motif: 'coche par erreur' });
+  assert.equal(await dash(), 1);
+  assert.deepEqual(await volet(), { encours: 1, soldes: 1, total: 2 });
+});

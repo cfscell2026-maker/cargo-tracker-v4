@@ -89,9 +89,11 @@ export function Detail({ user, arg, go, retour, ecranPrecedent }: Nav) {
           saisie normale qui s'affiche, et corriger n'aurait aucun sens. */}
       {!!c['dateT1'] && can(ROLES.T1, A) && <PanneauT1Edit c={c} dets={dets} action={action} />}
       {!!c['dateBonSortie'] && can(ROLES.BON_SORTIE, A) && <PanneauBSEdit c={c} action={action} />}
-      {c['suiviEngagement'] === true && !c['engagementEffectueLe']
+      {/* 2026-09-17 : la correction reste offerte APRÈS « Effectué » — un clic de
+          trop ne doit pas figer un engagement mal saisi. */}
+      {c['suiviEngagement'] === true
         && can(ROLES.CHEF_BRIGADE, ROLES.CHEF_BRIGADE_ADJOINT, ROLES.CHEF_VISITE, ROLES.CHEF_DIVISION, A)
-        && <PanneauEngagementEdit c={c} action={action} />}
+        && <PanneauEngagementEdit c={c} action={action} admin={role === A} />}
       {c['statut'] === STATUTS.SORTIE && (String(c['baliseRequise']) === 'Non' || estOui(c['sauteBalise'])) && !estOui(c['arriveeBureau']) && can(ROLES.BALISE, A) &&
         <div className="card"><TitrePanneau icone="drapeau" etape="balise">Dispense — arrivée au bureau</TitrePanneau>
           <button onClick={() => action(() => call('cargo.arriveebureau', { id }), 'Arrivée confirmée.')}>Confirmer l'arrivée (solder la dispense)</button></div>}
@@ -1250,7 +1252,7 @@ function PanneauBSEdit({ c, action }: { c: O; action: ActionFn }) {
  * chef n'est PAS recalculée : elle reste celle de ce qu'il a signé. L'écart
  * devient donc détectable — c'est voulu, et l'écran le dit.
  */
-function PanneauEngagementEdit({ c, action }: { c: O; action: ActionFn }) {
+function PanneauEngagementEdit({ c, action, admin }: { c: O; action: ActionFn; admin: boolean }) {
   const id = c['id'] as string;
   const [type, setType] = useState((c['engagementType'] as string) || '');
   const [jours, setJours] = useState('');
@@ -1264,10 +1266,21 @@ function PanneauEngagementEdit({ c, action }: { c: O; action: ActionFn }) {
     }), 'Engagement corrigé.');
   }
 
+  async function retirer() {
+    if (!window.confirm(`Retirer le suivi d'engagement de ce camion ?\n\nEngagement : ${(c['engagementType'] as string) || '—'}\n`
+      + `Échéance : ${fmtDate(c['engagementDelai'])}\n\nIl disparaîtra de l'échéancier et des rapports.\n`
+      + `Le motif et ce qui est retiré restent au journal.\n\nMotif : ${motif.trim()}`)) return;
+    await action(() => call('cargo.engagementretirer', { id, motif }), 'Engagement retiré.');
+  }
+
   return <details style={EDIT_ITEM}><summary style={{ cursor: 'pointer', fontWeight: 600 }}>Corriger le suivi d'engagement</summary>
     <p className="help" style={{ marginTop: 10 }}>
       Actuel : <b>{(c['engagementType'] as string) || '—'}</b> · échéance <b>{fmtDate(c['engagementDelai'])}</b>
     </p>
+    {c['engagementEffectueLe'] ? <p className="help">
+      Cet engagement a été marqué <b>« Effectué »</b> le {fmtDate(c['engagementEffectueLe'])}. La correction
+      reste possible ; elle sera inscrite au journal comme intervenue après le solde.
+    </p> : null}
     <p className="help" style={{ color: 'var(--warn)' }}>
       ⚠ L'engagement fait partie de ce que le chef de brigade a signé. La signature
       n'est pas refaite : la correction restera visible lors d'un contrôle.
@@ -1285,9 +1298,20 @@ function PanneauEngagementEdit({ c, action }: { c: O; action: ActionFn }) {
     </div>
     <label className="help" style={{ marginTop: 6 }}>Motif de la correction (obligatoire)</label>
     <input value={motif} onChange={(e) => setMotif(e.target.value)} placeholder="ex. délai renégocié avec le déclarant" />
-    <button style={{ marginTop: 8 }} disabled={!motif.trim() || !type} onClick={enregistrer}>
-      Enregistrer la correction
-    </button>
+    <div className="row" style={{ marginTop: 8, gap: 8, flexWrap: 'wrap' }}>
+      <button disabled={!motif.trim() || !type} onClick={enregistrer}>
+        Enregistrer la correction
+      </button>
+      {/* RETRAIT — 2026-09-17 : un engagement coché par erreur ne pouvait pas être
+          enlevé, seulement remplacé par un autre. Réservé à l'ADMINISTRATEUR :
+          le geste efface l'engagement, son échéance et son solde. */}
+      {admin && <button className="ghost" style={{ color: 'var(--err)' }} disabled={!motif.trim()} onClick={retirer}>
+        Retirer l'engagement
+      </button>}
+    </div>
+    {admin
+      ? <p className="help">Le retrait efface l'engagement, son échéance et son solde. Ce qui est retiré part au journal.</p>
+      : <p className="help">Le <b>retrait</b> d'un engagement relève de l'administrateur : demandez-le-lui si l'engagement a été coché par erreur.</p>}
   </details>;
 }
 

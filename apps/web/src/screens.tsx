@@ -9,11 +9,12 @@ import { Icone } from './lib/icones.tsx';
 import { iconeDeLEcran, MENUS } from './lib/menu.ts';
 import { Spinner, StatCard, Tag, Modal, masks, toast, fmtDate, fmtJour, ChampDestination, Graphique, BarresClassees, useSuiviEngagement, ChampCamion, roleLabel, TITLES, ChoixSegmente } from './lib/ui.tsx';
 import { bornesDe, isoDate, normaliserPlage, type ModePeriode, repartition } from './lib/periode.ts';
+import { trierEngagements, filtrerEngagements, type TriEngagement, type SensTri } from './lib/tri-engagements.ts';
 import { Detail, TitrePanneau } from './detail.tsx';
 import type { ReactNode } from 'react';
 import type { Nav } from './App.tsx';
 import { useNav } from './lib/contexte-nav.ts';
-import { ROLES, OPERATIONS, VEHICULE_DESTINATIONS, TYPES_DECLARATION, STATUTS, SUIVENT_ENGAGEMENTS, tcValide, fileAttente, estTypeSansT1, libelleTypeSansT1, exigeControlePoids, dureeLisible } from '../../../supabase/functions/_shared/domaine/src/index.ts';
+import { ROLES, OPERATIONS, VEHICULE_DESTINATIONS, TYPES_DECLARATION, STATUTS, SUIVENT_ENGAGEMENTS, ENGAGEMENTS, dateDansNJours, tcValide, fileAttente, estTypeSansT1, libelleTypeSansT1, exigeControlePoids, dureeLisible } from '../../../supabase/functions/_shared/domaine/src/index.ts';
 
 const STATUT_OPTIONS = Object.values(STATUTS);
 
@@ -457,6 +458,12 @@ function BandeauEngagements({ role, go }: { role: string; go: Nav['go'] }) {
   const [n, setN] = useState(0); // force le rechargement après un solde
   const { data, loading } = useAsync<O>(() => call('report.engagements'), [n]);
   const [busy, setBusy] = useState('');
+  /* 2026-09-17 (demande utilisateur) : la correction s'ouvre ICI, là où le chef
+     voit ses engagements — elle existait, mais au fond de la fiche du camion.
+     ⚠ DECLARE AVANT les `return null` de garde ci-dessous : un hook place apres
+     change de nombre d'un rendu a l'autre, et React refuse alors de rendre
+     l'encadre entier (« Rendered more hooks than during the previous render »). */
+  const [corrige, setCorrige] = useState<O | null>(null);
 
   if (!SUIVENT_ENGAGEMENTS.includes(role as never)) return null;
   if (loading || !data) return null;
@@ -485,6 +492,8 @@ function BandeauEngagements({ role, go }: { role: string; go: Nav['go'] }) {
     <div className="help" style={{ marginBottom: 8 }}>
       Ces cargaisons doivent faire l'objet d'un envoi d'informations. Cliquez sur
       « Effectué » une fois l'envoi réalisé.
+      {/* 2026-09-17 : l'encadré ne montre que ce qui alerte — le volet montre tout. */}
+      {' '}<a onClick={() => go('engagements')}>Voir tous les engagements</a>
     </div>
     {lignes.map((l) => {
       const id = String(l['id']);
@@ -499,12 +508,94 @@ function BandeauEngagements({ role, go }: { role: string; go: Nav['go'] }) {
         <span style={{ color: `var(--${enRetard ? 'err' : 'warn'})`, fontWeight: 600, minWidth: 150 }}>
           {String(l['libelle'] || '')}
         </span>
+        <button className="ghost" onClick={() => setCorrige(l)}>✎ Corriger</button>
         <button disabled={busy === id} onClick={() => solder(id)}>
           {busy === id ? '…' : '✔ Effectué'}
         </button>
       </div>;
     })}
+    {corrige && <ModaleCorrigerEngagement ligne={corrige} admin={role === ROLES.ADMIN}
+      onClose={() => setCorrige(null)}
+      onFait={() => { setCorrige(null); setN((x) => x + 1); }} />}
   </div>;
+}
+
+/**
+ * CORRECTION D'UN ENGAGEMENT, depuis l'échéancier — 2026-09-17 (demande utilisateur).
+ * Mêmes champs que la fiche du camion : l'engagement, un nouveau délai en jours,
+ * et un motif obligatoire qui part au journal.
+ */
+function ModaleCorrigerEngagement({ ligne, onClose, onFait, admin }: { ligne: O; onClose: () => void; onFait: () => void; admin?: boolean }) {
+  const id = String(ligne['id']);
+  const [type, setType] = useState(String(ligne['engagementType'] ?? ''));
+  const [jours, setJours] = useState('');
+  const [motif, setMotif] = useState('');
+  const [busy, setBusy] = useState(false);
+  const nouveauDelai = dateDansNJours(jours);
+
+  async function enregistrer() {
+    setBusy(true);
+    try {
+      await call('cargo.engagementedit', { id, motif, engagementType: type, ...(nouveauDelai ? { engagementDelai: nouveauDelai } : {}) });
+      toast('Engagement corrigé.', 'ok');
+      onFait();
+    } catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(false); }
+  }
+
+  async function retirer() {
+    if (!window.confirm(`Retirer le suivi d'engagement du camion ${String(ligne['numeroCamion'] || id)} ?\n\n`
+      + `Engagement : ${String(ligne['engagementType'] || '—')}\n\nIl disparaîtra de l'échéancier et des rapports.\n`
+      + `Le motif et ce qui est retiré restent au journal.\n\nMotif : ${motif.trim()}`)) return;
+    setBusy(true);
+    try {
+      await call('cargo.engagementretirer', { id, motif });
+      toast('Engagement retiré.', 'ok');
+      onFait();
+    } catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(false); }
+  }
+
+  return <Modal onClose={onClose}>
+    <h2>Corriger l'engagement</h2>
+    <p className="help">
+      Camion <b className="mono">{String(ligne['numeroCamion'] || id)}</b> · dossier <b className="mono">{id}</b>.
+      Actuel : <b>{String(ligne['engagementType'] || '—')}</b> · échéance <b>{fmtJour(ligne['engagementDelai'])}</b>.
+    </p>
+    <p className="help">
+      L'engagement fait partie de ce que le chef de brigade a signé. La signature n'est pas refaite :
+      la correction reste visible lors d'un contrôle.
+    </p>
+    <label className="help">Engagement</label>
+    <select value={type} onChange={(e) => setType(e.target.value)}>
+      {!ENGAGEMENTS.includes(type as never) && type && <option value={type}>{type} (actuel)</option>}
+      {ENGAGEMENTS.map((e) => <option key={e} value={e}>{e}</option>)}
+    </select>
+    <label className="help" style={{ marginTop: 6 }}>Nouveau délai en jours (laisser vide pour conserver l'échéance)</label>
+    <div className="row" style={{ alignItems: 'center', gap: 8 }}>
+      <input inputMode="numeric" style={{ maxWidth: 110 }} value={jours}
+        onChange={(e) => setJours(e.target.value.replace(/[^0-9]/g, ''))} placeholder="Ex. 3" />
+      {nouveauDelai ? <span style={{ fontWeight: 600 }}>→ {fmtJour(nouveauDelai)}</span> : null}
+    </div>
+    <label className="help" style={{ marginTop: 6 }}>Motif de la correction (obligatoire)</label>
+    <input value={motif} onChange={(e) => setMotif(e.target.value)} placeholder="ex. BFE 03 saisi par erreur" />
+    <div className="row" style={{ marginTop: 12, justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
+      {/* RETRAIT — 2026-09-17 : l'engagement coché par erreur n'avait aucune sortie ;
+          il fallait lui inventer un type et une date. Réservé à l'ADMINISTRATEUR. */}
+      {admin
+        ? <button className="ghost" style={{ color: 'var(--err)' }} disabled={busy || !motif.trim()} onClick={retirer}>
+          Retirer l'engagement
+        </button>
+        : <span className="help">Retrait : administrateur</span>}
+      <span className="row" style={{ gap: 8 }}>
+        <button className="ghost" onClick={onClose}>Annuler</button>
+        <button disabled={busy || !motif.trim() || !type} onClick={enregistrer}>{busy ? 'Enregistrement…' : 'Enregistrer la correction'}</button>
+      </span>
+    </div>
+    <p className="help" style={{ marginBottom: 0 }}>
+      {admin
+        ? "Le retrait efface l'engagement, son échéance et son solde ; ce qui est retiré part au journal."
+        : "Le retrait d'un engagement relève de l'administrateur ; la correction, elle, vous est ouverte."}
+    </p>
+  </Modal>;
 }
 
 /** Ouvre la fiche d'une cargaison depuis l'échéancier. */
@@ -595,6 +686,10 @@ SCREENS.dash = (nav) => {
       <StatCard n={Number(s['attBs'] ?? 0)} l="Attente Bon de sortie" onClick={() => nav.go('wait_bs')} etape="bs" part={part('attBs')} />
       <StatCard n={Number(s['attPP'] ?? 0)} l="Attente sortie" onClick={() => nav.go('wait_sortie')} etape="pp" part={part('attPP')} />
       <StatCard n={Number(s['vehiculesAttente'] ?? 0)} l="Véhicules en attente" onClick={() => nav.go('vehicules')} etape="vehicule" part={part('vehiculesAttente')} />
+      {/* ENGAGEMENTS (2026-09-17, demande utilisateur) : ce qui reste à transmettre.
+          Le clic ouvre le volet, trié par échéance — le plus urgent en tête. */}
+      <StatCard n={Number(s['engagementsEnCours'] ?? 0)} l="Engagements en cours"
+        onClick={() => nav.go('engagements')} icone="sablier" />
     </div></div>}
     {/* Neuf tuiles disent COMBIEN, aucune ne dit OÙ ÇA BLOQUE : c'est pourtant
         la première question d'un chef le matin. Le classement des files répond
@@ -1330,6 +1425,184 @@ function AvisApresSignature({ error, signee }: { error: string; signee: number }
 }
 
 SCREENS.completer = (nav) => <CargoList {...nav} filtre={{ etape: 'CFS' }} titre="À compléter (CFS)" />;
+/* ===================== VOLET ENGAGEMENTS — 2026-09-17 =====================
+ *
+ * Demande utilisateur. Les engagements étaient dispersés : l'encadré du tableau
+ * de bord ne montre que ceux qui alertent, la liste « Cargaisons » demandait un
+ * filtre, et les trois gestes (solder, corriger, retirer) vivaient sur la fiche
+ * du camion. Ce volet rassemble : TOUS les camions engagés, et les trois gestes
+ * sur la ligne même.
+ */
+const FILTRES_ENGAGEMENT: [string, string][] = [
+  ['encours', 'En cours'], ['retard', 'En retard'], ['solde', 'Soldés'], ['tous', 'Tous'],
+];
+
+SCREENS.engagements = ({ go, user }) => {
+  const [filtre, setFiltre] = useState('encours');
+  // Tri demandé par l'utilisateur (17/09) : par camion et par délai, dans les
+  // deux sens. Par défaut le plus urgent d'abord — c'est ce qu'on vient traiter.
+  const [tri, setTri] = useState<TriEngagement>('delai');
+  const [sens, setSens] = useState<SensTri>('asc');
+  // Deux questions posées au volet (17/09) : « quels camions à échéance dans
+  // N jours ? » et « où en est CE camion ? ». Les deux affinent les lignes déjà
+  // reçues — aucun aller-retour au serveur à chaque frappe.
+  const [jours, setJours] = useState('');
+  const [rechCamion, setRechCamion] = useState('');
+  const changerTri = (t: TriEngagement) => {
+    if (t === tri) setSens(sens === 'asc' ? 'desc' : 'asc');
+    else { setTri(t); setSens('asc'); }
+  };
+  const [corrige, setCorrige] = useState<O | null>(null);
+  const [retire, setRetire] = useState<O | null>(null);
+  const [busy, setBusy] = useState('');
+  const { data, loading, error, reload } = useAsync<O>(() => call('report.engagements', { filtre }), [filtre]);
+  const recues = ((data?.['lignes'] as O[]) ?? []);
+  const affinees = filtrerEngagements(recues, {
+    camion: rechCamion,
+    joursMax: jours.trim() === '' ? null : Number(jours),
+  }) as O[];
+  const lignes = trierEngagements(affinees, tri, sens) as O[];
+  const affine = rechCamion.trim() !== '' || jours.trim() !== '';
+  const fleche = (t: TriEngagement) => (t === tri ? (sens === 'asc' ? ' ▲' : ' ▼') : '');
+  const cpt = (data?.['compte'] as O) ?? {};
+  // Compteurs GLOBAUX : ils ne bougent pas avec la vue affichée, mais bien avec
+  // ce qu'on fait — solder un engagement le fait passer de l'un à l'autre.
+  const glob = (data?.['global'] as O) ?? {};
+  const peut = SUIVENT_ENGAGEMENTS.includes(user.role as never);
+  const admin = user.role === ROLES.ADMIN;
+
+  async function solder(id: string) {
+    setBusy(id);
+    try {
+      await call('cargo.engagementfait', { id });
+      toast('Engagement soldé.', 'ok');
+      reload();
+    } catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(''); }
+  }
+
+  return <>
+    <BandeauModule icone="sablier" titre="Engagements"
+      sous={<>Tous les camions sous suivi d'engagement. <b>Effectué</b> : les informations ont été transmises ·
+        <b> Corriger</b> : engagement ou délai erroné · <b>Retirer</b> : engagement coché par erreur.</>}
+      action={<div className="bm-outils">
+        <label className="help">Afficher</label>
+        <select value={filtre} onChange={(e) => setFiltre(e.target.value)} style={{ maxWidth: 150 }}>
+          {FILTRES_ENGAGEMENT.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+        </select>
+        <label className="help">Échéance ≤</label>
+        <input inputMode="numeric" value={jours} placeholder="jours"
+          onChange={(e) => setJours(e.target.value.replace(/[^0-9]/g, ''))}
+          title="Camions dont l'échéance tombe dans au plus N jours — les dépassées comprises"
+          style={{ width: 80 }} />
+        <input className="mono" value={rechCamion} placeholder="N° camion"
+          onChange={(e) => setRechCamion(e.target.value)}
+          title="Rechercher un camion dans les engagements — espaces et tirets ignorés"
+          style={{ width: 150 }} />
+        {affine && <button className="ghost xs" onClick={() => { setJours(''); setRechCamion(''); }}>Tout afficher</button>}
+      </div>} />
+    <div className="stats" style={{ marginTop: 10 }}>
+      <StatCard n={Number(glob['encours'] ?? 0)} l="Engagements en cours" icone="sablier" tone="warn"
+        onClick={() => setFiltre('encours')} />
+      <StatCard n={Number(glob['soldes'] ?? 0)} l="Engagements effectués" icone="valider" tone="ok"
+        onClick={() => setFiltre('solde')} />
+    </div>
+    <div className="card">
+      {loading ? <Spinner /> : error ? <div className="err-msg">{error}</div> : <>
+        <div className="help" style={{ marginBottom: 8 }}>
+          {affine ? `${lignes.length} engagement(s) sur ${recues.length}` : `${lignes.length} engagement(s)`}
+          {affine && jours.trim() !== '' ? ` · échéance dans ${jours} jour(s) au plus, dépassées comprises` : ''}
+          {Number(cpt['retard'] ?? 0) ? <span style={{ color: 'var(--err)', fontWeight: 600 }}> · {String(cpt['retard'])} en retard</span> : null}
+          {Number(cpt['solde'] ?? 0) ? <span> · {String(cpt['solde'])} soldé(s)</span> : null}
+        </div>
+        {!lignes.length ? <div className="empty">
+          {affine ? 'Aucun engagement ne correspond à cette recherche.' : 'Aucun engagement dans cette vue.'}
+        </div>
+          : <div className="tbl"><table>
+            <thead><tr>
+              <th><button className="ghost xs" onClick={() => changerTri('camion')}
+                title="Trier par camion">Camion{fleche('camion')}</button></th>
+              <th>Engagement</th>
+              <th><button className="ghost xs" onClick={() => changerTri('delai')}
+                title="Trier par échéance">Échéance{fleche('delai')}</button></th>
+              <th>État</th><th>Signé par</th><th>Actions</th>
+            </tr></thead>
+            <tbody>{lignes.map((l) => {
+              const id = String(l['id']);
+              const solde = l['etat'] === 'solde';
+              const retard = l['etat'] === 'retard';
+              return <tr key={id}>
+                <td><a className="mono" onClick={() => go('detail', { id })}>{String(l['numeroCamion'] || id)}</a></td>
+                <td>{String(l['engagementType'] || '—')}</td>
+                <td>{fmtJour(l['engagementDelai'])}</td>
+                <td style={{ color: retard ? 'var(--err)' : solde ? 'var(--ok)' : 'var(--warn)', fontWeight: 600 }}>
+                  {String(l['libelle'] || '')}
+                </td>
+                <td className="help">{String(l['agentValidation'] || '—')}</td>
+                <td onClick={(e) => e.stopPropagation()}>
+                  <div className="acts-dossier">
+                    {peut && !solde && <button className="ghost xs" disabled={busy === id} onClick={() => solder(id)}>
+                      {busy === id ? '…' : '✔ Effectué'}
+                    </button>}
+                    {peut && <button className="ghost xs" onClick={() => setCorrige(l)}>✎ Corriger</button>}
+                    {/* RETRAIT (2026-09-17) : un bouton à lui, sur la ligne — il était
+                        caché dans la fenêtre de correction. Administrateur seul. */}
+                    {admin && <button className="ghost xs acts-suppr" onClick={() => setRetire(l)}>✕ Retirer</button>}
+                  </div>
+                </td>
+              </tr>;
+            })}</tbody>
+          </table></div>}
+      </>}
+    </div>
+    {corrige && <ModaleCorrigerEngagement ligne={corrige} admin={admin}
+      onClose={() => setCorrige(null)}
+      onFait={() => { setCorrige(null); reload(); }} />}
+    {retire && <ModaleRetirerEngagement ligne={retire}
+      onClose={() => setRetire(null)}
+      onFait={() => { setRetire(null); reload(); }} />}
+  </>;
+};
+
+/**
+ * RETRAIT D'UN ENGAGEMENT — fenêtre dédiée, 2026-09-17 (demande utilisateur).
+ * Le retrait avait sa place dans la fenêtre de correction ; il a maintenant son
+ * bouton et sa fenêtre, qui ne demandent qu'une chose : pourquoi.
+ */
+function ModaleRetirerEngagement({ ligne, onClose, onFait }: { ligne: O; onClose: () => void; onFait: () => void }) {
+  const id = String(ligne['id']);
+  const [motif, setMotif] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  async function retirer() {
+    setBusy(true);
+    try {
+      await call('cargo.engagementretirer', { id, motif });
+      toast('Engagement retiré.', 'ok');
+      onFait();
+    } catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(false); }
+  }
+
+  return <Modal onClose={onClose}>
+    <h2>Retirer l'engagement ?</h2>
+    <p className="help">
+      Camion <b className="mono">{String(ligne['numeroCamion'] || id)}</b> · dossier <b className="mono">{id}</b>.
+      Engagement : <b>{String(ligne['engagementType'] || '—')}</b> · échéance <b>{fmtJour(ligne['engagementDelai'])}</b>.
+    </p>
+    <p className="help">
+      L'engagement, son échéance et son solde sont effacés : le camion sort de l'échéancier et des rapports.
+      Ce qui est retiré, et votre motif, restent au journal.
+    </p>
+    <label className="help">Motif du retrait (obligatoire)</label>
+    <input value={motif} onChange={(e) => setMotif(e.target.value)} placeholder="ex. engagement coché par erreur" autoFocus />
+    <div className="row" style={{ marginTop: 12, justifyContent: 'flex-end' }}>
+      <button className="ghost" onClick={onClose}>Annuler</button>
+      <button className="acts-suppr-plein" disabled={busy || !motif.trim()} onClick={retirer}>
+        {busy ? 'Retrait…' : "Retirer l'engagement"}
+      </button>
+    </div>
+  </Modal>;
+}
+
 SCREENS.wait_valid = (nav) => <ValidationDeclaration {...nav} />;
 SCREENS.wait_cfs = (nav) => <CargoList {...nav} filtre={{ etape: 'CFS' }} titre="En cours au CFS" />;
 SCREENS.wait_t1 = (nav) => <CargoList {...nav} filtre={{ etape: 'T1' }} titre="En attente T1" />;

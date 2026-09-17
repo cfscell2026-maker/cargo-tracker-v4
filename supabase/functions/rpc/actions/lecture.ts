@@ -398,6 +398,10 @@ export async function dashboardStats(ctx: Ctx, opts: { du?: string; au?: string 
     // Entrées / sorties de chaque file SUR LA PÉRIODE (2026-09-13) : elles
     // orientent la flèche des tuiles d'étape. Clés : ORDRE_FILES + VEHICULES.
     flux: {} as Record<string, { entres: number; sortis: number }>,
+    /* ENGAGEMENTS EN COURS (2026-09-17, demande utilisateur) — état instantané.
+       Le compte BAISSE des qu'un engagement est marqué « Effectué » : c'est ce
+       qui reste à transmettre, pas ce qui a été pris. */
+    engagementsEnCours: 0,
     // Divers / compat.
     total: 0, sortie: 0, aujourdHui: 0,
   };
@@ -456,6 +460,7 @@ export async function dashboardStats(ctx: Ctx, opts: { du?: string; au?: string 
       continue;
     }
     stats.total++;
+    if (r['suiviEngagement'] === true && !aFait(r['engagementEffectueLe'])) stats.engagementsEnCours++;
     const passages = passagesDesFiles({ ...r, dateFinChargement: finsChargement.get(String(r['id'])) } as never);
     for (const k of ORDRE_FILES) {
       const ps = passages[k];
@@ -542,13 +547,32 @@ export async function etatCfsList(ctx: Ctx) {
  *
  * Le tri place les retards en tête : le plus ancien dû est le plus urgent.
  */
-export async function engagementsDus(ctx: Ctx) {
+export async function engagementsDus(ctx: Ctx, p: { filtre?: string } = {}) {
+  /* UN FILTRE, POUR SERVIR DEUX ÉCRANS — 2026-09-17 (demande utilisateur).
+   *
+   * Sans paramètre, la réponse est CELLE D'AVANT : les seuls engagements qui
+   * alertent (J-1, aujourd'hui, en retard), non soldés. C'est ce que l'encadré
+   * du tableau de bord affiche, et ce que le front déjà déployé attend — on ne
+   * change pas sa réponse sous ses pieds.
+   *
+   * Le volet « Engagements » demande, lui, la vue COMPLÈTE : `tous` (soldés
+   * compris), `encours` (tout ce qui n'est pas soldé, échéances lointaines
+   * incluses), `retard`, ou `solde`. L'encadré ne montrait qu'une partie, et
+   * rien ne disait où voir le reste. */
+  const filtre = String(p?.filtre ?? 'alerte');
+  /* TOUS les engagements sont chargés, puis filtrés ici — 2026-09-17.
+   *
+   * Le filtre SQL par solde a été retiré pour une raison précise : le volet
+   * affiche DEUX compteurs (en cours / effectués) qui ne doivent PAS bouger
+   * quand on change la vue affichée. Les calculer sur une liste déjà restreinte
+   * les rendrait faux — « 0 effectué » dès qu'on regarde les engagements en
+   * cours. Le volume s'y prête : quelques centaines d'engagements, pas la table
+   * des cargaisons. */
   const { data, error } = await ctx.db
     .from('cargaisons')
     .select('id, numero_camion, type_operation, statut, declarant, numero_declaration, '
-      + 'engagement_type, engagement_delai, agent_validation, date_validation')
+      + 'engagement_type, engagement_delai, engagement_effectue_le, agent_validation, date_validation')
     .eq('suivi_engagement', true)
-    .is('engagement_effectue_le', null)
     // `neq` plutôt que `eq(false)` : c'est la forme déjà employée ailleurs pour
     // SEC-12, et elle reste juste quelle que soit la valeur par défaut.
     .neq('annule', true)
@@ -556,22 +580,42 @@ export async function engagementsDus(ctx: Ctx) {
     .order('engagement_delai', { ascending: true });
   if (error) throw new Error(error.message);
 
-  const lignes = (data ?? [])
-    .map((r) => versCamel(r as unknown as Record<string, unknown>))
-    .filter((o) => engagementAlerte(o['engagementDelai'], null))
+  const garde = (o: Record<string, unknown>) => {
+    const { etat } = etatEngagement(o['engagementDelai'], o['engagementEffectueLe']);
+    if (filtre === 'tous') return true;
+    if (filtre === 'solde') return etat === 'solde';
+    if (filtre === 'retard') return etat === 'retard';
+    if (filtre === 'encours') return etat !== 'solde';
+    return engagementAlerte(o['engagementDelai'], o['engagementEffectueLe']); // 'alerte' (défaut)
+  };
+  const toutes = (data ?? []).map((r) => versCamel(r as unknown as Record<string, unknown>));
+  // Compteurs GLOBAUX : ce que le volet affiche en haut, et que le filtre ne doit
+  // pas changer. Un engagement soldé sort des « en cours » et entre dans les
+  // « effectués » — les deux chiffres se répondent.
+  const global = {
+    encours: toutes.filter((o) => !aFait(o['engagementEffectueLe'])).length,
+    soldes: toutes.filter((o) => aFait(o['engagementEffectueLe'])).length,
+    total: toutes.length,
+  };
+  const lignes = toutes
+    .filter(garde)
     .map((o) => ({
       ...o,
-      ...etatEngagement(o['engagementDelai'], null),
-      libelle: libelleEngagement(o['engagementDelai'], null),
+      ...etatEngagement(o['engagementDelai'], o['engagementEffectueLe']),
+      libelle: libelleEngagement(o['engagementDelai'], o['engagementEffectueLe']),
     }));
 
   return {
     lignes,
+    filtre,
+    global,
     compte: {
       total: lignes.length,
       retard: lignes.filter((l) => l.etat === 'retard').length,
       aujourdhui: lignes.filter((l) => l.etat === 'aujourdhui').length,
       demain: lignes.filter((l) => l.etat === 'demain').length,
+      aVenir: lignes.filter((l) => l.etat === 'a_venir').length,
+      solde: lignes.filter((l) => l.etat === 'solde').length,
     },
   };
 }

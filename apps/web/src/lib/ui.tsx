@@ -25,6 +25,7 @@ export const TITLES: Record<string, string> = {
   chargement: 'Bon de chargement — par déclaration',
   gps: 'Cellule Balise', wait_gps: 'En attente Balise', bonsortie: 'Cellule Bon de Sortie', wait_bs: 'En attente Bon de Sortie',
   sortie: 'Sortie (checklist PP)', wait_sortie: 'En attente de sortie', history: 'Historique', users: 'Utilisateurs',
+  engagements: 'Engagements — suivi et régularisation',
   account: 'Mon compte', detail: 'Détail cargaison', cfsreport: 'Rapport CFS', vehreport: 'Rapport véhicules',
   baliserep: 'Rapport Balise', pprep: 'Rapport PP', flux: 'Analyse des flux', dwell: 'Délai & camions en instance',
   t1report: 'Rapport T1 (T1 saisis)', bonsortiereport: 'Rapport Bon de sortie (bons émis)',

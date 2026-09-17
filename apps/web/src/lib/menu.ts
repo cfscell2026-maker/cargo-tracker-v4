@@ -39,7 +39,10 @@ export const MENUS: Record<string, MenuItem[]> = {
   ],
   // v4 — le chef brigade lit TOUS les rapports de TOUTES les cellules (lecture seule).
   CHEF_BRIGADE: [
-    ['dash', 'Tableau de bord', 'tableau'], ['wait_valid', 'À valider', 'valider'], ['search', 'Recherche (en cours)', 'loupe'],
+    ['dash', 'Tableau de bord', 'tableau'], ['wait_valid', 'À valider', 'valider'],
+    // 2026-09-17 : le volet des engagements — tous les camions engages, et les
+    // trois gestes (solder, corriger, retirer) au meme endroit.
+    ['engagements', 'Engagements', 'sablier'], ['search', 'Recherche (en cours)', 'loupe'],
     ['list', 'Cargaisons', 'liste'], ['vehicules', 'Véhicules', 'voiture'],
     ['etatcfs', 'Pointage camions (sortie)', 'presse'], ['chargement', 'Bon de chargement', 'document'],
     ['cfsreport', 'Rapport CFS', 'rapport'], ['vehreport', 'Rapport véhicules', 'rapport'], ['baliserep', 'Rapport Balise', 'rapport'],
@@ -50,6 +53,7 @@ export const MENUS: Record<string, MenuItem[]> = {
     ['horodatage', 'Heures d\'activité', 'horloge'], ['account', 'Mon compte', 'compte'],
   ],
   CHEF_BRIGADE_ADJOINT: [
+    ['engagements', 'Engagements', 'sablier'],
     ['search', 'Recherche (en cours)', 'loupe'], ['list', 'Cargaisons', 'liste'], ['vehicules', 'Véhicules', 'voiture'],
     ['controles', 'Contrôles (gabarit/surcharge)', 'balance'], ['temps', 'Temps de passage', 'sablier'],
     ['horodatage', 'Heures d\'activité', 'horloge'], ['account', 'Mon compte', 'compte'],
@@ -58,12 +62,14 @@ export const MENUS: Record<string, MenuItem[]> = {
   // compte). Aucun autre écran : c'est une délégation de signature, rien d'autre.
   CBPI: [['wait_valid', 'À valider', 'valider'], ['account', 'Mon compte', 'compte']],
   CHEF_VISITE: [
-    ['dash', 'Tableau de bord', 'tableau'], ['search', 'Recherche (en cours)', 'loupe'], ['list', 'Cargaisons', 'liste'],
+    ['dash', 'Tableau de bord', 'tableau'], ['engagements', 'Engagements', 'sablier'],
+    ['search', 'Recherche (en cours)', 'loupe'], ['list', 'Cargaisons', 'liste'],
     ['vehicules', 'Véhicules', 'voiture'], ['controles', 'Contrôles (gabarit/surcharge)', 'balance'],
     ['temps', 'Temps de passage', 'sablier'], ['horodatage', 'Heures d\'activité', 'horloge'], ['account', 'Mon compte', 'compte'],
   ],
   CHEF_DIVISION: [
-    ['dash', 'Tableau de bord', 'tableau'], ['search', 'Recherche (en cours)', 'loupe'], ['list', 'Cargaisons', 'liste'],
+    ['dash', 'Tableau de bord', 'tableau'], ['engagements', 'Engagements', 'sablier'],
+    ['search', 'Recherche (en cours)', 'loupe'], ['list', 'Cargaisons', 'liste'],
     ['vehicules', 'Véhicules', 'voiture'], ['controles', 'Contrôles (gabarit/surcharge)', 'balance'],
     ['temps', 'Temps de passage', 'sablier'], ['horodatage', 'Heures d\'activité', 'horloge'], ['account', 'Mon compte', 'compte'],
   ],
@@ -91,6 +97,7 @@ export const MENUS: Record<string, MenuItem[]> = {
   ADMIN: [
     ['dash', 'Tableau de bord', 'tableau'], ['creercamion', 'Créer un camion', 'camionPlus'],
     ['completer', 'Saisir / compléter', 'crayon'], ['wait_valid', 'À valider', 'valider'],
+    ['engagements', 'Engagements', 'sablier'],
     ['search', 'Recherche (en cours)', 'loupe'], ['list', 'Cargaisons', 'liste'], ['vehicules', 'Véhicules', 'voiture'],
     ['conteneurs', 'Opérations sur conteneurs', 'conteneur'], ['mad', 'Magasin / MAD', 'entrepot'],
     ['entrepindus', 'Entrepôt industriel', 'usine'], ['etatcfs', 'Pointage camions (sortie)', 'presse'],
@@ -172,7 +179,7 @@ export function iconeDeLEcran(role: string, ecran: string): string {
  */
 const LIBELLES_COURTS: Record<string, string> = {
   dash: 'Bord', creercamion: 'Créer', completer: 'Saisir', wait_valid: 'Valider',
-  search: 'Chercher', list: 'Dossiers', conteneurs: 'Parc', mad: 'Magasin',
+  search: 'Chercher', list: 'Dossiers', engagements: 'Engage.', conteneurs: 'Parc', mad: 'Magasin',
   entrepindus: 'Usine', vehicules: 'Véhicules', etatcfs: 'Pointage',
   t1: 'Cellule T1', gps: 'Balise', bonsortie: 'Bon sortie', sortie: 'Sortie',
   stock: 'Stock', pointage: 'Pointage', account: 'Compte',
