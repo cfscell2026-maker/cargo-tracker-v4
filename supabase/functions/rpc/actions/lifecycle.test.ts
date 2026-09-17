@@ -2913,3 +2913,32 @@ test('volet Engagements — le filtre sert les deux ecrans sans changer le table
   assert.equal(tous.compte['retard'], 1);
   assert.equal(tous.lignes.filter((l) => l.etat === 'solde').length, 1, 'un engagement solde est marque comme tel');
 });
+
+test('engagements — compteurs : le total baisse quand un engagement est soldé (2026-09-17)', async () => {
+  const db = new FakeDB();
+  const chef = ctxRole(db, 'CHEF_BRIGADE', 'Chef Brigade');
+  const jour = (n: number) => { const d = new Date(); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
+  cargoEngage(db, 'K-1', { engagement_delai: jour(-1) });
+  cargoEngage(db, 'K-2', { engagement_delai: jour(2) });
+  cargoEngage(db, 'K-3', { engagement_delai: jour(30) });
+
+  const dash = async () => ((await lec.dashboardStats(chef, {})) as Record<string, number>)['engagementsEnCours'];
+  const volet = async () => ((await lec.engagementsDus(chef, { filtre: 'encours' })) as { global: Record<string, number> }).global;
+
+  assert.equal(await dash(), 3, 'les trois engagements sont en cours');
+  assert.deepEqual(await volet(), { encours: 3, soldes: 0, total: 3 });
+
+  await ecr.engagementFait(chef, { id: 'K-2' });
+  assert.equal(await dash(), 2, 'le tableau de bord baisse d\'un cran');
+  assert.deepEqual(await volet(), { encours: 2, soldes: 1, total: 3 }, 'les deux compteurs du volet se repondent');
+
+  // Les compteurs du volet ne dependent PAS de la vue affichee.
+  const enSolde = (await lec.engagementsDus(chef, { filtre: 'solde' })) as { global: Record<string, number>; lignes: unknown[] };
+  assert.deepEqual(enSolde.global, { encours: 2, soldes: 1, total: 3 });
+  assert.equal(enSolde.lignes.length, 1, 'mais la liste affichee, elle, suit le filtre');
+
+  // Retire : l'engagement quitte les deux compteurs.
+  await ecr.engagementRetirer(ctxRole(db, 'ADMIN', 'Admin'), { id: 'K-1', motif: 'coche par erreur' });
+  assert.equal(await dash(), 1);
+  assert.deepEqual(await volet(), { encours: 1, soldes: 1, total: 2 });
+});

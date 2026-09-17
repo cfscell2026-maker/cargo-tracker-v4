@@ -686,6 +686,10 @@ SCREENS.dash = (nav) => {
       <StatCard n={Number(s['attBs'] ?? 0)} l="Attente Bon de sortie" onClick={() => nav.go('wait_bs')} etape="bs" part={part('attBs')} />
       <StatCard n={Number(s['attPP'] ?? 0)} l="Attente sortie" onClick={() => nav.go('wait_sortie')} etape="pp" part={part('attPP')} />
       <StatCard n={Number(s['vehiculesAttente'] ?? 0)} l="Véhicules en attente" onClick={() => nav.go('vehicules')} etape="vehicule" part={part('vehiculesAttente')} />
+      {/* ENGAGEMENTS (2026-09-17, demande utilisateur) : ce qui reste à transmettre.
+          Le clic ouvre le volet, trié par échéance — le plus urgent en tête. */}
+      <StatCard n={Number(s['engagementsEnCours'] ?? 0)} l="Engagements en cours"
+        onClick={() => nav.go('engagements')} icone="sablier" />
     </div></div>}
     {/* Neuf tuiles disent COMBIEN, aucune ne dit OÙ ÇA BLOQUE : c'est pourtant
         la première question d'un chef le matin. Le classement des files répond
@@ -1449,6 +1453,7 @@ SCREENS.engagements = ({ go, user }) => {
     else { setTri(t); setSens('asc'); }
   };
   const [corrige, setCorrige] = useState<O | null>(null);
+  const [retire, setRetire] = useState<O | null>(null);
   const [busy, setBusy] = useState('');
   const { data, loading, error, reload } = useAsync<O>(() => call('report.engagements', { filtre }), [filtre]);
   const recues = ((data?.['lignes'] as O[]) ?? []);
@@ -1460,7 +1465,11 @@ SCREENS.engagements = ({ go, user }) => {
   const affine = rechCamion.trim() !== '' || jours.trim() !== '';
   const fleche = (t: TriEngagement) => (t === tri ? (sens === 'asc' ? ' ▲' : ' ▼') : '');
   const cpt = (data?.['compte'] as O) ?? {};
+  // Compteurs GLOBAUX : ils ne bougent pas avec la vue affichée, mais bien avec
+  // ce qu'on fait — solder un engagement le fait passer de l'un à l'autre.
+  const glob = (data?.['global'] as O) ?? {};
   const peut = SUIVENT_ENGAGEMENTS.includes(user.role as never);
+  const admin = user.role === ROLES.ADMIN;
 
   async function solder(id: string) {
     setBusy(id);
@@ -1491,6 +1500,12 @@ SCREENS.engagements = ({ go, user }) => {
           style={{ width: 150 }} />
         {affine && <button className="ghost xs" onClick={() => { setJours(''); setRechCamion(''); }}>Tout afficher</button>}
       </div>} />
+    <div className="stats" style={{ marginTop: 10 }}>
+      <StatCard n={Number(glob['encours'] ?? 0)} l="Engagements en cours" icone="sablier" tone="warn"
+        onClick={() => setFiltre('encours')} />
+      <StatCard n={Number(glob['soldes'] ?? 0)} l="Engagements effectués" icone="valider" tone="ok"
+        onClick={() => setFiltre('solde')} />
+    </div>
     <div className="card">
       {loading ? <Spinner /> : error ? <div className="err-msg">{error}</div> : <>
         <div className="help" style={{ marginBottom: 8 }}>
@@ -1529,6 +1544,9 @@ SCREENS.engagements = ({ go, user }) => {
                       {busy === id ? '…' : '✔ Effectué'}
                     </button>}
                     {peut && <button className="ghost xs" onClick={() => setCorrige(l)}>✎ Corriger</button>}
+                    {/* RETRAIT (2026-09-17) : un bouton à lui, sur la ligne — il était
+                        caché dans la fenêtre de correction. Administrateur seul. */}
+                    {admin && <button className="ghost xs acts-suppr" onClick={() => setRetire(l)}>✕ Retirer</button>}
                   </div>
                 </td>
               </tr>;
@@ -1536,11 +1554,54 @@ SCREENS.engagements = ({ go, user }) => {
           </table></div>}
       </>}
     </div>
-    {corrige && <ModaleCorrigerEngagement ligne={corrige} admin={user.role === ROLES.ADMIN}
+    {corrige && <ModaleCorrigerEngagement ligne={corrige} admin={admin}
       onClose={() => setCorrige(null)}
       onFait={() => { setCorrige(null); reload(); }} />}
+    {retire && <ModaleRetirerEngagement ligne={retire}
+      onClose={() => setRetire(null)}
+      onFait={() => { setRetire(null); reload(); }} />}
   </>;
 };
+
+/**
+ * RETRAIT D'UN ENGAGEMENT — fenêtre dédiée, 2026-09-17 (demande utilisateur).
+ * Le retrait avait sa place dans la fenêtre de correction ; il a maintenant son
+ * bouton et sa fenêtre, qui ne demandent qu'une chose : pourquoi.
+ */
+function ModaleRetirerEngagement({ ligne, onClose, onFait }: { ligne: O; onClose: () => void; onFait: () => void }) {
+  const id = String(ligne['id']);
+  const [motif, setMotif] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  async function retirer() {
+    setBusy(true);
+    try {
+      await call('cargo.engagementretirer', { id, motif });
+      toast('Engagement retiré.', 'ok');
+      onFait();
+    } catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(false); }
+  }
+
+  return <Modal onClose={onClose}>
+    <h2>Retirer l'engagement ?</h2>
+    <p className="help">
+      Camion <b className="mono">{String(ligne['numeroCamion'] || id)}</b> · dossier <b className="mono">{id}</b>.
+      Engagement : <b>{String(ligne['engagementType'] || '—')}</b> · échéance <b>{fmtJour(ligne['engagementDelai'])}</b>.
+    </p>
+    <p className="help">
+      L'engagement, son échéance et son solde sont effacés : le camion sort de l'échéancier et des rapports.
+      Ce qui est retiré, et votre motif, restent au journal.
+    </p>
+    <label className="help">Motif du retrait (obligatoire)</label>
+    <input value={motif} onChange={(e) => setMotif(e.target.value)} placeholder="ex. engagement coché par erreur" autoFocus />
+    <div className="row" style={{ marginTop: 12, justifyContent: 'flex-end' }}>
+      <button className="ghost" onClick={onClose}>Annuler</button>
+      <button className="acts-suppr-plein" disabled={busy || !motif.trim()} onClick={retirer}>
+        {busy ? 'Retrait…' : "Retirer l'engagement"}
+      </button>
+    </div>
+  </Modal>;
+}
 
 SCREENS.wait_valid = (nav) => <ValidationDeclaration {...nav} />;
 SCREENS.wait_cfs = (nav) => <CargoList {...nav} filtre={{ etape: 'CFS' }} titre="En cours au CFS" />;
