@@ -7,8 +7,24 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
   const cible = env['VITE_SUPABASE_URL'] ?? '';
 
+  /* VERSION DE LA CONSTRUCTION (2026-09-21) — l'instant du build. Elle est
+     gravée dans le code ET déposée dans /version.json : l'application compare
+     les deux pour savoir qu'une nouvelle version attend (lib/mise-a-jour.tsx).
+     En développement, pas de version : la vérification ne tourne pas. */
+  const version = mode === 'production' ? new Date().toISOString() : '';
+
   return {
-    plugins: [react()],
+    plugins: [
+      react(),
+      {
+        name: 'version-app',
+        apply: 'build',
+        generateBundle() {
+          this.emitFile({ type: 'asset', fileName: 'version.json', source: JSON.stringify({ version }) });
+        },
+      },
+    ],
+    define: { 'import.meta.env.VITE_VERSION_APP': JSON.stringify(version) },
     server: {
       // Port FIGÉ. Vite écoute sur 5173 par défaut, or ce poste héberge d'autres
       // projets Vite qui prennent le même : le premier démarré gagnait le port et

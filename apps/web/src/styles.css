@@ -691,6 +691,25 @@ tr.clk{cursor:pointer} tr.clk:hover{background:var(--accent-soft)}
   transition:background .12s;
 }
 .side .compte button:hover{background:#ffffff24}
+.side .compte button + button{margin-top:6px}
+
+/* Bandeau « nouvelle version disponible » (lib/mise-a-jour.tsx). Placé sous la
+   barre du haut, pleine largeur : il doit se voir, sans masquer l'écran. */
+.maj-bandeau{
+  display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  margin:10px 16px 0;padding:10px 14px;border-radius:12px;
+  background:var(--accent);color:#fff;font-size:14px;font-weight:500;
+}
+.maj-bandeau span{flex:1;min-width:180px}
+/* À la connexion, le bandeau est dans la colonne étroite : pas de marge latérale. */
+.ecran-connexion .maj-bandeau{margin:0 0 16px;position:relative;z-index:2}
+/* !important : la règle générale des boutons (une chaîne de :not()) pose un
+   dégradé bleu plus spécifique que tout sélecteur raisonnable — sans cela le
+   bouton serait bleu sur le bandeau bleu, texte illisible. */
+.maj-bandeau button{
+  background:#fff !important;color:var(--accent) !important;border:0;border-radius:9px;
+  padding:7px 14px;font-weight:600;
+}
 
 /* Séparateur entre le bloc général et les écrans métier. Un simple filet :
    le regroupement se voit, sans qu'un second intertitre alourdisse la barre. */
@@ -2776,3 +2795,15 @@ button.modal-fermer:focus-visible{outline:2px solid #0e5a8a;outline-offset:2px}
    vert et rouge ÉCLAIRCIS, sans quoi ils se perdraient sur le fond sombre. */
 .leg-arrivee{color:#9ff0c4;font-weight:700;white-space:nowrap}
 .leg-depart{color:#ffb3a7;font-weight:700;white-space:nowrap}
+
+/* ---- VOLET PARAMÈTRES (2026-09-21) ---- */
+.param-ligne{padding:12px 0;border-top:1px solid var(--line)}
+.param-ligne:first-of-type{border-top:0}
+.param-modifie{background:rgba(14,90,138,.05);border-radius:10px;padding-left:8px;padding-right:8px}
+.param-tete{display:flex;align-items:center;gap:8px}
+.param-badge{font-size:11px;font-weight:600;color:#0e5a8a;background:rgba(14,90,138,.10);border-radius:999px;padding:1px 8px}
+.param-aide{margin:4px 0 2px}
+.param-concerne{margin:0 0 6px;font-style:italic}
+.param-saisie{gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:4px}
+.param-saisie textarea{max-width:420px;width:100%}
+.param-inactif{border-left:4px solid var(--warn)}

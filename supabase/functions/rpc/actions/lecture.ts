@@ -6,6 +6,7 @@
  * ============================================================================
  */
 import type { Ctx } from '../ctx.ts';
+import { chargerParametres } from './parametres.ts';
 import { versCamel } from '../ctx.ts';
 import { fetchAll } from './helpers.ts';
 import {
@@ -417,7 +418,7 @@ export async function dashboardStats(ctx: Ctx, opts: { du?: string; au?: string 
     return true;
   };
 
-  for (const k of [...ORDRE_FILES, 'VEHICULES']) stats.flux[k] = { entres: 0, sortis: 0 };
+  for (const k of [...ORDRE_FILES, 'VEHICULES', 'ENGAGEMENTS']) stats.flux[k] = { entres: 0, sortis: 0 };
   const dansPeriodeMs = (t: number | null): boolean =>
     t !== null && (!du || t >= du.getTime()) && (!auEx || t < auEx.getTime());
 
@@ -461,6 +462,15 @@ export async function dashboardStats(ctx: Ctx, opts: { du?: string; au?: string 
     }
     stats.total++;
     if (r['suiviEngagement'] === true && !aFait(r['engagementEffectueLe'])) stats.engagementsEnCours++;
+    /* ARRIVÉES / DÉPARTS DES ENGAGEMENTS sur la période (2026-09-21, demande
+       utilisateur) — mêmes indicateurs que les tuiles d'étape. Un engagement
+       ARRIVE à la signature du chef de brigade, qui le pose ; il PART quand il
+       est marqué « Effectué ». Un retrait efface ses dates : il ne compte ni
+       dans l'un ni dans l'autre, ce qui est juste — il n'a pas eu lieu. */
+    if (r['suiviEngagement'] === true) {
+      if (dansPeriode(r['dateValidation'])) stats.flux['ENGAGEMENTS']!.entres++;
+      if (dansPeriode(r['engagementEffectueLe'])) stats.flux['ENGAGEMENTS']!.sortis++;
+    }
     const passages = passagesDesFiles({ ...r, dateFinChargement: finsChargement.get(String(r['id'])) } as never);
     for (const k of ORDRE_FILES) {
       const ps = passages[k];
@@ -580,13 +590,15 @@ export async function engagementsDus(ctx: Ctx, p: { filtre?: string } = {}) {
     .order('engagement_delai', { ascending: true });
   if (error) throw new Error(error.message);
 
+  // Fenêtre d'alerte : réglage du volet Paramètres (la veille par défaut).
+  const alerteJours = (await chargerParametres(ctx)).engagementAlerteJours;
   const garde = (o: Record<string, unknown>) => {
     const { etat } = etatEngagement(o['engagementDelai'], o['engagementEffectueLe']);
     if (filtre === 'tous') return true;
     if (filtre === 'solde') return etat === 'solde';
     if (filtre === 'retard') return etat === 'retard';
     if (filtre === 'encours') return etat !== 'solde';
-    return engagementAlerte(o['engagementDelai'], o['engagementEffectueLe']); // 'alerte' (défaut)
+    return engagementAlerte(o['engagementDelai'], o['engagementEffectueLe'], undefined, alerteJours); // 'alerte' (défaut)
   };
   const toutes = (data ?? []).map((r) => versCamel(r as unknown as Record<string, unknown>));
   // Compteurs GLOBAUX : ce que le volet affiche en haut, et que le filtre ne doit
@@ -659,7 +671,8 @@ function seuilArchive(mois = 12): string {
  * est exactement le défaut relevé en GOV-05. On ne remonte que la page affichée.
  */
 export async function archiveAncienne(ctx: Ctx, p: Record<string, unknown>) {
-  const mois = Math.max(1, Number(p['mois'] ?? 12));
+  // Ancienneté par défaut : réglage du volet Paramètres (12 mois).
+  const mois = Math.max(1, Number(p['mois'] ?? (await chargerParametres(ctx)).archiveMois));
   const seuil = seuilArchive(mois);
   const page = Math.max(1, Number(p['page'] ?? 1));
   const pageSize = Math.min(200, Math.max(10, Number(p['pageSize'] ?? 50)));

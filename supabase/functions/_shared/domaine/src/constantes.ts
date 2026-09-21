@@ -301,9 +301,14 @@ export function etatEngagement(
 }
 
 /** true si l'engagement doit remonter au tableau de bord (J-1 et au-delà). */
-export function engagementAlerte(delai: unknown, effectueLe: unknown, aujourdhui?: Date): boolean {
-  const { etat } = etatEngagement(delai, effectueLe, aujourdhui);
-  return etat === 'demain' || etat === 'aujourdhui' || etat === 'retard';
+export function engagementAlerte(delai: unknown, effectueLe: unknown, aujourdhui?: Date, joursAlerte = 1): boolean {
+  /* `joursAlerte` (2026-09-21) vient du volet Paramètres : combien de jours avant
+     l'échéance l'engagement remonte au tableau de bord. 1 = la veille, le
+     comportement d'origine. Retard et jour même remontent TOUJOURS. */
+  const { etat, joursRestants } = etatEngagement(delai, effectueLe, aujourdhui);
+  if (etat === 'retard' || etat === 'aujourdhui') return true;
+  if (etat === 'demain' || etat === 'a_venir') return joursRestants <= Math.max(0, joursAlerte);
+  return false;
 }
 
 /** Libellé d'alerte prêt à afficher, aligné sur `etatEngagement`. */

@@ -7,9 +7,10 @@
  * ============================================================================
  */
 import { ErreurMetier, type Ctx } from '../ctx.ts';
+import { chargerParametres } from './parametres.ts';
 import { versCamel } from '../ctx.ts';
 import {
-  ROLES, STATUTS, STOCK_STATUTS, OPERATIONS, ETATS_SORTIE, HAUTEUR_HORS_GABARIT, CONTENEURS_MAX, exigeControlePoids,
+  ROLES, STATUTS, STOCK_STATUTS, OPERATIONS, ETATS_SORTIE, exigeControlePoids,
   alphaNumMaj, maj, txt, tcValide, camionValide, messageCamionFormat,
   normaliserConteneur, normaliserDeclaration, parseConteneursDetails,
   declKey, typeDeRoutage, tailleBucket, construireCamion, verifierBinome, apercuConteneurs,
@@ -309,8 +310,10 @@ export async function cfs(ctx: Ctx, p: Record<string, unknown>) {
   if (estEnl) {
     const err = verifierBinome(conts, ct.taille);
     if (err) throw new Error(err);
-  } else if (conts.length >= CONTENEURS_MAX) {
-    throw new Error('Trop de conteneurs (max ' + CONTENEURS_MAX + ').');
+  } else {
+    // Plafond réglable dans le volet Paramètres (50 par défaut).
+    const maxConts = (await chargerParametres(ctx)).conteneursMaxCamion;
+    if (conts.length >= maxConts) throw new Error('Trop de conteneurs (max ' + maxConts + ').');
   }
 
   // Déclaration complète (enlèvement 1er / dépotage chaque conteneur en v3.2+).
@@ -457,7 +460,9 @@ export async function declaration(ctx: Ctx, p: Record<string, unknown>) {
 
   const hauteurStr = txt(p['hauteurChargement'], 30);
   const hauteurNum = parseFloat(String(p['hauteurChargement'] ?? '').replace(',', '.').replace(/[^0-9.]/g, ''));
-  const horsGab = !isNaN(hauteurNum) && hauteurNum > HAUTEUR_HORS_GABARIT;
+  // Seuil réglable dans le volet Paramètres (4,5 m par défaut).
+  const seuilGabarit = (await chargerParametres(ctx)).hauteurHorsGabarit;
+  const horsGab = !isNaN(hauteurNum) && hauteurNum > seuilGabarit;
 
   const patch: Record<string, unknown> = {
     conteneurs_details: { conteneurs: pd.conteneurs, scellesCamion: sc },
@@ -1692,6 +1697,8 @@ export async function update(ctx: Ctx, p: Record<string, unknown>) {
   const cam = construireCamion(
     { numeroCamion: p['numeroCamion'] as string, conteneurs: p['conteneurs'] as never, scellesCamion: p['scellesCamion'] as never },
     type,
+    true,
+    (await chargerParametres(ctx)).conteneursMaxCamion,
   );
   const cargo = await getCargo(ctx, id);
   const c = cargo.o;

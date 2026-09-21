@@ -7,14 +7,14 @@ import { call } from './lib/rpc.ts';
 import { useAsync } from './lib/hooks.ts';
 import { Icone } from './lib/icones.tsx';
 import { iconeDeLEcran, MENUS } from './lib/menu.ts';
-import { Spinner, StatCard, Tag, Modal, masks, toast, fmtDate, fmtJour, ChampDestination, Graphique, BarresClassees, useSuiviEngagement, ChampCamion, roleLabel, TITLES, ChoixSegmente } from './lib/ui.tsx';
+import { Spinner, StatCard, Tag, Modal, masks, toast, fmtDate, fmtJour, ChampDestination, Graphique, BarresClassees, useSuiviEngagement, useParametres, ChampCamion, roleLabel, TITLES, ChoixSegmente } from './lib/ui.tsx';
 import { bornesDe, isoDate, normaliserPlage, type ModePeriode, repartition } from './lib/periode.ts';
 import { trierEngagements, filtrerEngagements, type TriEngagement, type SensTri } from './lib/tri-engagements.ts';
 import { Detail, TitrePanneau } from './detail.tsx';
 import type { ReactNode } from 'react';
 import type { Nav } from './App.tsx';
 import { useNav } from './lib/contexte-nav.ts';
-import { ROLES, OPERATIONS, VEHICULE_DESTINATIONS, TYPES_DECLARATION, STATUTS, SUIVENT_ENGAGEMENTS, ENGAGEMENTS, dateDansNJours, tcValide, fileAttente, estTypeSansT1, libelleTypeSansT1, exigeControlePoids, dureeLisible } from '../../../supabase/functions/_shared/domaine/src/index.ts';
+import { ROLES, OPERATIONS, VEHICULE_DESTINATIONS, TYPES_DECLARATION, STATUTS, SUIVENT_ENGAGEMENTS, dateDansNJours, tcValide, fileAttente, estTypeSansT1, libelleTypeSansT1, exigeControlePoids, dureeLisible } from '../../../supabase/functions/_shared/domaine/src/index.ts';
 
 const STATUT_OPTIONS = Object.values(STATUTS);
 
@@ -528,6 +528,7 @@ function BandeauEngagements({ role, go }: { role: string; go: Nav['go'] }) {
 function ModaleCorrigerEngagement({ ligne, onClose, onFait, admin }: { ligne: O; onClose: () => void; onFait: () => void; admin?: boolean }) {
   const id = String(ligne['id']);
   const [type, setType] = useState(String(ligne['engagementType'] ?? ''));
+  const { engagementsProposes } = useParametres(); // liste réglable (Paramètres)
   const [jours, setJours] = useState('');
   const [motif, setMotif] = useState('');
   const [busy, setBusy] = useState(false);
@@ -566,8 +567,8 @@ function ModaleCorrigerEngagement({ ligne, onClose, onFait, admin }: { ligne: O;
     </p>
     <label className="help">Engagement</label>
     <select value={type} onChange={(e) => setType(e.target.value)}>
-      {!ENGAGEMENTS.includes(type as never) && type && <option value={type}>{type} (actuel)</option>}
-      {ENGAGEMENTS.map((e) => <option key={e} value={e}>{e}</option>)}
+      {!engagementsProposes.includes(type) && type && <option value={type}>{type} (actuel)</option>}
+      {engagementsProposes.map((e) => <option key={e} value={e}>{e}</option>)}
     </select>
     <label className="help" style={{ marginTop: 6 }}>Nouveau délai en jours (laisser vide pour conserver l'échéance)</label>
     <div className="row" style={{ alignItems: 'center', gap: 8 }}>
@@ -611,7 +612,12 @@ SCREENS.dash = (nav) => {
      périmé, la requête repart donc bien au serveur. Les tuiles restent affichées
      pendant la mise à jour : pas de clignotement. */
   const [tic, setTic] = useState(0);
-  useEffect(() => { const t = window.setInterval(() => setTic((x) => x + 1), 60000); return () => window.clearInterval(t); }, []);
+  // Fréquence réglable dans les Paramètres (2026-09-21) — 60 s par défaut.
+  const { actualisationSecondes } = useParametres();
+  useEffect(() => {
+    const t = window.setInterval(() => setTic((x) => x + 1), actualisationSecondes * 1000);
+    return () => window.clearInterval(t);
+  }, [actualisationSecondes]);
   const { data, loading } = useAsync<O>(() => call('dashboard.stats', { du, au }), [du, au, tic]);
   const s = data ?? {};
   /* PART DE LA FILE pour les compteurs d'attente. FILE UNIQUE (serveur,
@@ -689,7 +695,8 @@ SCREENS.dash = (nav) => {
       {/* ENGAGEMENTS (2026-09-17, demande utilisateur) : ce qui reste à transmettre.
           Le clic ouvre le volet, trié par échéance — le plus urgent en tête. */}
       <StatCard n={Number(s['engagementsEnCours'] ?? 0)} l="Engagements en cours"
-        onClick={() => nav.go('engagements')} icone="sablier" />
+        onClick={() => nav.go('engagements')} icone="sablier"
+        comparable={!!flux('ENGAGEMENTS')} repartition={rep('ENGAGEMENTS')} />
     </div></div>}
     {/* Neuf tuiles disent COMBIEN, aucune ne dit OÙ ÇA BLOQUE : c'est pourtant
         la première question d'un chef le matin. Le classement des files répond
@@ -1602,6 +1609,99 @@ function ModaleRetirerEngagement({ ligne, onClose, onFait }: { ligne: O; onClose
     </div>
   </Modal>;
 }
+
+/* ======================= VOLET PARAMÈTRES — 2026-09-21 =====================
+ *
+ * Demande utilisateur : régler depuis l'application ce qui était écrit dans le
+ * code — séjour des conteneurs, délais, contrôles… Chaque réglage dit ce qu'il
+ * change et qui il concerne, et rappelle sa valeur par défaut. L'administrateur
+ * modifie ; les chefs consultent ; les agents n'ont pas ce volet.
+ */
+const ICONE_GROUPE: Record<string, string> = { Conteneurs: 'conteneur', Engagements: 'sablier', 'Contrôles': 'balance', Affichage: 'tableau' };
+
+SCREENS.parametres = ({ user }) => {
+  const admin = user.role === ROLES.ADMIN;
+  /* RÉSERVÉ À L'ADMINISTRATEUR (décision utilisateur, 2026-09-21). Le menu ne
+     le propose qu'à lui ; ce garde couvre toute autre façon d'arriver ici. Les
+     réglages, eux, restent LUS par tous les rôles (params.get) : c'est ce qui les
+     fait s'appliquer au travail de chacun. */
+  if (!admin) return <div className="card"><h2>Paramètres</h2>
+    <p className="help">Ce volet est réservé à l'administrateur.</p></div>;
+  const { data, loading, error, reload } = useAsync<O>(() => call('params.get'), []);
+  const [brouillon, setBrouillon] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState(false);
+  const defs = (data?.['definitions'] as O[]) ?? [];
+  const valeurs = (data?.['valeurs'] as O) ?? {};
+  const defauts = (data?.['defauts'] as O) ?? {};
+  const modifs = (data?.['modifs'] as Record<string, O>) ?? {};
+  const active = data?.['active'] === true;
+  const modifiable = admin && active;
+  const texte = (v: unknown) => (Array.isArray(v) ? v.join('\n') : String(v ?? ''));
+  const courant = (cle: string) => brouillon[cle] ?? texte(valeurs[cle]);
+  const changees = defs.map((d) => String(d['cle'])).filter((cle) => cle in brouillon && brouillon[cle] !== texte(valeurs[cle]));
+  const groupes = [...new Set(defs.map((d) => String(d['groupe'])))];
+
+  async function envoyer(v: Record<string, unknown>, message: string) {
+    setBusy(true);
+    try {
+      await call('params.set', { valeurs: v });
+      toast(message, 'ok');
+      setBrouillon({});
+      reload();
+    } catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(false); }
+  }
+
+  return <>
+    <BandeauModule icone="reglages" titre="Paramètres"
+      sous="Les réglages de l'application. Chacun dit ce qu'il change, qui il concerne, et sa valeur par défaut." />
+    {!loading && data && !active && <div className="card param-inactif">
+      <b>Réglages pas encore activés.</b> La table qui les enregistre n'existe pas encore en base : l'application
+      applique les valeurs par défaut ci-dessous, c'est-à-dire exactement son comportement habituel.
+      {admin ? ' Les modifications seront possibles une fois la table créée (migration 00200).' : ''}
+    </div>}
+    {loading ? <Spinner /> : error ? <div className="card err-msg">{error}</div> : groupes.map((g) => <div className="card" key={g}>
+      <TitrePanneau icone={ICONE_GROUPE[g] ?? 'reglages'}>{g}</TitrePanneau>
+      {defs.filter((d) => d['groupe'] === g).map((d) => {
+        const cle = String(d['cle']);
+        const liste = d['type'] === 'liste';
+        const unite = d['unite'] ? String(d['unite']) : '';
+        const m = modifs[cle];
+        const auDefaut = texte(valeurs[cle]) === texte(defauts[cle]);
+        const saisi = cle in brouillon && brouillon[cle] !== texte(valeurs[cle]);
+        return <div key={cle} className={`param-ligne ${saisi ? 'param-modifie' : ''}`}>
+          <div className="param-tete"><b>{String(d['libelle'])}</b>
+            {!auDefaut && <span className="param-badge">modifié</span>}</div>
+          <p className="help param-aide">{String(d['aide'])}</p>
+          <p className="help param-concerne">Concerne : {String(d['concerne'])}</p>
+          <div className="row param-saisie">
+            {liste
+              ? <textarea rows={4} value={courant(cle)} disabled={!modifiable}
+                onChange={(e) => setBrouillon((b) => ({ ...b, [cle]: e.target.value }))}
+                aria-label={String(d['libelle'])} />
+              : <input inputMode="decimal" value={courant(cle)} disabled={!modifiable}
+                onChange={(e) => setBrouillon((b) => ({ ...b, [cle]: e.target.value }))}
+                aria-label={String(d['libelle'])} style={{ maxWidth: 110 }} />}
+            {unite && !liste ? <span className="help">{unite}</span> : null}
+            {modifiable && !auDefaut && <button className="ghost xs" disabled={busy}
+              onClick={() => envoyer({ [cle]: null }, 'Valeur par défaut rétablie.')}>Rétablir le défaut</button>}
+          </div>
+          <div className="help">
+            Par défaut : {liste ? texte(defauts[cle]).split('\n').join(' · ') : `${texte(defauts[cle])}${unite ? ' ' + unite : ''}`}
+            {m ? ` · modifié le ${fmtDate(m['majLe'])} par ${String(m['majPar'] || '—')}` : ''}
+            {liste && modifiable ? ' · un choix par ligne' : ''}
+          </div>
+        </div>;
+      })}
+    </div>)}
+    {modifiable && <div className="row" style={{ gap: 8, marginTop: 4 }}>
+      <button disabled={busy || !changees.length}
+        onClick={() => envoyer(Object.fromEntries(changees.map((c) => [c, brouillon[c]])), 'Paramètres enregistrés.')}>
+        {busy ? 'Enregistrement…' : `Enregistrer${changees.length ? ` (${changees.length})` : ''}`}
+      </button>
+      {changees.length > 0 && <button className="ghost" disabled={busy} onClick={() => setBrouillon({})}>Annuler les modifications</button>}
+    </div>}
+  </>;
+};
 
 SCREENS.wait_valid = (nav) => <ValidationDeclaration {...nav} />;
 SCREENS.wait_cfs = (nav) => <CargoList {...nav} filtre={{ etape: 'CFS' }} titre="En cours au CFS" />;
@@ -3917,10 +4017,10 @@ SCREENS.dwell = ({ go }) => {
 };
 
 SCREENS.stockdwell = () => {
-  const { data, loading } = useAsync<{ compte: O; tranches: O[]; instance: O[] }>(() => call('report.stock'), []);
+  const { data, loading } = useAsync<{ compte: O; tranches: O[]; instance: O[]; seuil?: number }>(() => call('report.stock'), []);
   return <div className="card"><h2>Séjour & instances conteneurs</h2>
     {loading ? <Spinner /> : <>
-      <div className="stats"><StatCard n={Number(data?.compte['total'] ?? 0)} l="Total" /><StatCard n={Number(data?.compte['stock'] ?? 0)} l="En stock" /><StatCard n={Number(data?.compte['sejourMoyen'] ?? 0)} l="Séjour moyen (j)" /><StatCard n={Number(data?.compte['alerte'] ?? 0)} l="Alerte ≥ 90 j" tone="warn" /></div>
+      <div className="stats"><StatCard n={Number(data?.compte['total'] ?? 0)} l="Total" /><StatCard n={Number(data?.compte['stock'] ?? 0)} l="En stock" /><StatCard n={Number(data?.compte['sejourMoyen'] ?? 0)} l="Séjour moyen (j)" /><StatCard n={Number(data?.compte['alerte'] ?? 0)} l={`Alerte ≥ ${data?.seuil ?? 90} j`} tone="warn" /></div>
       <Table cols={[['numeroTC', 'Conteneur'], ['taille', 'Taille'], ['statut', 'Statut'], ['joursSejour', 'Séjour (j)']]} rows={data?.instance ?? []} />
     </>}
   </div>;
@@ -4284,12 +4384,19 @@ export { SCREENS };
  */
 SCREENS.archive = ({ go }) => {
   const [page, setPage] = useState(1);
-  const [mois, setMois] = useState(12);
+  /* Ancienneté par défaut = réglage « archiveMois » tant que l'utilisateur n'a
+     rien choisi dans la liste. */
+  const params = useParametres();
+  const [moisChoisi, setMois] = useState<number | null>(null);
+  // Sans choix, on n'envoie PAS de durée : le serveur applique le réglage lui-même
+  // (pas de premier appel à 12 mois le temps que les réglages arrivent).
+  const mois = moisChoisi ?? params.archiveMois;
+  const choixMois = Array.from(new Set([params.archiveMois, 12, 24, 36, 60])).sort((a, b) => a - b);
   const [recherche, setRecherche] = useState('');
   const [q, setQ] = useState(''); // terme réellement envoyé (validé par Entrée)
   const { data, loading, error } = useAsync<O>(
-    () => call('report.archive', { page, pageSize: 50, mois, search: q }),
-    [page, mois, q],
+    () => call('report.archive', { page, pageSize: 50, mois: moisChoisi ?? undefined, search: q }),
+    [page, moisChoisi, q],
   );
 
   const rows = (data?.['rows'] as O[]) ?? [];
@@ -4309,10 +4416,9 @@ SCREENS.archive = ({ go }) => {
         <div>
           <label className="help">Ancienneté</label>
           <select value={mois} onChange={(e) => { setMois(Number(e.target.value)); setPage(1); }}>
-            <option value={12}>Plus de 1 an</option>
-            <option value={24}>Plus de 2 ans</option>
-            <option value={36}>Plus de 3 ans</option>
-            <option value={60}>Plus de 5 ans</option>
+            {choixMois.map((m) => <option key={m} value={m}>
+              {m % 12 === 0 ? `Plus de ${m / 12} an${m > 12 ? 's' : ''}` : `Plus de ${m} mois`}
+            </option>)}
           </select>
         </div>
         <div style={{ flex: 1, minWidth: 200 }}>

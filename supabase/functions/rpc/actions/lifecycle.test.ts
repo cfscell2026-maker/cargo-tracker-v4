@@ -15,6 +15,7 @@ import * as spe from './speciaux.ts';
 import * as stk from './stock.ts';
 import * as rap from './rapports.ts';
 import * as lec from './lecture.ts';
+import * as prm from './parametres.ts';
 
 function ctxAvec(db: FakeDB): Ctx {
   return {
@@ -2941,4 +2942,143 @@ test('engagements — compteurs : le total baisse quand un engagement est soldé
   await ecr.engagementRetirer(ctxRole(db, 'ADMIN', 'Admin'), { id: 'K-1', motif: 'coche par erreur' });
   assert.equal(await dash(), 1);
   assert.deepEqual(await volet(), { encours: 1, soldes: 1, total: 2 });
+});
+
+test('tableau de bord — arrivées / départs des engagements sur la période (2026-09-21)', async () => {
+  const db = new FakeDB();
+  const chef = ctxRole(db, 'CHEF_BRIGADE', 'Chef Brigade');
+  const j = new Date();
+  const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const aujourdhui = iso(j);
+  const ilYA10j = new Date(j.getTime() - 10 * 86400000).toISOString();
+  // Deux engagements signés aujourd'hui, un signé il y a 10 jours.
+  cargoEngage(db, 'F-1', { date_validation: j.toISOString() });
+  cargoEngage(db, 'F-2', { date_validation: j.toISOString() });
+  cargoEngage(db, 'F-3', { date_validation: ilYA10j });
+  const flux = async () => ((await lec.dashboardStats(chef, { du: aujourdhui, au: aujourdhui })) as { flux: Record<string, { entres: number; sortis: number }> }).flux['ENGAGEMENTS'];
+
+  assert.deepEqual(await flux(), { entres: 2, sortis: 0 }, 'deux engagements posés aujourd\'hui');
+  // Solder aujourd'hui l'engagement ancien : un départ, aucune arrivée de plus.
+  await ecr.engagementFait(chef, { id: 'F-3' });
+  assert.deepEqual(await flux(), { entres: 2, sortis: 1 });
+  // Un retrait efface l'engagement : il ne compte plus comme arrivé.
+  await ecr.engagementRetirer(ctxRole(db, 'ADMIN', 'Admin'), { id: 'F-1', motif: 'coche par erreur' });
+  assert.deepEqual(await flux(), { entres: 1, sortis: 1 });
+});
+
+/* ===================== PARAMÈTRES — 2026-09-21 ============================ */
+test('paramètres — défauts tant que rien n\'est réglé, puis valeurs enregistrées et tracées', async () => {
+  const db = new FakeDB();
+  const traces: string[] = [];
+  const admin = { ...ctxRole(db, 'ADMIN', 'Admin'), log: async (a: string, _c?: string, d?: string) => { traces.push(a + ' ' + d); } };
+  const g = (await prm.paramsGet(admin)) as { valeurs: Record<string, unknown>; active: boolean };
+  assert.equal(g.valeurs['sejourAlerteJours'], 90);
+  assert.equal(g.active, true);
+
+  await prm.paramsSet(admin, { valeurs: { sejourAlerteJours: 30, engagementsProposes: 'Transit national\nNouveau regime' } });
+  const g2 = (await prm.paramsGet(admin)) as { valeurs: Record<string, unknown>; modifs: Record<string, { majPar: string }> };
+  assert.equal(g2.valeurs['sejourAlerteJours'], 30);
+  assert.deepEqual(g2.valeurs['engagementsProposes'], ['Transit national', 'Nouveau regime']);
+  assert.equal(g2.modifs['sejourAlerteJours']?.majPar, 'Admin');
+  assert.match(traces.join(' | '), /Paramètre modifié .*90 → 30/);
+
+  // Valeur fausse : le LOT entier est refusé, rien n'est écrit.
+  await assert.rejects(() => prm.paramsSet(admin, { valeurs: { sejourAlerteJours: 5, archiveMois: 24 } }), /entre 7 et 365/);
+  const g3 = (await prm.paramsGet(admin)) as { valeurs: Record<string, unknown> };
+  assert.equal(g3.valeurs['sejourAlerteJours'], 30);
+  assert.equal(g3.valeurs['archiveMois'], 12, 'la valeur juste du lot refusé n\'a pas été écrite');
+
+  // Rétablir le défaut.
+  await prm.paramsSet(admin, { valeurs: { sejourAlerteJours: null } });
+  assert.equal(((await prm.paramsGet(admin)) as { valeurs: Record<string, unknown> }).valeurs['sejourAlerteJours'], 90);
+});
+
+test('paramètres — table absente : défauts appliqués, enregistrement refusé avec explication', async () => {
+  const base = new FakeDB();
+  const db = {
+    from: (t: string) => t === 'parametres_app'
+      ? { select: () => Promise.resolve({ data: null, error: { message: 'relation "parametres_app" does not exist' } }) }
+      : base.from(t),
+  };
+  const admin = { ...ctxRole(base, 'ADMIN', 'Admin'), db: db as never };
+  const g = (await prm.paramsGet(admin)) as { valeurs: Record<string, unknown>; active: boolean };
+  assert.equal(g.active, false);
+  assert.equal(g.valeurs['conteneursMaxCamion'], 50, 'le comportement d\'avant s\'applique');
+  await assert.rejects(() => prm.paramsSet(admin, { valeurs: { archiveMois: 24 } }), /pas encore activés/);
+});
+
+test('paramètres — le seuil de séjour change le nombre de conteneurs en alerte', async () => {
+  const db = new FakeDB();
+  const il40j = new Date(Date.now() - 40 * 86400000).toISOString();
+  db.store['stock'].push({ numero_tc: 'MSKU0000001', taille: "20'", statut: 'En stock', date_entree: il40j });
+  const admin = ctxRole(db, 'ADMIN', 'Admin');
+  assert.equal(((await stk.rapportStock(ctxRole(db, 'CFS', 'A'))) as { compte: { alerte: number } }).compte.alerte, 0, '40 j < 90 j');
+  await prm.paramsSet(admin, { valeurs: { sejourAlerteJours: 30 } });
+  const r = (await stk.rapportStock(ctxRole(db, 'CFS', 'A'))) as { compte: { alerte: number }; seuil: number };
+  assert.equal(r.compte.alerte, 1, '40 j >= 30 j');
+  assert.equal(r.seuil, 30);
+});
+
+test('paramètres — plafond de conteneurs par camion en dépotage', async () => {
+  const db = new FakeDB();
+  db.store['stock'].push({ numero_tc: 'MSKU6660011', taille: "20'", statut: 'Positionné' }, { numero_tc: 'MSKU6660012', taille: "20'", statut: 'Positionné' });
+  await prm.paramsSet(ctxRole(db, 'ADMIN', 'Admin'), { valeurs: { conteneursMaxCamion: 1 } });
+  const { cfs, id } = await depotagePret(db, 'PRM001/RM01');
+  await ecr.cfs(cfs, { id, declaration: DECL_PNT, conteneur: { num: 'MSKU6660011', taille: "20'", type: 'DRY' } });
+  await assert.rejects(() => ecr.cfs(cfs, { id, declaration: DECL_PNT, conteneur: { num: 'MSKU6660012', taille: "20'", type: 'DRY' } }), /max 1/);
+});
+
+test('paramètres — l\'alerte d\'engagement remonte N jours avant l\'échéance', async () => {
+  const db = new FakeDB();
+  const jour = (n: number) => { const d = new Date(); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
+  cargoEngage(db, 'P-3J', { engagement_delai: jour(3) });
+  const ids = async () => ((await lec.engagementsDus(ctxRole(db, 'CHEF_BRIGADE', 'CB'))) as { lignes: { id: string }[] }).lignes.map((l) => l.id);
+  assert.deepEqual(await ids(), [], 'la veille par défaut : J-3 ne remonte pas encore');
+  await prm.paramsSet(ctxRole(db, 'ADMIN', 'Admin'), { valeurs: { engagementAlerteJours: 3 } });
+  assert.deepEqual(await ids(), ['P-3J'], 'réglé à 3 jours : il remonte');
+});
+
+test('paramètres — seuil hors gabarit : 4,2 m passe à 4,0 m réglé', async () => {
+  const db = new FakeDB();
+  db.store['stock'].push({ numero_tc: 'MSKU6660021', taille: "20'", statut: 'Positionné' }, { numero_tc: 'MSKU6660022', taille: "20'", statut: 'Positionné' });
+  const gab = (id: string) => db.store['cargaisons'].find((c) => c['id'] === id)?.['hors_gabarit'];
+  const a = await depotagePret(db, 'GAB001/RM01');
+  await ecr.cfs(a.cfs, { id: a.id, declaration: DECL_PNT, conteneur: { num: 'MSKU6660021', taille: "20'", type: 'DRY' } });
+  await ecr.declaration(a.cfs, { id: a.id, hauteurChargement: '4,2', nbColis: '10', scellesCamion: ['S1', 'S2'] });
+  assert.equal(gab(a.id), null, 'défaut 4,5 m : 4,2 m reste dans le gabarit');
+  await prm.paramsSet(ctxRole(db, 'ADMIN', 'Admin'), { valeurs: { hauteurHorsGabarit: 4 } });
+  const b = await depotagePret(db, 'GAB002/RM01');
+  await ecr.cfs(b.cfs, { id: b.id, declaration: { ...DECL_PNT, numeroDeclaration: '961' }, conteneur: { num: 'MSKU6660022', taille: "20'", type: 'DRY' } });
+  await ecr.declaration(b.cfs, { id: b.id, hauteurChargement: '4,2', nbColis: '10', scellesCamion: ['S3', 'S4'] });
+  assert.equal(gab(b.id), true, 'réglé à 4,0 m : 4,2 m est hors gabarit');
+});
+
+test("paramètres — ancienneté par défaut de l'archive", async () => {
+  const db = new FakeDB();
+  const ilYa = (m: number) => { const d = new Date(); d.setMonth(d.getMonth() - m); return d.toISOString(); };
+  db.store['cargaisons'].push(
+    { id: 'A8', numero_camion: 'A8', date_creation: ilYa(8), statut: 'Sortie' },
+    { id: 'A14', numero_camion: 'A14', date_creation: ilYa(14), statut: 'Sortie' },
+  );
+  const admin = ctxRole(db, 'ADMIN', 'Admin');
+  const ids = async (p: Record<string, unknown> = {}) =>
+    ((await lec.archiveAncienne(admin, p)) as { lignes?: { id: string }[]; mois: number });
+  const r1 = await ids();
+  assert.equal(r1.mois, 12);
+  await prm.paramsSet(admin, { valeurs: { archiveMois: 6 } });
+  const r2 = await ids();
+  assert.equal(r2.mois, 6, "sans choix explicite, le réglage s'applique");
+  assert.equal((await ids({ mois: 24 })).mois, 24, "un choix explicite l'emporte");
+});
+
+test('paramètres — plafond de conteneurs aussi à la création groupée et à la correction', async () => {
+  const db = new FakeDB();
+  await prm.paramsSet(ctxRole(db, 'ADMIN', 'Admin'), { valeurs: { conteneursMaxCamion: 1 } });
+  const conts = [{ num: 'MSKU6660031', taille: "20'", type: 'DRY', plomb: 'P1' }, { num: 'MSKU6660032', taille: "20'", type: 'DRY', plomb: 'P2' }];
+  await assert.rejects(() => spe.create(ctxAvec(db), {
+    typeOperation: 'Enlèvement', declaration: DECL_OK, camions: [{ numeroCamion: 'MAX001/RM01', conteneurs: conts }],
+  }), /max 1/);
+  await assert.rejects(() => ecr.update(ctxRole(db, 'ADMIN', 'Admin'), {
+    id: 'X', typeOperation: 'Enlèvement', declaration: DECL_OK, numeroCamion: 'MAX002/RM01', conteneurs: conts, scellesCamion: [],
+  }), /max 1/);
 });

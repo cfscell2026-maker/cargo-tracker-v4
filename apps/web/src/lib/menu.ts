@@ -108,7 +108,7 @@ export const MENUS: Record<string, MenuItem[]> = {
     ['flux', 'Analyse des flux', 'flux'], ['destinations', 'Par destination', 'carte'],
     ['controles', 'Contrôles (gabarit/surcharge)', 'balance'], ['dwell', 'Délai & instance', 'horloge'],
     ['stockdwell', 'Séjour conteneurs', 'horloge'], ['temps', 'Temps de passage', 'sablier'],
-    ['horodatage', 'Heures d\'activité', 'horloge'], ['goulots', 'Nettoyage (goulots)', 'nettoyage'],
+    ['horodatage', 'Heures d\'activité', 'horloge'], ['goulots', 'Nettoyage (goulots)', 'nettoyage'], ['parametres', 'Paramètres', 'reglages'],
     ['archive', 'Archive (+1 an)', 'archive'], ['history', 'Historique', 'historique'],
     ['users', 'Utilisateurs', 'utilisateurs'], ['account', 'Mon compte', 'compte'],
   ],
@@ -132,7 +132,8 @@ export const MENUS: Record<string, MenuItem[]> = {
  * ====================================================================== */
 
 /** Écrans du bloc général, DANS L'ORDRE d'affichage voulu. */
-const ECRANS_GENERAUX = ['dash', 'users', 'history', 'archive', 'goulots', 'account'] as const;
+// 2026-09-21 : « Paramètres » juste après « Nettoyage » (demande utilisateur).
+const ECRANS_GENERAUX = ['dash', 'users', 'history', 'archive', 'goulots', 'parametres', 'account'] as const;
 
 export function menuSections(role: string): { general: MenuItem[]; navigation: MenuItem[] } {
   const menu = MENUS[role] ?? [];
@@ -179,7 +180,7 @@ export function iconeDeLEcran(role: string, ecran: string): string {
  */
 const LIBELLES_COURTS: Record<string, string> = {
   dash: 'Bord', creercamion: 'Créer', completer: 'Saisir', wait_valid: 'Valider',
-  search: 'Chercher', list: 'Dossiers', engagements: 'Engage.', conteneurs: 'Parc', mad: 'Magasin',
+  search: 'Chercher', list: 'Dossiers', engagements: 'Engage.', parametres: 'Réglages', conteneurs: 'Parc', mad: 'Magasin',
   entrepindus: 'Usine', vehicules: 'Véhicules', etatcfs: 'Pointage',
   t1: 'Cellule T1', gps: 'Balise', bonsortie: 'Bon sortie', sortie: 'Sortie',
   stock: 'Stock', pointage: 'Pointage', account: 'Compte',

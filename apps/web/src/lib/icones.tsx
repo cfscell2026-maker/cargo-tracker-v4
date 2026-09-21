@@ -118,6 +118,8 @@ const TRACES: Record<string, string | string[]> = {
   balise: 'M12 10a2 2 0 100 4 2 2 0 000-4zM8.5 8.5a5 5 0 000 7M15.5 8.5a5 5 0 010 7M5.5 5.5a9 9 0 000 13M18.5 5.5a9 9 0 010 13',
   bonSortie: 'M6 3h8l4 4v14H6zM14 3v4h4M9 14l2 2 4-4',
   sortie: 'M14 4h4a1 1 0 011 1v14a1 1 0 01-1 1h-4M10 8l-4 4 4 4M6 12h9',
+  // Flèche qui tourne : recharger l'application (mise à jour).
+  miseAJour: 'M20 12a8 8 0 11-2.34-5.66M20 4v4h-4',
 
   // Suivi et rapports
   rapport: 'M4 20h16M7 20v-6M12 20V8M17 20v-9',
@@ -135,6 +137,8 @@ const TRACES: Record<string, string | string[]> = {
     'M19 9l-2.5 5a2.5 2.5 0 005 0z',
   ],
   horloge: 'M12 4a8 8 0 100 16 8 8 0 000-16zM12 8v4.5l3 1.8',
+  // 2026-09-21 : volet Paramètres — des curseurs de réglage.
+  reglages: 'M4 6h9M17 6h3M15 4v4M4 12h3M11 12h9M9 10v4M4 18h11M19 18h1M17 16v4',
   sablier: 'M7 3h10M7 21h10M8 3v3.5c0 2.2 4 3.5 4 5.5s-4 3.3-4 5.5V21M16 3v3.5c0 2.2-4 3.5-4 5.5s4 3.3 4 5.5V21',
   attente: 'M12 4a8 8 0 100 16 8 8 0 000-16zM12 8v4h3.5',
   drapeau: 'M5 21V4M5 5h10l-1.5 3L15 11H5',

@@ -7,6 +7,7 @@
 import type { Ctx } from '../ctx.ts';
 import { ErreurMetier } from '../ctx.ts';
 import { camionActif } from './ecriture.ts';
+import { chargerParametres } from './parametres.ts';
 import {
   ROLES, STATUTS, OPERATIONS, sautsTypeC,
   alphaNumMaj, maj, txt, tcValide, camionValide, messageCamionFormat, parseDateImport,
@@ -55,7 +56,8 @@ export async function create(ctx: Ctx, p: Record<string, unknown>) {
   const chargementTermine = !(p['chargementTermine'] === false);
   const statutInitial = chargementTermine ? STATUTS.CREEE : STATUTS.CHARGEMENT;
 
-  const lignes = camions.map((cam) => construireCamion(cam as never, type, chargementTermine));
+  const maxConts = (await chargerParametres(ctx)).conteneursMaxCamion;
+  const lignes = camions.map((cam) => construireCamion(cam as never, type, chargementTermine, maxConts));
   const nbTotal = lignes.reduce((n, cam) => n + cam.conteneurs.length, 0);
 
   /* ANTI-DOUBLON — I-4 de l'audit, corrigé le 2026-09-10.

@@ -8,3 +8,4 @@ export * from './delais.ts';
 export * from './normalisation.ts';
 export * from './construction.ts';
 export * from './permissions.ts';
+export * from './parametres.ts';
