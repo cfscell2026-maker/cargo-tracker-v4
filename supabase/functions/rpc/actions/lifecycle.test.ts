@@ -3037,3 +3037,48 @@ test('paramètres — l\'alerte d\'engagement remonte N jours avant l\'échéanc
   await prm.paramsSet(ctxRole(db, 'ADMIN', 'Admin'), { valeurs: { engagementAlerteJours: 3 } });
   assert.deepEqual(await ids(), ['P-3J'], 'réglé à 3 jours : il remonte');
 });
+
+test('paramètres — seuil hors gabarit : 4,2 m passe à 4,0 m réglé', async () => {
+  const db = new FakeDB();
+  db.store['stock'].push({ numero_tc: 'MSKU6660021', taille: "20'", statut: 'Positionné' }, { numero_tc: 'MSKU6660022', taille: "20'", statut: 'Positionné' });
+  const gab = (id: string) => db.store['cargaisons'].find((c) => c['id'] === id)?.['hors_gabarit'];
+  const a = await depotagePret(db, 'GAB001/RM01');
+  await ecr.cfs(a.cfs, { id: a.id, declaration: DECL_PNT, conteneur: { num: 'MSKU6660021', taille: "20'", type: 'DRY' } });
+  await ecr.declaration(a.cfs, { id: a.id, hauteurChargement: '4,2', nbColis: '10', scellesCamion: ['S1', 'S2'] });
+  assert.equal(gab(a.id), null, 'défaut 4,5 m : 4,2 m reste dans le gabarit');
+  await prm.paramsSet(ctxRole(db, 'ADMIN', 'Admin'), { valeurs: { hauteurHorsGabarit: 4 } });
+  const b = await depotagePret(db, 'GAB002/RM01');
+  await ecr.cfs(b.cfs, { id: b.id, declaration: { ...DECL_PNT, numeroDeclaration: '961' }, conteneur: { num: 'MSKU6660022', taille: "20'", type: 'DRY' } });
+  await ecr.declaration(b.cfs, { id: b.id, hauteurChargement: '4,2', nbColis: '10', scellesCamion: ['S3', 'S4'] });
+  assert.equal(gab(b.id), true, 'réglé à 4,0 m : 4,2 m est hors gabarit');
+});
+
+test("paramètres — ancienneté par défaut de l'archive", async () => {
+  const db = new FakeDB();
+  const ilYa = (m: number) => { const d = new Date(); d.setMonth(d.getMonth() - m); return d.toISOString(); };
+  db.store['cargaisons'].push(
+    { id: 'A8', numero_camion: 'A8', date_creation: ilYa(8), statut: 'Sortie' },
+    { id: 'A14', numero_camion: 'A14', date_creation: ilYa(14), statut: 'Sortie' },
+  );
+  const admin = ctxRole(db, 'ADMIN', 'Admin');
+  const ids = async (p: Record<string, unknown> = {}) =>
+    ((await lec.archiveAncienne(admin, p)) as { lignes?: { id: string }[]; mois: number });
+  const r1 = await ids();
+  assert.equal(r1.mois, 12);
+  await prm.paramsSet(admin, { valeurs: { archiveMois: 6 } });
+  const r2 = await ids();
+  assert.equal(r2.mois, 6, "sans choix explicite, le réglage s'applique");
+  assert.equal((await ids({ mois: 24 })).mois, 24, "un choix explicite l'emporte");
+});
+
+test('paramètres — plafond de conteneurs aussi à la création groupée et à la correction', async () => {
+  const db = new FakeDB();
+  await prm.paramsSet(ctxRole(db, 'ADMIN', 'Admin'), { valeurs: { conteneursMaxCamion: 1 } });
+  const conts = [{ num: 'MSKU6660031', taille: "20'", type: 'DRY', plomb: 'P1' }, { num: 'MSKU6660032', taille: "20'", type: 'DRY', plomb: 'P2' }];
+  await assert.rejects(() => spe.create(ctxAvec(db), {
+    typeOperation: 'Enlèvement', declaration: DECL_OK, camions: [{ numeroCamion: 'MAX001/RM01', conteneurs: conts }],
+  }), /max 1/);
+  await assert.rejects(() => ecr.update(ctxRole(db, 'ADMIN', 'Admin'), {
+    id: 'X', typeOperation: 'Enlèvement', declaration: DECL_OK, numeroCamion: 'MAX002/RM01', conteneurs: conts, scellesCamion: [],
+  }), /max 1/);
+});

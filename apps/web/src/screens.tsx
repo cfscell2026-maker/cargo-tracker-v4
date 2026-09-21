@@ -4017,10 +4017,10 @@ SCREENS.dwell = ({ go }) => {
 };
 
 SCREENS.stockdwell = () => {
-  const { data, loading } = useAsync<{ compte: O; tranches: O[]; instance: O[] }>(() => call('report.stock'), []);
+  const { data, loading } = useAsync<{ compte: O; tranches: O[]; instance: O[]; seuil?: number }>(() => call('report.stock'), []);
   return <div className="card"><h2>Séjour & instances conteneurs</h2>
     {loading ? <Spinner /> : <>
-      <div className="stats"><StatCard n={Number(data?.compte['total'] ?? 0)} l="Total" /><StatCard n={Number(data?.compte['stock'] ?? 0)} l="En stock" /><StatCard n={Number(data?.compte['sejourMoyen'] ?? 0)} l="Séjour moyen (j)" /><StatCard n={Number(data?.compte['alerte'] ?? 0)} l="Alerte ≥ 90 j" tone="warn" /></div>
+      <div className="stats"><StatCard n={Number(data?.compte['total'] ?? 0)} l="Total" /><StatCard n={Number(data?.compte['stock'] ?? 0)} l="En stock" /><StatCard n={Number(data?.compte['sejourMoyen'] ?? 0)} l="Séjour moyen (j)" /><StatCard n={Number(data?.compte['alerte'] ?? 0)} l={`Alerte ≥ ${data?.seuil ?? 90} j`} tone="warn" /></div>
       <Table cols={[['numeroTC', 'Conteneur'], ['taille', 'Taille'], ['statut', 'Statut'], ['joursSejour', 'Séjour (j)']]} rows={data?.instance ?? []} />
     </>}
   </div>;
@@ -4384,12 +4384,19 @@ export { SCREENS };
  */
 SCREENS.archive = ({ go }) => {
   const [page, setPage] = useState(1);
-  const [mois, setMois] = useState(12);
+  /* Ancienneté par défaut = réglage « archiveMois » tant que l'utilisateur n'a
+     rien choisi dans la liste. */
+  const params = useParametres();
+  const [moisChoisi, setMois] = useState<number | null>(null);
+  // Sans choix, on n'envoie PAS de durée : le serveur applique le réglage lui-même
+  // (pas de premier appel à 12 mois le temps que les réglages arrivent).
+  const mois = moisChoisi ?? params.archiveMois;
+  const choixMois = Array.from(new Set([params.archiveMois, 12, 24, 36, 60])).sort((a, b) => a - b);
   const [recherche, setRecherche] = useState('');
   const [q, setQ] = useState(''); // terme réellement envoyé (validé par Entrée)
   const { data, loading, error } = useAsync<O>(
-    () => call('report.archive', { page, pageSize: 50, mois, search: q }),
-    [page, mois, q],
+    () => call('report.archive', { page, pageSize: 50, mois: moisChoisi ?? undefined, search: q }),
+    [page, moisChoisi, q],
   );
 
   const rows = (data?.['rows'] as O[]) ?? [];
@@ -4409,10 +4416,9 @@ SCREENS.archive = ({ go }) => {
         <div>
           <label className="help">Ancienneté</label>
           <select value={mois} onChange={(e) => { setMois(Number(e.target.value)); setPage(1); }}>
-            <option value={12}>Plus de 1 an</option>
-            <option value={24}>Plus de 2 ans</option>
-            <option value={36}>Plus de 3 ans</option>
-            <option value={60}>Plus de 5 ans</option>
+            {choixMois.map((m) => <option key={m} value={m}>
+              {m % 12 === 0 ? `Plus de ${m / 12} an${m > 12 ? 's' : ''}` : `Plus de ${m} mois`}
+            </option>)}
           </select>
         </div>
         <div style={{ flex: 1, minWidth: 200 }}>

@@ -27,6 +27,8 @@ export function construireCamion(
   cam: { numeroCamion?: string; conteneurs?: Partial<Conteneur>[]; scellesCamion?: string[] } | null | undefined,
   type: string,
   exigerScelles = true,
+  /** Plafond de conteneurs (réglage « conteneursMaxCamion ») ; défaut = constante. */
+  maxConteneurs: number = CONTENEURS_MAX,
 ): CamionConstruit {
   const src = cam ?? {};
   const numeroCamion = maj(src.numeroCamion, 40).replace(/[^A-Z0-9/-]/g, '');
@@ -38,8 +40,8 @@ export function construireCamion(
     .map(normaliserConteneur)
     .filter((c) => c.num);
   if (!conteneurs.length) throw new Error('Camion ' + numeroCamion + ' : au moins un conteneur est requis.');
-  if (conteneurs.length > CONTENEURS_MAX)
-    throw new Error('Camion ' + numeroCamion + ' : trop de conteneurs (max ' + CONTENEURS_MAX + ').');
+  if (conteneurs.length > maxConteneurs)
+    throw new Error('Camion ' + numeroCamion + ' : trop de conteneurs (max ' + maxConteneurs + ').');
 
   conteneurs.forEach((c, i) => {
     if (!tcValide(c.num))

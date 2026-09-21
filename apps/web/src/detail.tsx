@@ -736,13 +736,14 @@ function AjouterCamion({ c, go }: { c: O; go: Nav['go'] }) {
 }
 
 function FinaliserDepotage({ id, action }: { id: string; action: ActionFn }) {
+  const { hauteurHorsGabarit } = useParametres();
   const [hauteur, setHauteur] = useState('');
   const [colis, setColis] = useState('');
   const [sc, setSc] = useState(['', '', '']);
   return <div style={{ borderTop: '1px solid var(--line)', marginTop: 14, paddingTop: 12 }}>
     <div className="section-title">Finaliser le dépotage (hauteur + colis + scellés camion)</div>
     <div className="grid2">
-      <Champ label="Hauteur chargement (m) — hors gabarit auto si > 4,5" value={hauteur} onChange={(e) => setHauteur(e.target.value)} />
+      <Champ label={`Hauteur chargement (m) — hors gabarit auto si > ${String(hauteurHorsGabarit).replace('.', ',')}`} value={hauteur} onChange={(e) => setHauteur(e.target.value)} />
       <Champ label="Nombre de colis" value={colis} onChange={(e) => setColis(e.target.value)} />
       {[0, 1, 2].map((i) => <Champ key={i} label={`Scellé camion ${i + 1}${i < 2 ? ' *' : ''}`} value={sc[i]} onChange={(e) => setSc((a) => a.map((x, j) => j === i ? masks.upper(e.target.value) : x))} />)}
     </div>

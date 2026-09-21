@@ -1697,6 +1697,8 @@ export async function update(ctx: Ctx, p: Record<string, unknown>) {
   const cam = construireCamion(
     { numeroCamion: p['numeroCamion'] as string, conteneurs: p['conteneurs'] as never, scellesCamion: p['scellesCamion'] as never },
     type,
+    true,
+    (await chargerParametres(ctx)).conteneursMaxCamion,
   );
   const cargo = await getCargo(ctx, id);
   const c = cargo.o;
