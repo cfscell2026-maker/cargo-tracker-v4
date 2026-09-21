@@ -1617,11 +1617,6 @@ function ModaleRetirerEngagement({ ligne, onClose, onFait }: { ligne: O; onClose
  * change et qui il concerne, et rappelle sa valeur par défaut. L'administrateur
  * modifie ; les chefs consultent ; les agents n'ont pas ce volet.
  */
-const QUI_FAIT_QUOI: [string, string][] = [
-  ['Administrateur', 'Seul à voir ce volet. Modifie les réglages et peut rétablir leur valeur par défaut. Chaque modification est inscrite au journal, avec l\'ancienne et la nouvelle valeur.'],
-  ['Chefs (brigade, adjoint, visite, division)', 'N\'ont pas ce volet. Les réglages s\'appliquent à leurs écrans : liste et délai des engagements à la signature, alertes du tableau de bord.'],
-  ['Agents (CFS, T1, Balise, Bon de sortie, Porte Principale)', 'N\'ont pas ce volet. Les réglages s\'appliquent d\'eux-mêmes à leur travail (plafond de conteneurs, hauteur hors gabarit…).'],
-];
 const ICONE_GROUPE: Record<string, string> = { Conteneurs: 'conteneur', Engagements: 'sablier', 'Contrôles': 'balance', Affichage: 'tableau' };
 
 SCREENS.parametres = ({ user }) => {
@@ -1659,12 +1654,6 @@ SCREENS.parametres = ({ user }) => {
   return <>
     <BandeauModule icone="reglages" titre="Paramètres"
       sous="Les réglages de l'application. Chacun dit ce qu'il change, qui il concerne, et sa valeur par défaut." />
-    <div className="card">
-      <TitrePanneau icone="utilisateurs">Qui peut faire quoi</TitrePanneau>
-      <div className="param-roles">
-        {QUI_FAIT_QUOI.map(([qui, quoi]) => <div key={qui} className="param-role"><b>{qui}</b><span className="help">{quoi}</span></div>)}
-      </div>
-    </div>
     {!loading && data && !active && <div className="card param-inactif">
       <b>Réglages pas encore activés.</b> La table qui les enregistre n'existe pas encore en base : l'application
       applique les valeurs par défaut ci-dessous, c'est-à-dire exactement son comportement habituel.
