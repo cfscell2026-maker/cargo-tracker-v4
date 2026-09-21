@@ -13,6 +13,10 @@ import { heureCourte, salutation } from './lib/heure.ts';
 import { empiler, vueInitiale, vueCourante, ecranPrecedentDe, allerA, type EtatNav } from './lib/navigation.ts';
 import { SCREENS, BandeauModule } from './screens.tsx';
 import { ContexteNav } from './lib/contexte-nav.ts';
+import { BandeauMiseAJour, BoutonMiseAJour, nettoyerAdresse } from './lib/mise-a-jour.tsx';
+
+// Après un « Mettre à jour », l'adresse porte un paramètre unique : on le retire.
+nettoyerAdresse();
 
 export interface User { username: string; nomComplet: string; role: string }
 export interface Nav {
@@ -211,6 +215,9 @@ export function App() {
               <div className="compte-role">{roleLabel(user.role)}</div>
             </div>
           </div>
+          {/* Recharge à la demande : pour le téléphone resté sur une ancienne
+              version (l'onglet rouvert depuis la mémoire ne recharge rien). */}
+          <BoutonMiseAJour />
           <button onClick={async () => { await supabase.auth.signOut(); setPhase('login'); setUser(null); }}>
             <Icone nom="sortie" />Déconnexion
           </button>
@@ -241,6 +248,7 @@ export function App() {
         {/* La navigation descend par contexte : le bandeau de module s'en sert
             pour son bouton « Retour », sur une vingtaine d'ecrans, sans qu'il
             faille la passer en propriete a chacun d'eux. */}
+        <BandeauMiseAJour />
         <div className="content">
           <ContexteNav.Provider value={navProps}>
             {/* BANDEAU DE SECOURS. Pose pour TOUT ecran, a partir des memes
@@ -587,6 +595,9 @@ function AuthGate({ phase, setPhase, onReady, onApp }: { phase: Phase; setPhase:
        un verre dépoli ne montre rien s'il n'a rien à flouter derrière lui. */
     <main className="ecran-connexion" style={{ maxWidth: 400, margin: '5vh auto 130px', padding: 24 }}>
       <SceneQuai />
+      {/* Aussi à la connexion : un téléphone resté sur une ancienne version y
+          est souvent, et doit pouvoir se mettre à jour avant d'entrer. */}
+      <BandeauMiseAJour />
       <div className="brand-login">
         {/* SUIVI EN MOUVEMENT — 2026-09-11.
             Le logo n'est plus posé seul : il est entouré de ce que fait la

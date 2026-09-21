@@ -691,6 +691,25 @@ tr.clk{cursor:pointer} tr.clk:hover{background:var(--accent-soft)}
   transition:background .12s;
 }
 .side .compte button:hover{background:#ffffff24}
+.side .compte button + button{margin-top:6px}
+
+/* Bandeau « nouvelle version disponible » (lib/mise-a-jour.tsx). Placé sous la
+   barre du haut, pleine largeur : il doit se voir, sans masquer l'écran. */
+.maj-bandeau{
+  display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  margin:10px 16px 0;padding:10px 14px;border-radius:12px;
+  background:var(--accent);color:#fff;font-size:14px;font-weight:500;
+}
+.maj-bandeau span{flex:1;min-width:180px}
+/* À la connexion, le bandeau est dans la colonne étroite : pas de marge latérale. */
+.ecran-connexion .maj-bandeau{margin:0 0 16px;position:relative;z-index:2}
+/* !important : la règle générale des boutons (une chaîne de :not()) pose un
+   dégradé bleu plus spécifique que tout sélecteur raisonnable — sans cela le
+   bouton serait bleu sur le bandeau bleu, texte illisible. */
+.maj-bandeau button{
+  background:#fff !important;color:var(--accent) !important;border:0;border-radius:9px;
+  padding:7px 14px;font-weight:600;
+}
 
 /* Séparateur entre le bloc général et les écrans métier. Un simple filet :
    le regroupement se voit, sans qu'un second intertitre alourdisse la barre. */

@@ -61,3 +61,16 @@
   for = "/assets/*"
   [headers.values]
     Cache-Control = "public, max-age=31536000, immutable"
+
+# --- Mise à jour de l'application (2026-09-21) ---
+# version.json et la page d'entrée ne doivent JAMAIS être servis depuis un
+# cache : c'est par eux qu'un téléphone découvre qu'une nouvelle version existe.
+[[headers]]
+  for = "/version.json"
+  [headers.values]
+    Cache-Control = "no-store"
+
+[[headers]]
+  for = "/index.html"
+  [headers.values]
+    Cache-Control = "no-cache"
