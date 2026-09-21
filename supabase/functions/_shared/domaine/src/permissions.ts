@@ -87,6 +87,11 @@ export const PERMISSIONS: Record<string, Role[]> = {
    * réservé à l'administrateur. Le motif reste obligatoire et ce qui est retiré
    * part au journal : le retrait se relit, il ne s'efface pas. */
   'cargo.engagementretirer': [ROLES.ADMIN],
+  /* PARAMÈTRES (2026-09-21). Lecture : tous les rôles, CBPI compris — l'écran de
+     signature en tire la liste des engagements et le délai proposé. Écriture :
+     l'administrateur seul, chaque modification part au journal. */
+  'params.get': [...TOUS_ROLES, ROLES.CBPI],
+  'params.set': [ROLES.ADMIN],
 
   /* Historique d'UNE cargaison — RGPD-03 : le journal d'audit est aussi un
    * relevé d'activité des agents (« qui a travaillé, quand, à quelle cadence »).

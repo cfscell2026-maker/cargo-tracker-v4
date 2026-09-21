@@ -13,6 +13,7 @@ import * as spe from './speciaux.ts';
 import * as usr from './utilisateurs.ts';
 import * as rap from './rapports.ts';
 import * as entrepot from './entrepots.ts';
+import * as prm from './parametres.ts';
 
 type H = (ctx: Ctx, data: never) => Promise<unknown>;
 const d = <T>(fn: (ctx: Ctx, data: T) => Promise<unknown>): H => fn as H;
@@ -147,6 +148,10 @@ export const ACTIONS: Record<string, H> = {
   'user.resetmfa': d(usr.userResetmfa),
   // 2026-09-11 — suppression d'un compte JAMAIS UTILISÉ (voir `userSupprimer`).
   'user.delete': d(usr.userSupprimer),
+
+  /* ----- Paramètres (2026-09-21) ----- */
+  'params.get': d(prm.paramsGet),
+  'params.set': d(prm.paramsSet),
 
   /* ----- Compte courant ----- */
   'account.me': d((ctx) => Promise.resolve({

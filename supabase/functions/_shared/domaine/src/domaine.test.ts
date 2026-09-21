@@ -485,3 +485,11 @@ test('engagements — corriger : tout l\'encadrement ; RETIRER : administrateur 
   for (const r of [ROLES.CHEF_BRIGADE, ROLES.CHEF_BRIGADE_ADJOINT, ROLES.CHEF_VISITE, ROLES.CHEF_DIVISION, ROLES.CFS, ROLES.BALISE])
     assert.throws(() => verifierPermission(r, 'cargo.engagementretirer'), /Accès refusé/);
 });
+
+test('paramètres : tout le monde les lit, seul l\'administrateur les modifie (2026-09-21)', () => {
+  for (const r of [ROLES.ADMIN, ROLES.CHEF_BRIGADE, ROLES.CBPI, ROLES.CFS, ROLES.PP])
+    assert.doesNotThrow(() => verifierPermission(r, 'params.get'));
+  assert.doesNotThrow(() => verifierPermission(ROLES.ADMIN, 'params.set'));
+  for (const r of [ROLES.CHEF_BRIGADE, ROLES.CHEF_DIVISION, ROLES.CBPI, ROLES.CFS])
+    assert.throws(() => verifierPermission(r, 'params.set'), /Accès refusé/);
+});

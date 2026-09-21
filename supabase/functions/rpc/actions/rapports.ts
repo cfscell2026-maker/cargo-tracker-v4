@@ -7,13 +7,13 @@
  * ============================================================================
  */
 import type { Ctx } from '../ctx.ts';
+import { chargerParametres } from './parametres.ts';
 import { versCamel } from '../ctx.ts';
 // ⚠ xlsx (SheetJS) est importé PARESSEUSEMENT dans xlsxBase64 : son chargement
 // au niveau module fait planter le démarrage de l'Edge Function (Deno) →
 // BOOT_ERROR / 503 sur toutes les requêtes. Chargé seulement lors d'un export.
 import {
-  ROLES, STATUTS, OPERATIONS, DEFAUTS, DESTINATION_CODES, codeDestination, TRANCHES_SEJOUR, SEUIL_ALERTE_SEJOUR,
-  tailleBucket, evpDeTaille, trancheAge, parseConteneursDetails, estOui, aFait, normAlphaNum,
+  ROLES, STATUTS, OPERATIONS, DEFAUTS, DESTINATION_CODES, codeDestination, TRANCHES_SEJOUR, tailleBucket, evpDeTaille, trancheAge, parseConteneursDetails, estOui, aFait, normAlphaNum,
   groupesDeclaration, estChargementMixte, libelleDeclaration,
   etapesEnAttente, fileAttente, etatCellules, estDispenseBalise,
   // v4.2 — temps de passage par poste
@@ -1232,6 +1232,8 @@ export async function rapportFluxDetail(ctx: Ctx, p: Record<string, unknown>) {
 /* ======================== Séjour & instance (dwell) =================== */
 
 export async function rapportSejour(ctx: Ctx, p: Record<string, unknown>) {
+  // Seuil d'alerte : réglage du volet Paramètres (90 jours par défaut).
+  const seuilSejour = (await chargerParametres(ctx)).sejourAlerteJours;
   const cargos = await loadCargos(ctx);
   const now = new Date();
   const dist: Record<string, { tranche: string; instance: number; sortis: number }> = {};
@@ -1248,12 +1250,12 @@ export async function rapportSejour(ctx: Ctx, p: Record<string, unknown>) {
     } else {
       const j = Math.max(0, Math.floor((now.getTime() - dc.getTime()) / 86400000));
       dist[trancheAge(j)]!.instance++; totInstance++;
-      if (j >= SEUIL_ALERTE_SEJOUR) alerte++;
+      if (j >= seuilSejour) alerte++;
       instance.push({ id: c['id'], numeroCamion: c['numeroCamion'], typeOperation: c['typeOperation'], statut: c['statut'], age: j });
     }
   }
   instance.sort((a, b) => (b['age'] as number) - (a['age'] as number));
-  const data = { compte: { totInstance, totSortis, delaiMoyen: nDelai ? Math.round(sommeDelai / nDelai) : 0, alerte }, tranches: TRANCHES_SEJOUR.map((t) => dist[t]), instance, seuil: SEUIL_ALERTE_SEJOUR };
+  const data = { compte: { totInstance, totSortis, delaiMoyen: nDelai ? Math.round(sommeDelai / nDelai) : 0, alerte }, tranches: TRANCHES_SEJOUR.map((t) => dist[t]), instance, seuil: seuilSejour };
   if (p['format'] === 'xlsx' || p['format'] === 'pdf') {
     const aoa: unknown[][] = [['ID', 'Camion', 'Opération', 'Statut', 'Âge (j)']];
     instance.forEach((r) => aoa.push([r['id'], r['numeroCamion'], r['typeOperation'], r['statut'], r['age']]));
@@ -1263,11 +1265,11 @@ export async function rapportSejour(ctx: Ctx, p: Record<string, unknown>) {
 }
 
 export async function rapportSejourDetail(ctx: Ctx, p: Record<string, unknown>) {
-  const r = await rapportSejour(ctx, {}) as { instance: Record<string, unknown>[] };
+  const r = await rapportSejour(ctx, {}) as { instance: Record<string, unknown>[]; seuil: number };
   const bucket = String(p['bucket'] ?? 'instance');
   const tranche = String(p['tranche'] ?? '');
   let rows = r.instance;
-  if (bucket === 'alerte') rows = rows.filter((x) => (x['age'] as number) >= SEUIL_ALERTE_SEJOUR);
+  if (bucket === 'alerte') rows = rows.filter((x) => (x['age'] as number) >= r.seuil);
   if (tranche) rows = rows.filter((x) => trancheAge(x['age'] as number) === tranche);
   return { titre: bucket + (tranche ? ' · ' + tranche : ''), rows };
 }

@@ -6,6 +6,7 @@
  * ============================================================================
  */
 import type { Ctx } from '../ctx.ts';
+import { chargerParametres } from './parametres.ts';
 import { versCamel } from '../ctx.ts';
 import { fetchAll } from './helpers.ts';
 import {
@@ -589,13 +590,15 @@ export async function engagementsDus(ctx: Ctx, p: { filtre?: string } = {}) {
     .order('engagement_delai', { ascending: true });
   if (error) throw new Error(error.message);
 
+  // Fenêtre d'alerte : réglage du volet Paramètres (la veille par défaut).
+  const alerteJours = (await chargerParametres(ctx)).engagementAlerteJours;
   const garde = (o: Record<string, unknown>) => {
     const { etat } = etatEngagement(o['engagementDelai'], o['engagementEffectueLe']);
     if (filtre === 'tous') return true;
     if (filtre === 'solde') return etat === 'solde';
     if (filtre === 'retard') return etat === 'retard';
     if (filtre === 'encours') return etat !== 'solde';
-    return engagementAlerte(o['engagementDelai'], o['engagementEffectueLe']); // 'alerte' (défaut)
+    return engagementAlerte(o['engagementDelai'], o['engagementEffectueLe'], undefined, alerteJours); // 'alerte' (défaut)
   };
   const toutes = (data ?? []).map((r) => versCamel(r as unknown as Record<string, unknown>));
   // Compteurs GLOBAUX : ce que le volet affiche en haut, et que le filtre ne doit
@@ -668,7 +671,8 @@ function seuilArchive(mois = 12): string {
  * est exactement le défaut relevé en GOV-05. On ne remonte que la page affichée.
  */
 export async function archiveAncienne(ctx: Ctx, p: Record<string, unknown>) {
-  const mois = Math.max(1, Number(p['mois'] ?? 12));
+  // Ancienneté par défaut : réglage du volet Paramètres (12 mois).
+  const mois = Math.max(1, Number(p['mois'] ?? (await chargerParametres(ctx)).archiveMois));
   const seuil = seuilArchive(mois);
   const page = Math.max(1, Number(p['page'] ?? 1));
   const pageSize = Math.min(200, Math.max(10, Number(p['pageSize'] ?? 50)));

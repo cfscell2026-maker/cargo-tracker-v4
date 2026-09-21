@@ -2776,3 +2776,18 @@ button.modal-fermer:focus-visible{outline:2px solid #0e5a8a;outline-offset:2px}
    vert et rouge ÉCLAIRCIS, sans quoi ils se perdraient sur le fond sombre. */
 .leg-arrivee{color:#9ff0c4;font-weight:700;white-space:nowrap}
 .leg-depart{color:#ffb3a7;font-weight:700;white-space:nowrap}
+
+/* ---- VOLET PARAMÈTRES (2026-09-21) ---- */
+.param-roles{display:grid;gap:8px}
+.param-role{display:grid;grid-template-columns:minmax(160px,260px) 1fr;gap:10px;align-items:baseline}
+@media (max-width:820px){.param-role{grid-template-columns:1fr;gap:2px}}
+.param-ligne{padding:12px 0;border-top:1px solid var(--line)}
+.param-ligne:first-of-type{border-top:0}
+.param-modifie{background:rgba(14,90,138,.05);border-radius:10px;padding-left:8px;padding-right:8px}
+.param-tete{display:flex;align-items:center;gap:8px}
+.param-badge{font-size:11px;font-weight:600;color:#0e5a8a;background:rgba(14,90,138,.10);border-radius:999px;padding:1px 8px}
+.param-aide{margin:4px 0 2px}
+.param-concerne{margin:0 0 6px;font-style:italic}
+.param-saisie{gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:4px}
+.param-saisie textarea{max-width:420px;width:100%}
+.param-inactif{border-left:4px solid var(--warn)}

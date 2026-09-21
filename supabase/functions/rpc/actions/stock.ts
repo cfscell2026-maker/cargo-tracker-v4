@@ -6,10 +6,10 @@
  * ============================================================================
  */
 import type { Ctx } from '../ctx.ts';
+import { chargerParametres } from './parametres.ts';
 import { versCamel, ErreurMetier } from '../ctx.ts';
 import {
-  STOCK_STATUTS, ANNONCE_STATUTS, STATUTS, TRANCHES_SEJOUR, SEUIL_ALERTE_SEJOUR,
-  tailleBucket, evpDeTaille, trancheAge, tcValide, maj, txt, parseDateImport,
+  STOCK_STATUTS, ANNONCE_STATUTS, STATUTS, TRANCHES_SEJOUR, tailleBucket, evpDeTaille, trancheAge, tcValide, maj, txt, parseDateImport,
 } from '../../_shared/domaine/src/index.ts';
 
 /** Cargaison sortie de l'enceinte : ne rend plus un conteneur indisponible. */
@@ -510,6 +510,8 @@ export async function annonceConfirmerLot(ctx: Ctx, p: Record<string, unknown>) 
 /* ----------------------- report.stock (séjour conteneurs) -------------- */
 
 export async function rapportStock(ctx: Ctx) {
+  // Seuil d'alerte de séjour : réglage du volet Paramètres (90 jours par défaut).
+  const seuilSejour = (await chargerParametres(ctx)).sejourAlerteJours;
   const data = await fetchAll(ctx, 'stock', '*');
   const now = new Date();
   const dist: Record<string, { tranche: string; n: number }> = {};
@@ -529,12 +531,12 @@ export async function rapportStock(ctx: Ctx) {
     if (o['statut'] === STOCK_STATUTS.DEPOTE) continue;
     const j = o['dateEntree'] ? jours(new Date(String(o['dateEntree'])), now) : Number(o['nbSejoursImport'] || 0) || 0;
     dist[trancheAge(j)]!.n++; sommeJ += j; nJ++;
-    if (j >= SEUIL_ALERTE_SEJOUR) compte.alerte++;
+    if (j >= seuilSejour) compte.alerte++;
     instance.push({ numeroTC: o['numeroTc'], taille: o['taille'], statut: o['statut'], provenance: o['provenance'], joursSejour: j });
   }
   compte.sejourMoyen = nJ ? Math.round(sommeJ / nJ) : 0;
   instance.sort((a, b) => (b as { joursSejour: number }).joursSejour - (a as { joursSejour: number }).joursSejour);
-  return { compte, tranches: TRANCHES_SEJOUR.map((t) => dist[t]), instance, seuil: SEUIL_ALERTE_SEJOUR };
+  return { compte, tranches: TRANCHES_SEJOUR.map((t) => dist[t]), instance, seuil: seuilSejour };
 }
 
 

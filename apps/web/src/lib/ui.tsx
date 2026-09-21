@@ -11,7 +11,7 @@ import { Icone } from './icones.tsx';
 import type { Variation } from './periode.ts';
 
 type O = Record<string, unknown>;
-import { ROLE_LABELS, STATUTS, DESTINATIONS, DESTINATION_CODES, ENGAGEMENTS, dateDansNJours, camionValide } from '../../../../supabase/functions/_shared/domaine/src/index.ts';
+import { ROLE_LABELS, STATUTS, DESTINATIONS, DESTINATION_CODES, dateDansNJours, camionValide, valeursParametres, type ValeursParametres } from '../../../../supabase/functions/_shared/domaine/src/index.ts';
 
 // Menus et découpage : extraits dans menu.ts (données pures, testables).
 export { MENUS, menuSections, type MenuItem } from './menu.ts';
@@ -26,6 +26,7 @@ export const TITLES: Record<string, string> = {
   gps: 'Cellule Balise', wait_gps: 'En attente Balise', bonsortie: 'Cellule Bon de Sortie', wait_bs: 'En attente Bon de Sortie',
   sortie: 'Sortie (checklist PP)', wait_sortie: 'En attente de sortie', history: 'Historique', users: 'Utilisateurs',
   engagements: 'Engagements — suivi et régularisation',
+  parametres: 'Paramètres de l\'application',
   account: 'Mon compte', detail: 'Détail cargaison', cfsreport: 'Rapport CFS', vehreport: 'Rapport véhicules',
   baliserep: 'Rapport Balise', pprep: 'Rapport PP', flux: 'Analyse des flux', dwell: 'Délai & camions en instance',
   t1report: 'Rapport T1 (T1 saisis)', bonsortiereport: 'Rapport Bon de sortie (bons émis)',
@@ -432,6 +433,16 @@ export function ChampDestination({ value, onChange }: { value: string; onChange:
  * (`engagementPatch`), qui refuse une validation incomplète même appelée
  * directement par l'API, sans passer par cette interface.
  */
+/**
+ * RÉGLAGES EN VIGUEUR (volet Paramètres, 2026-09-21). Tant qu'ils ne sont pas
+ * chargés — ou si le serveur ne répond pas — ce sont les DÉFAUTS, c'est-à-dire
+ * le comportement d'avant : un réglage indisponible ne bloque jamais un écran.
+ */
+export function useParametres(): ValeursParametres {
+  const { data } = useAsync<O>(() => call<O>('params.get').catch(() => ({} as O)), []);
+  return valeursParametres((data?.['valeurs'] as Record<string, unknown>) ?? {});
+}
+
 export function useSuiviEngagement() {
   const [suivi, setSuivi] = useState<'' | 'oui' | 'non'>('');
   const [choix, setChoix] = useState('');
@@ -446,7 +457,12 @@ export function useSuiviEngagement() {
    * raisonne en délai (« sous 5 jours »), pas en date de calendrier. Le logiciel
    * convertit à compter du jour de la saisie, et affiche la date obtenue — pour
    * que ce qui sera enregistré reste sous les yeux, sans surprise. */
+  const params = useParametres();
   const [jours, setJours] = useState('');
+  // Délai proposé par les Paramètres (2026-09-21) : pré-rempli, toujours modifiable.
+  useEffect(() => {
+    if (params.engagementDelaiDefaut > 0) setJours((j) => j || String(params.engagementDelaiDefaut));
+  }, [params.engagementDelaiDefaut]);
   const delai = dateDansNJours(jours);
 
   const valeur = choix === 'autre' ? libre.trim() : choix;
@@ -473,7 +489,7 @@ export function useSuiviEngagement() {
           <label className="help">Engagement</label>
           <select value={choix} onChange={(e) => setChoix(e.target.value)}>
             <option value="">— Choisir —</option>
-            {ENGAGEMENTS.map((e) => <option key={e} value={e}>{e}</option>)}
+            {params.engagementsProposes.map((e) => <option key={e} value={e}>{e}</option>)}
             <option value="autre">Autre (saisie libre)…</option>
           </select>
         </div>

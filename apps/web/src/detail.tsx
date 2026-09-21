@@ -6,10 +6,10 @@ import { useEffect, useState } from 'react';
 import { call } from './lib/rpc.ts';
 import { useAsync } from './lib/hooks.ts';
 import { Icone } from './lib/icones.tsx';
-import { Spinner, Tag, masks, toast, fmtDate, BoutonRetour, ChampDestination, useSuiviEngagement, ChampCamion, roleLabel, ChoixSegmente, BoutonBascule } from './lib/ui.tsx';
+import { useParametres, Spinner, Tag, masks, toast, fmtDate, BoutonRetour, ChampDestination, useSuiviEngagement, ChampCamion, roleLabel, ChoixSegmente, BoutonBascule } from './lib/ui.tsx';
 import type { Nav } from './App.tsx';
 import {
-  STATUTS, OPERATIONS, ROLES, TYPES_DECLARATION, ETATS_SORTIE, ENGAGEMENTS, dateDansNJours,
+  STATUTS, OPERATIONS, ROLES, TYPES_DECLARATION, ETATS_SORTIE, dateDansNJours,
   etapesEnAttente, estOui, tcValide, parseConteneursDetails, tailleBucket,
   groupesDeclaration, libelleDeclaration, estTypeSansT1, libelleTypeSansT1, exigeControlePoids,
 } from '../../../supabase/functions/_shared/domaine/src/index.ts';
@@ -1254,6 +1254,7 @@ function PanneauBSEdit({ c, action }: { c: O; action: ActionFn }) {
  */
 function PanneauEngagementEdit({ c, action, admin }: { c: O; action: ActionFn; admin: boolean }) {
   const id = c['id'] as string;
+  const { engagementsProposes } = useParametres(); // liste réglable (Paramètres)
   const [type, setType] = useState((c['engagementType'] as string) || '');
   const [jours, setJours] = useState('');
   const [motif, setMotif] = useState('');
@@ -1287,8 +1288,8 @@ function PanneauEngagementEdit({ c, action, admin }: { c: O; action: ActionFn; a
     </p>
     <label className="help">Engagement</label>
     <select value={type} onChange={(e) => setType(e.target.value)}>
-      {!ENGAGEMENTS.includes(type as never) && type && <option value={type}>{type} (actuel)</option>}
-      {ENGAGEMENTS.map((e) => <option key={e} value={e}>{e}</option>)}
+      {!engagementsProposes.includes(type) && type && <option value={type}>{type} (actuel)</option>}
+      {engagementsProposes.map((e) => <option key={e} value={e}>{e}</option>)}
     </select>
     <label className="help" style={{ marginTop: 6 }}>Nouveau délai en jours (laisser vide pour conserver l'échéance)</label>
     <div className="row" style={{ alignItems: 'center', gap: 8 }}>
