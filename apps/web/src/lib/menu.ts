@@ -108,9 +108,9 @@ export const MENUS: Record<string, MenuItem[]> = {
     ['flux', 'Analyse des flux', 'flux'], ['destinations', 'Par destination', 'carte'],
     ['controles', 'Contrôles (gabarit/surcharge)', 'balance'], ['dwell', 'Délai & instance', 'horloge'],
     ['stockdwell', 'Séjour conteneurs', 'horloge'], ['temps', 'Temps de passage', 'sablier'],
-    ['horodatage', 'Heures d\'activité', 'horloge'], ['goulots', 'Nettoyage (goulots)', 'nettoyage'],
+    ['horodatage', 'Heures d\'activité', 'horloge'], ['goulots', 'Nettoyage (goulots)', 'nettoyage'], ['parametres', 'Paramètres', 'reglages'],
     ['archive', 'Archive (+1 an)', 'archive'], ['history', 'Historique', 'historique'],
-    ['users', 'Utilisateurs', 'utilisateurs'], ['parametres', 'Paramètres', 'reglages'], ['account', 'Mon compte', 'compte'],
+    ['users', 'Utilisateurs', 'utilisateurs'], ['account', 'Mon compte', 'compte'],
   ],
 };
 
