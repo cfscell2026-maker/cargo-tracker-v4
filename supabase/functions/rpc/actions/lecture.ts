@@ -417,7 +417,7 @@ export async function dashboardStats(ctx: Ctx, opts: { du?: string; au?: string 
     return true;
   };
 
-  for (const k of [...ORDRE_FILES, 'VEHICULES']) stats.flux[k] = { entres: 0, sortis: 0 };
+  for (const k of [...ORDRE_FILES, 'VEHICULES', 'ENGAGEMENTS']) stats.flux[k] = { entres: 0, sortis: 0 };
   const dansPeriodeMs = (t: number | null): boolean =>
     t !== null && (!du || t >= du.getTime()) && (!auEx || t < auEx.getTime());
 
@@ -461,6 +461,15 @@ export async function dashboardStats(ctx: Ctx, opts: { du?: string; au?: string 
     }
     stats.total++;
     if (r['suiviEngagement'] === true && !aFait(r['engagementEffectueLe'])) stats.engagementsEnCours++;
+    /* ARRIVÉES / DÉPARTS DES ENGAGEMENTS sur la période (2026-09-21, demande
+       utilisateur) — mêmes indicateurs que les tuiles d'étape. Un engagement
+       ARRIVE à la signature du chef de brigade, qui le pose ; il PART quand il
+       est marqué « Effectué ». Un retrait efface ses dates : il ne compte ni
+       dans l'un ni dans l'autre, ce qui est juste — il n'a pas eu lieu. */
+    if (r['suiviEngagement'] === true) {
+      if (dansPeriode(r['dateValidation'])) stats.flux['ENGAGEMENTS']!.entres++;
+      if (dansPeriode(r['engagementEffectueLe'])) stats.flux['ENGAGEMENTS']!.sortis++;
+    }
     const passages = passagesDesFiles({ ...r, dateFinChargement: finsChargement.get(String(r['id'])) } as never);
     for (const k of ORDRE_FILES) {
       const ps = passages[k];

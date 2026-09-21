@@ -2942,3 +2942,25 @@ test('engagements — compteurs : le total baisse quand un engagement est soldé
   assert.equal(await dash(), 1);
   assert.deepEqual(await volet(), { encours: 1, soldes: 1, total: 2 });
 });
+
+test('tableau de bord — arrivées / départs des engagements sur la période (2026-09-21)', async () => {
+  const db = new FakeDB();
+  const chef = ctxRole(db, 'CHEF_BRIGADE', 'Chef Brigade');
+  const j = new Date();
+  const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const aujourdhui = iso(j);
+  const ilYA10j = new Date(j.getTime() - 10 * 86400000).toISOString();
+  // Deux engagements signés aujourd'hui, un signé il y a 10 jours.
+  cargoEngage(db, 'F-1', { date_validation: j.toISOString() });
+  cargoEngage(db, 'F-2', { date_validation: j.toISOString() });
+  cargoEngage(db, 'F-3', { date_validation: ilYA10j });
+  const flux = async () => ((await lec.dashboardStats(chef, { du: aujourdhui, au: aujourdhui })) as { flux: Record<string, { entres: number; sortis: number }> }).flux['ENGAGEMENTS'];
+
+  assert.deepEqual(await flux(), { entres: 2, sortis: 0 }, 'deux engagements posés aujourd\'hui');
+  // Solder aujourd'hui l'engagement ancien : un départ, aucune arrivée de plus.
+  await ecr.engagementFait(chef, { id: 'F-3' });
+  assert.deepEqual(await flux(), { entres: 2, sortis: 1 });
+  // Un retrait efface l'engagement : il ne compte plus comme arrivé.
+  await ecr.engagementRetirer(ctxRole(db, 'ADMIN', 'Admin'), { id: 'F-1', motif: 'coche par erreur' });
+  assert.deepEqual(await flux(), { entres: 1, sortis: 1 });
+});

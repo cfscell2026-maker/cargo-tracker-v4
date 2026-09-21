@@ -689,7 +689,8 @@ SCREENS.dash = (nav) => {
       {/* ENGAGEMENTS (2026-09-17, demande utilisateur) : ce qui reste à transmettre.
           Le clic ouvre le volet, trié par échéance — le plus urgent en tête. */}
       <StatCard n={Number(s['engagementsEnCours'] ?? 0)} l="Engagements en cours"
-        onClick={() => nav.go('engagements')} icone="sablier" />
+        onClick={() => nav.go('engagements')} icone="sablier"
+        comparable={!!flux('ENGAGEMENTS')} repartition={rep('ENGAGEMENTS')} />
     </div></div>}
     {/* Neuf tuiles disent COMBIEN, aucune ne dit OÙ ÇA BLOQUE : c'est pourtant
         la première question d'un chef le matin. Le classement des files répond
