@@ -132,7 +132,8 @@ export const MENUS: Record<string, MenuItem[]> = {
  * ====================================================================== */
 
 /** Écrans du bloc général, DANS L'ORDRE d'affichage voulu. */
-const ECRANS_GENERAUX = ['dash', 'users', 'history', 'archive', 'goulots', 'account'] as const;
+// 2026-09-21 : « Paramètres » juste après « Nettoyage » (demande utilisateur).
+const ECRANS_GENERAUX = ['dash', 'users', 'history', 'archive', 'goulots', 'parametres', 'account'] as const;
 
 export function menuSections(role: string): { general: MenuItem[]; navigation: MenuItem[] } {
   const menu = MENUS[role] ?? [];
