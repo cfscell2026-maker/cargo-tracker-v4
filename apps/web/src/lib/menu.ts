@@ -50,13 +50,13 @@ export const MENUS: Record<string, MenuItem[]> = {
     ['dispenses', 'Dispenses', 'drapeau'],
     ['flux', 'Analyse des flux', 'flux'], ['destinations', 'Par destination', 'carte'], ['controles', 'Contrôles (gabarit/surcharge)', 'balance'],
     ['dwell', 'Délai & instance', 'horloge'], ['stockdwell', 'Séjour conteneurs', 'horloge'], ['temps', 'Temps de passage', 'sablier'],
-    ['horodatage', 'Heures d\'activité', 'horloge'], ['parametres', 'Paramètres', 'reglages'], ['account', 'Mon compte', 'compte'],
+    ['horodatage', 'Heures d\'activité', 'horloge'], ['account', 'Mon compte', 'compte'],
   ],
   CHEF_BRIGADE_ADJOINT: [
     ['engagements', 'Engagements', 'sablier'],
     ['search', 'Recherche (en cours)', 'loupe'], ['list', 'Cargaisons', 'liste'], ['vehicules', 'Véhicules', 'voiture'],
     ['controles', 'Contrôles (gabarit/surcharge)', 'balance'], ['temps', 'Temps de passage', 'sablier'],
-    ['horodatage', 'Heures d\'activité', 'horloge'], ['parametres', 'Paramètres', 'reglages'], ['account', 'Mon compte', 'compte'],
+    ['horodatage', 'Heures d\'activité', 'horloge'], ['account', 'Mon compte', 'compte'],
   ],
   // CBPI — chef brigade par intérim : UNIQUEMENT la file « À valider » (+ son
   // compte). Aucun autre écran : c'est une délégation de signature, rien d'autre.
@@ -65,13 +65,13 @@ export const MENUS: Record<string, MenuItem[]> = {
     ['dash', 'Tableau de bord', 'tableau'], ['engagements', 'Engagements', 'sablier'],
     ['search', 'Recherche (en cours)', 'loupe'], ['list', 'Cargaisons', 'liste'],
     ['vehicules', 'Véhicules', 'voiture'], ['controles', 'Contrôles (gabarit/surcharge)', 'balance'],
-    ['temps', 'Temps de passage', 'sablier'], ['horodatage', 'Heures d\'activité', 'horloge'], ['parametres', 'Paramètres', 'reglages'], ['account', 'Mon compte', 'compte'],
+    ['temps', 'Temps de passage', 'sablier'], ['horodatage', 'Heures d\'activité', 'horloge'], ['account', 'Mon compte', 'compte'],
   ],
   CHEF_DIVISION: [
     ['dash', 'Tableau de bord', 'tableau'], ['engagements', 'Engagements', 'sablier'],
     ['search', 'Recherche (en cours)', 'loupe'], ['list', 'Cargaisons', 'liste'],
     ['vehicules', 'Véhicules', 'voiture'], ['controles', 'Contrôles (gabarit/surcharge)', 'balance'],
-    ['temps', 'Temps de passage', 'sablier'], ['horodatage', 'Heures d\'activité', 'horloge'], ['parametres', 'Paramètres', 'reglages'], ['account', 'Mon compte', 'compte'],
+    ['temps', 'Temps de passage', 'sablier'], ['horodatage', 'Heures d\'activité', 'horloge'], ['account', 'Mon compte', 'compte'],
   ],
   T1: [
     ['t1', 'Cellule T1', 't1'], ['wait_t1', 'En attente T1', 'attente'], ['search', 'Recherche (en cours)', 'loupe'],
