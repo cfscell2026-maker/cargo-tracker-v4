@@ -928,11 +928,11 @@ function PanneauBalise({ c, action }: { c: O; action: ActionFn }) {
     <div className="segmente">
       <BoutonBascule actif={t1ok} onChange={setT1ok} libelle="Numéro T1 correct" icone="document" />
     </div>
-    <ChoixSegmente libelle="Pose balise ou dispense" valeur={pose}
-      options={[{ valeur: 'pose', libelle: 'Pose balise', icone: 'balise' },
+    <ChoixSegmente libelle="Baliser ou dispenser" valeur={pose}
+      options={[{ valeur: 'pose', libelle: 'Baliser', icone: 'balise' },
         { valeur: 'dispense', libelle: 'Dispense', icone: 'drapeau' }]}
       onChange={(v) => setPose(v as '' | 'pose' | 'dispense')} />
-    {pose === '' ? <p className="help">Choisissez <b>Pose balise</b> ou <b>Dispense</b> pour continuer.</p>
+    {pose === '' ? <p className="help">Choisissez <b>Baliser</b> ou <b>Dispense</b> pour continuer.</p>
       : requise ? <Champ label="N° balise GPS" value={gps} onChange={(e) => setGps(e.target.value)} />
         : <Champ label="N° autorisation de dispense" value={disp} onChange={(e) => setDisp(masks.upper(e.target.value))} />}
     <div style={{ marginTop: 12 }}><button disabled={pose === ''}
