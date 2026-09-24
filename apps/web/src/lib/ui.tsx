@@ -17,24 +17,25 @@ import { ROLE_LABELS, STATUTS, DESTINATIONS, DESTINATION_CODES, dateDansNJours, 
 export { MENUS, menuSections, type MenuItem } from './menu.ts';
 
 export const TITLES: Record<string, string> = {
-  dash: 'Tableau de bord', new: 'Nouveau rapport', list: 'Cargaisons', search: 'Recherche — cargaisons en cours',
+  dash: 'Tableau de bord', new: 'Nouveau rapport', list: 'Cargaisons', search: 'Recherche : cargaisons en cours',
   creercamion: 'Créer un camion (entrée)',
   completer: 'Saisir / compléter les camions', stockjour: 'Stock CFS journalier',
   depotstats: 'Statistiques de dépotage',
-  wait_valid: 'À valider — chef brigade', etatcfs: 'Pointage des camions à la sortie', t1: 'Cellule T1', wait_cfs: 'En cours au CFS', wait_t1: 'En attente T1',
-  chargement: 'Bon de chargement — par déclaration',
+  wait_valid: 'À valider : chef brigade', etatcfs: 'Pointage des camions à la sortie', t1: 'Cellule T1', wait_cfs: 'En cours au CFS', wait_t1: 'En attente T1',
+  chargement: 'Bon de chargement : par déclaration',
   gps: 'Cellule Balise', wait_gps: 'En attente Balise', bonsortie: 'Cellule Bon de Sortie', wait_bs: 'En attente Bon de Sortie',
   sortie: 'Sortie (checklist PP)', wait_sortie: 'En attente de sortie', history: 'Historique', users: 'Utilisateurs',
-  engagements: 'Engagements — suivi et régularisation',
+  engagements: 'Engagements : suivi et régularisation',
+  parking: 'Parking : camions présents, pointés chaque jour',
   parametres: 'Paramètres de l\'application',
   account: 'Mon compte', detail: 'Détail cargaison', cfsreport: 'Rapport CFS', vehreport: 'Rapport véhicules',
   baliserep: 'Rapport Balise', pprep: 'Rapport PP', flux: 'Analyse des flux', dwell: 'Délai & camions en instance',
   t1report: 'Rapport T1 (T1 saisis)', bonsortiereport: 'Rapport Bon de sortie (bons émis)',
   horodatage: "Plage d'activité par cellule",
-  goulots: 'Nettoyage — vieux dossiers (goulots)',
-  archive: "Archive — dossiers de plus d'un an",
-  vehicules: 'Véhicules', stock: 'Stock conteneurs', pointage: 'Pointage matinal', import: 'Stock initial — import',
-  magasin: 'Entrée Magasin / MAD', importannonce: 'Annonce de transfert — import', annonce: 'Stock annoncé',
+  goulots: 'Nettoyage : vieux dossiers (goulots)',
+  archive: "Archive : dossiers de plus d'un an",
+  vehicules: 'Véhicules', stock: 'Stock conteneurs', pointage: 'Pointage matinal', import: 'Stock initial : import',
+  magasin: 'Entrée Magasin / MAD', importannonce: 'Annonce de transfert : import', annonce: 'Stock annoncé',
   pointentree: 'Pointage entrée (stock annoncé)', confentree: "Confirmer l'entrée au stock (annoncé)",
   kpi: 'KPI / EVP', dispenses: 'Suivi des dispenses', stockdwell: 'Séjour & instances conteneurs',
   temps: 'Temps de passage par poste',
@@ -53,9 +54,9 @@ export const roleLabel = (r: string) => ROLE_LABELS[r] ?? r;
  * ailleurs. `secours` sert quand la pile est vide (entrée directe sur l'écran).
  */
 /**
- * Bouton de retour — COURT (2026-09-11, demande utilisateur).
+ * Bouton de retour, COURT (2026-09-11, demande utilisateur).
  *
- * Il affichait « ← Retour — Saisir / compléter les camions » : une barre de
+ * Il affichait « ← Retour, Saisir / compléter les camions » : une barre de
  * 312 px en tête de fiche, dont l'essentiel répétait un écran qu'on vient de
  * quitter. Il ne dit plus que « Retour ».
  *
@@ -67,7 +68,7 @@ export function BoutonRetour({ retour, ecranPrecedent, secours }: {
   retour: () => void; ecranPrecedent: string | null; secours?: () => void;
 }) {
   const cible = ecranPrecedent ? TITLES[ecranPrecedent] : null;
-  const ou = cible ? `Retour — ${cible}` : 'Retour';
+  const ou = cible ? `Retour, ${cible}` : 'Retour';
   return <button className="ghost btn-retour" title={ou} aria-label={ou}
     onClick={() => (ecranPrecedent ? retour() : secours?.())}>
     <Icone nom="fleche" taille={16} />Retour
@@ -101,7 +102,7 @@ export function Tag({ statut, o }: { statut: string; o?: Record<string, unknown>
 /* --------------------------- Masques de saisie ------------------------- */
 export const masks = {
   upper: (v: string) => v.toUpperCase(),
-  // 2026-09-12 : même jeu de caractères que `alphaNumMaj` côté serveur — les
+  // 2026-09-12 : même jeu de caractères que `alphaNumMaj` côté serveur, les
   // séparateurs usuels d'une plaque sont conservés, les espaces absorbés.
   alnum: (v: string) => v.toUpperCase().replace(/[^A-Z0-9/\\._-]/g, ''),
   tc: (v: string) => {
@@ -113,11 +114,11 @@ export const masks = {
 
 /* ------------------------------ Composants ----------------------------- */
 /**
- * ÉCRAN D'ATTENTE — refait le 2026-09-11 (demande utilisateur).
+ * ÉCRAN D'ATTENTE : refait le 2026-09-11 (demande utilisateur).
  *
  * Le logo de la plateforme, cerclé d'un anneau où court un conteneur. Le
  * mouvement reste DANS LE SUJET : on n'attend pas devant un disque abstrait,
- * on attend qu'une cargaison arrive. Et il dit quelque chose d'utile — tant
+ * on attend qu'une cargaison arrive. Et il dit quelque chose d'utile, tant
  * que le conteneur tourne, le serveur travaille.
  *
  * Ludique mais sobre : un tour en 1,4 s, une respiration lente du logo. Cet
@@ -191,15 +192,15 @@ export function Spinner() {
 /**
  * Tuile de compteur.
  *
- * 2026-09-11 — deux ajouts, tous deux optionnels pour ne rien changer aux
+ * 2026-09-11 : deux ajouts, tous deux optionnels pour ne rien changer aux
  * dizaines d'appels existants :
  *
- *  · `variation` — la flèche de hausse ou de baisse face à la période
+ *  · `variation`, la flèche de hausse ou de baisse face à la période
  *    précédente. À ne fournir QUE sur un compteur de période : les compteurs
  *    « Attente » sont instantanés, un écart y serait inventé.
  *    `null` (comparaison impossible, période précédente à zéro) affiche
  *    « nouveau » plutôt qu'un pourcentage faux.
- *  · INDICATEUR DE CLIC — un chevron apparaît sur les tuiles cliquables. Rien
+ *  · INDICATEUR DE CLIC : un chevron apparaît sur les tuiles cliquables. Rien
  *    ne distinguait jusqu'ici une tuile qui ouvre un écran d'une tuile qui ne
  *    fait rien ; le curseur seul ne se voit pas sur écran tactile.
  */
@@ -221,24 +222,24 @@ export function StatCard({ n, l, tone, onClick, variation, comparable, etape, pa
    * Sans elle, ces tuiles restaient les seules sans icone.
    */
   icone?: string;
-  /** Étape du parcours — donne sa couleur propre à la tuile (voir `--etape-*`). */
+  /** Étape du parcours, donne sa couleur propre à la tuile (voir `--etape-*`). */
   etape?: string;
   /**
    * PART du total, en pourcentage (2026-09-11).
    *
-   * Réservée aux compteurs INSTANTANÉS — les files d'attente. On leur a
+   * Réservée aux compteurs INSTANTANÉS, les files d'attente. On leur a
    * réclamé une flèche de croissance ; elle serait fausse, puisque le serveur
    * renvoie ces compteurs sans tenir compte de la période (voir
    * `dashboardStats`) : il n'existe aucune valeur antérieure à comparer.
    *
    * La part, elle, se calcule vraiment : « cette file pèse 38 % de tout ce qui
-   * attend ». Elle répond à la même question — où ça coince — avec un chiffre
+   * attend ». Elle répond à la même question (où ça coince) avec un chiffre
    * qui existe.
    */
   part?: number | null;
   /**
    * RÉPARTITION des mouvements de l'étape (2026-09-13, demande utilisateur) :
-   * deux indicateurs du même dessin que l'évolution, sans aucun mot —
+   * deux indicateurs du même dessin que l'évolution, sans aucun mot,
    * ↗ vert suivi de la part des ARRIVÉES, ↘ rouge suivi de la part des DÉPARTS.
    * Les deux font 100 %. Fournie, elle REMPLACE l'indicateur d'évolution.
    */
@@ -400,7 +401,7 @@ export function ToastHost() {
 }
 
 /**
- * v4.1 — Destination de la marchandise en LISTE DÉROULANTE (décision
+ * v4.1, Destination de la marchandise en LISTE DÉROULANTE (décision
  * utilisateur 2026-07-27). Une valeur héritée (texte libre migré) hors liste
  * n'est pas perdue : elle apparaît en tête, marquée « (actuel) ».
  */
@@ -410,7 +411,7 @@ export function ChampDestination({ value, onChange }: { value: string; onChange:
   return <div>
     <label className="help">Destination</label>
     <select value={connue ? v.toUpperCase() : v} onChange={(e) => onChange(e.target.value)}>
-      <option value="">— Choisir —</option>
+      <option value="">Choisir…</option>
       {!connue && v && <option value={v}>{v} (actuel)</option>}
       {DESTINATIONS.map((d) => <option key={d.code} value={d.code}>{d.label}</option>)}
     </select>
@@ -418,11 +419,11 @@ export function ChampDestination({ value, onChange }: { value: string; onChange:
 }
 
 /**
- * SUIVI DES ENGAGEMENTS (2026-09-10) — renseigné par le chef de brigade au
+ * SUIVI DES ENGAGEMENTS (2026-09-10) : renseigné par le chef de brigade au
  * moment de la validation, sur TOUTES les opérations, et BLOQUANT.
  *
  * Fourni comme HOOK plutôt que comme simple composant : la saisie tient en
- * trois états liés, et elle est réclamée à trois endroits — la fiche
+ * trois états liés, et elle est réclamée à trois endroits, la fiche
  * (`PanneauValidation`) et les DEUX écrans de validation en lot. Recopier le
  * bloc trois fois garantissait qu'une correction future n'en atteigne que deux.
  *
@@ -435,7 +436,7 @@ export function ChampDestination({ value, onChange }: { value: string; onChange:
  */
 /**
  * RÉGLAGES EN VIGUEUR (volet Paramètres, 2026-09-21). Tant qu'ils ne sont pas
- * chargés — ou si le serveur ne répond pas — ce sont les DÉFAUTS, c'est-à-dire
+ * chargés (ou si le serveur ne répond pas) ce sont les DÉFAUTS, c'est-à-dire
  * le comportement d'avant : un réglage indisponible ne bloque jamais un écran.
  */
 export function useParametres(): ValeursParametres {
@@ -455,7 +456,7 @@ export function useSuiviEngagement() {
    *
    * Saisi en NOMBRE DE JOURS (décision utilisateur 2026-09-10) : le chef
    * raisonne en délai (« sous 5 jours »), pas en date de calendrier. Le logiciel
-   * convertit à compter du jour de la saisie, et affiche la date obtenue — pour
+   * convertit à compter du jour de la saisie, et affiche la date obtenue, pour
    * que ce qui sera enregistré reste sous les yeux, sans surprise. */
   const params = useParametres();
   const [jours, setJours] = useState('');
@@ -488,13 +489,13 @@ export function useSuiviEngagement() {
         <div className="ch-engagement">
           <label className="help">Engagement</label>
           <select value={choix} onChange={(e) => setChoix(e.target.value)}>
-            <option value="">— Choisir —</option>
+            <option value="">Choisir…</option>
             {params.engagementsProposes.map((e) => <option key={e} value={e}>{e}</option>)}
             <option value="autre">Autre (saisie libre)…</option>
           </select>
         </div>
         <div className="ch-delai">
-          <label className="help">Délai — jours <b>(obligatoire)</b></label>
+          <label className="help">Délai, jours <b>(obligatoire)</b></label>
           <div className="row" style={{ alignItems: 'center', gap: 8 }}>
             <input inputMode="numeric" style={{ maxWidth: 92 }} value={jours}
               onChange={(e) => setJours(e.target.value.replace(/[^0-9]/g, ''))}
@@ -527,7 +528,7 @@ export function useSuiviEngagement() {
 }
 
 /* ==========================================================================
- *  GRAPHIQUES — v4.2
+ *  GRAPHIQUES : v4.2
  *
  *  SVG pur, aucune dépendance, compatible avec la CSP stricte (aucun script
  *  tiers n'est autorisé à s'exécuter : voir netlify.toml). Ce qui interdit
@@ -548,17 +549,17 @@ export function useSuiviEngagement() {
 
 /** Teintes distinctes en clair comme en impression noir et blanc (luminosité étagée). */
 /**
- * PALETTE DES GRAPHIQUES — remplacée le 2026-09-11 après MESURE.
+ * PALETTE DES GRAPHIQUES : remplacée le 2026-09-11 après MESURE.
  *
  * L'ancienne (`#0e5a8a, #1f7a5c, #a5670f, #7b3fa0, #b03060, #2a8fa8, #6b7a1f,
  * #5c6b7a`) échouait à trois contrôles, vérifiés par un validateur de palettes :
  *
- *   · TROIS teintes passaient sous le plancher de chroma — vert, cyan et
+ *   · TROIS teintes passaient sous le plancher de chroma, vert, cyan et
  *     ardoise se lisaient comme du GRIS sur un écran de bureau ;
  *   · la paire ardoise/olive n'était séparée que de ΔE 13,8 en vision NORMALE,
  *     sous le plancher de 15 : deux séries voisines qu'un œil valide ne
  *     distinguait pas ;
- *   · orange et vert tombaient à ΔE 7,8 en simulation protanope — le cas le
+ *   · orange et vert tombaient à ΔE 7,8 en simulation protanope, le cas le
  *     plus fréquent de daltonisme.
  *
  * Celle-ci passe les cinq contrôles (bande de clarté, chroma, séparation en
@@ -575,7 +576,7 @@ const PALETTE = ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4', '#008300
 /**
  * Tracé d'une colonne au BOUT ARRONDI côté donnée et CARRÉ sur la ligne de
  * base. `rx` arrondirait les quatre coins, y compris ceux qui reposent sur
- * l'axe — la barre semblerait alors flotter au lieu de partir du zéro.
+ * l'axe, la barre semblerait alors flotter au lieu de partir du zéro.
  */
 function barreArrondie(bx: number, by: number, bw: number, bh: number): string {
   const r = Math.max(0, Math.min(4, bw / 2, bh));
@@ -614,7 +615,7 @@ function graduations(max: number, cible = 4): number[] {
   return out;
 }
 
-/** Nombre lisible en français : 1 234, 2,5 — jamais 2.5000000001. */
+/** Nombre lisible en français : 1 234, 2,5, jamais 2.5000000001. */
 export const nombreFr = (v: number): string =>
   Number.isInteger(v) ? v.toLocaleString('fr-FR') : v.toLocaleString('fr-FR', { maximumFractionDigits: 2 });
 
@@ -627,7 +628,7 @@ export function Graphique({
   type?: 'barres' | 'barresEmpilees' | 'lignes' | 'aire';
   hauteur?: number;
   ordonnee?: string;
-  /** Mise en forme des valeurs (axe, infobulle) — ex. durées en « 2 h 35 ». */
+  /** Mise en forme des valeurs (axe, infobulle), ex. durées en « 2 h 35 ». */
   format?: (v: number) => string;
   /** Ligne de référence horizontale : objectif de service, moyenne, seuil… */
   repere?: { valeur: number; libelle: string };
@@ -658,14 +659,14 @@ export function Graphique({
   const couleur = (i: number) => series[i]?.couleur ?? PALETTE[i % PALETTE.length]!;
 
   /* Étiquettes de l'axe X : au-delà d'une quinzaine de catégories, elles se
-     chevauchent et deviennent illisibles — on n'en garde qu'une sur N. */
+     chevauchent et deviennent illisibles, on n'en garde qu'une sur N. */
   const saut = Math.ceil(cats.length / 14);
 
   const svgH = H;
   return <div className="graphique">
     <div style={{ position: 'relative', overflowX: 'auto' }}>
       <svg viewBox={`0 0 ${W} ${svgH}`} width="100%" style={{ minWidth: 320, display: 'block' }}
-        role="img" aria-label={`${ordonnee} — ${series.map((s) => s.nom).join(', ')}`}>
+        role="img" aria-label={`${ordonnee}, ${series.map((s) => s.nom).join(', ')}`}>
         <title>{ordonnee}</title>
 
         {/* Grille + axe des ordonnées */}
@@ -713,7 +714,7 @@ export function Graphique({
                   strokeLinejoin="round" strokeLinecap="round" points={seg.map((pt) => `${x(pt.i)},${y(pt.v)}`).join(' ')} />)}
                 {/* Marqueur PLEIN de la couleur de série, cerclé de 2 px de la
                     couleur du fond : c'est cet anneau qui le garde lisible là
-                    où deux courbes se croisent. Rayon 4 minimum — en dessous,
+                    où deux courbes se croisent. Rayon 4 minimum, en dessous,
                     la cible devient trop petite pour être visée. */}
                 {segments.flat().map((pt) => <circle key={pt.i} cx={x(pt.i)} cy={y(pt.v)}
                   r={survol === pt.i ? 5.5 : 4} fill={col} stroke="var(--panel)" strokeWidth={2} />)}
@@ -730,7 +731,7 @@ export function Graphique({
                   cumul += v;
                   if (v <= 0) return null;
                   // L'ÉCART de 2 px se prend sur le HAUT du segment : c'est du
-                  // fond qui sépare, pas un trait dessiné autour — un contour
+                  // fond qui sépare, pas un trait dessiné autour, un contour
                   // ajouterait de l'encre qui n'est pas de la donnée.
                   const sommet = dernier && dernier.i === si;
                   const hs = Math.max(1, hb - (sommet ? 0 : ECART));
@@ -757,7 +758,7 @@ export function Graphique({
               })}</g>;
             })}
 
-        {/* Zones de survol — transparentes, posées en dernier pour capter le pointeur */}
+        {/* Zones de survol, transparentes, posées en dernier pour capter le pointeur */}
         {cats.map((_, i) => <rect key={i} x={mL + bande * i} y={mT} width={bande} height={ih} fill="transparent"
           onMouseEnter={() => setSurvol(i)} onMouseLeave={() => setSurvol(null)} />)}
       </svg>
@@ -768,7 +769,7 @@ export function Graphique({
         left: `calc(${((mL + bande * (survol + 0.5)) / W) * 100}% + ${survol < cats.length / 2 ? 12 : -12}px)`,
         transform: survol < cats.length / 2 ? 'none' : 'translateX(-100%)',
         // Infobulle en VERRE : elle se pose sur le graphique, et on doit
-        // continuer à deviner les barres qu'elle recouvre — un panneau opaque
+        // continuer à deviner les barres qu'elle recouvre, un panneau opaque
         // masquerait précisément la donnée qu'on est en train de lire.
         background: 'rgba(255,255,255,.82)', border: '1px solid rgba(255,255,255,.9)', borderRadius: 12,
         backdropFilter: 'blur(14px) saturate(160%)', WebkitBackdropFilter: 'blur(14px) saturate(160%)',
@@ -813,7 +814,7 @@ export function Graphique({
 }
 
 /**
- * Classement horizontal — la forme juste pour comparer des CATÉGORIES entre
+ * Classement horizontal, la forme juste pour comparer des CATÉGORIES entre
  * elles (destinations, déclarants, postes) plutôt qu'une évolution dans le
  * temps. Les libellés s'y lisent en entier, ce qu'un axe X vertical ne permet
  * jamais, et l'ordre décroissant répond directement à « qui pèse le plus ».
@@ -861,7 +862,7 @@ export function BarresClassees({ lignes, format = nombreFr, total, max = 12, onC
       </div>;
     })}
     {reste.length > 0 && <div className="help">
-      + {reste.length} autre(s) — {format(reste.reduce((s, l) => s + l.valeur, 0))} au total
+      + {reste.length} autre(s), {format(reste.reduce((s, l) => s + l.valeur, 0))} au total
     </div>}
   </div>;
 }
@@ -881,7 +882,7 @@ export function fmtJour(v: unknown): string {
 export { isoDate } from './periode.ts';
 
 /**
- * CHAMP « N° DE CAMION » — format tracteur/remorque imposé (2026-09-10).
+ * CHAMP « N° DE CAMION » : format tracteur/remorque imposé (2026-09-10).
  *
  * Composant unique pour toutes les saisies de plaque. Il existe pour une raison
  * précise : le contrôle serveur (`camionValide`) refuse déjà un format
@@ -889,21 +890,23 @@ export { isoDate } from './periode.ts';
  * long. L'agent perd sa saisie et ne sait pas toujours quel champ reprendre.
  *
  * Ici l'erreur apparaît SOUS LE CHAMP, dès la frappe, avec l'exemple attendu.
- * Le serveur reste l'autorité — cet écran ne fait que dire la même chose plus
+ * Le serveur reste l'autorité, cet écran ne fait que dire la même chose plus
  * tôt et à l'endroit où l'on peut corriger.
  */
-export function ChampCamion({ value, onChange, label = 'N° de camion', style, autoFocus, onBlur, onEnter, excludeId }: {
+export function ChampCamion({ value, onChange, label = 'N° de camion', style, autoFocus, onBlur, onEnter, excludeId, placeholder = 'TG2489BK ou TG2489BK/2725BP' }: {
   value: string;
   onChange: (v: string) => void;
   label?: string;
   style?: React.CSSProperties;
   autoFocus?: boolean;
-  /** Appelé quand l'agent quitte le champ — pour un contrôle de doublon, par exemple. */
+  /** Appelé quand l'agent quitte le champ, pour un contrôle de doublon, par exemple. */
   onBlur?: () => void;
   /** Appelé sur Entrée. Le geste naturel après avoir tapé une plaque. */
   onEnter?: () => void;
   /** Dossier en cours, à écarter des « passages antérieurs » (sinon il s'y annoncerait lui-même). */
   excludeId?: string;
+  /** Texte grisé du champ. Chaîne vide pour n'en afficher aucun (volet Parking). */
+  placeholder?: string;
 }) {
   // On n'alerte pas sur un champ encore vide : l'agent n'a pas fini de taper.
   const invalide = value.trim() !== '' && !camionValide(value);
@@ -911,7 +914,7 @@ export function ChampCamion({ value, onChange, label = 'N° de camion', style, a
     {/* Icône de CAMION dans le libellé (2026-09-11) : ce champ attend une
         plaque, pas un numéro de conteneur. Les deux se saisissent côte à côte
         sur plusieurs écrans, et rien ne les distinguait au premier coup d'œil.
-        `label.help:has(svg)` remet la casse normale — voir styles.css. */}
+        `label.help:has(svg)` remet la casse normale, voir styles.css. */}
     {label ? <label className="help lbl-icone"><Icone nom="camion" taille={14} />{label}</label> : null}
     <input
       className="mono"
@@ -922,22 +925,24 @@ export function ChampCamion({ value, onChange, label = 'N° de camion', style, a
       // Entrée dans un champ de plaque : on déclenche le contrôle plutôt que de
       // laisser le formulaire s'envoyer à moitié rempli.
       onKeyDown={(e) => { if (e.key === 'Enter' && onEnter) { e.preventDefault(); onEnter(); } }}
-      placeholder="TG2489BK ou TG2489BK/2725BP"
+      placeholder={placeholder}
       style={{ ...style, borderColor: invalide ? 'var(--err)' : undefined }}
     />
-    {/* 2026-09-12 — la barre oblique n'est PLUS exigée (décision utilisateur).
+    {/* 2026-09-12 : la barre oblique n'est PLUS exigée (décision utilisateur).
         Tout ce qui se présente au port n'est pas un ensemble : un porteur unique
         doit pouvoir être enregistré. L'aide PROPOSE donc les deux formes au lieu
         d'en imposer une, et l'alerte ne se déclenche plus que sur une saisie
         manifestement avortée. */}
+    {/* UNE LIGNE COURTE, PAS UN PARAGRAPHE (2026-09-24, demande utilisateur).
+        Les deux mentions tenaient sur trois lignes dans une fenêtre étroite et
+        pesaient plus que le champ qu'elles accompagnent. Le format complet
+        reste donné en exemple, mais sans la phrase qui l'entourait. */}
     {invalide
       ? <div className="help" style={{ color: 'var(--err)' }}>
-        Saisie trop courte : indiquez la plaque complète — par exemple{' '}
-        <span className="mono">TG2489BK</span>, ou l'ensemble{' '}
-        <span className="mono">TG2489BK/2725BP</span>.
+        Plaque incomplète (ex. <span className="mono">TG2489BK</span>).
       </div>
-      : <div className="help">Plaque seule, ou tracteur et remorque séparés par « / ».</div>}
-    {/* Antécédents du camion — s'affiche dès que la plaque est complète, sur
+      : <div className="help">Plaque seule ou tracteur/remorque.</div>}
+    {/* Antécédents du camion, s'affiche dès que la plaque est complète, sur
         TOUS les champs de saisie puisque le composant est unique. */}
     <PassagesAnterieurs numeroCamion={value} excludeId={excludeId} />
   </div>;
@@ -946,7 +951,7 @@ export function ChampCamion({ value, onChange, label = 'N° de camion', style, a
 /**
  * PASSAGES ANTÉRIEURS D'UN CAMION (2026-09-10).
  *
- * « Ce camion est-il déjà venu, et quand ? » — la question se pose AU MOMENT où
+ * « Ce camion est-il déjà venu, et quand ? », la question se pose AU MOMENT où
  * l'on saisit la plaque, pas après. C'est ce qui donne son utilité à l'archive :
  * un camion revenu trois ans plus tard doit être reconnu tout de suite.
  *
@@ -955,7 +960,7 @@ export function ChampCamion({ value, onChange, label = 'N° de camion', style, a
  * aller-retour vers Dublin.
  *
  * Le bloc reste DISCRET (une ligne d'information, pas un avertissement) : un
- * camion qui revient est parfaitement normal. Ce n'est pas un doublon — celui-là
+ * camion qui revient est parfaitement normal. Ce n'est pas un doublon, celui-là
  * est signalé à part, et en orange.
  */
 export function PassagesAnterieurs({ numeroCamion, excludeId }: {
@@ -982,7 +987,7 @@ export function PassagesAnterieurs({ numeroCamion, excludeId }: {
   return <div className="help" style={{ marginTop: 4 }}>
     🗄 Ce camion est <b>déjà passé {total} fois</b>.
     {dernier ? <> Dernier passage le <b>{fmtJour(dernier['dateCreation'])}</b>
-      {dernier['typeOperation'] ? <> — {String(dernier['typeOperation'])}</> : null}
+      {dernier['typeOperation'] ? <>, {String(dernier['typeOperation'])}</> : null}
       {dernier['declarant'] ? <>, déclarant {String(dernier['declarant'])}</> : null}
       {' '}(<span className="mono">{String(dernier['id'] ?? '')}</span>).</> : null}
   </div>;

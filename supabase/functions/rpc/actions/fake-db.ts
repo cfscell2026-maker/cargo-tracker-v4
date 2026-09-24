@@ -9,8 +9,8 @@ type Row = Record<string, unknown>;
  *
  * `cargaisons.numero_camion_norm` est un `generated always as (...) stored` :
  * le code applicatif ne l'écrit jamais, la base la calcule. Ce magasin en
- * mémoire l'ignorait, si bien que toute recherche par plaque normalisée — dont
- * l'anti-doublon `camionActif` — ne trouvait rien dans les tests alors qu'elle
+ * mémoire l'ignorait, si bien que toute recherche par plaque normalisée, dont
+ * l'anti-doublon `camionActif`, ne trouvait rien dans les tests alors qu'elle
  * fonctionne en base. Un garde-fou peut ainsi passer pour actif sans l'être.
  */
 function colonnesGenerees(table: string, row: Row): Row {
@@ -29,7 +29,7 @@ function match(row: Row, filters: [string, string, unknown][]): boolean {
     // `is(null)` : en PostgreSQL, une colonne jamais renseignée EST nulle. Dans
     // ce magasin en mémoire, elle est simplement absente de l'objet, donc
     // `undefined`. Les traiter différemment faisait échouer des filtres qui
-    // passent en base — le double doit imiter Postgres, pas JavaScript.
+    // passent en base, le double doit imiter Postgres, pas JavaScript.
     if (op === 'is') return val === null ? (v === null || v === undefined) : v === val;
     if (op === 'in') return Array.isArray(val) && (val as unknown[]).includes(v);
     if (op === 'gte') return String(v) >= String(val);
@@ -37,7 +37,7 @@ function match(row: Row, filters: [string, string, unknown][]): boolean {
     /* `lt` / `gt` ajoutes le 2026-09-12. Ils MANQUAIENT, et leur absence ne se
        voyait pas : le double levait `q.lt is not a function` seulement quand un
        test empruntait enfin ce chemin. Un double qui ne sait pas exprimer ce que
-       le code fait donne une confiance fausse — les bornes de periode
+       le code fait donne une confiance fausse, les bornes de periode
        (`SQL_PERIODE`) n'etaient couvertes par aucun test.
        Une colonne NULL est ecartee, comme en SQL : `null < x` n'est pas vrai. */
     if (op === 'lt') return v !== null && v !== undefined && String(v) < String(val);
@@ -148,7 +148,7 @@ export class FakeDB {
         data = Math.max(0, Number(d['nombre_conteneurs'] || 0) - Number(d['conteneurs_apures']));
       } else data = 0;
     } else if (name === 'fn_apurer_dec') {
-      // 00170 — miroir de fn_apurer_inc : retire p_nb, borné à zéro.
+      // 00170 · miroir de fn_apurer_inc : retire p_nb, borné à zéro.
       const d = this.store['declarations'].find((x) => x['cle'] === args['p_cle']);
       if (d) {
         d['conteneurs_apures'] = Math.max(0, Number(d['conteneurs_apures'] || 0) - Number(args['p_nb']));

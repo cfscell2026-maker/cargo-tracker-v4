@@ -8,7 +8,7 @@
  *
  *  1. Chaque construction dépose `/version.json` (voir vite.config.ts), servi
  *     sans cache (netlify.toml). L'application le relit au démarrage, toutes les
- *     5 minutes et À CHAQUE RETOUR AU PREMIER PLAN — le cas du téléphone qu'on
+ *     5 minutes et À CHAQUE RETOUR AU PREMIER PLAN, le cas du téléphone qu'on
  *     ressort de la poche. Si la version diffère : bandeau « Mettre à jour ».
  *  2. Un bouton permanent « Mettre à jour l'application » (menu latéral) force
  *     le rechargement, même si aucune nouvelle version n'a été détectée.

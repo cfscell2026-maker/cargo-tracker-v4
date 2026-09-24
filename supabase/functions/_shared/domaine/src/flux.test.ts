@@ -1,5 +1,5 @@
 /**
- * Entrées et sorties des files (2026-09-13) — `passagesDesFiles`.
+ * Entrées et sorties des files (2026-09-13), `passagesDesFiles`.
  * L'invariant décisif : sur une période couvrant toute la vie des dossiers,
  * entrées − sorties de chaque file = le nombre de dossiers que `fileAttente` y range.
  */

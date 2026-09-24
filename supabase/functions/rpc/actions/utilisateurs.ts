@@ -7,9 +7,9 @@
  *  Identifiants internes → e-mail technique <username>@agents.cargo-pia.local.
  *
  *  Durcissement du 2026-08-10 :
- *   · SEC-03 — politique de mot de passe (12 caractères, 3 familles) et
+ *   · SEC-03 : politique de mot de passe (12 caractères, 3 familles) et
  *     changement IMPOSÉ à la première connexion après attribution ;
- *   · SEC-09 — cloisonnement entre ADMIN : un administrateur ne peut plus
+ *   · SEC-09 · cloisonnement entre ADMIN : un administrateur ne peut plus
  *     réinitialiser, désactiver ni reclasser un autre administrateur.
  * ============================================================================
  */
@@ -23,7 +23,7 @@ const ROLES_VALIDES = Object.values(ROLES) as string[];
 
 /* ------------------------- SEC-03 · mot de passe ------------------------- */
 
-/** Longueur minimale. 6 auparavant — indéfendable pour des données douanières. */
+/** Longueur minimale. 6 auparavant, indéfendable pour des données douanières. */
 export const MDP_LONGUEUR_MIN = 12;
 
 /**
@@ -68,19 +68,19 @@ export function verifierMotDePasse(pwd: string, username = ''): void {
  * Un ADMIN peut réinitialiser le mot de passe et le 2FA de n'importe qui, puis
  * se connecter sous cette identité et poser une signature de validation, un T1
  * ou une balise. Tant que la cible est un agent de cellule, c'est le prix de
- * l'exploitation courante — et la réinitialisation est tracée, l'agent s'en
+ * l'exploitation courante, et la réinitialisation est tracée, l'agent s'en
  * aperçoit à sa prochaine connexion.
  *
  * Entre ADMIN, en revanche, l'opération est refusée : elle permettrait à un
  * administrateur d'effacer discrètement le contrôle exercé par son pair. La
- * reprise en main d'un compte ADMIN passe par la console Supabase — un autre
+ * reprise en main d'un compte ADMIN passe par la console Supabase, un autre
  * chemin, d'autres droits, une autre trace (voir EXPLOITATION.md).
  */
 function refuserSiAdmin(cible: { role?: unknown; username?: unknown }, operation: string): void {
   if (String(cible.role) === ROLES.ADMIN)
     throw new ErreurMetier(
       `${operation} impossible sur un compte ADMIN (« ${String(cible.username)} »). ` +
-        'Cette opération relève de la console Supabase, avec double contrôle — voir EXPLOITATION.md.',
+        'Cette opération relève de la console Supabase, avec double contrôle, voir EXPLOITATION.md.',
     );
 }
 
@@ -97,7 +97,7 @@ export async function userList(ctx: Ctx) {
     dateCreation: r.date_creation ? new Date(r.date_creation).toISOString().slice(0, 10) : '',
     derniereConnexion: r.derniere_connexion ? new Date(r.derniere_connexion).toISOString().slice(0, 16).replace('T', ' ') : '',
     // Rend visible, dans l'écran d'administration, les comptes encore sur leur
-    // mot de passe d'attribution — c'est exactement la population à risque.
+    // mot de passe d'attribution, c'est exactement la population à risque.
     motDePasseAChanger: r.doit_changer_mdp === true,
   }));
 }
@@ -146,7 +146,7 @@ export async function userUpdate(ctx: Ctx, p: Record<string, unknown>) {
 
   if (p['role'] !== undefined && String(p['role']) !== String(u.role)) {
     if (ROLES_VALIDES.indexOf(String(p['role'])) === -1) throw new ErreurMetier('Rôle invalide.');
-    // SEC-09 — on ne reclasse pas un pair administrateur, ni soi-même.
+    // SEC-09 : on ne reclasse pas un pair administrateur, ni soi-même.
     refuserSiAdmin(u, 'Changement de rôle');
     if (u.id === ctx.session.userId) throw new ErreurMetier('Vous ne pouvez pas changer votre propre rôle.');
     // Promouvoir quelqu'un ADMIN reste possible, mais c'est un acte majeur :
@@ -174,7 +174,7 @@ export async function userToggle(ctx: Ctx, p: Record<string, unknown>) {
   if (u.username.toLowerCase() === ctx.session.username.toLowerCase())
     throw new ErreurMetier('Vous ne pouvez pas désactiver votre propre compte.');
   const nouveau = !u.actif;
-  // SEC-09 — désactiver un pair administrateur reviendrait à évincer le contrôle
+  // SEC-09 : désactiver un pair administrateur reviendrait à évincer le contrôle
   // mutuel. Réactiver reste possible (c'est un retour à la normale, jamais une
   // prise de pouvoir).
   if (!nouveau) refuserSiAdmin(u, 'Désactivation');
@@ -200,7 +200,7 @@ export async function userResetpwd(ctx: Ctx, p: Record<string, unknown>) {
 
   const { error: eAuth } = await ctx.db.auth.admin.updateUserById(u.id, { password: pwd });
   if (eAuth) throw new Error(eAuth.message);
-  // SEC-03 — le mot de passe est connu de l'administrateur : il ne vaut que
+  // SEC-03 · le mot de passe est connu de l'administrateur : il ne vaut que
   // jusqu'à la prochaine connexion de l'agent, qui devra le remplacer.
   const { error: eProf } = await ctx.db.from('profils').update({ doit_changer_mdp: true }).eq('id', u.id);
   if (eProf) throw new Error(eProf.message);
@@ -208,7 +208,7 @@ export async function userResetpwd(ctx: Ctx, p: Record<string, unknown>) {
   return { ok: true, motDePasseAChanger: true };
 }
 
-/** v4 — Réinitialisation du 2FA d'un agent (retire ses facteurs TOTP → ré-enrôlement). */
+/** v4, Réinitialisation du 2FA d'un agent (retire ses facteurs TOTP → ré-enrôlement). */
 export async function userResetmfa(ctx: Ctx, p: Record<string, unknown>) {
   const username = String(p['username'] ?? '');
   const { data: u, error } = await ctx.db.from('profils').select('id, username, role').eq('username', username).maybeSingle();
@@ -250,7 +250,7 @@ export async function accountChangepwd(ctx: Ctx, p: Record<string, unknown>) {
 }
 
 /**
- * SEC-05 — Trace de CONNEXION.
+ * SEC-05 : Trace de CONNEXION.
  *
  * La v3.6 journalisait les connexions (1 224 entrées dans l'historique repris) ;
  * la v4 avait perdu cette trace en déléguant l'authentification à Supabase Auth,
@@ -266,23 +266,23 @@ export async function accountSignin(ctx: Ctx) {
   return { ok: true };
 }
 
-/* ============ SUPPRESSION D'UN COMPTE — 2026-09-11 ======================
+/* ============ SUPPRESSION D'UN COMPTE : 2026-09-11 ======================
  *
  * Demande utilisateur : une corbeille dans la liste des comptes.
  *
- * ⚠ ELLE NE SERT QU'AUX COMPTES JAMAIS UTILISÉS. Un compte qui a déjà agi —
- * signé une validation, saisi un T1, posé une balise — reste en base, désactivé.
+ * ⚠ ELLE NE SERT QU'AUX COMPTES JAMAIS UTILISÉS. Un compte qui a déjà agi,
+ * signé une validation, saisi un T1, posé une balise, reste en base, désactivé.
  * La raison n'est pas technique : le journal d'audit conserve le nom en TEXTE,
  * la trace survivrait donc à la suppression. Elle est pratique. Six mois plus
  * tard, devant une signature contestée, on demande « qui était cet agent, quel
- * rôle, quelle cellule ? » — et si le compte a disparu de la liste, plus
+ * rôle, quelle cellule ? », et si le compte a disparu de la liste, plus
  * personne ne peut répondre. Désactiver garde la réponse ; supprimer l'efface.
  *
  * Trois refus, dans cet ordre :
- *   1. soi-même — on ne se retire pas l'accès en un clic ;
- *   2. le DERNIER administrateur actif — sinon plus personne ne peut
+ *   1. soi-même, on ne se retire pas l'accès en un clic ;
+ *   2. le DERNIER administrateur actif, sinon plus personne ne peut
  *      administrer la plateforme, et il faudrait repasser par la base ;
- *   3. un compte AYANT AGI — on propose alors la désactivation.
+ *   3. un compte AYANT AGI, on propose alors la désactivation.
  */
 export async function userSupprimer(ctx: Ctx, p: Record<string, unknown>) {
   const username = String(p['username'] ?? '').toLowerCase();
@@ -313,7 +313,7 @@ export async function userSupprimer(ctx: Ctx, p: Record<string, unknown>) {
     throw new ErreurMetier(
       'Ce compte a déjà travaillé sur la plateforme : il ne peut pas être supprimé, '
       + 'sinon son nom deviendrait introuvable devant une signature contestée. '
-      + "Désactivez-le — il perdra l'accès et restera consultable.");
+      + "Désactivez-le, il perdra l'accès et restera consultable.");
   }
 
   // `profils.id` référence `auth.users` en CASCADE : retirer le compte

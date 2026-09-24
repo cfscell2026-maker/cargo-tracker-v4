@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- *  Edge Function « rpc » — accès Supabase (runtime). Seul index.ts l'importe.
+ *  Edge Function « rpc », accès Supabase (runtime). Seul index.ts l'importe.
  *  Équivalents v3.6 : session (_validerSession_), _log_.
  * ============================================================================
  */
@@ -8,14 +8,14 @@ import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2';
 import type { Role } from '../_shared/domaine/src/index.ts';
 import { AuthError, type Ctx, type Requete, type Session } from './ctx.ts';
 
-/** Client service_role — n'existe QUE côté serveur. */
+/** Client service_role, n'existe QUE côté serveur. */
 export function dbAdmin(): SupabaseClient {
   const url = Deno.env.get('SUPABASE_URL')!;
   const key = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
   return createClient(url, key, { auth: { persistSession: false } });
 }
 
-/** Décode le payload d'un JWT (sans vérification — getUser fait la vérification). */
+/** Décode le payload d'un JWT (sans vérification, getUser fait la vérification). */
 export function jwtPayload(jwt: string): Record<string, unknown> {
   try {
     const part = jwt.split('.')[1] ?? '';
@@ -26,7 +26,7 @@ export function jwtPayload(jwt: string): Record<string, unknown> {
 }
 
 /**
- * SEC-02 — DOUBLE AUTHENTIFICATION.
+ * SEC-02 : DOUBLE AUTHENTIFICATION.
  *
  * Elle avait été désactivée « le temps du démarrage » (`?? 'false'`) alors que
  * l'application porte des données douanières et que tous les comptes migrés
@@ -44,7 +44,7 @@ export async function exigerSession(db: SupabaseClient, authHeader: string | nul
   if (!jwt) throw new AuthError('Session expirée. Veuillez vous reconnecter.');
   // ⚠ ORDRE IMPORTANT : `getUser` valide la SIGNATURE du jeton auprès du serveur
   // d'authentification. Le décodage de `aal` ci-dessous porte donc sur un jeton
-  // déjà authentifié — ne jamais inverser ces deux étapes.
+  // déjà authentifié, ne jamais inverser ces deux étapes.
   const { data, error } = await db.auth.getUser(jwt);
   if (error || !data?.user) throw new AuthError('Session expirée. Veuillez vous reconnecter.');
   if (MFA_REQUISE && String(jwtPayload(jwt)['aal'] ?? '') !== 'aal2')
@@ -71,9 +71,9 @@ export async function exigerSession(db: SupabaseClient, authHeader: string | nul
 /**
  * Journaliseur d'une session (le déclencheur SQL scelle la ligne en HMAC).
  *
- * SEC-04 — L'ancienne version enveloppait l'insertion dans un `try/catch` : or
+ * SEC-04 · L'ancienne version enveloppait l'insertion dans un `try/catch` : or
  * supabase-js NE LÈVE PAS sur erreur, il renvoie `{ error }`. Un échec
- * d'écriture du journal passait donc totalement inaperçu — ni exception, ni
+ * d'écriture du journal passait donc totalement inaperçu, ni exception, ni
  * message, ni compteur : l'opération métier réussissait, la trace disparaissait.
  * On lit désormais l'erreur, on l'écrit sur la sortie d'erreur (visible dans les
  * logs Supabase) et on la compte.
@@ -108,7 +108,7 @@ export function fabriquerLog(db: SupabaseClient, s: Session, req?: Requete): Ctx
   };
 }
 
-/** Métadonnées de la requête (SEC-05) — en-têtes posés par la passerelle Supabase. */
+/** Métadonnées de la requête (SEC-05), en-têtes posés par la passerelle Supabase. */
 export function requeteDe(req: Request): Requete {
   const ip =
     req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||

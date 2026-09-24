@@ -16,6 +16,7 @@ import * as stk from './stock.ts';
 import * as rap from './rapports.ts';
 import * as lec from './lecture.ts';
 import * as prm from './parametres.ts';
+import * as prk from './parking.ts';
 
 function ctxAvec(db: FakeDB): Ctx {
   return {
@@ -29,7 +30,7 @@ function ctxRole(db: FakeDB, role: string, nom: string): Ctx {
 }
 const statutDe = (db: FakeDB, id: string) => db.store['cargaisons'].find((c) => c['id'] === id)?.['statut'];
 
-test('cycle de vie complet — ENLÈVEMENT (2 conteneurs 20\', binôme)', async () => {
+test('cycle de vie complet, ENLÈVEMENT (2 conteneurs 20\', binôme)', async () => {
   const db = new FakeDB();
   // Stock : deux conteneurs 20' disponibles.
   db.store['stock'].push(
@@ -248,7 +249,7 @@ test('véhicule : « chargement terminé » est porté PAR camion d\'effets dive
   const enCours = db.store['cargaisons'].find((c) => c['numero_camion'] === 'CAM-ENCOURS/RM01');
   assert.equal(fini?.['statut'], STATUTS.CREEE);
   assert.equal(enCours?.['statut'], STATUTS.CHARGEMENT);
-  // v4 — le camion d'effets divers porte sa DÉSIGNATION, pas de conteneur propre.
+  // v4, le camion d'effets divers porte sa DÉSIGNATION, pas de conteneur propre.
   assert.equal(fini?.['description_marchandise'], 'CARTONS D\'EFFETS PERSONNELS');
   assert.equal(fini?.['nb_conteneurs'], 0);
 });
@@ -386,7 +387,7 @@ test('validation non bloquante : T1 / Balise / sortie possibles sans validation'
     id, conteneur: { num: 'MSKU1234567', taille: "40'", type: 'DRY', plomb: 'S1' },
     declaration: { declarant: 'A', contactDeclarant: '901234', destinationMarchandise: 'D', bureauDeclaration: 'TG120', typeDeclaration: 'T', numeroDeclaration: '60', anneeDeclaration: '2026', descriptionMarchandise: 'X', nombreConteneurs: 1 },
   });
-  // AUCUNE validation chef brigade — le process continue quand même.
+  // AUCUNE validation chef brigade, le process continue quand même.
   await ecr.t1(ctxRole(db, 'T1', 'T1'), { id, bureauDestination: 'TG120', t1Numeros: [{ conteneur: 'MSKU1234567', numero: 'T1' }] });
   await ecr.gps(ctxRole(db, 'BALISE', 'B'), { id, baliseRequise: 'Oui', t1Correct: 'Oui', numeroGPS: 'G' });
   await ecr.sortie(ctxRole(db, 'PP', 'PP'), { id, ckCfs: true, ckT1: true, ckBalise: true, ckBs: true });
@@ -464,7 +465,7 @@ test('garde-fou : sortie refusée tant que la Balise n\'est pas posée', async (
     declaration: { declarant: 'A', contactDeclarant: '901234', destinationMarchandise: 'D', bureauDeclaration: 'TG120', typeDeclaration: 'T', numeroDeclaration: '1', anneeDeclaration: '2026', dateDeclaration: '2026-06-24', descriptionMarchandise: 'X', nombreConteneurs: 1 },
   });
   await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'), { id, enSurcharge: false, suiviEngagement: false });
-  // v4.1 — VERROU RÉACTIVÉ : ni T1 ni Balise → la PP ne peut pas clôturer.
+  // v4.1, VERROU RÉACTIVÉ : ni T1 ni Balise → la PP ne peut pas clôturer.
   await assert.rejects(
     () => ecr.sortie(ctxRole(db, 'PP', 'PP'), { id, ckCfs: true, ckT1: true, ckBalise: true, ckBs: true }),
     /le T1 et la Balise/,
@@ -491,7 +492,7 @@ test('anti-doublon : recréer un camion actif est refusé', async () => {
 });
 
 /* ------------------------------------------------------------------------
- * v4 — Saisie en lot (1 déclaration → N camions) et CORRECTIONS de saisie.
+ * v4, Saisie en lot (1 déclaration → N camions) et CORRECTIONS de saisie.
  * ---------------------------------------------------------------------- */
 
 const DECL_OK = {
@@ -583,7 +584,7 @@ test('correction conteneur : retrait de la ligne → camion revenu à « Camion 
   const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'FIX002/RM01', routage: 'Enlèvement' })) as { id: string };
   await ecr.cfs(cfs, { id, conteneur: { num: 'MSKU1111111', taille: "40'", type: 'DRY', plomb: 'S1' }, declaration: DECL_OK });
 
-  await ecr.editconteneur(cfs, { id, index: 0, supprimer: true });
+  await ecr.editconteneur(cfs, { id, index: 0, supprimer: true, motif: 'erreur de saisie' });
 
   assert.equal(statutDe(db, id), STATUTS.CAMION);
   assert.equal(db.store['conteneurs'].length, 0);
@@ -599,7 +600,12 @@ test('correction conteneur refusée après validation (hors ADMIN)', async () =>
   await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'), { id, enSurcharge: false, suiviEngagement: false });
   await ecr.gps(ctxRole(db, 'BALISE', 'B'), { id, baliseRequise: 'Oui', t1Correct: 'Oui', numeroGPS: 'G' });
 
-  await assert.rejects(() => ecr.editconteneur(cfs, { id, index: 0, supprimer: true }), /a déjà avancé/);
+  // CORRECTION sans motif sur un dossier qui a avancé : refusée.
+  await assert.rejects(
+    () => ecr.editconteneur(cfs, { id, index: 0, num: 'MSKU1111111', taille: "20'", type: 'DRY', plomb: 'S2' }),
+    /a déjà avancé/);
+  // SUPPRESSION sans motif : refusée aussi, et désormais quel que soit le statut.
+  await assert.rejects(() => ecr.editconteneur(cfs, { id, index: 0, supprimer: true }), /MOTIF du retrait/);
   // L'ADMIN, lui, peut toujours corriger un historique.
   await ecr.editconteneur(ctxRole(db, 'ADMIN', 'Admin'), { id, index: 0, num: 'MSKU1111111', taille: "20'", type: 'DRY', plomb: 'S9' });
   const c = versCamel(db.store['cargaisons'][0]!);
@@ -770,7 +776,7 @@ test('correction de balise impossible une fois le camion sorti', async () => {
   const db = new FakeDB();
   db.store['stock'].push({ numero_tc: 'MSKU1111111', taille: "40'", statut: 'En stock' });
   const id = await camionBalise(db);
-  // v4.1 — la PP exige le T1 avant la sortie (transit).
+  // v4.1, la PP exige le T1 avant la sortie (transit).
   await ecr.t1(ctxRole(db, 'T1', 'Agent T1'), { id, bureauDestination: 'TG120', t1Numeros: [{ conteneur: 'MSKU1111111', numero: 'T1-Q' }] });
   await ecr.bonsortie(ctxRole(db, 'BON_SORTIE', 'Agent BS'), { id, bonSortieNumero: 'BS-1' });
   await ecr.sortie(ctxRole(db, 'PP', 'Agent PP'), { id, ckCfs: true, ckT1: true, ckBalise: true, ckBs: true });
@@ -820,7 +826,7 @@ test('plaque : verrouillée après validation, puis après la sortie (SEC-11)', 
   await ecr.editcamion(ctxRole(db, 'ADMIN', 'Admin'), { id, numeroCamion: 'APRES2/RM01', motif: 'coquille avérée' });
   assert.equal(versCamel(db.store['cargaisons'][0]!)['numeroCamion'], 'APRES2/RM01');
 
-  // Après la sortie, plus personne — pas même l'ADMIN : le camion est parti
+  // Après la sortie, plus personne, pas même l'ADMIN : le camion est parti
   // avec un bon de sortie portant cette plaque. (Le T1 conditionne la sortie.)
   await ecr.t1(ctxRole(db, 'T1', 'T1'), { id, bureauDestination: 'TG120', t1Numeros: [{ conteneur: 'MSKU1111111', numero: 'T1-1' }] });
   await ecr.sortie(ctxRole(db, 'PP', 'PP'), { id, ckCfs: true, ckT1: true, ckBalise: true, ckBs: true });
@@ -841,7 +847,7 @@ test('checklist PP : une case cochée ne crée pas la pièce manquante (SEC-13)'
   const res = (await ecr.sortie(pp.ctx, { id, ckCfs: true, ckT1: true, ckBalise: true, ckBs: true })) as { ecart?: string[] };
 
   const ck = versCamel(db.store['cargaisons'][0]!)['ppChecklist'] as Record<string, unknown>;
-  // Ce que la base retient, c'est l'ÉTAT RÉEL — pas la case cochée.
+  // Ce que la base retient, c'est l'ÉTAT RÉEL, pas la case cochée.
   assert.equal(ck['bs'], false, 'le bon de sortie ne doit pas être consigné comme fait');
   assert.equal((ck['declare'] as Record<string, unknown>)['bs'], true, 'la déclaration de l\'agent est conservée à part');
   assert.deepEqual(ck['ecart'], ['bon de sortie']);
@@ -1039,12 +1045,12 @@ test('correction conteneur : la déclaration se change LIGNE PAR LIGNE (mixte pr
   assert.equal(dets2.conteneurs[1]!['numeroDeclaration'], '8888');
 });
 
-/* ---- v4.1 : ré-import — les SAISIES MANUELLES sont reconnues ------------ */
+/* ---- v4.1 : ré-import, les SAISIES MANUELLES sont reconnues ------------ */
 
 /**
  * Crée un enlèvement dont le conteneur a été SAISI À LA MAIN (case « hors
  * stock ») : il est donc sur un camion (table conteneurs) mais ABSENT de la
- * table stock — exactement le cas que l'import doit rattraper.
+ * table stock, exactement le cas que l'import doit rattraper.
  */
 async function enlevementSaisieManuelle(db: FakeDB, tc = 'MSKU1234567', plaque = 'MAN001/RM01') {
   const cfs = ctxAvec(db);
@@ -1107,7 +1113,7 @@ test('ré-import « remplacer » : la saisie manuelle est RÉGULARISÉE (dépot�
   assert.equal(s['numero_declaration'], '333');
 });
 
-/* ---- v4.1 : fiche de synthèse — le champ « Conteneurs MAD » --------------- */
+/* ---- v4.1 : fiche de synthèse, le champ « Conteneurs MAD » --------------- */
 
 test('fiche : « Conteneurs MAD » compte les entrées Magasin/MAD (stock), pas le vrac', async () => {
   const db = new FakeDB();
@@ -1125,7 +1131,7 @@ test('fiche : « Conteneurs MAD » compte les entrées Magasin/MAD (stock), pas 
   assert.equal(f.cfs.total.conteneurs, 4);
 });
 
-/* ---- v4.1 : fiche — la CONSO se compte au TYPE DE DÉCLARATION C ---------- */
+/* ---- v4.1 : fiche, la CONSO se compte au TYPE DE DÉCLARATION C ---------- */
 
 test('fiche : « conso » = camions dont la déclaration est de type C (pas l’opération)', async () => {
   const db = new FakeDB();
@@ -1276,7 +1282,7 @@ async function camionAValider(db: FakeDB, plaque = 'PES001/RM01') {
   return id;
 }
 
-// v4.3 — DÉPOTAGE prêt à valider : la pesée (surcharge) ne concerne QUE le
+// v4.3, DÉPOTAGE prêt à valider : la pesée (surcharge) ne concerne QUE le
 // dépotage (2026-08-19), donc les tests de pesée doivent partir d'un dépotage.
 async function depotageAValider(db: FakeDB, plaque = 'DEP001/RM01', tc = 'MSKU8888888') {
   db.store['stock'].push({ numero_tc: tc, taille: "40'", statut: 'Positionné' });
@@ -1293,10 +1299,10 @@ test('validation refusée sans pesée renseignée (dépotage)', async () => {
   await assert.rejects(() => ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'), { id }), /Renseignez la pesée/);
 });
 
-/** Date ISO à N jours d'aujourd'hui — les délais d'engagement doivent être à venir. */
+/** Date ISO à N jours d'aujourd'hui, les délais d'engagement doivent être à venir. */
 const dansNJours = (n: number) => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10);
 
-test('00180 — suivi des engagements : OUI exige de préciser, puis enregistre', async () => {
+test('00180, suivi des engagements : OUI exige de préciser, puis enregistre', async () => {
   const db = new FakeDB();
   const id = await depotageAValider(db, 'ENG001/RM01', 'MSKU9999001');
   const chef = ctxRole(db, 'CHEF_BRIGADE', 'CB');
@@ -1305,12 +1311,12 @@ test('00180 — suivi des engagements : OUI exige de préciser, puis enregistre'
     () => ecr.valider(chef, { id, enSurcharge: false, suiviEngagement: true }),
     /précisez l'engagement/i,
   );
-  // Type fourni mais SANS délai : refusé aussi — le délai est obligatoire.
+  // Type fourni mais SANS délai : refusé aussi, le délai est obligatoire.
   await assert.rejects(
     () => ecr.valider(chef, { id, enSurcharge: false, suiviEngagement: true, engagementType: 'Transit côtier' }),
     /indiquez le délai/i,
   );
-  // Délai DÉJÀ PASSÉ : refusé — ce serait en retard dès la signature.
+  // Délai DÉJÀ PASSÉ : refusé, ce serait en retard dès la signature.
   await assert.rejects(
     () => ecr.valider(chef, {
       id, enSurcharge: false, suiviEngagement: true,
@@ -1329,7 +1335,7 @@ test('00180 — suivi des engagements : OUI exige de préciser, puis enregistre'
   assert.equal(c['engagementEffectueLe'], undefined); // encore dû
 });
 
-test('00180 — échéancier : ne remonte qu\'à partir de J-1, et disparaît une fois soldé', async () => {
+test('00180, échéancier : ne remonte qu\'à partir de J-1, et disparaît une fois soldé', async () => {
   const db = new FakeDB();
   const chef = ctxRole(db, 'CHEF_BRIGADE', 'CB');
 
@@ -1356,7 +1362,7 @@ test('00180 — échéancier : ne remonte qu\'à partir de J-1, et disparaît un
   await assert.rejects(() => ecr.engagementFait(chef, { id: demain }), /déjà soldé/i);
 });
 
-test('00180 — solder refusé sur une cargaison sans suivi d\'engagement', async () => {
+test('00180, solder refusé sur une cargaison sans suivi d\'engagement', async () => {
   const db = new FakeDB();
   const id = await depotageAValider(db, 'ENG012/RM01', 'MSKU9999012');
   const chef = ctxRole(db, 'CHEF_BRIGADE', 'CB');
@@ -1364,19 +1370,19 @@ test('00180 — solder refusé sur une cargaison sans suivi d\'engagement', asyn
   await assert.rejects(() => ecr.engagementFait(chef, { id }), /pas sous suivi d'engagement/i);
 });
 
-/* 2026-09-12 — CE TEST DISAIT L'INVERSE, et il avait tort.
+/* 2026-09-12 : CE TEST DISAIT L'INVERSE, et il avait tort.
  *
  * La garde exigeait `suiviEngagement` côté serveur. Déployée avant l'écran qui
  * sait l'envoyer, elle a bloqué TOUTE signature en production : le front alors
  * en ligne ignorait ce champ. Un serveur ne peut pas exiger ce qu'un client
- * déjà déployé n'a aucun moyen de fournir — entre deux déploiements, les deux
+ * déjà déployé n'a aucun moyen de fournir, entre deux déploiements, les deux
  * versions coexistent toujours.
  *
  * L'exigence n'est pas abandonnée : elle vit dans l'écran, dont le bouton de
  * signature reste inerte tant qu'on n'a pas répondu. Le serveur, lui, tolère
- * l'absence et vérifie intégralement ce qui lui est fourni — c'est l'objet des
+ * l'absence et vérifie intégralement ce qui lui est fourni, c'est l'objet des
  * deux tests suivants. */
-test('00180 — engagement ABSENT : la validation passe, sans rien enregistrer', async () => {
+test('00180, engagement ABSENT : la validation passe, sans rien enregistrer', async () => {
   const db = new FakeDB();
   const id = await depotageAValider(db, 'ENG002/RM01', 'MSKU9999002');
   await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'), { id, enSurcharge: false });
@@ -1386,7 +1392,7 @@ test('00180 — engagement ABSENT : la validation passe, sans rien enregistrer',
     'rien ne doit être inventé : le champ reste vide, pas « non »');
 });
 
-test('00180 — engagement FOURNI mais incomplet : toujours refusé', async () => {
+test('00180, engagement FOURNI mais incomplet : toujours refusé', async () => {
   const db = new FakeDB();
   const id = await depotageAValider(db, 'ENG004/RM01', 'MSKU9999004');
   // OUI sans type : la vérification complète s'applique dès qu'on répond.
@@ -1397,7 +1403,7 @@ test('00180 — engagement FOURNI mais incomplet : toujours refusé', async () =
   );
 });
 
-test('00180 — suivi des engagements : NON laisse le type vide, même si un type est envoyé', async () => {
+test('00180, suivi des engagements : NON laisse le type vide, même si un type est envoyé', async () => {
   const db = new FakeDB();
   const id = await depotageAValider(db, 'ENG003/RM01', 'MSKU9999003');
   await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'),
@@ -1409,7 +1415,7 @@ test('00180 — suivi des engagements : NON laisse le type vide, même si un typ
   assert.equal(c['engagementType'], '');
 });
 
-test('00180 — suivi des engagements : saisie libre hors liste acceptée', async () => {
+test('00180, suivi des engagements : saisie libre hors liste acceptée', async () => {
   const db = new FakeDB();
   const id = await depotageAValider(db, 'ENG004/RM01', 'MSKU9999004');
   await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'),
@@ -1471,7 +1477,7 @@ test('archivage goulots : analyse, archive (réversible) sort des rapports (2026
   // Reste au statut « Camion créé » = goulot. L'analyse le voit (seuil 0 j).
   let g = (await rap.rapportGoulots(cfs, { joursMin: 0 })) as { total: number; rows: O[] };
   assert.ok(g.rows.some((r) => r['id'] === a.id), 'le goulot doit apparaître dans l\'analyse');
-  // Archivage (ADMIN) — motif obligatoire.
+  // Archivage (ADMIN), motif obligatoire.
   await assert.rejects(() => ecr.archiverGoulots(admin, { ids: [a.id], motif: '' }), /motif/i);
   const r = (await ecr.archiverGoulots(admin, { ids: [a.id], motif: 'vieux dossier migré' })) as { compte: O };
   assert.equal(Number(r.compte['archives']), 1);
@@ -1790,7 +1796,7 @@ test('dépotage : un conteneur au parc non pointé est refusé, puis pointé à 
   const declaration = { declarant: 'A', contactDeclarant: '901234', destinationMarchandise: 'D', bureauDeclaration: 'TG120', typeDeclaration: 'T', numeroDeclaration: '90', anneeDeclaration: '2026', descriptionMarchandise: 'X', nombreConteneurs: 1 };
 
   // Sans confirmation : refus, mais le message dit que le conteneur EST au parc
-  // — c'est ce qui évite le réflexe « saisie manuelle ».
+  // : c'est ce qui évite le réflexe « saisie manuelle ».
   await assert.rejects(
     () => ecr.cfs(cfs, { id, conteneur, declaration }),
     /est au parc .* n'a pas été pointé comme POSITIONNÉ/s,
@@ -1801,7 +1807,7 @@ test('dépotage : un conteneur au parc non pointé est refusé, puis pointé à 
   await ecr.cfs(trace.ctx, { id, conteneur, declaration, pointerSiNonPositionne: true });
 
   const stock = db.store['stock'][0]!;
-  // Le conteneur reste RATTACHÉ à sa fiche de parc — c'est tout l'enjeu : la
+  // Le conteneur reste RATTACHÉ à sa fiche de parc, c'est tout l'enjeu : la
   // saisie manuelle, elle, l'aurait laissé « En stock » indéfiniment.
   assert.equal(stock['statut'], 'Dépoté');
   assert.equal(stock['cargaison_id'], id);
@@ -1887,7 +1893,7 @@ test('stock.lookup : distingue absent, au parc non pointé, positionné et dépo
 /**
  * ⚠ La base en mémoire n'a pas de déclencheur SQL : `date_fin_chargement` est
  * posée en production par `fn_marquer_fin_chargement` (migration 00110). On la
- * renseigne donc explicitement ici, comme le ferait la base — sinon tous les
+ * renseigne donc explicitement ici, comme le ferait la base, sinon tous les
  * dossiers de test seraient « détail par poste indisponible » et le test ne
  * vérifierait rien de ce qui compte.
  */
@@ -1957,7 +1963,7 @@ test('temps de passage : export imprimable (synthèse par poste)', async () => {
     { du: '2026-08-10', au: '2026-08-10', format: 'pdf' }) as { html: string };
   assert.match(r.html, /Temps de passage par poste/);
   assert.match(r.html, /CFS \(chargement\)/);
-  assert.match(r.html, /GLOBAL — entrée du camion → sortie PP/);
+  assert.match(r.html, /GLOBAL : entrée du camion → sortie PP/);
   assert.match(r.html, /1 h/, 'les durées sortent en clair, pas en minutes brutes');
 });
 
@@ -1981,7 +1987,7 @@ test('temps de passage : sans fin de chargement, le global reste exact', async (
 });
 
 /* ==========================================================================
- *  00170 — LA FUITE D'APUREMENT
+ *  00170 : LA FUITE D'APUREMENT
  *
  *  Le compteur ne pouvait que MONTER : majApurement n'était appelé que sur
  *  l'ajout d'un conteneur, et fn_apurer_inc refuse tout décrément (garde-fou
@@ -2018,17 +2024,17 @@ async function camionDeuxConteneurs(db: FakeDB, numeroDecl: string) {
   return { id, cfs };
 }
 
-test('00170 — retirer un conteneur DÉCRÉMENTE son apurement', async () => {
+test('00170, retirer un conteneur DÉCRÉMENTE son apurement', async () => {
   const db = new FakeDB();
   const { id, cfs } = await camionDeuxConteneurs(db, '5001');
   assert.equal(apuresDe(db, '5001'), 2, 'deux conteneurs ajoutés = deux apurés');
 
-  await ecr.editconteneur(cfs, { id, index: 1, supprimer: true });
+  await ecr.editconteneur(cfs, { id, index: 1, supprimer: true, motif: 'erreur de saisie' });
 
   assert.equal(apuresDe(db, '5001'), 1, 'le conteneur retiré ne doit plus être apuré');
 });
 
-test('00170 — réaffecter un conteneur TRANSFÈRE son apurement', async () => {
+test('00170, réaffecter un conteneur TRANSFÈRE son apurement', async () => {
   const db = new FakeDB();
   const { id, cfs } = await camionDeuxConteneurs(db, '5002');
   assert.equal(apuresDe(db, '5002'), 2);
@@ -2044,7 +2050,7 @@ test('00170 — réaffecter un conteneur TRANSFÈRE son apurement', async () => 
   assert.equal(apuresDe(db, '5003'), 1, 'la déclaration rejointe le récupère');
 });
 
-test('00170 — annuler une cargaison DÉCRÉMENTE tous ses conteneurs (effet de bord SEC-12)', async () => {
+test('00170, annuler une cargaison DÉCRÉMENTE tous ses conteneurs (effet de bord SEC-12)', async () => {
   const db = new FakeDB();
   const { id } = await camionDeuxConteneurs(db, '5004');
   assert.equal(apuresDe(db, '5004'), 2);
@@ -2055,12 +2061,12 @@ test('00170 — annuler une cargaison DÉCRÉMENTE tous ses conteneurs (effet de
   assert.equal(apuresDe(db, '5004'), 0, 'un doublon écarté ne doit plus apurer la déclaration');
 });
 
-test('00170 — le décrément ne descend jamais sous zéro', async () => {
+test('00170, le décrément ne descend jamais sous zéro', async () => {
   const db = new FakeDB();
   const { id, cfs } = await camionDeuxConteneurs(db, '5005');
 
-  await ecr.editconteneur(cfs, { id, index: 1, supprimer: true });
-  await ecr.editconteneur(cfs, { id, index: 0, supprimer: true });
+  await ecr.editconteneur(cfs, { id, index: 1, supprimer: true, motif: 'erreur de saisie' });
+  await ecr.editconteneur(cfs, { id, index: 0, supprimer: true, motif: 'erreur de saisie' });
 
   assert.equal(apuresDe(db, '5005'), 0, 'plus aucun conteneur : apurement à zéro');
 
@@ -2072,9 +2078,9 @@ test('00170 — le décrément ne descend jamais sous zéro', async () => {
   assert.equal(apuresDe(db, '5005'), 0, 'borné à zéro, jamais négatif');
 });
 
-/* ============== ANTI-DOUBLONS — gardes ajoutées le 2026-09-10 ============= */
+/* ============== ANTI-DOUBLONS : gardes ajoutées le 2026-09-10 ============= */
 
-test('doublons — I-4 : les flux spéciaux refusent un camion déjà dans le système', async () => {
+test('doublons, I-4 : les flux spéciaux refusent un camion déjà dans le système', async () => {
   const db = new FakeDB();
   const cfs = ctxAvec(db);
   // Un camion entre par le flux principal.
@@ -2091,7 +2097,7 @@ test('doublons — I-4 : les flux spéciaux refusent un camion déjà dans le sy
   );
 });
 
-test('doublons — I-4 : la même plaque deux fois dans une seule saisie est refusée', async () => {
+test('doublons, I-4 : la même plaque deux fois dans une seule saisie est refusée', async () => {
   const db = new FakeDB();
   const cfs = ctxAvec(db);
   await assert.rejects(
@@ -2107,7 +2113,7 @@ test('doublons — I-4 : la même plaque deux fois dans une seule saisie est ref
   );
 });
 
-test('doublons — I-4 : un camion SORTI peut être ressaisi (la garde ne bloque pas à vie)', async () => {
+test('doublons, I-4 : un camion SORTI peut être ressaisi (la garde ne bloque pas à vie)', async () => {
   const db = new FakeDB();
   const cfs = ctxAvec(db);
   // On simule un camion déjà sorti : la garde ne doit pas s'y opposer.
@@ -2123,7 +2129,7 @@ test('doublons — I-4 : un camion SORTI peut être ressaisi (la garde ne bloque
   assert.ok(r, 'un camion déjà sorti doit pouvoir revenir');
 });
 
-test('doublons — DAT-05 : le même conteneur deux fois sur un camion est refusé', async () => {
+test('doublons, DAT-05 : le même conteneur deux fois sur un camion est refusé', async () => {
   const db = new FakeDB();
   const cfs = ctxAvec(db);
   await assert.rejects(
@@ -2139,10 +2145,10 @@ test('doublons — DAT-05 : le même conteneur deux fois sur un camion est refus
   );
 });
 
-test('doublons — DAT-05 : un conteneur déjà rattaché au camion ne peut pas être rajouté', async () => {
+test('doublons, DAT-05 : un conteneur déjà rattaché au camion ne peut pas être rajouté', async () => {
   const db = new FakeDB();
   const cfs = ctxAvec(db);
-  // ENLÈVEMENT : le conteneur arrive scellé, sans passer par le stock — c'est le
+  // ENLÈVEMENT : le conteneur arrive scellé, sans passer par le stock, c'est le
   // flux où le même numéro peut être ressaisi par erreur sur le même camion.
   const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'DBL500/RM01', routage: 'Enlèvement' })) as { id: string };
   const decl = { declarant: 'A', contactDeclarant: '90000000', destinationMarchandise: 'TG', bureauDeclaration: 'TG120', typeDeclaration: 'C', numeroDeclaration: '904', anneeDeclaration: '2026', descriptionMarchandise: 'X', nombreConteneurs: 2 };
@@ -2152,7 +2158,7 @@ test('doublons — DAT-05 : un conteneur déjà rattaché au camion ne peut pas 
    *
    * DEUX gardes le couvrent désormais, et c'est voulu. `cargo.cfs` en avait déjà
    * une, propre à ce flux ; celle de `ajouterConteneurs` (2026-09-10) est plus
-   * profonde et attrape les chemins que `cfs` ne traverse pas — la saisie en lot
+   * profonde et attrape les chemins que `cfs` ne traverse pas, la saisie en lot
    * des flux spéciaux, notamment (cf. le test précédent). Le test accepte donc
    * l'un ou l'autre message : ce qui compte est que le doublon ne passe pas. */
   await assert.rejects(
@@ -2161,7 +2167,7 @@ test('doublons — DAT-05 : un conteneur déjà rattaché au camion ne peut pas 
   );
 });
 
-/* ========== MAGASIN / MAD — format + anti-doublon (2026-09-10) ============ */
+/* ========== MAGASIN / MAD : format + anti-doublon (2026-09-10) ============ */
 
 /** Déclaration minimale d'une sortie Magasin / MAD. */
 const DECL_MAG = {
@@ -2175,11 +2181,11 @@ const sortieMagasin = (plaque: string, decl: Record<string, unknown> = DECL_MAG)
   declaration: decl, chargementTermine: true, scellesCamion: ['S1', 'S2'],
 });
 
-/* 2026-09-12 — la barre oblique n'est plus obligatoire (décision utilisateur).
+/* 2026-09-12 : la barre oblique n'est plus obligatoire (décision utilisateur).
  * Ce qui reste vérifié ici : le flux MAGASIN/MAD passe bien par le contrôle de
- * format — il en sortait trop tôt à une époque — et refuse toujours une saisie
+ * format (il en sortait trop tôt à une époque) et refuse toujours une saisie
  * avortée. */
-test('MAGASIN/MAD — une plaque seule est désormais acceptée', async () => {
+test('MAGASIN/MAD, une plaque seule est désormais acceptée', async () => {
   const db = new FakeDB();
   const cfs = ctxAvec(db);
   await spe.create(cfs, sortieMagasin('MAG900'));
@@ -2187,7 +2193,7 @@ test('MAGASIN/MAD — une plaque seule est désormais acceptée', async () => {
   assert.ok(cree, 'un porteur unique doit pouvoir être enregistré');
 });
 
-test('MAGASIN/MAD — une saisie avortée reste refusée', async () => {
+test('MAGASIN/MAD, une saisie avortée reste refusée', async () => {
   const db = new FakeDB();
   const cfs = ctxAvec(db);
   await assert.rejects(
@@ -2196,7 +2202,7 @@ test('MAGASIN/MAD — une saisie avortée reste refusée', async () => {
   );
 });
 
-test('MAGASIN/MAD — un camion déjà dans le système est refusé, et le mixte est proposé', async () => {
+test('MAGASIN/MAD, un camion déjà dans le système est refusé, et le mixte est proposé', async () => {
   const db = new FakeDB();
   const cfs = ctxAvec(db);
   // Le camion entre d'abord par le flux principal.
@@ -2215,7 +2221,7 @@ test('MAGASIN/MAD — un camion déjà dans le système est refusé, et le mixte
   );
 });
 
-test('MAGASIN/MAD — un camion DÉJÀ SORTI peut revenir en sortie magasin', async () => {
+test('MAGASIN/MAD, un camion DÉJÀ SORTI peut revenir en sortie magasin', async () => {
   const db = new FakeDB();
   const cfs = ctxAvec(db);
   // Camion d'un passage précédent, déjà sorti : ce n'est pas un doublon.
@@ -2241,7 +2247,7 @@ const DECL_PNT = {
   anneeDeclaration: '2026', descriptionMarchandise: 'X',
 };
 
-test('dépotage — un conteneur NON pointé est refusé, sauf régularisation explicite', async () => {
+test('dépotage, un conteneur NON pointé est refusé, sauf régularisation explicite', async () => {
   const db = new FakeDB();
   // Présent au parc mais « En stock » : jamais pointé positionné.
   db.store['stock'].push({ numero_tc: 'MSKU6660001', taille: "20'", statut: 'En stock' });
@@ -2260,11 +2266,11 @@ test('dépotage — un conteneur NON pointé est refusé, sauf régularisation e
   assert.ok(s['date_pointage'], 'le pointage à la volée doit être horodaté');
 });
 
-/* 2026-09-14 — RÈGLE MODIFIÉE (demande utilisateur). Ce test vérifiait le refus.
+/* 2026-09-14 : RÈGLE MODIFIÉE (demande utilisateur). Ce test vérifiait le refus.
  * La saisie manuelle d'un conteneur au parc non pointé est désormais permise ;
  * ce qui protégeait le parc est conservé autrement : la fiche est RATTACHÉE et
  * passe à « Dépoté », elle ne reste plus « En stock » pour toujours. */
-test('dépotage — saisie manuelle d\'un conteneur AU PARC : permise, et rattachée à sa fiche (2026-09-14)', async () => {
+test('dépotage, saisie manuelle d\'un conteneur AU PARC : permise, et rattachée à sa fiche (2026-09-14)', async () => {
   const db = new FakeDB();
   db.store['stock'].push({ numero_tc: 'MSKU6660002', taille: "20'", statut: 'En stock' });
   const { cfs, id } = await depotagePret(db, 'PNT002/RM01');
@@ -2279,15 +2285,15 @@ test('dépotage — saisie manuelle d\'un conteneur AU PARC : permise, et rattac
   assert.ok(!s['date_pointage'], 'aucune date de pointage inventée');
 });
 
-/* 2026-09-12 — CE TEST DISAIT L'INVERSE, et la production a tranché.
+/* 2026-09-12 : CE TEST DISAIT L'INVERSE, et la production a tranché.
  *
  * La règle du 10 septembre posait que « tout conteneur dépoté au port sec figure
  * au parc ». C'est faux : « CCLU7731903 », physiquement présent, n'existait dans
- * aucune fiche — et l'agent n'avait alors AUCUNE issue. La saisie manuelle
+ * aucune fiche, et l'agent n'avait alors AUCUNE issue. La saisie manuelle
  * retrouve donc sa raison d'être d'origine, les conteneurs ABSENTS du parc, et
  * elle crée la fiche au passage : le grief qui l'avait fait fermer était
  * justement qu'elle laissait des conteneurs sans fiche. */
-test('dépotage — un conteneur ABSENT du stock passe en saisie manuelle, et sa fiche est créée', async () => {
+test('dépotage, un conteneur ABSENT du stock passe en saisie manuelle, et sa fiche est créée', async () => {
   const db = new FakeDB();
   const { cfs, id } = await depotagePret(db, 'PNT003/RM01');
   await ecr.cfs(cfs, {
@@ -2300,12 +2306,12 @@ test('dépotage — un conteneur ABSENT du stock passe en saisie manuelle, et sa
   const fiche = db.store['stock'].find((x) => x['numero_tc'] === 'MSKU6660003');
   assert.ok(fiche, 'LE POINT ESSENTIEL : une fiche de stock doit exister, sinon on recrée '
     + 'le défaut qui avait fait fermer la saisie manuelle');
-  // 2026-09-14 : la fiche créée est aussi rattachée au camion — un conteneur dépoté
+  // 2026-09-14 : la fiche créée est aussi rattachée au camion, un conteneur dépoté
   // ne reste plus « Positionné » au parc.
   assert.equal(fiche!['statut'], 'Dépoté');
 });
 
-test('enlèvement — la saisie manuelle reste REFUSÉE pour un conteneur présent au stock (2026-09-14)', async () => {
+test('enlèvement, la saisie manuelle reste REFUSÉE pour un conteneur présent au stock (2026-09-14)', async () => {
   const db = new FakeDB();
   db.store['stock'].push({ numero_tc: 'MSKU6660004', taille: "20'", statut: 'En stock' });
   const cfs = ctxAvec(db);
@@ -2318,7 +2324,7 @@ test('enlèvement — la saisie manuelle reste REFUSÉE pour un conteneur prése
     /EST au stock/i,
   );
 });
-test("enlèvement — la saisie manuelle reste permise : le conteneur part scellé, hors parc", async () => {
+test("enlèvement, la saisie manuelle reste permise : le conteneur part scellé, hors parc", async () => {
   const db = new FakeDB();
   const cfs = ctxAvec(db);
   const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'PNT004/RM01', routage: 'Enlèvement' })) as { id: string };
@@ -2374,7 +2380,7 @@ test('magasin : le type ne change plus dès qu\'il y a une entrée', async () =>
     declaration: { numeroDeclaration: '900', anneeDeclaration: '2026', bureauDeclaration: 'TG120', typeDeclaration: 'C', declarant: 'ACME' },
     articles: [{ designation: 'CIMENT', poids: '1000' }],
   });
-  // Garni : bascule refusée — MAD compte des colis, INDUSTRIEL des kilos.
+  // Garni : bascule refusée, MAD compte des colis, INDUSTRIEL des kilos.
   await assert.rejects(
     () => entrepot.entrepotEdit(chef(db), { code: 'MAD-11', type: 'MAD' }),
     /Type non modifiable/);
@@ -2475,7 +2481,7 @@ test('déclaration : le CFS corrige APRÈS le T1, à condition de motiver', asyn
     /indiquez le MOTIF/);
   assert.equal(db.store['cargaisons'][0]!['numero_declaration'], '777', 'rien n\'a bougé');
 
-  // Avec motif : la correction passe — c'est la porte qu'on vient d'ouvrir.
+  // Avec motif : la correction passe, c'est la porte qu'on vient d'ouvrir.
   await ecr.editdecl(cfs, { id, declaration: declCorrigee, motif: 'numéro saisi à l\'envers' });
   assert.equal(db.store['cargaisons'][0]!['numero_declaration'], '888');
 });
@@ -2529,16 +2535,16 @@ test('conteneur : la correction tardive suit la même règle que la déclaration
   assert.equal(dets.conteneurs[0]!['plomb'], 'S9');
 });
 
-/* ===== CONTENEUR PARTAGÉ ENTRE PLUSIEURS CAMIONS — 2026-09-12 ============
+/* ===== CONTENEUR PARTAGÉ ENTRE PLUSIEURS CAMIONS, 2026-09-12 ============
  *
  * Signalé en production : un conteneur dépoté au port sec alimente souvent
  * PLUSIEURS camions, sa marchandise étant répartie entre eux. Le premier le
  * fait passer à « Dépoté » ; pour le deuxième, la règle de pointage réclamait
  * alors un pointage sur un conteneur DÉJÀ pointé et DÉJÀ dépoté. Les agents
  * contournaient par la « saisie manuelle », qui détache le conteneur de sa
- * fiche de stock — précisément ce que cette règle devait empêcher.
+ * fiche de stock, précisément ce que cette règle devait empêcher.
  */
-test('dépotage — un conteneur DÉJÀ DÉPOTÉ se rattache à un camion supplémentaire', async () => {
+test('dépotage, un conteneur DÉJÀ DÉPOTÉ se rattache à un camion supplémentaire', async () => {
   const db = new FakeDB();
   // Le conteneur a déjà servi : il est sorti du parc, statut « Dépoté ».
   db.store['stock'].push({ numero_tc: 'MSKU7770001', taille: "20'", statut: 'Dépoté' });
@@ -2551,12 +2557,12 @@ test('dépotage — un conteneur DÉJÀ DÉPOTÉ se rattache à un camion suppl�
 
   const c = db.store['cargaisons'].find((x) => x['id'] === id)!;
   // JSON.stringify, et non String() : `conteneurs_details` est un objet, dont
-  // String() ne rend que « [object Object] » — le test passait à côté.
+  // String() ne rend que « [object Object] », le test passait à côté.
   assert.match(JSON.stringify(c['conteneurs_details']), /MSKU7770001/,
     'le conteneur partagé doit être rattaché au second camion');
 });
 
-test('dépotage — un conteneur partagé NE redevient PAS « positionné »', async () => {
+test('dépotage, un conteneur partagé NE redevient PAS « positionné »', async () => {
   const db = new FakeDB();
   db.store['stock'].push({ numero_tc: 'MSKU7770002', taille: "20'", statut: 'Dépoté' });
   const { cfs, id } = await depotagePret(db, 'PART002/RM01');
@@ -2571,7 +2577,7 @@ test('dépotage — un conteneur partagé NE redevient PAS « positionné »', a
     'le re-pointage ferait réapparaître au parc un conteneur déjà parti');
 });
 
-test('dépotage — le conteneur NON dépoté garde sa règle de pointage', async () => {
+test('dépotage, le conteneur NON dépoté garde sa règle de pointage', async () => {
   const db = new FakeDB();
   // « En stock » : le garde-fou d'origine doit rester intact.
   db.store['stock'].push({ numero_tc: 'MSKU7770003', taille: "20'", statut: 'En stock' });
@@ -2585,14 +2591,14 @@ test('dépotage — le conteneur NON dépoté garde sa règle de pointage', asyn
   );
 });
 
-/* ===== UNE BALISE NE SUIT QU'UN CAMION À LA FOIS — 2026-09-12 ============
+/* ===== UNE BALISE NE SUIT QU'UN CAMION À LA FOIS, 2026-09-12 ============
  *
  * La migration 00170 pose un index unique qui l'impose. Ce test couvre le
  * contrôle applicatif qui le PRÉCÈDE : sans lui, l'agent verrait un refus
  * technique générique, sans savoir que c'est le numéro de balise qui est en
  * cause ni sur quel camion il est déjà posé.
  */
-test('balise — un numéro déjà posé sur un camion non sorti est refusé, en le nommant', async () => {
+test('balise, un numéro déjà posé sur un camion non sorti est refusé, en le nommant', async () => {
   const db = new FakeDB();
   db.store['cargaisons'].push({
     id: 'CT-2026-900001', numero_camion: 'BAL001/RM01', statut: 'T1 Saisi',
@@ -2610,7 +2616,7 @@ test('balise — un numéro déjà posé sur un camion non sorti est refusé, en
   );
 });
 
-test('balise — le même numéro est libre une fois l\'autre camion SORTI', async () => {
+test('balise, le même numéro est libre une fois l\'autre camion SORTI', async () => {
   const db = new FakeDB();
   db.store['cargaisons'].push({
     id: 'CT-2026-900002', numero_camion: 'BAL003/RM03', statut: 'Sortie Enregistrée',
@@ -2628,13 +2634,13 @@ test('balise — le même numéro est libre une fois l\'autre camion SORTI', asy
   assert.equal(c['numero_gps'], 'GPS-778', 'une balise se repose sur un autre camion après la sortie');
 });
 
-/* ===== LES TROIS RÈGLES DU DOUANIER — 2026-09-12 =========================
+/* ===== LES TROIS RÈGLES DU DOUANIER : 2026-09-12 =========================
  *
  * Dictées après trois blocages successifs en production. Elles ne se déduisent
  * pas du code : c'est une décision métier, et c'est à ce titre qu'elles sont
  * verrouillées ici.
  */
-test('douanier 1 (modifiée le 2026-09-14) — AU PARC mais NON POINTÉ : saisie manuelle PERMISE', async () => {
+test('douanier 1 (modifiée le 2026-09-14), AU PARC mais NON POINTÉ : saisie manuelle PERMISE', async () => {
   const db = new FakeDB();
   db.store['stock'].push({ numero_tc: 'MSKU5550001', taille: "20'", statut: 'En stock' });
   const { cfs, id } = await depotagePret(db, 'DOU001/RM01');
@@ -2647,7 +2653,7 @@ test('douanier 1 (modifiée le 2026-09-14) — AU PARC mais NON POINTÉ : saisie
   assert.equal(db.store['stock'].find((x) => x['numero_tc'] === 'MSKU5550001')!['statut'], 'Dépoté');
 });
 
-test('douanier 2 — DÉJÀ RATTACHÉ à un camion : saisie manuelle AUTORISÉE', async () => {
+test('douanier 2, DÉJÀ RATTACHÉ à un camion : saisie manuelle AUTORISÉE', async () => {
   const db = new FakeDB();
   db.store['stock'].push({ numero_tc: 'MSKU5550002', taille: "20'", statut: 'Dépoté' });
   const { cfs, id } = await depotagePret(db, 'DOU002/RM01');
@@ -2662,7 +2668,7 @@ test('douanier 2 — DÉJÀ RATTACHÉ à un camion : saisie manuelle AUTORISÉE'
   assert.equal(stk['statut'], 'Dépoté');
 });
 
-test('douanier 3 — ABSENT du parc : saisie manuelle autorisée, fiche créée', async () => {
+test('douanier 3, ABSENT du parc : saisie manuelle autorisée, fiche créée', async () => {
   const db = new FakeDB();
   const { cfs, id } = await depotagePret(db, 'DOU003/RM01');
   await ecr.cfs(cfs, {
@@ -2758,11 +2764,11 @@ test('tableau de bord : ↑ entrés / ↓ sortis de chaque file sur la période 
   assert.deepEqual(s2.flux['T1'], { entres: 0, sortis: 0 });
 });
 
-/* ===== CONTENEUR PARTAGÉ : NON COMPTÉ — 2026-09-14 (demande utilisateur) ===== */
+/* ===== CONTENEUR PARTAGÉ : NON COMPTÉ · 2026-09-14 (demande utilisateur) ===== */
 const lignes = (db: FakeDB, id: string) =>
   (db.store['cargaisons'].find((x) => x['id'] === id)!['conteneurs_details'] as { conteneurs: Record<string, unknown>[] }).conteneurs;
 
-test('partagé — marqué sur le 2e camion, et compté UNE fois (fiche CFS, KPI, flux)', async () => {
+test('partagé, marqué sur le 2e camion, et compté UNE fois (fiche CFS, KPI, flux)', async () => {
   const db = new FakeDB();
   db.store['stock'].push({ numero_tc: 'MSKU5550009', taille: "40'", statut: 'Positionné' });
   // 1er camion : dépotage normal.
@@ -2788,7 +2794,7 @@ test('partagé — marqué sur le 2e camion, et compté UNE fois (fiche CFS, KPI
   assert.equal(flux.totaux.evp, 2);
 });
 
-test('partagé — compté NULLE PART, même quand le premier dépotage tombe dans une autre période', async () => {
+test('partagé, compté NULLE PART, même quand le premier dépotage tombe dans une autre période', async () => {
   // Le repérage par numéro ne voyait que la période choisie : ce cas lui échappait.
   const db = new FakeDB();
   const cfs = ctxRole(db, 'CFS', 'A');
@@ -2810,7 +2816,7 @@ test('partagé — compté NULLE PART, même quand le premier dépotage tombe da
   assert.equal(r.total.evp, 0);
 });
 
-test('engagement — la correction reste possible APRÈS « Effectué » (2026-09-17)', async () => {
+test('engagement, la correction reste possible APRÈS « Effectué » (2026-09-17)', async () => {
   // Demande utilisateur : un clic de trop sur « Effectué » figeait l'erreur.
   const db = new FakeDB();
   const chef = ctxRole(db, 'CHEF_BRIGADE', 'Chef Brigade');
@@ -2839,7 +2845,7 @@ test('engagement — la correction reste possible APRÈS « Effectué » (2026-0
   assert.match(traces.map((t) => t.detail).join(' '), /déjà soldé le/);
 });
 
-/* ===== RETRAIT D'UN ENGAGEMENT — 2026-09-17 (demande utilisateur) ========== */
+/* ===== RETRAIT D'UN ENGAGEMENT : 2026-09-17 (demande utilisateur) ========== */
 function cargoEngage(db: FakeDB, id: string, over: Record<string, unknown> = {}) {
   db.store['cargaisons'].push({
     id, reference: id, numero_camion: 'TG' + id, statut: 'Créée', rapport_id: 'R',
@@ -2850,7 +2856,7 @@ function cargoEngage(db: FakeDB, id: string, over: Record<string, unknown> = {})
   });
 }
 
-test('engagement — RETRAIT : le suivi disparaît, et le journal garde ce qui a été retiré', async () => {
+test('engagement, RETRAIT : le suivi disparaît, et le journal garde ce qui a été retiré', async () => {
   const db = new FakeDB();
   const traces: { action: string; detail: string }[] = [];
   const chef = { ...ctxRole(db, 'CHEF_BRIGADE', 'Chef Brigade'),
@@ -2866,7 +2872,7 @@ test('engagement — RETRAIT : le suivi disparaît, et le journal garde ce qui a
   assert.match(traces.map((t) => t.detail).join(' '), /motif : coché par erreur/);
 });
 
-test('engagement — RETRAIT : motif obligatoire, et rien à retirer sans engagement', async () => {
+test('engagement, RETRAIT : motif obligatoire, et rien à retirer sans engagement', async () => {
   const db = new FakeDB();
   const chef = ctxRole(db, 'CHEF_BRIGADE', 'Chef Brigade');
   cargoEngage(db, 'ENG-R2');
@@ -2877,7 +2883,7 @@ test('engagement — RETRAIT : motif obligatoire, et rien à retirer sans engage
   await assert.rejects(() => ecr.engagementRetirer(chef, { id: 'ENG-R3', motif: 'x' }), /pas sous suivi d'engagement/i);
 });
 
-test('engagement — RETRAIT : possible aussi après « Effectué », le solde est efface avec le reste', async () => {
+test('engagement, RETRAIT : possible aussi après « Effectué », le solde est efface avec le reste', async () => {
   const db = new FakeDB();
   const chef = ctxRole(db, 'CHEF_BRIGADE', 'Chef Brigade');
   cargoEngage(db, 'ENG-R4');
@@ -2888,7 +2894,7 @@ test('engagement — RETRAIT : possible aussi après « Effectué », le solde e
   assert.equal(c['engagement_effectue_le'], null);
 });
 
-test('volet Engagements — le filtre sert les deux ecrans sans changer le tableau de bord', async () => {
+test('volet Engagements, le filtre sert les deux ecrans sans changer le tableau de bord', async () => {
   const db = new FakeDB();
   const chef = ctxRole(db, 'CHEF_BRIGADE', 'Chef Brigade');
   const jour = (n: number) => { const d = new Date(); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
@@ -2901,7 +2907,7 @@ test('volet Engagements — le filtre sert les deux ecrans sans changer le table
     const r = (await lec.engagementsDus(chef, filtre ? { filtre } : {})) as { lignes: { id: string }[] };
     return r.lignes.map((l) => l.id).sort();
   };
-  // Sans parametre : comportement d'avant — seules les alertes, soldes exclus.
+  // Sans parametre : comportement d'avant, seules les alertes, soldes exclus.
   assert.deepEqual(await ids(), ['E-DEMAIN', 'E-RETARD'], 'le tableau de bord ne doit pas changer');
   assert.deepEqual(await ids('encours'), ['E-DEMAIN', 'E-LOIN', 'E-RETARD'], 'les echeances lointaines aussi');
   assert.deepEqual(await ids('retard'), ['E-RETARD']);
@@ -2915,7 +2921,7 @@ test('volet Engagements — le filtre sert les deux ecrans sans changer le table
   assert.equal(tous.lignes.filter((l) => l.etat === 'solde').length, 1, 'un engagement solde est marque comme tel');
 });
 
-test('engagements — compteurs : le total baisse quand un engagement est soldé (2026-09-17)', async () => {
+test('engagements, compteurs : le total baisse quand un engagement est soldé (2026-09-17)', async () => {
   const db = new FakeDB();
   const chef = ctxRole(db, 'CHEF_BRIGADE', 'Chef Brigade');
   const jour = (n: number) => { const d = new Date(); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
@@ -2944,7 +2950,7 @@ test('engagements — compteurs : le total baisse quand un engagement est soldé
   assert.deepEqual(await volet(), { encours: 1, soldes: 1, total: 2 });
 });
 
-test('tableau de bord — arrivées / départs des engagements sur la période (2026-09-21)', async () => {
+test('tableau de bord, arrivées / départs des engagements sur la période (2026-09-21)', async () => {
   const db = new FakeDB();
   const chef = ctxRole(db, 'CHEF_BRIGADE', 'Chef Brigade');
   const j = new Date();
@@ -2966,8 +2972,8 @@ test('tableau de bord — arrivées / départs des engagements sur la période (
   assert.deepEqual(await flux(), { entres: 1, sortis: 1 });
 });
 
-/* ===================== PARAMÈTRES — 2026-09-21 ============================ */
-test('paramètres — défauts tant que rien n\'est réglé, puis valeurs enregistrées et tracées', async () => {
+/* ===================== PARAMÈTRES : 2026-09-21 ============================ */
+test('paramètres, défauts tant que rien n\'est réglé, puis valeurs enregistrées et tracées', async () => {
   const db = new FakeDB();
   const traces: string[] = [];
   const admin = { ...ctxRole(db, 'ADMIN', 'Admin'), log: async (a: string, _c?: string, d?: string) => { traces.push(a + ' ' + d); } };
@@ -2993,7 +2999,7 @@ test('paramètres — défauts tant que rien n\'est réglé, puis valeurs enregi
   assert.equal(((await prm.paramsGet(admin)) as { valeurs: Record<string, unknown> }).valeurs['sejourAlerteJours'], 90);
 });
 
-test('paramètres — table absente : défauts appliqués, enregistrement refusé avec explication', async () => {
+test('paramètres, table absente : défauts appliqués, enregistrement refusé avec explication', async () => {
   const base = new FakeDB();
   const db = {
     from: (t: string) => t === 'parametres_app'
@@ -3007,7 +3013,7 @@ test('paramètres — table absente : défauts appliqués, enregistrement refus�
   await assert.rejects(() => prm.paramsSet(admin, { valeurs: { archiveMois: 24 } }), /pas encore activés/);
 });
 
-test('paramètres — le seuil de séjour change le nombre de conteneurs en alerte', async () => {
+test('paramètres, le seuil de séjour change le nombre de conteneurs en alerte', async () => {
   const db = new FakeDB();
   const il40j = new Date(Date.now() - 40 * 86400000).toISOString();
   db.store['stock'].push({ numero_tc: 'MSKU0000001', taille: "20'", statut: 'En stock', date_entree: il40j });
@@ -3019,7 +3025,7 @@ test('paramètres — le seuil de séjour change le nombre de conteneurs en aler
   assert.equal(r.seuil, 30);
 });
 
-test('paramètres — plafond de conteneurs par camion en dépotage', async () => {
+test('paramètres, plafond de conteneurs par camion en dépotage', async () => {
   const db = new FakeDB();
   db.store['stock'].push({ numero_tc: 'MSKU6660011', taille: "20'", statut: 'Positionné' }, { numero_tc: 'MSKU6660012', taille: "20'", statut: 'Positionné' });
   await prm.paramsSet(ctxRole(db, 'ADMIN', 'Admin'), { valeurs: { conteneursMaxCamion: 1 } });
@@ -3028,7 +3034,7 @@ test('paramètres — plafond de conteneurs par camion en dépotage', async () =
   await assert.rejects(() => ecr.cfs(cfs, { id, declaration: DECL_PNT, conteneur: { num: 'MSKU6660012', taille: "20'", type: 'DRY' } }), /max 1/);
 });
 
-test('paramètres — l\'alerte d\'engagement remonte N jours avant l\'échéance', async () => {
+test('paramètres, l\'alerte d\'engagement remonte N jours avant l\'échéance', async () => {
   const db = new FakeDB();
   const jour = (n: number) => { const d = new Date(); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
   cargoEngage(db, 'P-3J', { engagement_delai: jour(3) });
@@ -3038,7 +3044,7 @@ test('paramètres — l\'alerte d\'engagement remonte N jours avant l\'échéanc
   assert.deepEqual(await ids(), ['P-3J'], 'réglé à 3 jours : il remonte');
 });
 
-test('paramètres — seuil hors gabarit : 4,2 m passe à 4,0 m réglé', async () => {
+test('paramètres, seuil hors gabarit : 4,2 m passe à 4,0 m réglé', async () => {
   const db = new FakeDB();
   db.store['stock'].push({ numero_tc: 'MSKU6660021', taille: "20'", statut: 'Positionné' }, { numero_tc: 'MSKU6660022', taille: "20'", statut: 'Positionné' });
   const gab = (id: string) => db.store['cargaisons'].find((c) => c['id'] === id)?.['hors_gabarit'];
@@ -3053,7 +3059,7 @@ test('paramètres — seuil hors gabarit : 4,2 m passe à 4,0 m réglé', async 
   assert.equal(gab(b.id), true, 'réglé à 4,0 m : 4,2 m est hors gabarit');
 });
 
-test("paramètres — ancienneté par défaut de l'archive", async () => {
+test("paramètres, ancienneté par défaut de l'archive", async () => {
   const db = new FakeDB();
   const ilYa = (m: number) => { const d = new Date(); d.setMonth(d.getMonth() - m); return d.toISOString(); };
   db.store['cargaisons'].push(
@@ -3071,7 +3077,7 @@ test("paramètres — ancienneté par défaut de l'archive", async () => {
   assert.equal((await ids({ mois: 24 })).mois, 24, "un choix explicite l'emporte");
 });
 
-test('paramètres — plafond de conteneurs aussi à la création groupée et à la correction', async () => {
+test('paramètres, plafond de conteneurs aussi à la création groupée et à la correction', async () => {
   const db = new FakeDB();
   await prm.paramsSet(ctxRole(db, 'ADMIN', 'Admin'), { valeurs: { conteneursMaxCamion: 1 } });
   const conts = [{ num: 'MSKU6660031', taille: "20'", type: 'DRY', plomb: 'P1' }, { num: 'MSKU6660032', taille: "20'", type: 'DRY', plomb: 'P2' }];
@@ -3081,4 +3087,198 @@ test('paramètres — plafond de conteneurs aussi à la création groupée et à
   await assert.rejects(() => ecr.update(ctxRole(db, 'ADMIN', 'Admin'), {
     id: 'X', typeOperation: 'Enlèvement', declaration: DECL_OK, numeroCamion: 'MAX002/RM01', conteneurs: conts, scellesCamion: [],
   }), /max 1/);
+});
+
+/* ------------------------------- PARKING -------------------------------- */
+
+test('parking : ajout + pointage du jour, un seul par jour', async () => {
+  const db = new FakeDB();
+  const agent = ctxRole(db, 'BALISE', 'Agent Balise');
+  const r = (await prk.parkingAdd(agent, { numeroCamion: 'TG1234AB/RM01', numeroConteneur: 'MSKU1234567', plomb: 'PL-77' })) as { id: string; pointe: boolean };
+  assert.equal(r.pointe, true, "l'ajout pointe le camion dans la foulée");
+  assert.equal(db.store['parking_pointages'].length, 1);
+  // Deuxième pointage le même jour : refusé.
+  await assert.rejects(() => prk.parkingPointer(agent, { id: r.id }), /DÉJÀ POINTÉ/);
+  assert.equal(db.store['parking_pointages'].length, 1);
+  // Et le même camion ne peut pas être ajouté deux fois tant qu'il est présent.
+  await assert.rejects(() => prk.parkingAdd(agent, { numeroCamion: 'tg1234ab/rm01' }), /DÉJÀ au parking/);
+});
+
+test('parking : ajout sans pointer, puis pointage le lendemain', async () => {
+  const db = new FakeDB();
+  const agent = ctxRole(db, 'T1', 'Agent T1');
+  const r = (await prk.parkingAdd(agent, { numeroCamion: 'TG2222CD/RM02', pointer: false })) as { id: string; pointe: boolean };
+  assert.equal(r.pointe, false);
+  const l1 = (await prk.parkingList(agent, {})) as { lignes: { pointeAujourdhui: boolean }[]; compte: { presents: number; pointes: number; restants: number } };
+  assert.deepEqual(l1.compte, { presents: 1, pointes: 0, restants: 1 });
+  assert.equal(l1.lignes[0]?.pointeAujourdhui, false);
+  await prk.parkingPointer(agent, { id: r.id });
+  const l2 = (await prk.parkingList(agent, {})) as { lignes: { pointeAujourdhui: boolean }[]; compte: { pointes: number; restants: number } };
+  assert.equal(l2.lignes[0]?.pointeAujourdhui, true, 'le bouton « Pointer » disparaît ensuite');
+  assert.deepEqual(l2.compte.pointes, 1);
+  assert.deepEqual(l2.compte.restants, 0);
+  // Un pointage de la veille ne bloque pas celui du jour : la ligne existe par jour.
+  db.store['parking_pointages'].push({ id: r.id + '#2026-09-23', parking_id: r.id, jour: '2026-09-23', pointe_par: 'Hier' });
+  const d = (await prk.parkingDetail(agent, { id: r.id })) as { pointages: unknown[] };
+  assert.equal(d.pointages.length, 2, "l'historique garde chaque jour pointé");
+});
+
+test('parking : recherche au fil de la frappe sur la plaque', async () => {
+  const db = new FakeDB();
+  const agent = ctxRole(db, 'CFS', 'Agent CFS');
+  await prk.parkingAdd(agent, { numeroCamion: 'TG2489BK/2725BP' });
+  await prk.parkingAdd(agent, { numeroCamion: 'TG7777ZZ/RM09' });
+  const plaques = async (q: string) =>
+    ((await prk.parkingList(agent, { recherche: q })) as { lignes: { numeroCamion: string }[] }).lignes.map((l) => l.numeroCamion);
+  assert.deepEqual(await plaques('2'), ['TG7777ZZ/RM09', 'TG2489BK/2725BP'].filter((p) => p.replace(/[^A-Z0-9]/g, '').includes('2')));
+  assert.deepEqual(await plaques('248'), ['TG2489BK/2725BP']);
+  assert.deepEqual(await plaques('tg 2489 bk'), ['TG2489BK/2725BP'], 'espaces et minuscules ignorés');
+  assert.deepEqual(await plaques('9999'), []);
+});
+
+test('parking : plaque obligatoire et format contrôlé', async () => {
+  const db = new FakeDB();
+  const agent = ctxRole(db, 'PP', 'Agent PP');
+  await assert.rejects(() => prk.parkingAdd(agent, { numeroCamion: '' }), /N° camion requis/);
+  await assert.rejects(() => prk.parkingAdd(agent, { numeroCamion: 'AB' }), /camion/i);
+});
+
+test('parking : le camion signalé à la Porte Principale sort du parking', async () => {
+  const db = new FakeDB();
+  db.store['stock'].push({ numero_tc: 'MSKU7000001', taille: "20'", statut: 'En stock' });
+  const cfs = ctxAvec(db);
+  const agent = ctxRole(db, 'PP', 'Agent PP');
+  const plaque = 'TG5555EE/RM05';
+  await prk.parkingAdd(agent, { numeroCamion: plaque });
+  const avant = (await prk.parkingCheck(cfs, { numeroCamion: 'tg5555ee/rm05' })) as { present: boolean };
+  assert.equal(avant.present, true, 'la saisie CFS est prévenue que le camion est au parking');
+
+  // Un dossier complet pour ce camion, jusqu'à la sortie PP.
+  const r = (await spe.create(cfs, {
+    typeOperation: 'Enlèvement', declaration: DECL_OK,
+    camions: [{ numeroCamion: plaque, conteneurs: [{ num: 'MSKU7000001', taille: "20'", type: 'DRY', plomb: 'S1' }] }],
+  })) as { camions: { id: string }[] };
+  const id = r.camions[0]!.id;
+  await ecr.t1(ctxRole(db, 'T1', 'Agent T1'), {
+    id, bureauDestination: 'TG120', t1Numeros: [{ conteneur: 'MSKU7000001', numero: 'T1-A' }],
+  });
+  await ecr.gps(ctxRole(db, 'BALISE', 'Agent Balise'), { id, baliseRequise: 'Oui', t1Correct: 'Oui', numeroGPS: 'GPS-1' });
+  await ecr.bonsortie(ctxRole(db, 'BON_SORTIE', 'Agent BS'), {
+    id, bonSortieNumero: [{ conteneur: 'MSKU7000001', t1: 'T1-A', numero: 'BS-1' }],
+  });
+  await ecr.sortie(agent, { id, ckCfs: true, ckT1: true, ckBalise: true, ckBs: true });
+
+  const apres = (await prk.parkingCheck(cfs, { numeroCamion: plaque })) as { present: boolean };
+  assert.equal(apres.present, false, 'sorti du parking une fois signalé à la PP');
+  const ligne = db.store['parking_camions'][0]!;
+  assert.equal(ligne['statut'], 'Sorti');
+  assert.equal(ligne['sortie_cargaison'], id);
+  // Et il ne se pointe plus.
+  await assert.rejects(() => prk.parkingPointer(agent, { id: String(ligne['id']) }), /sorti du parking/);
+});
+
+test("parking : les droits, correction pour tous, suppression a l'ADMIN", async () => {
+  const db = new FakeDB();
+  const admin = ctxRole(db, 'ADMIN', 'Admin');
+  const { id } = (await prk.parkingAdd(admin, { numeroCamion: 'TG9999YY/RM07' })) as { id: string };
+  // Pas de sortie manuelle : un camion quitte le parking a la Porte Principale.
+  assert.equal((prk as Record<string, unknown>)['parkingSortie'], undefined);
+  await prk.parkingSupprimer(admin, { id, motif: 'ligne creee par erreur' });
+  assert.equal(db.store['parking_camions'].length, 0);
+
+  const permis = (role: string, action: string) => {
+    try { verifierPermission(role, action); return true; } catch { return false; }
+  };
+  assert.equal(permis('CFS', 'parking.delete'), false, 'un agent ne supprime pas');
+  assert.equal(permis('CFS', 'parking.edit'), true, 'mais tout agent corrige');
+  assert.equal(permis('ADMIN', 'parking.sortie'), false, 'action retiree');
+});
+
+test('parking : correction ouverte a tous, plaque doublee refusee', async () => {
+  const db = new FakeDB();
+  const agent = ctxRole(db, 'BALISE', 'Agent Balise');
+  const a = (await prk.parkingAdd(agent, { numeroCamion: 'TG1111AA/RM01', plomb: 'PL-1' })) as { id: string };
+  const b = (await prk.parkingAdd(agent, { numeroCamion: 'TG2222BB/RM02' })) as { id: string };
+
+  await prk.parkingEdit(agent, { id: a.id, numeroCamion: 'TG1111AA/RM01', numeroConteneur: 'MSKU9000001', plomb: 'PL-2' });
+  const ligne = db.store['parking_camions'].find((x) => x['id'] === a.id)!;
+  assert.equal(ligne['numero_conteneur'], 'MSKU9000001');
+  assert.equal(ligne['plomb'], 'PL-2');
+
+  // La plaque se corrige aussi, la clef de recherche suit.
+  await prk.parkingEdit(agent, { id: a.id, numeroCamion: 'TG1111AC/RM01' });
+  const apres = db.store['parking_camions'].find((x) => x['id'] === a.id)!;
+  assert.equal(apres['numero_camion'], 'TG1111AC/RM01');
+  assert.equal(apres['numero_camion_norm'], 'TG1111ACRM01');
+
+  // Mais pas pour prendre celle d'un camion deja present.
+  await assert.rejects(() => prk.parkingEdit(agent, { id: b.id, numeroCamion: 'TG1111AC/RM01' }), /deja au parking/);
+  // Sans changement : rien n'est ecrit.
+  const r = (await prk.parkingEdit(agent, { id: b.id, plomb: '' })) as { inchange?: boolean };
+  assert.equal(r.inchange, true);
+});
+
+test('parking : suppression ADMIN seule, motif obligatoire, pointages effaces', async () => {
+  const db = new FakeDB();
+  const admin = ctxRole(db, 'ADMIN', 'Admin');
+  const { id } = (await prk.parkingAdd(admin, { numeroCamion: 'TG3333CC/RM03' })) as { id: string };
+  assert.equal(db.store['parking_pointages'].length, 1);
+  await assert.rejects(() => prk.parkingSupprimer(admin, { id }), /Motif/);
+  await prk.parkingSupprimer(admin, { id, motif: 'ligne creee en double' });
+  assert.equal(db.store['parking_camions'].length, 0);
+  assert.equal(db.store['parking_pointages'].length, 0, 'les pointages partent avec la ligne');
+
+  const permis = (role: string, action: string) => {
+    try { verifierPermission(role, action); return true; } catch { return false; }
+  };
+  assert.equal(permis('ADMIN', 'parking.delete'), true);
+  for (const r of ['CFS', 'PP', 'T1', 'CHEF_BRIGADE']) {
+    assert.equal(permis(r, 'parking.delete'), false, r + ' ne supprime pas');
+    assert.equal(permis(r, 'parking.edit'), true, r + ' peut corriger');
+  }
+});
+
+test('parking : duree du sejour en minutes, et filtre de periode', async () => {
+  const db = new FakeDB();
+  const agent = ctxRole(db, 'CFS', 'Agent CFS');
+  const ilYa = (h: number) => new Date(Date.now() - h * 3600000).toISOString();
+  db.store['parking_camions'] = [
+    { id: 'PK-A', numero_camion: 'TG4444DD/RM04', numero_camion_norm: 'TG4444DDRM04', statut: 'Présent', date_entree: ilYa(5) },
+    { id: 'PK-B', numero_camion: 'TG5555EE/RM05', numero_camion_norm: 'TG5555EERM05', statut: 'Présent', date_entree: ilYa(50) },
+    { id: 'PK-C', numero_camion: 'TG6666FF/RM06', numero_camion_norm: 'TG6666FFRM06', statut: 'Sorti', date_entree: '2026-01-10T08:00:00.000Z', date_sortie: '2026-01-12T08:00:00.000Z' },
+  ];
+  const liste = (await prk.parkingList(agent, { statut: 'tous' })) as { lignes: Record<string, unknown>[] };
+  const par = (id: string) => liste.lignes.find((l) => l['id'] === id)!;
+  assert.equal(Math.round(Number(par('PK-A')['dureeMinutes']) / 60), 5, 'moins d\'un jour : lisible en heures');
+  assert.equal(Math.round(Number(par('PK-B')['dureeMinutes']) / 60), 50, 'plus d\'un jour : lisible en jours');
+  // Camion sorti : la duree s'arrete a la sortie, elle ne court plus.
+  assert.equal(Number(par('PK-C')['dureeMinutes']), 2 * 24 * 60);
+
+  // Periode : seules les entrees de janvier 2026.
+  const janvier = (await prk.parkingList(agent, { statut: 'tous', du: '2026-01-01', au: '2026-01-31' })) as { lignes: Record<string, unknown>[]; du: string };
+  assert.deepEqual(janvier.lignes.map((l) => l['id']), ['PK-C']);
+  assert.equal(janvier.du, '2026-01-01');
+});
+
+test('suppression : le motif est exige AVANT de retirer un conteneur', async () => {
+  const db = new FakeDB();
+  db.store['stock'].push({ numero_tc: 'MSKU8000001', taille: "40'", statut: 'En stock' });
+  const cfs = ctxAvec(db);
+  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'MOT001/RM01', routage: 'Enlèvement' })) as { id: string };
+  await ecr.cfs(cfs, { id, conteneur: { num: 'MSKU8000001', taille: "40'", type: 'DRY', plomb: 'S1' }, declaration: DECL_OK });
+
+  // Dossier a peine cree, agent CFS : c'est le cas ou rien n'etait demande.
+  await assert.rejects(() => ecr.editconteneur(cfs, { id, index: 0, supprimer: true }), /MOTIF du retrait/);
+  // L'ADMIN n'y echappe pas non plus.
+  await assert.rejects(
+    () => ecr.editconteneur(ctxRole(db, 'ADMIN', 'Admin'), { id, index: 0, supprimer: true }), /MOTIF du retrait/);
+  // Le conteneur est toujours la : rien n'a ete retire.
+  assert.equal(Number(db.store['cargaisons'][0]?.['nb_conteneurs']), 1);
+
+  // Avec motif : le retrait passe, et le motif est inscrit au journal.
+  const trace = ctxTrace(db, 'CFS', 'Agent CFS');
+  await ecr.editconteneur(trace.ctx, { id, index: 0, supprimer: true, motif: 'jamais chargé' });
+  assert.equal(Number(db.store['cargaisons'][0]?.['nb_conteneurs']), 0);
+  assert.ok(trace.traces.some((t) => /retiré · motif : jamais chargé/.test(t.detail)),
+    'le motif suit le retrait dans le journal');
 });

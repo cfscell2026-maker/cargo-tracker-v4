@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- *  @cargo/domaine — Constructeurs & validations métier (purs, sans base)
+ *  @cargo/domaine, Constructeurs & validations métier (purs, sans base)
  *  Transcription FIDÈLE de Data.gs : _construireCamion_, _construireVehicule_,
  *  _ligneConteneur_ (v3.6). Messages d'erreur conservés MOT POUR MOT.
  * ============================================================================
@@ -82,7 +82,7 @@ export interface CamionEffets {
 }
 
 /**
- * v4 — Camion d'EFFETS DIVERS d'un rapport véhicule : il ne porte PAS de
+ * v4, Camion d'EFFETS DIVERS d'un rapport véhicule : il ne porte PAS de
  * conteneur (les effets proviennent du conteneur d'origine du véhicule) mais
  * un N° de camion, une DÉSIGNATION des effets et ses scellés. Les scellés
  * (2-3, règle dépotage) ne sont exigés que si le chargement est terminé.

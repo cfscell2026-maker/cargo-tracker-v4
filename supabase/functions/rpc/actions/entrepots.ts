@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- *  ENTREPÔTS — MAD & Entrepôt industriel (v4.1, décision utilisateur 2026-07-27).
+ *  ENTREPÔTS : MAD & Entrepôt industriel (v4.1, décision utilisateur 2026-07-27).
  *  Deux entrepôts nommés (nom + code) au fonctionnement identique ; seule
  *  l'UNITÉ D'APUREMENT change : MAD = quantités (colis), INDUSTRIEL = poids (kg).
  *
@@ -26,7 +26,7 @@ const num = (v: unknown) => { const n = Number(String(v ?? '').replace(',', '.')
 export async function entrepotList(ctx: Ctx, opts: { type?: string; tous?: unknown }) {
   const data = await fetchAll(ctx, 'entrepots', '*');
   // `tous` (2026-09-11) : inclut les entrepôts DÉSACTIVÉS. Sans cela, désactiver
-  // un magasin revenait à le perdre de vue — donc à ne plus pouvoir le
+  // un magasin revenait à le perdre de vue, donc à ne plus pouvoir le
   // réactiver. Les écrans de saisie n'envoient pas ce drapeau : pour eux, rien
   // ne change, un magasin désactivé reste hors de portée.
   let rows = data.map((r) => versCamel(r));
@@ -36,14 +36,14 @@ export async function entrepotList(ctx: Ctx, opts: { type?: string; tous?: unkno
   return { rows };
 }
 
-/** Nombre d'entrées rattachées à un entrepôt — ce qui décide de sa suppressibilité. */
+/** Nombre d'entrées rattachées à un entrepôt, ce qui décide de sa suppressibilité. */
 async function compterEntrees(ctx: Ctx, code: string): Promise<number> {
   const { data } = await ctx.db.from('entrepot_entrees').select('id').eq('entrepot_code', code);
   return (data ?? []).length;
 }
 
 /**
- * MODIFICATION d'un entrepôt — ADMIN / chef brigade / chef division
+ * MODIFICATION d'un entrepôt, ADMIN / chef brigade / chef division
  * (2026-09-11, demande utilisateur). Renommer, changer le type, activer ou
  * désactiver.
  *
@@ -52,7 +52,7 @@ async function compterEntrees(ctx: Ctx, code: string): Promise<number> {
  * tout l'historique du magasin.
  *
  * ⚠ LE TYPE NE SE CHANGE PLUS DÈS QU'IL Y A UNE ENTRÉE. MAD et INDUSTRIEL ne
- * comptent pas la même chose — colis d'un côté, kilos de l'autre (voir
+ * comptent pas la même chose, colis d'un côté, kilos de l'autre (voir
  * `uniteApurement`). Basculer le type d'un magasin déjà garni ne convertirait
  * rien : il relirait simplement les quantités existantes dans la mauvaise
  * unité. Une erreur de frappe sur le nom se corrige ; un stock réinterprété, non.
@@ -79,7 +79,7 @@ export async function entrepotEdit(ctx: Ctx, p: Record<string, unknown>) {
       if (n > 0) {
         throw new Error(
           'Type non modifiable : ce magasin contient déjà ' + n + ' entrée(s). '
-          + 'MAD compte en colis, Industriel en kilos — changer le type relirait '
+          + 'MAD compte en colis, Industriel en kilos, changer le type relirait '
           + 'ces quantités dans la mauvaise unité. Créez un nouveau magasin du bon '
           + 'type et désactivez celui-ci.');
       }
@@ -104,10 +104,10 @@ export async function entrepotEdit(ctx: Ctx, p: Record<string, unknown>) {
 }
 
 /**
- * SUPPRESSION d'un entrepôt — ADMIN seul (2026-09-11, demande utilisateur).
+ * SUPPRESSION d'un entrepôt, ADMIN seul (2026-09-11, demande utilisateur).
  *
  * Refusée dès qu'une entrée s'y rattache, et le message dit alors quoi faire :
- * désactiver. Ce n'est pas une précaution de confort — `entrepot_entrees` et
+ * désactiver. Ce n'est pas une précaution de confort, `entrepot_entrees` et
  * `entrepot_sorties` référencent `entrepots(code)` par clé étrangère : la base
  * refuserait de toute façon, mais avec un message PostgreSQL illisible pour un
  * agent. Autant le dire nous-mêmes, et proposer la sortie.
@@ -124,7 +124,7 @@ export async function entrepotSupprimer(ctx: Ctx, p: Record<string, unknown>) {
   if (n > 0) {
     throw new Error(
       'Suppression impossible : ce magasin contient ' + n + ' entrée(s), qui doivent '
-      + 'rester consultables. Désactivez-le plutôt — il disparaîtra des écrans de '
+      + 'rester consultables. Désactivez-le plutôt, il disparaîtra des écrans de '
       + 'saisie tout en gardant son historique.');
   }
 
@@ -134,7 +134,7 @@ export async function entrepotSupprimer(ctx: Ctx, p: Record<string, unknown>) {
   return { code };
 }
 
-/** Création d'un entrepôt (ADMIN / chef brigade / chef division — vérifié en amont). */
+/** Création d'un entrepôt (ADMIN / chef brigade / chef division, vérifié en amont). */
 export async function entrepotCreate(ctx: Ctx, p: Record<string, unknown>) {
   const code = maj(p['code'], 20).replace(/[^A-Z0-9-]/g, '');
   const nom = maj(p['nom'], 80);
@@ -256,19 +256,19 @@ export async function entrepotSortie(ctx: Ctx, p: Record<string, unknown>) {
 
   const d = (p['declarationApurement'] ?? {}) as Record<string, unknown>;
   const id = await nextRef(ctx, 'SEQ_SOR', 'SOR');
-  // v4.1 — la marchandise (vrac) sort sur un CAMION scellé, pas des véhicules :
+  // v4.1, la marchandise (vrac) sort sur un CAMION scellé, pas des véhicules :
   // N° camion + scellés (comme une sortie Magasin/MAD). `vehicules` reste accepté
   // pour compatibilité mais n'est plus saisi côté écran.
   const numeroCamion = maj(p['numeroCamion'], 30).replace(/[^A-Z0-9/-]/g, ''); // 2026-09-10 : la barre oblique du format tracteur/remorque ne doit plus être retirée
   const scelles = (Array.isArray(p['scelles']) ? (p['scelles'] as unknown[]) : []).map((s) => maj(s, 30)).filter(Boolean);
   const vehicules = Array.isArray(p['vehicules']) ? p['vehicules'] : [];
 
-  /* v4.2 — BALISE / DISPENSE sur la sortie d'entrepôt.
+  /* v4.2, BALISE / DISPENSE sur la sortie d'entrepôt.
    *
    * Le camion qui emporte la marchandise apurée doit être balisé ou non selon le
    * TYPE de la déclaration d'apurement. Pour un transit (T) la question ne se
    * pose pas : il est balisé. Pour les types C (consommation) et A (admission),
-   * l'agent tranche — et le cas courant est SANS balise.
+   * l'agent tranche, et le cas courant est SANS balise.
    *
    * On enregistre la DÉCISION, sans créer de cargaison : la sortie d'entrepôt
    * reste un apurement de sommier, pas un mouvement du parcours CFS → PP.
@@ -291,7 +291,7 @@ export async function entrepotSortie(ctx: Ctx, p: Record<string, unknown>) {
   const { error } = await ctx.db.from('entrepot_sorties').insert(row);
   if (error) throw new Error(error.message);
 
-  /* v4.3 — CRÉATION DU CAMION DANS LE PARCOURS (demande utilisateur 2026-08-19).
+  /* v4.3, CRÉATION DU CAMION DANS LE PARCOURS (demande utilisateur 2026-08-19).
    *
    * La sortie MAD ne fait plus que solder le sommier : elle CRÉE aussi le camion
    * qui emporte la marchandise, SANS passer par le CFS, comme une « Sortie
@@ -302,7 +302,7 @@ export async function entrepotSortie(ctx: Ctx, p: Record<string, unknown>) {
    *     balise (baliseRequise coché ou non).
    * La VALIDATION du chef de brigade est TOUJOURS requise (statut « Créée »).
    *
-   * CONCORDANCE : type « Sortie Magasin / MAD » — ces cargaisons sont, par
+   * CONCORDANCE : type « Sortie Magasin / MAD », ces cargaisons sont, par
    * construction, exclues des rapports CFS / Balise / PP (qui ne comptent que
    * Enlèvement/Dépotage), donc ce camion ne gonfle PAS les entrées CFS. Il
    * apparaît normalement dans les FILES d'attente (validation puis suite du
@@ -345,7 +345,7 @@ export async function entrepotSortie(ctx: Ctx, p: Record<string, unknown>) {
 }
 
 /**
- * Détail des SORTIES (apurements) — pour le tiroir « quantité apurée » : quelles
+ * Détail des SORTIES (apurements), pour le tiroir « quantité apurée » : quelles
  * déclarations sont venues apurer un article d'une entrée. Filtrable par
  * entrepôt / entrée / article.
  */
@@ -362,9 +362,9 @@ export async function entrepotSortiesDetail(ctx: Ctx, opts: { entrepotCode?: str
       designation: s['designation'], nbColis: s['nbColis'], poids: s['poids'], agent: s['agent'],
       declaration: [s['numeroDeclaration'], s['anneeDeclaration'], s['bureauDeclaration'], s['typeDeclaration']].filter(Boolean).join(' · '),
       numeroCamion: s['numeroCamion'], scelles: s['scelles'], vehicules: s['vehicules'],
-      // v4.2 — décision balise prise à l'apurement (null = sans objet / antérieure).
+      // v4.2, décision balise prise à l'apurement (null = sans objet / antérieure).
       baliseRequise: s['baliseRequise'],
-      // v4.3 — cargaison (camion) créée pour cette sortie, s'il y en a une.
+      // v4.3, cargaison (camion) créée pour cette sortie, s'il y en a une.
       cargaisonId: s['cargaisonId'],
     })),
   };

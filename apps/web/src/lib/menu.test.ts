@@ -1,12 +1,12 @@
 /**
- * Découpage du menu en deux blocs (2026-09-10) — vérifie qu'il RÉORDONNE
+ * Découpage du menu en deux blocs (2026-09-10), vérifie qu'il RÉORDONNE
  * seulement, et n'ouvre aucun accès.
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { MENUS, iconeDeLEcran, menuSections } from './menu.ts';
 
-test('menu — le découpage ne crée ni ne perd aucune entrée', () => {
+test('menu, le découpage ne crée ni ne perd aucune entrée', () => {
   for (const role of Object.keys(MENUS)) {
     const attendu = (MENUS[role] ?? []).map((m) => m[0]).sort();
     const { general, navigation } = menuSections(role);
@@ -15,7 +15,7 @@ test('menu — le découpage ne crée ni ne perd aucune entrée', () => {
   }
 });
 
-test('menu — un rôle sans écran d’administration n’en reçoit pas', () => {
+test('menu, un rôle sans écran d’administration n’en reçoit pas', () => {
   // Les cellules d'exécution n'ont ni Utilisateurs, ni Historique, ni Archive.
   for (const role of ['T1', 'BALISE', 'BON_SORTIE', 'PP', 'CBPI']) {
     const { general } = menuSections(role);
@@ -25,16 +25,16 @@ test('menu — un rôle sans écran d’administration n’en reçoit pas', () =
   }
 });
 
-test('menu — l’ADMIN retrouve bien ses écrans d’administration dans le bloc général', () => {
+test('menu, l’ADMIN retrouve bien ses écrans d’administration dans le bloc général', () => {
   const cles = menuSections('ADMIN').general.map((m) => m[0]);
   for (const attendu of ['dash', 'users', 'history', 'archive', 'account'])
     assert.equal(cles.includes(attendu), true, `ADMIN doit voir « ${attendu} » en haut`);
-  // Et l'ordre est celui, fixe, du bloc général — pas celui du menu d'origine.
+  // Et l'ordre est celui, fixe, du bloc général, pas celui du menu d'origine.
   assert.equal(cles[0], 'dash');
   assert.equal(cles.at(-1), 'account');
 });
 
-test('menu — « Mon compte » est le seul écran général commun à tous les rôles', () => {
+test('menu, « Mon compte » est le seul écran général commun à tous les rôles', () => {
   for (const role of Object.keys(MENUS)) {
     const cles = menuSections(role).general.map((m) => m[0]);
     assert.equal(cles.includes('account'), true, `${role} doit garder « Mon compte »`);

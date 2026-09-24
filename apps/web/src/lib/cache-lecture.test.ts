@@ -4,7 +4,7 @@
  * Ce qui est vérifié ici n'est pas « est-ce que ça va plus vite », mais
  * « est-ce que ça ne ment JAMAIS ». Un cache qui sert une valeur qu'il ne
  * devait plus avoir fait afficher à un agent un dossier déjà validé, ou une
- * file qu'un collègue vient de vider — un défaut bien plus coûteux que les
+ * file qu'un collègue vient de vider, un défaut bien plus coûteux que les
  * 3,7 s qu'on cherche à éviter.
  */
 import { test } from 'node:test';
@@ -35,7 +35,7 @@ test('une entrée périmée est RETIRÉE, pas seulement ignorée', () => {
   assert.equal(c.taille, 0, 'sinon le cache enfle sans fin au fil des écrans');
 });
 
-test('vider() efface TOUT — une écriture invalide toutes les lectures', () => {
+test('vider() efface TOUT, une écriture invalide toutes les lectures', () => {
   const c = new CacheLecture();
   c.poser('a', 1, 0); c.poser('b', 2, 0);
   c.vider();

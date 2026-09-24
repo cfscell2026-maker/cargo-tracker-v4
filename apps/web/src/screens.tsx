@@ -11,6 +11,7 @@ import { Spinner, StatCard, Tag, Modal, masks, toast, fmtDate, fmtJour, ChampDes
 import { bornesDe, isoDate, normaliserPlage, type ModePeriode, repartition } from './lib/periode.ts';
 import { trierEngagements, filtrerEngagements, type TriEngagement, type SensTri } from './lib/tri-engagements.ts';
 import { Detail, TitrePanneau } from './detail.tsx';
+import { EcranParking, useAlerteParking } from './parking.tsx';
 import type { ReactNode } from 'react';
 import type { Nav } from './App.tsx';
 import { useNav } from './lib/contexte-nav.ts';
@@ -23,11 +24,11 @@ type Screen = (p: Nav) => JSX.Element;
 
 /* ------------------------------ Tableau -------------------------------- */
 /**
- * UN NUMÉRO PRÉCÉDÉ DE L'ICÔNE QUI DIT SA NATURE — 2026-09-11.
+ * UN NUMÉRO PRÉCÉDÉ DE L'ICÔNE QUI DIT SA NATURE, 2026-09-11.
  *
  * La colonne « Camion » ne contient pas que des plaques : les données migrées y
  * portent parfois un NUMÉRO DE CONTENEUR (`TGBU4084237`), et rien ne le
- * signalait — deux natures de référence dans une même colonne, écrites de la
+ * signalait, deux natures de référence dans une même colonne, écrites de la
  * même façon.
  *
  * La reconnaissance n'est pas une heuristique de surface : elle utilise
@@ -50,7 +51,7 @@ const COLONNES_MOBILES = new Set(['numeroCamion', 'camion', 'numeroTc', 'contene
 
 /**
  * Un VÉHICULE n'est ni un camion ni un conteneur : c'est la marchandise elle-
- * même, dépotée d'un conteneur. Son châssis mérite donc son propre dessin —
+ * même, dépotée d'un conteneur. Son châssis mérite donc son propre dessin,
  * sans quoi `NumeroMobile` l'aurait affiché avec une icône de camion, ce qui
  * est précisément la confusion que l'écran cherche à éviter.
  */
@@ -62,14 +63,14 @@ function ChassisVehicule({ valeur }: { valeur: unknown }) {
   </span>;
 }
 /**
- * MARQUE D'ENGAGEMENT — 2026-09-12.
+ * MARQUE D'ENGAGEMENT : 2026-09-12.
  *
  * Un engagement qu'il faut ouvrir dossier par dossier pour découvrir n'est pas
  * suivi, il est archivé. La liste doit donc le dire d'un coup d'œil, et dire
  * aussi ce qui compte vraiment : l'échéance est-elle passée ?
  *
  * Trois états, trois couleurs : soldé (vert), en retard (ambre), en cours
- * (bleu). Rien du tout si le dossier n'est pas sous suivi — la majorité des
+ * (bleu). Rien du tout si le dossier n'est pas sous suivi, la majorité des
  * lignes, qu'il ne faut pas charger de bruit.
  */
 function MarqueEngagement({ c }: { c: O }) {
@@ -79,7 +80,7 @@ function MarqueEngagement({ c }: { c: O }) {
   const enRetard = !solde && delai !== '' && delai < new Date().toISOString().slice(0, 10);
   const ton = solde ? 'ok' : enRetard ? 'retard' : 'cours';
   const titre = solde ? 'Engagement soldé'
-    : enRetard ? `En retard — échéance du ${fmtJour(delai)}`
+    : enRetard ? `En retard, échéance du ${fmtJour(delai)}`
       : delai ? `Échéance le ${fmtJour(delai)}` : "Sous suivi d'engagement";
   return <span className={`eng-marque eng-${ton}`} title={titre}>
     <Icone nom={solde ? 'valider' : enRetard ? 'drapeau' : 'sablier'} taille={13} />
@@ -132,14 +133,14 @@ function Table({ cols, rows, onRow, icones, actions }: {
 
 /* ------------------ Modifier / supprimer un dossier --------------------- */
 /**
- * 2026-09-12 — DEMANDE UTILISATEUR : des agents créent le même camion plusieurs
+ * 2026-09-12 · DEMANDE UTILISATEUR : des agents créent le même camion plusieurs
  * fois (le châssis 732382 trois fois à 12:23). La correction et l'annulation
  * existaient, mais enfouies au fond de la fiche, dans un bloc replié : personne
  * ne les trouvait. Elles sont maintenant AU BOUT DE CHAQUE LIGNE.
  *
- *   · « Modifier » — visible pour TOUS les rôles. Motif obligatoire et tracé ;
+ *   · « Modifier », visible pour TOUS les rôles. Motif obligatoire et tracé ;
  *     le serveur garde ses deux verrous (camion sorti ; dossier signé, sauf ADMIN).
- *   · « Supprimer » — visible pour l'ADMIN SEUL. Annulation logique : le dossier
+ *   · « Supprimer », visible pour l'ADMIN SEUL. Annulation logique : le dossier
  *     sort des listes et des compteurs mais reste en base, au journal d'audit.
  */
 function ActionsDossier({ r, admin, onFait }: { r: O; admin: boolean; onFait: () => void }) {
@@ -175,7 +176,7 @@ function ModaleCorrigerNumero({ r, onClose, onFait }: { r: O; onClose: () => voi
   });
   return <Modal onClose={onClose}>
     <h2>Modifier le {libelle}</h2>
-    <p className="help">Dossier <b className="mono">{String(r['id'])}</b> — actuellement <b className="mono">{ancien || '—'}</b>.
+    <p className="help">Dossier <b className="mono">{String(r['id'])}</b>, actuellement <b className="mono">{ancien || '—'}</b>.
       La correction suit le camion sur toute la fiche et ses conteneurs. Le motif part à l'historique.</p>
     <ChampCamion value={num} onChange={setNum} label={libelle} />
     <label className="help">Motif (obligatoire)</label>
@@ -200,7 +201,7 @@ function ModaleSupprimerDossier({ r, onClose, onFait }: { r: O; onClose: () => v
     <h2>Supprimer ce dossier ?</h2>
     <p className="help">
       <b className="mono">{String(r['numeroCamion'] ?? '—')}</b> · {String(r['typeOperation'] ?? '')} · dossier <b className="mono">{String(r['id'])}</b>
-      {' '}— statut « {String(r['statut'] ?? '')} ».
+      {' '}· statut « {String(r['statut'] ?? '')} ».
     </p>
     <p className="help">
       Le dossier disparaît des listes, de la recherche, des rapports et de tous les compteurs ; ses conteneurs
@@ -217,7 +218,7 @@ function ModaleSupprimerDossier({ r, onClose, onFait }: { r: O; onClose: () => v
 }
 
 /**
- * UN SEUL ENVOI À LA FOIS — 2026-09-12.
+ * UN SEUL ENVOI À LA FOIS : 2026-09-12.
  * Un `useState` ne suffit pas contre le double clic : deux clics dans la même
  * image lisent tous deux « pas occupé » avant que React n'ait rendu. Le verrou
  * est donc tenu dans une référence, lue et posée de façon synchrone.
@@ -237,7 +238,7 @@ function useEnvoiUnique() {
 /**
  * Mémoire d'écran (durée de la session) : recherche, filtre statut et page
  * courante d'une liste. Sans elle, ouvrir une cargaison puis revenir remettait
- * la liste à zéro — l'agent devait retaper sa recherche et refeuilleter ses
+ * la liste à zéro, l'agent devait retaper sa recherche et refeuilleter ses
  * pages à chaque fiche consultée.
  */
 const etatListe: Record<string, { statut: string; search: string; page: number }> = {};
@@ -263,7 +264,7 @@ function CargoList({ go, screen, user, filtre, titre, barre }: Nav & { filtre: O
   /* En-tête illustré (2026-09-11). L'icône vient de `iconeDeLEcran`, la MÊME
      table que le menu et que la barre supérieure : la liste affiche donc le
      dessin de la pilule qu'on vient de cliquer, sans qu'on ait à le redire ici.
-     La teinte suit l'étape filtrée quand il y en a une — « En attente T1 »
+     La teinte suit l'étape filtrée quand il y en a une, « En attente T1 »
      s'ouvre en sarcelle, comme la tuile et comme le parcours. */
   const teinte = ({ CFS: 'cfs', T1: 't1', BALISE: 'balise', BS: 'bs', PP: 'pp' } as Record<string, string>)[String(filtre['etape'] ?? '')];
   return <>
@@ -305,14 +306,14 @@ function CargoList({ go, screen, user, filtre, titre, barre }: Nav & { filtre: O
 }
 
 /**
- * v4.1 — Extraction des cargaisons (décision client 2026-07-31) : choisir un
+ * v4.1, Extraction des cargaisons (décision client 2026-07-31) : choisir un
  * critère (statut exact OU étape en attente) + une période, sortir en Excel ou
  * PDF. Rétablit l'onglet « Cargaisons » exportable de l'Apps Script (« je n'ai
  * pas la main pour le faire », pour les capitaines).
  */
 function ExportCargaisons({ statutListe, searchListe }: { statutListe?: string; searchListe?: string }) {
   const p = useReportRange('mois');
-  // v4.2 — 2026-08-19 : l'extraction PART du filtre AFFICHÉ dans la liste (statut
+  // v4.2, 2026-08-19 : l'extraction PART du filtre AFFICHÉ dans la liste (statut
   // + recherche). Avant, elle avait ses propres sélecteurs indépendants et
   // sortait « toute la base » quand on venait d'une liste filtrée. Désormais :
   //   · le statut sélectionné dans la liste pré-remplit le critère ;
@@ -352,7 +353,7 @@ function ExportCargaisons({ statutListe, searchListe }: { statutListe?: string; 
       <h2><span className="tp-pastille" aria-hidden="true"><Icone nom="telecharger" taille={18} /></span>
         Extraire les cargaisons</h2>
       <p className="help" style={{ marginTop: 0 }}>
-        L'extraction reprend <b>le filtre affiché dans la liste</b> — vous n'exportez jamais
+        L'extraction reprend <b>le filtre affiché dans la liste</b>, vous n'exportez jamais
         autre chose que ce que vous avez sous les yeux.
         {searchListe && searchListe.trim() ? <> Recherche appliquée : <b className="mono">{searchListe.trim()}</b>.</> : null}
       </p>
@@ -361,11 +362,11 @@ function ExportCargaisons({ statutListe, searchListe }: { statutListe?: string; 
           <select value={crit} onChange={(e) => { setCritTouche(true); setCrit(e.target.value); }}>
             <option value="">Tous les statuts</option>
             {STATUT_OPTIONS.map((s) => <option key={s} value={`statut:${s}`}>{s}</option>)}
-            <option value="etape:VALIDATION">En attente — À valider</option>
-            <option value="etape:T1">En attente — T1</option>
-            <option value="etape:BALISE">En attente — Balise</option>
-            <option value="etape:BS">En attente — Bon de sortie</option>
-            <option value="etape:PP">En attente — Sortie (PP)</option>
+            <option value="etape:VALIDATION">En attente, À valider</option>
+            <option value="etape:T1">En attente, T1</option>
+            <option value="etape:BALISE">En attente, Balise</option>
+            <option value="etape:BS">En attente, Bon de sortie</option>
+            <option value="etape:PP">En attente, Sortie (PP)</option>
           </select></div>
         <div>
           <label className="help" style={{ display: 'flex', alignItems: 'center', gap: 8, textTransform: 'none', fontSize: 13.5 }}>
@@ -373,7 +374,7 @@ function ExportCargaisons({ statutListe, searchListe }: { statutListe?: string; 
             Limiter à une période
           </label>
           {limiterPeriode ? <div style={{ marginTop: 8 }}><PeriodPicker p={p} /><PeriodeLue p={p} /></div>
-            : <p className="help" style={{ margin: '6px 0 0' }}>Toute la base — cochez pour restreindre.</p>}
+            : <p className="help" style={{ margin: '6px 0 0' }}>Toute la base, cochez pour restreindre.</p>}
         </div>
       </div>
       <div className="fen-pied">
@@ -386,10 +387,10 @@ function ExportCargaisons({ statutListe, searchListe }: { statutListe?: string; 
 }
 
 /**
- * BANDEAU DE MODULE — 2026-09-11.
+ * BANDEAU DE MODULE : 2026-09-11.
  *
  * L'en-tête des écrans généraux : pastille, titre, sous-titre, et une action
- * facultative à droite. Mis en commun plutôt que recopié sur chaque écran —
+ * facultative à droite. Mis en commun plutôt que recopié sur chaque écran,
  * cinq copies auraient divergé à la première retouche.
  */
 export function BandeauModule({ icone, titre, sous, action, sansRetour, auto }: {
@@ -414,7 +415,7 @@ export function BandeauModule({ icone, titre, sous, action, sansRetour, auto }: 
   // un « Retour » qui ne mene nulle part est pire que pas de bouton du tout.
   const nav = useNav();
   const precedent = sansRetour ? null : nav?.ecranPrecedent ?? null;
-  const ou = precedent ? `Retour — ${TITLES[precedent] ?? precedent}` : 'Retour';
+  const ou = precedent ? `Retour, ${TITLES[precedent] ?? precedent}` : 'Retour';
   return <div className={`bandeau-module ${auto ? 'bm-auto' : ''}`}>
     <span className="bm-pastille" aria-hidden="true"><Icone nom={icone} taille={24} /></span>
     {/* Une CLASSE, et non un `style` en ligne : le style en ligne l'emportait
@@ -443,14 +444,14 @@ export function BandeauModule({ icone, titre, sous, action, sansRetour, auto }: 
 const SCREENS: Record<string, Screen> = {};
 
 /**
- * ÉCHÉANCIER DES ENGAGEMENTS (2026-09-10) — bandeau du tableau de bord.
+ * ÉCHÉANCIER DES ENGAGEMENTS (2026-09-10) : bandeau du tableau de bord.
  *
  * N'apparaît que pour les rôles qui portent le suivi, et seulement s'il reste
  * quelque chose à envoyer : un bandeau permanent et vide se met à ne plus être
  * lu, et c'est précisément ce qu'on ne veut pas d'une relance.
  *
  * L'alerte s'allume à J-1 (« à envoyer demain »), passe à « échéance
- * aujourd'hui », puis compte les jours de retard — et ne disparaît qu'au clic
+ * aujourd'hui », puis compte les jours de retard, et ne disparaît qu'au clic
  * sur « Effectué ». Elle ne bloque rien : le camion sort normalement (décision
  * du 2026-09-10).
  */
@@ -459,7 +460,7 @@ function BandeauEngagements({ role, go }: { role: string; go: Nav['go'] }) {
   const { data, loading } = useAsync<O>(() => call('report.engagements'), [n]);
   const [busy, setBusy] = useState('');
   /* 2026-09-17 (demande utilisateur) : la correction s'ouvre ICI, là où le chef
-     voit ses engagements — elle existait, mais au fond de la fiche du camion.
+     voit ses engagements, elle existait, mais au fond de la fiche du camion.
      ⚠ DECLARE AVANT les `return null` de garde ci-dessous : un hook place apres
      change de nombre d'un rendu a l'autre, et React refuse alors de rendre
      l'encadre entier (« Rendered more hooks than during the previous render »). */
@@ -486,13 +487,13 @@ function BandeauEngagements({ role, go }: { role: string; go: Nav['go'] }) {
     borderLeft: `4px solid var(--${retard ? 'err' : 'warn'})`,
   }}>
     <h2 style={{ margin: 0 }}>
-      Engagements à transmettre — {lignes.length}
+      Engagements à transmettre, {lignes.length}
       {retard ? <span style={{ color: 'var(--err)' }}> · {retard} en retard</span> : null}
     </h2>
     <div className="help" style={{ marginBottom: 8 }}>
       Ces cargaisons doivent faire l'objet d'un envoi d'informations. Cliquez sur
       « Effectué » une fois l'envoi réalisé.
-      {/* 2026-09-17 : l'encadré ne montre que ce qui alerte — le volet montre tout. */}
+      {/* 2026-09-17 : l'encadré ne montre que ce qui alerte, le volet montre tout. */}
       {' '}<a onClick={() => go('engagements')}>Voir tous les engagements</a>
     </div>
     {lignes.map((l) => {
@@ -521,7 +522,7 @@ function BandeauEngagements({ role, go }: { role: string; go: Nav['go'] }) {
 }
 
 /**
- * CORRECTION D'UN ENGAGEMENT, depuis l'échéancier — 2026-09-17 (demande utilisateur).
+ * CORRECTION D'UN ENGAGEMENT, depuis l'échéancier, 2026-09-17 (demande utilisateur).
  * Mêmes champs que la fiche du camion : l'engagement, un nouveau délai en jours,
  * et un motif obligatoire qui part au journal.
  */
@@ -579,7 +580,7 @@ function ModaleCorrigerEngagement({ ligne, onClose, onFait, admin }: { ligne: O;
     <label className="help" style={{ marginTop: 6 }}>Motif de la correction (obligatoire)</label>
     <input value={motif} onChange={(e) => setMotif(e.target.value)} placeholder="ex. BFE 03 saisi par erreur" />
     <div className="row" style={{ marginTop: 12, justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
-      {/* RETRAIT — 2026-09-17 : l'engagement coché par erreur n'avait aucune sortie ;
+      {/* RETRAIT · 2026-09-17 : l'engagement coché par erreur n'avait aucune sortie ;
           il fallait lui inventer un type et une date. Réservé à l'ADMINISTRATEUR. */}
       {admin
         ? <button className="ghost" style={{ color: 'var(--err)' }} disabled={busy || !motif.trim()} onClick={retirer}>
@@ -608,11 +609,11 @@ SCREENS.dash = (nav) => {
   const { du, au } = p;
   /* ACTUALISATION AUTOMATIQUE (2026-09-12) : un camion qui passe du CFS au T1
      doit se voir quitter une tuile et rejoindre la suivante sans que le chef
-     recharge la page. Toutes les 60 s — le cache de lecture (15 s) est alors
+     recharge la page. Toutes les 60 s, le cache de lecture (15 s) est alors
      périmé, la requête repart donc bien au serveur. Les tuiles restent affichées
      pendant la mise à jour : pas de clignotement. */
   const [tic, setTic] = useState(0);
-  // Fréquence réglable dans les Paramètres (2026-09-21) — 60 s par défaut.
+  // Fréquence réglable dans les Paramètres (2026-09-21), 60 s par défaut.
   const { actualisationSecondes } = useParametres();
   useEffect(() => {
     const t = window.setInterval(() => setTic((x) => x + 1), actualisationSecondes * 1000);
@@ -629,8 +630,8 @@ SCREENS.dash = (nav) => {
   const fileTotale = ['attCFS', 'attValidation', 'attT1', 'attBalise', 'attBs', 'attPP', 'vehiculesAttente']
     .reduce((t, k) => t + Number(s[k] ?? 0), 0);
   /* INDICATEURS DES TUILES D'ÉTAPE (2026-09-13, demande utilisateur) : deux
-     indicateurs sans mots, du même dessin — ↗ vert, la part des ARRIVÉES de
-     camions à l'étape ; ↘ rouge, la part des DÉPARTS — sur l'ensemble des
+     indicateurs sans mots, du même dessin, ↗ vert, la part des ARRIVÉES de
+     camions à l'étape ; ↘ rouge, la part des DÉPARTS, sur l'ensemble des
      mouvements de la période (voir `repartition`). Arrivées et départs viennent
      de `flux`, calculé par le serveur ; absent (serveur plus ancien), rien ne
      s'affiche. Ils remplacent la comparaison avec la période précédente. */
@@ -639,7 +640,7 @@ SCREENS.dash = (nav) => {
   const part = (cle: string): number | null =>
     fileTotale > 0 ? Math.round((Number(s[cle] ?? 0) / fileTotale) * 100) : null;
   const go = (statut: string) => nav.go('list', { statut });
-  /* `ecran-dash` (2026-09-11) : le tableau de bord — et lui seul — se détache
+  /* `ecran-dash` (2026-09-11) : le tableau de bord (et lui seul) se détache
      sur un fond bleu profond. Les cartes y deviennent des plaques de verre
      claires, et c'est ce contraste sombre/clair qui rend l'effet lisible. */
   return <div className="ecran-dash">
@@ -656,23 +657,23 @@ SCREENS.dash = (nav) => {
         <span className="leg-arrivee">↗ arrivées</span>{' '}<span className="leg-depart">↘ départs</span>
         {/* 2026-09-13 : sens du « % de la file », en une phrase (demande utilisateur). */}
         {' '}· <b>% de la file</b> : part des dossiers en attente
-        {p.inversee && <span className="bm-alerte"> — dates inversées, remises à l'endroit</span>}
+        {p.inversee && <span className="bm-alerte">, dates inversées, remises à l'endroit</span>}
       </>}
       action={<div className="bm-outils">
         <label className="help">Période</label>
         <PeriodPicker p={p} />
       </div>} />
     {/* GRILLE BENTO (2026-09-11) : toutes les tuiles n'ont pas le même poids.
-        Les cinq compteurs d'ÉVÉNEMENTS occupent deux colonnes — ce sont eux qui
+        Les cinq compteurs d'ÉVÉNEMENTS occupent deux colonnes, ce sont eux qui
         portent le travail de la période et la comparaison. « Attente
         validation » est large aussi : c'est la file la plus chargée, et celle
         qu'un chef regarde en premier. Les autres restent en petit format. */}
     {/* CADRE COLORÉ derrière les tuiles (2026-09-11). Il n'est pas décoratif :
         sans lui, les tuiles en verre reposaient sur un fond presque uni et
-        n'avaient RIEN à dépolir — elles ressemblaient à de simples cartes
+        n'avaient RIEN à dépolir, elles ressemblaient à de simples cartes
         blanches. Les halos qu'il porte sont ce que le verre diffuse. */}
     {loading && !data ? <Spinner /> : <div className="bento-cadre"><div className="stats bento">
-      {/* Événements datés sur la période — le travail EFFECTIF de chaque cellule
+      {/* Événements datés sur la période, le travail EFFECTIF de chaque cellule
           sur la période, compté à la date de la cellule (pas à la création). */}
       <StatCard n={Number(s['creesPeriode'] ?? 0)} l="Entrées CFS (période)" onClick={() => nav.go('cfsreport')}
         etape="cfs" comparable={!!flux('CFS')} repartition={rep('CFS')} />
@@ -684,7 +685,7 @@ SCREENS.dash = (nav) => {
         etape="bs" comparable={!!flux('BS')} repartition={rep('BS')} />
       <StatCard n={Number(s['sortiePeriode'] ?? 0)} l="Sortis (période)" onClick={() => nav.go('pprep')}
         etape="pp" comparable={!!flux('PP')} repartition={rep('PP')} />
-      {/* En attente — état instantané (hors période). */}
+      {/* En attente, état instantané (hors période). */}
       <StatCard n={Number(s['attCFS'] ?? 0)} l="En cours au CFS" onClick={() => nav.go('wait_cfs')} etape="cfs" part={part('attCFS')} />
       <StatCard n={Number(s['attValidation'] ?? 0)} l="Attente validation" onClick={() => nav.go('wait_valid')} etape="validation" part={part('attValidation')} />
       <StatCard n={Number(s['attT1'] ?? 0)} l="Attente T1" onClick={() => nav.go('wait_t1')} etape="t1" part={part('attT1')} />
@@ -693,7 +694,7 @@ SCREENS.dash = (nav) => {
       <StatCard n={Number(s['attPP'] ?? 0)} l="Attente sortie" onClick={() => nav.go('wait_sortie')} etape="pp" part={part('attPP')} />
       <StatCard n={Number(s['vehiculesAttente'] ?? 0)} l="Véhicules en attente" onClick={() => nav.go('vehicules')} etape="vehicule" part={part('vehiculesAttente')} />
       {/* ENGAGEMENTS (2026-09-17, demande utilisateur) : ce qui reste à transmettre.
-          Le clic ouvre le volet, trié par échéance — le plus urgent en tête. */}
+          Le clic ouvre le volet, trié par échéance, le plus urgent en tête. */}
       <StatCard n={Number(s['engagementsEnCours'] ?? 0)} l="Engagements en cours"
         onClick={() => nav.go('engagements')} icone="sablier"
         comparable={!!flux('ENGAGEMENTS')} repartition={rep('ENGAGEMENTS')} />
@@ -735,7 +736,7 @@ SCREENS.dash = (nav) => {
 
 /* ------------- Fiche de synthèse repliable (fiche papier) -------------- */
 /**
- * v4.1 — La fiche papier du chef (« TABLEAU DE BORD — SEMAINE EN COURS »)
+ * v4.1 (La fiche papier du chef (« TABLEAU DE BORD) SEMAINE EN COURS »)
  * reproduite à l'identique, bloc par bloc, SOUS le tableau de bord et REPLIÉE
  * par défaut (décision utilisateur 2026-07-22) : les tuiles du haut répondent à
  * « qu'est-ce qui bloque maintenant ? », la fiche répond à « qu'a produit la
@@ -785,17 +786,17 @@ function FicheBord({ p }: { p: Periode }) {
   return <div className="card" style={{ marginTop: 12 }}>
     {/* Le repli (2026-09-11) : un chevron qui PIVOTE plutôt que deux caractères
         « ▸ / ▾ », dont le dessin variait d'un poste à l'autre. Le mouvement dit
-        l'état — ouvert ou fermé — mieux qu'un glyphe. */}
+        l'état (ouvert ou fermé) mieux qu'un glyphe. */}
     <button className={`repli ${ouvert ? 'ouvert' : ''}`} onClick={() => setOuvert((v) => !v)}
       aria-expanded={ouvert}>
       <Icone nom="chevron" taille={16} />
-      <span>Fiche de synthèse — CFS · T1 · Balise · Bon de sortie · PP</span>
+      <span>Fiche de synthèse, CFS · T1 · Balise · Bon de sortie · PP</span>
     </button>
     {!ouvert && <div className="help" style={{ marginTop: 6 }}>Appuyez pour déplier la fiche détaillée de la période.</div>}
     {ouvert && (loading ? <Spinner /> : error ? <div className="err-msg">{error}</div> : <div className="fiche-bord">
       <div className="help">Période lue : du {fmtJour(du)} au {fmtJour(au)}. Chaque bloc est compté à la date de SA cellule (CFS = entrée du camion, T1 = saisie, Balise = pose, Bon de sortie = émission, PP = sortie).</div>
 
-      <FicheBloc titre="CFS — Container Freight Station" lignes={[
+      <FicheBloc titre="CFS, Container Freight Station" lignes={[
         [['Conteneurs enlèvement', fnum((cfs['enlevement'] as O)?.['conteneurs'])],
           ['Conteneurs dépotage', fnum((cfs['depotage'] as O)?.['conteneurs'])],
           ['Conteneurs MAD', fnum((cfs['mad'] as O)?.['conteneurs'])],
@@ -811,10 +812,10 @@ function FicheBord({ p }: { p: Periode }) {
       ]} />
 
       <FicheBloc titre="T1" lignes={[
-        [['T1 émis', fnum(t1['emis'])], ['T1 émis — apurés', fnum(t1['emisApures'])],
-          ['T1 émis — non apurés', fnum(t1['emisNonApures'])], ['Taux apurement (émis)', fpct(t1['tauxEmis'])]],
-        [['T1 arrivés', fnum(t1['arrives'])], ['T1 arrivés — apurés', fnum(t1['arrivesApures'])],
-          ['T1 arrivés — non apurés', fnum(t1['arrivesNonApures'])], ['Taux apurement (arrivée)', fpct(t1['tauxArrives'])]],
+        [['T1 émis', fnum(t1['emis'])], ['T1 émis, apurés', fnum(t1['emisApures'])],
+          ['T1 émis, non apurés', fnum(t1['emisNonApures'])], ['Taux apurement (émis)', fpct(t1['tauxEmis'])]],
+        [['T1 arrivés', fnum(t1['arrives'])], ['T1 arrivés, apurés', fnum(t1['arrivesApures'])],
+          ['T1 arrivés, non apurés', fnum(t1['arrivesNonApures'])], ['Taux apurement (arrivée)', fpct(t1['tauxArrives'])]],
       ]} />
       <div className="help">« Arrivés » = T1 dont le bureau de destination est notre bureau (transit reçu) ; « émis » = tous les autres. Apuré = arrivée au bureau confirmée par la cellule Balise.</div>
 
@@ -828,13 +829,13 @@ function FicheBord({ p }: { p: Periode }) {
 
       <FicheBloc titre="Bon de sortie" lignes={[[['Total bons de sortie', fnum(bs['total'])]]]} />
 
-      <FicheBloc titre="PP — Porte principale" lignes={[
+      <FicheBloc titre="PP, Porte principale" lignes={[
         [['Total sorties PP', fnum(pp['total'])], ['Enlèvement', fnum(pp['enlevement'])],
           ['Dépotage', fnum(pp['depotage'])], ['Sortie MAD', fnum(pp['mad'])]],
         [['Sortie conso', fnum(pp['conso'])], ['Empotages (PIA+ZF)', fnum(pp['empotages'])],
           ['Véhi à nus (S)', fnum(pp['vehicules'])], ['Transferts', fnum(pp['transferts'])]],
       ]} />
-      <div className="help">« Empotages (PIA+ZF) » n'est pas encore saisi dans l'application — la case reste à « — » tant qu'aucune cellule ne l'alimente. « Transferts » = conteneurs annoncés par le Port Autonome et confirmés entrés au port sec sur la période.</div>
+      <div className="help">« Empotages (PIA+ZF) » n'est pas encore saisi dans l'application (la case reste à «) » tant qu'aucune cellule ne l'alimente. « Transferts » = conteneurs annoncés par le Port Autonome et confirmés entrés au port sec sur la période.</div>
     </div>)}
   </div>;
 }
@@ -851,7 +852,7 @@ SCREENS.list = (nav) => <CargoList {...nav} filtre={{ categorie: 'camion', ...((
 /**
  * Grille de raccourcis d'un module.
  *
- * 2026-09-11 — en-tête illustré, et le 3ᵉ champ des items porte désormais un
+ * 2026-09-11 : en-tête illustré, et le 3ᵉ champ des items porte désormais un
  * NOM D'ICÔNE au lieu d'un caractère (▦ ◉ ◧ ⮉ ✔…). Mêmes raisons que pour le
  * menu : ces glyphes n'avaient ni graisse ni optique communes, et certains
  * s'affichaient en carré vide sur les postes dépourvus de la police.
@@ -893,7 +894,7 @@ function itemsConteneurs(role: string): [string, string, string][] {
   const annonce: [string, string, string] = ['annonce', 'Stock annoncé', 'boites'];
   const pointEntree: [string, string, string] = ['pointentree', 'Pointage entrée', 'presse'];
   const confEntree: [string, string, string] = ['confentree', 'Confirmer entrée', 'valider'];
-  // v4.2 — positionnés / dépotés / restant par jour (demande CFS).
+  // v4.2, positionnés / dépotés / restant par jour (demande CFS).
   const depot: [string, string, string] = ['depotstats', 'Statistiques de dépotage', 'rapport'];
   if (role === 'ADMIN') return [stock, pointage, stockjour, depot, imp, impAnn, annonce, pointEntree, confEntree];
   if (role === 'PP') return [annonce, pointEntree, confEntree];
@@ -902,8 +903,8 @@ function itemsConteneurs(role: string): [string, string, string][] {
   return [stock, depot, annonce];
 }
 SCREENS.conteneurs = (nav) => <Hub nav={nav} titre="Opérations sur conteneurs" icone="conteneur"
-  desc="Stock du parc, pointages, imports et entrées annoncées — tout au même endroit." items={itemsConteneurs(nav.user.role)} />;
-// v4.1 — MAD & Entrepôt industriel : même module, unité d'apurement différente
+  desc="Stock du parc, pointages, imports et entrées annoncées, tout au même endroit." items={itemsConteneurs(nav.user.role)} />;
+// v4.1, MAD & Entrepôt industriel : même module, unité d'apurement différente
 // (MAD = colis ; INDUSTRIEL = poids kg).
 SCREENS.mad = (nav) => <EcranEntrepot nav={nav} type="MAD" />;
 SCREENS.entrepindus = (nav) => <EcranEntrepot nav={nav} type="INDUSTRIEL" />;
@@ -933,7 +934,7 @@ function VehiculesEcran({ nav }: { nav: Nav }) {
 }
 
 /**
- * v4.1 — Recherche VÉHICULE par CHÂSSIS ou MARQUE (le champ unique cherche les
+ * v4.1, Recherche VÉHICULE par CHÂSSIS ou MARQUE (le champ unique cherche les
  * deux). Résout la plainte : les 6 derniers chiffres du châssis ne trouvaient
  * rien, et la marque n'était pas cherchable du tout.
  */
@@ -955,7 +956,7 @@ function VehiculeRecherche({ nav }: { nav: Nav }) {
 }
 SCREENS.vehnew = ({ go }) => <>
   <BandeauModule icone="voiture" titre="Dépotage de véhicules"
-    sous={<>Un conteneur d'origine, puis un ou plusieurs châssis — un véhicule n'est pas un camion.</>} />
+    sous={<>Un conteneur d'origine, puis un ou plusieurs châssis, un véhicule n'est pas un camion.</>} />
   <div className="card"><FormVehicule go={go} /></div></>;
 SCREENS.madsortie = ({ go }) => <div className="card"><h2>Sortie Magasin / MAD</h2><FormMagasin go={go} /></div>;
 SCREENS.conso = ({ go }) => <div className="card"><h2>Conso (type C)</h2><FormConso go={go} /></div>;
@@ -982,11 +983,11 @@ function EcranEntrepot({ nav, type }: { nav: Nav; type: EntrepotType }) {
   return <>
     {/* Bandeau de module, comme sur les autres volets généraux : il porte
         l'identité du magasin et son UNITÉ D'APUREMENT, qui décide de tout ce
-        qui suit — des colis d'un côté, des kilos de l'autre. */}
+        qui suit, des colis d'un côté, des kilos de l'autre. */}
     <BandeauModule icone={estIndus(type) ? 'usine' : 'entrepot'} titre={titre}
       sous={<>Apurement par <b>{estIndus(type) ? 'poids (kg)' : 'quantités (colis)'}</b> - {entrepots.length} magasin(s) en service</>} />
     <div className="card"><div className="row" style={{ alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
-      {/* Chaque onglet porte son icône : entrée, sortie, chiffres, gestion —
+      {/* Chaque onglet porte son icône : entrée, sortie, chiffres, gestion,
           quatre gestes distincts, qu'un libellé seul faisait lire comme quatre
           mots de même poids. */}
       {T.map(([k, l]) => <button key={k} className={`onglet-mag ${onglet === k ? '' : 'ghost'}`} onClick={() => setOnglet(k as never)}>
@@ -1004,14 +1005,14 @@ function EcranEntrepot({ nav, type }: { nav: Nav; type: EntrepotType }) {
 }
 
 /**
- * Gestion des entrepôts — création (admin / chef brigade / division), et depuis
+ * Gestion des entrepôts, création (admin / chef brigade / division), et depuis
  * le 2026-09-11 MODIFICATION par les mêmes, SUPPRESSION par l'ADMIN seul.
  *
  * Trois gestes, et la raison de chacun :
- *   · RENOMMER — une faute de frappe restait affichée pour toujours.
- *   · DÉSACTIVER — un magasin fermé encombrait les listes de saisie. Désactivé,
+ *   · RENOMMER : une faute de frappe restait affichée pour toujours.
+ *   · DÉSACTIVER : un magasin fermé encombrait les listes de saisie. Désactivé,
  *     il en sort tout en gardant son historique consultable ; il se réactive.
- *   · SUPPRIMER — réservé à l'ADMIN, et refusé par le serveur dès qu'une entrée
+ *   · SUPPRIMER : réservé à l'ADMIN, et refusé par le serveur dès qu'une entrée
  *     s'y rattache. Ne sert donc qu'à effacer un magasin créé par erreur.
  *
  * Le TYPE ne se change pas ici : cet écran est déjà cadré par un type (MAD ou
@@ -1019,7 +1020,7 @@ function EcranEntrepot({ nav, type }: { nav: Nav; type: EntrepotType }) {
  * celui qui vient de le modifier. Créé du mauvais type et encore vierge : on le
  * supprime et on le recrée.
  *
- * La liste inclut ici les magasins DÉSACTIVÉS (`tous: true`) — sans quoi les
+ * La liste inclut ici les magasins DÉSACTIVÉS (`tous: true`), sans quoi les
  * désactiver reviendrait à les perdre, donc à ne plus pouvoir les réactiver.
  */
 function EntrepotGerer({ type, reload, admin }: { type: EntrepotType; reload: () => void; admin: boolean }) {
@@ -1044,7 +1045,7 @@ function EntrepotGerer({ type, reload, admin }: { type: EntrepotType; reload: ()
 
   const pret = !!code.trim() && !!nom.trim();
   const creer = () => {
-    // Le garde-fou reste — un clavier peut déclencher le bouton autrement —,
+    // Le garde-fou reste (un clavier peut déclencher le bouton autrement),
     // mais il ne devrait plus jamais se déclencher : le bouton est désactivé
     // tant que les deux champs ne sont pas remplis. Reprocher un oubli APRÈS
     // le clic est la plus mauvaise façon de le signaler.
@@ -1076,7 +1077,7 @@ function EntrepotGerer({ type, reload, admin }: { type: EntrepotType; reload: ()
       `⚠ SUPPRESSION DÉFINITIVE DU MAGASIN ${c}\n\n`
       + `« ${String(e['nom'])} » sera effacé de la base. L'opération est inscrite au\n`
       + `journal d'audit et ne peut pas être annulée.\n\n`
-      + `Elle sera REFUSÉE si le magasin contient la moindre entrée — dans ce cas,\n`
+      + `Elle sera REFUSÉE si le magasin contient la moindre entrée, dans ce cas,\n`
       + `désactivez-le plutôt.\n\n`
       + `Indiquez le motif :`, '');
     if (motif === null) return;              // l'agent a renoncé
@@ -1122,7 +1123,7 @@ function EntrepotGerer({ type, reload, admin }: { type: EntrepotType; reload: ()
                 : <>
                   {/* Icônes plutôt que trois libellés : la colonne passait de
                       280 px à 110, et les mêmes dessins servent déjà dans la
-                      liste des comptes — un seul vocabulaire à apprendre. */}
+                      liste des comptes, un seul vocabulaire à apprendre. */}
                   <button className="acte" title="Renommer le magasin" aria-label={`Renommer ${c}`}
                     disabled={busy} onClick={() => setEdit({ code: c, nom: String(e['nom'] ?? '') })}><Icone nom="crayon" taille={16} /></button>
                   <button className={`acte ${actif ? 'acte-warn' : 'acte-ok'}`}
@@ -1157,10 +1158,10 @@ function EntrepotEntree({ type, entrepots }: { type: EntrepotType; entrepots: O[
   const [d, setD] = useState<O>({ bureauDeclaration: 'TG120', typeDeclaration: 'T', anneeDeclaration: String(new Date().getFullYear()) });
   const artVide = () => ({ designation: '', nbColis: '', poids: '' });
   const [arts, setArts] = useState<O[]>([artVide()]);
-  // v4.2 — la marchandise arrive CONTENEURISÉE dans la grande majorité des cas :
+  // v4.2, la marchandise arrive CONTENEURISÉE dans la grande majorité des cas :
   // la case est cochée d'emblée, on la décoche pour le vrac (décision utilisateur).
   const [conteneurise, setConteneurise] = useState(true);
-  // v4.2 — saisie manuelle : la liste ne propose que les conteneurs POSITIONNÉS
+  // v4.2, saisie manuelle : la liste ne propose que les conteneurs POSITIONNÉS
   // au CFS. Un conteneur arrivé hors de ce circuit (partagé, positionné après le
   // pointage) n'y figure pas ; sans cette bascule, l'agent restait bloqué.
   const [manuelTC, setManuelTC] = useState(false);
@@ -1189,7 +1190,7 @@ function EntrepotEntree({ type, entrepots }: { type: EntrepotType; entrepots: O[
 
   return <div className="card"><h2>Nouvelle entrée</h2>
     <label className="help">Entrepôt</label>
-    <select value={code} onChange={(e) => setCode(e.target.value)}><option value="">— Choisir —</option>
+    <select value={code} onChange={(e) => setCode(e.target.value)}><option value="">Choisir…</option>
       {entrepots.map((x) => <option key={String(x['code'])} value={String(x['code'])}>{String(x['nom'])} ({String(x['code'])})</option>)}</select>
     <DeclEntrepot d={d} set={set} titre="Déclaration d'origine (sommier)" />
 
@@ -1206,7 +1207,7 @@ function EntrepotEntree({ type, entrepots }: { type: EntrepotType; entrepots: O[
 
     <label className="help" style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 14 }}>
       <input type="checkbox" style={{ width: 'auto' }} checked={conteneurise} onChange={(e) => setConteneurise(e.target.checked)} />
-      <span>Marchandise <b>conteneurisée</b> à l'arrivée <span style={{ fontWeight: 400 }}>— décochez pour du vrac</span></span>
+      <span>Marchandise <b>conteneurisée</b> à l'arrivée <span style={{ fontWeight: 400 }}>(décochez pour du vrac)</span></span>
     </label>
     {conteneurise && <div style={{ marginTop: 6 }}>
       <label className="help" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -1215,8 +1216,8 @@ function EntrepotEntree({ type, entrepots }: { type: EntrepotType; entrepots: O[
       </label>
       <label className="help" style={{ marginTop: 6 }}>
         {manuelTC
-          ? 'Conteneurs — saisie libre, sans contrôle sur le stock du jour'
-          : `Conteneurs — ${tcs.length} positionné(s) au CFS proposé(s) à la frappe`}
+          ? 'Conteneurs, saisie libre, sans contrôle sur le stock du jour'
+          : `Conteneurs, ${tcs.length} positionné(s) au CFS proposé(s) à la frappe`}
       </label>
       {!manuelTC && <datalist id="dl-ent-tc">{tcs.map((t) => <option key={t} value={t} />)}</datalist>}
       {conts.map((c, i) => <div key={i} className="row" style={{ marginTop: 4 }}>
@@ -1242,7 +1243,7 @@ function EntrepotSortie({ type, entrepots, nav }: { type: EntrepotType; entrepot
   const [numeroArticle, setNumeroArticle] = useState('1');
   const [dApu, setDApu] = useState<O>({ bureauDeclaration: 'TG120', typeDeclaration: 'T', anneeDeclaration: String(new Date().getFullYear()) });
   const [qte, setQte] = useState('');
-  // v4.1 — la marchandise (vrac) sort sur un CAMION scellé : N° camion + scellés.
+  // v4.1, la marchandise (vrac) sort sur un CAMION scellé : N° camion + scellés.
   const [numCamion, setNumCamion] = useState('');
   const [scelles, setScelles] = useState(['', '', '']);
   const [busy, setBusy] = useState(false);
@@ -1251,11 +1252,11 @@ function EntrepotSortie({ type, entrepots, nav }: { type: EntrepotType; entrepot
   const articles = (entree?.['articles'] as O[]) ?? [];
   const art = articles[Number(numeroArticle) - 1];
 
-  /* v4.2 — BALISE / DISPENSE sur la marchandise qui sort.
+  /* v4.2, BALISE / DISPENSE sur la marchandise qui sort.
    * Le camion qui emporte le vrac apuré doit être balisé ou non selon le TYPE de
    * la déclaration d'apurement : un transit (T) l'est par nature, les types C
    * (consommation) et A (admission) laissent le choix. Le cas courant étant la
-   * SORTIE SANS BALISE, c'est le défaut proposé — l'agent coche pour baliser. */
+   * SORTIE SANS BALISE, c'est le défaut proposé, l'agent coche pour baliser. */
   const apuSansT1 = estTypeSansT1(dApu['typeDeclaration']);
   const [baliseRequise, setBaliseRequise] = useState(false);
 
@@ -1268,7 +1269,7 @@ function EntrepotSortie({ type, entrepots, nav }: { type: EntrepotType; entrepot
         entreeId, numeroArticle: Number(numeroArticle), declarationApurement: dApu,
         numeroCamion: numCamion, scelles: scelles.filter(Boolean),
         designation: art['designation'],
-        // v4.2 — décision balise, n'a de sens que pour les types C et A.
+        // v4.2, décision balise, n'a de sens que pour les types C et A.
         baliseRequise: apuSansT1 ? baliseRequise : undefined,
       };
       if (estIndus(type)) payload['poids'] = qte; else payload['nbColis'] = qte;
@@ -1278,20 +1279,20 @@ function EntrepotSortie({ type, entrepots, nav }: { type: EntrepotType; entrepot
     } catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(false); }
   }
 
-  return <div className="card"><h2>Sortie (apurement) — vrac</h2>
+  return <div className="card"><h2>Sortie (apurement), vrac</h2>
     <label className="help">Entrepôt</label>
-    <select value={code} onChange={(e) => { setCode(e.target.value); setEntreeId(''); }}><option value="">— Choisir —</option>
+    <select value={code} onChange={(e) => { setCode(e.target.value); setEntreeId(''); }}><option value="">Choisir…</option>
       {entrepots.map((x) => <option key={String(x['code'])} value={String(x['code'])}>{String(x['nom'])} ({String(x['code'])})</option>)}</select>
     {code && (loading ? <Spinner /> : <>
       <label className="help" style={{ marginTop: 10 }}>Déclaration à apurer (entrée)</label>
-      <select value={entreeId} onChange={(e) => { setEntreeId(e.target.value); setNumeroArticle('1'); }}><option value="">— Choisir une entrée —</option>
+      <select value={entreeId} onChange={(e) => { setEntreeId(e.target.value); setNumeroArticle('1'); }}><option value="">Choisir une entrée…</option>
         {entrees.map((e) => <option key={String(e['id'])} value={String(e['id'])}>
-          {String(e['numeroDeclaration'])} · {String(e['anneeDeclaration'])} · {String(e['typeDeclaration'])} — {(e['articles'] as O[]).length} article(s)
+          {String(e['numeroDeclaration'])} · {String(e['anneeDeclaration'])} · {String(e['typeDeclaration'])}, {(e['articles'] as O[]).length} article(s)
         </option>)}</select>
       {entree && <>
         <label className="help" style={{ marginTop: 10 }}>Article à apurer</label>
         <select value={numeroArticle} onChange={(e) => setNumeroArticle(e.target.value)}>
-          {articles.map((a, i) => <option key={i} value={String(i + 1)}>N°{i + 1} — {String(a['designation'] || '(sans désignation)')} · restant {String(a['restant'])} {data?.unite === 'poids' ? 'kg' : 'colis'}</option>)}
+          {articles.map((a, i) => <option key={i} value={String(i + 1)}>N°{i + 1}, {String(a['designation'] || '(sans désignation)')} · restant {String(a['restant'])} {data?.unite === 'poids' ? 'kg' : 'colis'}</option>)}
         </select>
         <div className="help" style={{ marginTop: 4 }}>Restant sur cet article : <b>{String(art?.['restant'] ?? 0)}</b> {data?.unite === 'poids' ? 'kg' : 'colis'}.</div>
         <div className="grid2" style={{ marginTop: 8 }}>
@@ -1299,10 +1300,10 @@ function EntrepotSortie({ type, entrepots, nav }: { type: EntrepotType; entrepot
             <input value={qte} onChange={(e) => setQte(e.target.value.replace(estIndus(type) ? /[^0-9.,]/g : /[^0-9]/g, ''))} /></div>
         </div>
         <DeclEntrepot d={dApu} set={set} titre="Déclaration d'apurement (même que l'origine ou différente)" />
-        {/* v4.2 — le choix n'apparaît que pour les types C et A : un transit est
+        {/* v4.2, le choix n'apparaît que pour les types C et A : un transit est
             balisé par nature, poser la question n'aurait pas de sens. */}
         {apuSansT1 && <div style={{ marginTop: 8 }}>
-          <label className="help">Type {String(dApu['typeDeclaration'])} — balise du camion de sortie</label>
+          <label className="help">Type {String(dApu['typeDeclaration'])}, balise du camion de sortie</label>
           <select value={baliseRequise ? 'balise' : 'sansbalise'} onChange={(e) => setBaliseRequise(e.target.value === 'balise')}>
             <option value="sansbalise">À ne pas baliser (cas courant)</option>
             <option value="balise">À baliser</option>
@@ -1327,7 +1328,7 @@ function EntrepotSortie({ type, entrepots, nav }: { type: EntrepotType; entrepot
 
 /**
  * Statistiques : entrées / sorties / restant, par magasin (MAD) ou entrepôt
- * (industriel) et par déclaration — avec TIROIRS (v4.1, décision client) :
+ * (industriel) et par déclaration, avec TIROIRS (v4.1, décision client) :
  * cliquer un magasin ouvre le détail de ses entrées/articles ; cliquer une
  * quantité apurée ouvre la liste des déclarations venues apurer.
  */
@@ -1401,7 +1402,7 @@ function DetailApurements({ code, apur, unite, onClose }: { code: string; apur: 
     return { ...r, camion: camion || '—' };
   });
   return <Modal onClose={onClose}>
-    <h2><span className="tp-pastille" aria-hidden="true"><Icone nom="boites" taille={18} /></span>Apurements — article n°{apur.numero}{apur.designation ? ` (${apur.designation})` : ''}</h2>
+    <h2><span className="tp-pastille" aria-hidden="true"><Icone nom="boites" taille={18} /></span>Apurements, article n°{apur.numero}{apur.designation ? ` (${apur.designation})` : ''}</h2>
     <p className="help" style={{ marginTop: 0 }}>Déclarations venues apurer cet article ({unite}).</p>
     {loading ? <Spinner /> : rows.length === 0 ? <div className="empty">Aucun apurement.</div>
       : <Table cols={[['declaration', 'Déclaration d\'apurement'], [champ, `Quantité (${unite})`], ['dateSortie', 'Date'], ['camion', 'Camion / scellés'], ['agent', 'Agent']]} rows={rows} />}
@@ -1409,10 +1410,10 @@ function DetailApurements({ code, apur, unite, onClose }: { code: string; apur: 
 }
 
 /**
- * AVIS D'ÉCHEC D'AFFICHAGE APRÈS UNE SIGNATURE — 2026-09-11.
+ * AVIS D'ÉCHEC D'AFFICHAGE APRÈS UNE SIGNATURE : 2026-09-11.
  *
  * Mesuré sur la base réelle : la signature (`cargo.validerlot`) aboutit, puis
- * le `reload()` qui la suit — la requête LOURDE de l'écran — échoue une fois
+ * le `reload()` qui la suit (la requête LOURDE de l'écran) échoue une fois
  * sur trois environ (HTTP 546, worker tué faute de ressources). Le chef voyait
  * alors un message ROUGE, en concluait que sa validation n'était pas passée, et
  * recliquait. Pour un ADMIN, recliquer écrit une seconde ligne dans
@@ -1426,13 +1427,13 @@ function AvisApresSignature({ error, signee }: { error: string; signee: number }
   if (!signee) return <div className="err-msg">{error}</div>;
   return <div className="avis-signature">
     <b>✔ {signee} cargaison(s) ont bien été signées.</b> Seul l'affichage de la liste n'a pas pu se
-    rafraîchir — <b>ne resignez pas</b>. Rouvrez l'écran dans quelques secondes pour le voir à jour.
+    rafraîchir, <b>ne resignez pas</b>. Rouvrez l'écran dans quelques secondes pour le voir à jour.
     <span className="detail">Détail technique : {error}</span>
   </div>;
 }
 
 SCREENS.completer = (nav) => <CargoList {...nav} filtre={{ etape: 'CFS' }} titre="À compléter (CFS)" />;
-/* ===================== VOLET ENGAGEMENTS — 2026-09-17 =====================
+/* ===================== VOLET ENGAGEMENTS : 2026-09-17 =====================
  *
  * Demande utilisateur. Les engagements étaient dispersés : l'encadré du tableau
  * de bord ne montre que ceux qui alertent, la liste « Cargaisons » demandait un
@@ -1447,12 +1448,12 @@ const FILTRES_ENGAGEMENT: [string, string][] = [
 SCREENS.engagements = ({ go, user }) => {
   const [filtre, setFiltre] = useState('encours');
   // Tri demandé par l'utilisateur (17/09) : par camion et par délai, dans les
-  // deux sens. Par défaut le plus urgent d'abord — c'est ce qu'on vient traiter.
+  // deux sens. Par défaut le plus urgent d'abord, c'est ce qu'on vient traiter.
   const [tri, setTri] = useState<TriEngagement>('delai');
   const [sens, setSens] = useState<SensTri>('asc');
   // Deux questions posées au volet (17/09) : « quels camions à échéance dans
   // N jours ? » et « où en est CE camion ? ». Les deux affinent les lignes déjà
-  // reçues — aucun aller-retour au serveur à chaque frappe.
+  // reçues, aucun aller-retour au serveur à chaque frappe.
   const [jours, setJours] = useState('');
   const [rechCamion, setRechCamion] = useState('');
   const changerTri = (t: TriEngagement) => {
@@ -1473,7 +1474,7 @@ SCREENS.engagements = ({ go, user }) => {
   const fleche = (t: TriEngagement) => (t === tri ? (sens === 'asc' ? ' ▲' : ' ▼') : '');
   const cpt = (data?.['compte'] as O) ?? {};
   // Compteurs GLOBAUX : ils ne bougent pas avec la vue affichée, mais bien avec
-  // ce qu'on fait — solder un engagement le fait passer de l'un à l'autre.
+  // ce qu'on fait, solder un engagement le fait passer de l'un à l'autre.
   const glob = (data?.['global'] as O) ?? {};
   const peut = SUIVENT_ENGAGEMENTS.includes(user.role as never);
   const admin = user.role === ROLES.ADMIN;
@@ -1499,11 +1500,11 @@ SCREENS.engagements = ({ go, user }) => {
         <label className="help">Échéance ≤</label>
         <input inputMode="numeric" value={jours} placeholder="jours"
           onChange={(e) => setJours(e.target.value.replace(/[^0-9]/g, ''))}
-          title="Camions dont l'échéance tombe dans au plus N jours — les dépassées comprises"
+          title="Camions dont l'échéance tombe dans au plus N jours, les dépassées comprises"
           style={{ width: 80 }} />
         <input className="mono" value={rechCamion} placeholder="N° camion"
           onChange={(e) => setRechCamion(e.target.value)}
-          title="Rechercher un camion dans les engagements — espaces et tirets ignorés"
+          title="Rechercher un camion dans les engagements, espaces et tirets ignorés"
           style={{ width: 150 }} />
         {affine && <button className="ghost xs" onClick={() => { setJours(''); setRechCamion(''); }}>Tout afficher</button>}
       </div>} />
@@ -1551,7 +1552,7 @@ SCREENS.engagements = ({ go, user }) => {
                       {busy === id ? '…' : '✔ Effectué'}
                     </button>}
                     {peut && <button className="ghost xs" onClick={() => setCorrige(l)}>✎ Corriger</button>}
-                    {/* RETRAIT (2026-09-17) : un bouton à lui, sur la ligne — il était
+                    {/* RETRAIT (2026-09-17) : un bouton à lui, sur la ligne, il était
                         caché dans la fenêtre de correction. Administrateur seul. */}
                     {admin && <button className="ghost xs acts-suppr" onClick={() => setRetire(l)}>✕ Retirer</button>}
                   </div>
@@ -1571,7 +1572,7 @@ SCREENS.engagements = ({ go, user }) => {
 };
 
 /**
- * RETRAIT D'UN ENGAGEMENT — fenêtre dédiée, 2026-09-17 (demande utilisateur).
+ * RETRAIT D'UN ENGAGEMENT : fenêtre dédiée, 2026-09-17 (demande utilisateur).
  * Le retrait avait sa place dans la fenêtre de correction ; il a maintenant son
  * bouton et sa fenêtre, qui ne demandent qu'une chose : pourquoi.
  */
@@ -1610,10 +1611,15 @@ function ModaleRetirerEngagement({ ligne, onClose, onFait }: { ligne: O; onClose
   </Modal>;
 }
 
-/* ======================= VOLET PARAMÈTRES — 2026-09-21 =====================
+/* VOLET PARKING (2026-09-24) · l'écran vit dans parking.tsx : il a ses propres
+   fenêtres (ajout animé, détail, sortie) et n'a rien à partager avec ce fichier
+   déjà long. Ici, seulement son inscription au menu des écrans. */
+SCREENS.parking = EcranParking;
+
+/* ======================= VOLET PARAMÈTRES : 2026-09-21 =====================
  *
  * Demande utilisateur : régler depuis l'application ce qui était écrit dans le
- * code — séjour des conteneurs, délais, contrôles… Chaque réglage dit ce qu'il
+ * code, séjour des conteneurs, délais, contrôles… Chaque réglage dit ce qu'il
  * change et qui il concerne, et rappelle sa valeur par défaut. L'administrateur
  * modifie ; les chefs consultent ; les agents n'ont pas ce volet.
  */
@@ -1709,14 +1715,14 @@ SCREENS.wait_t1 = (nav) => <CargoList {...nav} filtre={{ etape: 'T1' }} titre="E
 SCREENS.wait_gps = (nav) => <CargoList {...nav} filtre={{ etape: 'BALISE' }} titre="En attente Balise" />;
 SCREENS.wait_bs = (nav) => <CargoList {...nav} filtre={{ etape: 'BS' }} titre="En attente Bon de Sortie" />;
 SCREENS.wait_sortie = (nav) => <CargoList {...nav} filtre={{ etape: 'PP' }} titre="En attente de sortie" />;
-SCREENS.t1 = (nav) => <CargoList {...nav} filtre={{ etape: 'T1' }} titre="Cellule T1 — cargaisons en attente" />;
-SCREENS.gps = (nav) => <CargoList {...nav} filtre={{ etape: 'BALISE' }} titre="Cellule Balise — cargaisons en attente" />;
-SCREENS.bonsortie = (nav) => <CargoList {...nav} filtre={{ etape: 'BS' }} titre="Cellule Bon de Sortie — en attente" />;
-SCREENS.sortie = (nav) => <CargoList {...nav} filtre={{ etape: 'PP' }} titre="Sortie — cargaisons prêtes" />;
+SCREENS.t1 = (nav) => <CargoList {...nav} filtre={{ etape: 'T1' }} titre="Cellule T1, cargaisons en attente" />;
+SCREENS.gps = (nav) => <CargoList {...nav} filtre={{ etape: 'BALISE' }} titre="Cellule Balise, cargaisons en attente" />;
+SCREENS.bonsortie = (nav) => <CargoList {...nav} filtre={{ etape: 'BS' }} titre="Cellule Bon de Sortie, en attente" />;
+SCREENS.sortie = (nav) => <CargoList {...nav} filtre={{ etape: 'PP' }} titre="Sortie, cargaisons prêtes" />;
 
 /* --------------------------- Créer un camion --------------------------- */
 /**
- * v4.1 — CHARGEMENT MIXTE SUR UN EXISTANT (décision utilisateur 2026-07-27 ;
+ * v4.1, CHARGEMENT MIXTE SUR UN EXISTANT (décision utilisateur 2026-07-27 ;
  * existait dans l'Apps Script). À la création d'un camion / véhicule, si un
  * autre du MÊME numéro est déjà présent à un statut ENCORE MODIFIABLE (Camion
  * créé / En cours de chargement / Créée), on propose de l'OUVRIR pour y ajouter
@@ -1725,9 +1731,9 @@ SCREENS.sortie = (nav) => <CargoList {...nav} filtre={{ etape: 'PP' }} titre="So
 const STATUTS_EDITABLES = [STATUTS.CAMION, STATUTS.CHARGEMENT, STATUTS.CREEE] as string[];
 /**
  * Analyse anti-doublons à la saisie d'un N° :
- *   · `mixte`      — un existant ACTIF encore modifiable (même N° exact) → on
+ *   · `mixte`     , un existant ACTIF encore modifiable (même N° exact) → on
  *                    propose de l'ouvrir en chargement mixte ;
- *   · `similaires` — des N° actifs TRÈS RESSEMBLANTS (faute de frappe probable)
+ *   · `similaires`, des N° actifs TRÈS RESSEMBLANTS (faute de frappe probable)
  *                    → on avertit (jamais bloquant, décision 2026-08-19).
  */
 async function analyserDoublons(num: string): Promise<{ mixte: O | null; similaires: O[] }> {
@@ -1769,17 +1775,17 @@ function ModaleSimilaires({ similaires, quoi, onOuvrir, onCreer, onAnnuler }: {
     <h2><span className="tp-pastille" aria-hidden="true"><Icone nom="loupe" taille={18} /></span>Ce numéro ressemble à un {quoi} existant</h2>
     <p className="help" style={{ marginTop: 0 }}>
       Le numéro saisi ressemble de très près à {plur ? `des ${quoi}s déjà enregistrés` : `un ${quoi} déjà enregistré`},
-      encore présent{plur ? 's' : ''} dans l'enceinte — peut-être une <b>faute de frappe</b>.
+      encore présent{plur ? 's' : ''} dans l'enceinte, peut-être une <b>faute de frappe</b>.
       Si c'est le même, ouvrez le bon dossier ; sinon, confirmez qu'il s'agit bien d'un <b>nouveau</b> {quoi}.
     </p>
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6, margin: '8px 0' }}>
       {similaires.map((c) => <button key={String(c['id'])} className="ghost mono" style={{ justifyContent: 'flex-start', textAlign: 'left' }}
         onClick={() => onOuvrir(String(c['id']))}>
-        Ouvrir « {String(c['numeroCamion'])} » — statut « {String(c['statut'])} »
+        Ouvrir « {String(c['numeroCamion'])} », statut « {String(c['statut'])} »
       </button>)}
     </div>
     <div className="row" style={{ marginTop: 12, flexWrap: 'wrap' }}>
-      <button onClick={onCreer}>Non, c'est un nouveau {quoi} — créer</button>
+      <button onClick={onCreer}>Non, c'est un nouveau {quoi}, créer</button>
       <button className="ghost" onClick={onAnnuler}>Annuler</button>
     </div>
   </Modal>;
@@ -1874,6 +1880,9 @@ SCREENS.creercamion = ({ go }) => {
   const verrou = useRef(false); // double clic : cf. useEnvoiUnique
   const [match, setMatch] = useState<O | null>(null);
   const [simil, setSimil] = useState<O[] | null>(null);
+  // PARKING (2026-09-24) : si ce camion est au parking, l'agent est prévenu et
+  // décide lui-même de continuer. Cela n'interdit rien.
+  const parking = useAlerteParking();
   async function faireCreer() {
     if (verrou.current) return;
     verrou.current = true;
@@ -1885,6 +1894,7 @@ SCREENS.creercamion = ({ go }) => {
   }
   async function creer() {
     if (!num) { toast('N° camion requis.', 'err'); return; }
+    if (!await parking.confirmer(num)) return;
     setBusy(true);
     const { mixte, similaires } = await analyserDoublons(num);
     setBusy(false);
@@ -1893,7 +1903,7 @@ SCREENS.creercamion = ({ go }) => {
     await faireCreer();
   }
   return <div className="ecran-creer"><div className="card" style={{ maxWidth: 520 }}>
-    {/* EN-TÊTE ILLUSTRÉ (2026-09-11) — le logo comme sur l'écran de connexion,
+    {/* EN-TÊTE ILLUSTRÉ (2026-09-11) : le logo comme sur l'écran de connexion,
         mais l'animation raconte ici ce qu'on vient y faire : un camion ENTRE
         dans le cercle, puis un « + » apparaît. L'écran de connexion montre un
         suivi ; celui-ci montre une création. */}
@@ -1923,10 +1933,11 @@ SCREENS.creercamion = ({ go }) => {
       onCreer={() => { setSimil(null); faireCreer(); }}
       onAnnuler={() => setSimil(null)} />}
     {/* Mot d'accueil en pied de carte (2026-09-11) : une ligne, dans la même
-        mise en page que celle de l'écran de connexion — deux filets qui
+        mise en page que celle de l'écran de connexion, deux filets qui
         s'effacent de part et d'autre. L'écran de saisie du CFS est le premier
         geste de la journée ; il n'y a pas de raison qu'il soit sec. */}
     <p className="mot-accueil creer-mot">Bienvenue, et bonne saisie</p>
+    {parking.fenetre}
   </div>
   <SceneEntreePIA />
   </div>;
@@ -1934,7 +1945,7 @@ SCREENS.creercamion = ({ go }) => {
 
 /* --------- Plusieurs camions sur une même déclaration (saisie en lot) --- */
 /**
- * v4 — La déclaration (déclarant, n°, marchandise…) est saisie UNE SEULE FOIS,
+ * v4, La déclaration (déclarant, n°, marchandise…) est saisie UNE SEULE FOIS,
  * puis on aligne autant de camions que nécessaire avec leurs conteneurs.
  * Répond au geste le plus répétitif du CFS : plusieurs camions enlèvent des
  * conteneurs de la même déclaration, et tout était à re-saisir à chaque fois.
@@ -1950,6 +1961,7 @@ SCREENS.lotcamions = ({ go }) => {
   const [lignes, setLignes] = useState<LigneCam[]>([ligneVide(), ligneVide()]);
   const [busy, setBusy] = useState(false);
   const [res, setRes] = useState<{ crees: O[]; erreurs: O[] } | null>(null);
+  const parking = useAlerteParking(); // prévient si l'un des camions est au parking
   const set = (k: string, v: unknown) => setD((o) => ({ ...o, [k]: v }));
   const estEnl = op === OPERATIONS.ENLEVEMENT;
 
@@ -1974,6 +1986,7 @@ SCREENS.lotcamions = ({ go }) => {
       numeroCamion: l.numeroCamion, conteneurs: l.conteneurs.filter((ct) => String(ct['num'] ?? '').trim()),
     }));
     if (!camions.length) { toast('Indiquez au moins un camion.', 'err'); return; }
+    if (!await parking.confirmer(camions.map((cm) => cm.numeroCamion))) return;
     setBusy(true);
     try {
       const r = await call<{ crees: O[]; erreurs: O[] }>('cargo.lotcamions', {
@@ -1989,13 +2002,13 @@ SCREENS.lotcamions = ({ go }) => {
   }
 
   return <div className="card">
-    <h2>Plusieurs camions — une seule déclaration</h2>
+    <h2>Plusieurs camions, une seule déclaration</h2>
     <p className="help" style={{ marginTop: 0 }}>Saisissez la déclaration <b>une fois</b>, puis alignez les camions et leurs conteneurs. Chaque camion est créé et rattaché à cette déclaration ; un camion en erreur n'annule pas les autres.</p>
 
     <div className="grid2">
       <div><label className="help">Type d'opération</label>
         <select value={op} onChange={(e) => setOp(e.target.value)}><option>{OPERATIONS.ENLEVEMENT}</option><option>{OPERATIONS.DEPOTAGE}</option></select></div>
-      {estTypeSansT1(d['typeDeclaration'] ?? 'T') && <div><label className="help">Type {String(d['typeDeclaration'])} — balise</label>
+      {estTypeSansT1(d['typeDeclaration'] ?? 'T') && <div><label className="help">Type {String(d['typeDeclaration'])}, balise</label>
         <select value={consoMode} onChange={(e) => setConsoMode(e.target.value)}><option value="balise">À baliser</option><option value="sansbalise">Non balisée (dispense)</option></select></div>}
     </div>
 
@@ -2034,19 +2047,20 @@ SCREENS.lotcamions = ({ go }) => {
         <Table cols={[['id', 'ID'], ['numeroCamion', 'Camion'], ['conteneurs', 'Conteneurs']]} rows={res.crees} onRow={(r) => go('detail', r['id'])} />
       </>}
       {res.erreurs.length > 0 && <>
-        <div className="section-title" style={{ marginTop: 12 }}>En erreur ({res.erreurs.length}) — à corriger ci-dessus</div>
-        {res.erreurs.map((e, i) => <div key={i} className="err-msg"><b className="mono">{String(e['numeroCamion'])}</b> — {String(e['message'])}</div>)}
+        <div className="section-title" style={{ marginTop: 12 }}>En erreur ({res.erreurs.length}), à corriger ci-dessus</div>
+        {res.erreurs.map((e, i) => <div key={i} className="err-msg"><b className="mono">{String(e['numeroCamion'])}</b>, {String(e['message'])}</div>)}
       </>}
     </div>}
+    {parking.fenetre}
   </div>;
 };
 
-/* -------------------- Recherche — cargaisons ACTIVES ------------------- */
+/* -------------------- Recherche, cargaisons ACTIVES ------------------- */
 /**
- * v4 — Écran de recherche RÉTABLI, mais recentré sur son seul usage réel :
+ * v4, Écran de recherche RÉTABLI, mais recentré sur son seul usage réel :
  * retrouver un camion ou un conteneur ENCORE DANS L'ENCEINTE (pas encore sorti
- * par la Porte Principale). C'est la question posée au guichet — « ce camion,
- * il est où ? » — et non une consultation de l'historique, qui reste l'écran
+ * par la Porte Principale). C'est la question posée au guichet, « ce camion,
+ * il est où ? », et non une consultation de l'historique, qui reste l'écran
  * « Cargaisons ». Camions ET véhicules sont cherchés ensemble.
  */
 SCREENS.search = ({ go, user }) => {
@@ -2061,7 +2075,7 @@ SCREENS.search = ({ go, user }) => {
         l'angle du bandeau, avec le compteur de resultats en sous-titre. */}
     <BandeauModule icone="loupe" titre="Rechercher une cargaison en cours"
       sous={<>
-        Uniquement les cargaisons <b>encore présentes</b> (non sorties) — par
+        Uniquement les cargaisons <b>encore présentes</b> (non sorties), par
         N° de camion, de conteneur, de balise ou ID ; espaces et tirets ignorés.
         {' · '}
         {loading ? 'Recherche…' : cherche
@@ -2083,7 +2097,7 @@ SCREENS.search = ({ go, user }) => {
   </div></>;
 };
 
-/** Prochaine cellule qui doit traiter la cargaison — la réponse cherchée au guichet. */
+/** Prochaine cellule qui doit traiter la cargaison, la réponse cherchée au guichet. */
 const ETAPE_LABELS: Record<string, string> = {
   CFS: 'CFS (chargement)', VALIDATION: 'Chef brigade', T1: 'Cellule T1',
   BALISE: 'Cellule Balise', BS: 'Bon de sortie', PP: 'Porte principale',
@@ -2134,14 +2148,15 @@ function FormVehicule({ go }: { go: Nav['go'] }) {
   const set = (k: string, val: unknown) => setD((o) => ({ ...o, [k]: val }));
   const majVeh = (i: number, k: string, val: unknown) => setVs((a) => a.map((v, j) => (j === i ? { ...v, [k]: val } : v)));
 
-  // v4 — le TC d'origine est OBLIGATOIRE et se choisit dans les TC POSITIONNÉS au CFS.
+  // v4, le TC d'origine est OBLIGATOIRE et se choisit dans les TC POSITIONNÉS au CFS.
   const { data: stk, loading: stkLoading } = useAsync<{ rows: O[] }>(() => call('stock.list', { statut: 'Positionné' }), []);
   const tcs = ((stk?.rows ?? []) as O[]).map((r) => String(r['numeroTC'] ?? '')).filter(Boolean);
 
   const majCam = (i: number, patch: Partial<CamEffets>) => setCams((a) => a.map((c, j) => (j === i ? { ...c, ...patch } : c)));
   const [match, setMatch] = useState<O | null>(null); // v4.1 : véhicule déjà présent → mixte ?
   const [simil, setSimil] = useState<O[] | null>(null); // 2026-08-19 : châssis ressemblant → avertir
-  // 2026-09-12 — le bouton n'avait AUCUNE garde : 732382 créé trois fois à 12:23.
+  const parking = useAlerteParking(); // 2026-09-24 : camion d'effets déjà au parking ?
+  // 2026-09-12 · le bouton n'avait AUCUNE garde : 732382 créé trois fois à 12:23.
   const { busy, envoyer } = useEnvoiUnique();
 
   async function faireCreer() {
@@ -2155,9 +2170,10 @@ function FormVehicule({ go }: { go: Nav['go'] }) {
   }
   async function creer() {
     if (!origine) { toast("Le N° de conteneur d'origine (TC) est obligatoire.", 'err'); return; }
+    if (!await parking.confirmer(cams.map((cm) => cm.numeroCamion))) return;
     if (manuelOrigine && !tcValide(origine)) { toast('N° conteneur d\'origine invalide (4 lettres + 7 chiffres).', 'err'); return; }
-    // v4.1 — si le 1er châssis existe déjà à un statut modifiable : proposer le mixte.
-    // 2026-08-19 — sinon, avertir si un châssis actif ressemble fortement (frappe).
+    // v4.1, si le 1er châssis existe déjà à un statut modifiable : proposer le mixte.
+    // 2026-08-19 : sinon, avertir si un châssis actif ressemble fortement (frappe).
     const chassis = String(vs[0]?.['chassis'] ?? '').trim();
     const { mixte, similaires } = chassis ? await analyserDoublons(chassis) : { mixte: null, similaires: [] };
     if (mixte) { setMatch(mixte); return; }
@@ -2166,7 +2182,7 @@ function FormVehicule({ go }: { go: Nav['go'] }) {
   }
 
   return <div style={{ marginTop: 12 }}>
-    {/* v4 — ordre demandé : Déclaration EN HAUT, puis conteneur + véhicules, effets divers EN BAS. */}
+    {/* v4, ordre demandé : Déclaration EN HAUT, puis conteneur + véhicules, effets divers EN BAS. */}
     <div className="section-title">Déclaration</div>
     <DeclFields d={d} set={set} />
 
@@ -2181,7 +2197,7 @@ function FormVehicule({ go }: { go: Nav['go'] }) {
           ? <input className="mono" value={origine} onChange={(e) => setOrigine(masks.tc(e.target.value))}
               placeholder="N° conteneur (4 lettres + 7 chiffres)" autoComplete="off" />
           : <select value={origine} onChange={(e) => setOrigine(e.target.value)} className="mono">
-              <option value="">{stkLoading ? 'Chargement…' : tcs.length ? '— Choisir un TC positionné —' : '— Aucun TC positionné —'}</option>
+              <option value="">{stkLoading ? 'Chargement…' : tcs.length ? 'Choisir un TC positionné…' : 'Aucun TC positionné'}</option>
               {tcs.map((t) => <option key={t}>{t}</option>)}
             </select>}
         <label className="help" style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 6 }}>
@@ -2206,7 +2222,7 @@ function FormVehicule({ go }: { go: Nav['go'] }) {
     </div>)}
 
     <div className="row" style={{ alignItems: 'center', marginTop: 14 }}>
-      <div className="section-title" style={{ flex: 1, margin: 0 }}>Effets divers (camions) — facultatif</div>
+      <div className="section-title" style={{ flex: 1, margin: 0 }}>Effets divers (camions), facultatif</div>
       <button className="ghost xs" onClick={() => setCams((a) => [...a, camVide()])}>＋ Ajouter un camion</button>
     </div>
     {cams.map((c, i) => <div key={i} style={{ border: '1px solid var(--line)', borderRadius: 6, padding: 10, marginTop: 8 }}>
@@ -2217,10 +2233,10 @@ function FormVehicule({ go }: { go: Nav['go'] }) {
       <div style={{ marginTop: 6 }}><label className="help">Désignation des effets divers</label>
         <input value={c.designation} onChange={(e) => majCam(i, { designation: masks.upper(e.target.value) })} placeholder="ex. CARTONS D'EFFETS PERSONNELS" /></div>
 
-      {/* v4 — « chargement terminé (scellés posés) » : ramené AU NIVEAU DU CAMION. */}
+      {/* v4, « chargement terminé (scellés posés) » : ramené AU NIVEAU DU CAMION. */}
       <label className="help" style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 10 }}>
         <input type="checkbox" style={{ width: 'auto' }} checked={c.chargementTermine} onChange={(e) => majCam(i, { chargementTermine: e.target.checked })} />
-        <span>Chargement terminé (scellés posés) — sinon « En cours de chargement »</span>
+        <span>Chargement terminé (scellés posés), sinon « En cours de chargement »</span>
       </label>
       {c.chargementTermine && <div className="grid2" style={{ marginTop: 6 }}>
         {[0, 1, 2].map((k) => <div key={k}><label className="help">Scellé camion {k + 1}{k < 2 ? ' *' : ''}</label>
@@ -2237,11 +2253,12 @@ function FormVehicule({ go }: { go: Nav['go'] }) {
       onOuvrir={(id) => { setSimil(null); go('detail', id); }}
       onCreer={() => { setSimil(null); envoyer(faireCreer); }}
       onAnnuler={() => setSimil(null)} />}
+    {parking.fenetre}
   </div>;
 }
 
 /**
- * v4 — Conso/MAD « comme en dépotage » : le TYPE de la déclaration commande le
+ * v4, Conso/MAD « comme en dépotage » : le TYPE de la déclaration commande le
  * parcours. T = transit → T1 + Balise ; C (conso) et A (admission, décision
  * utilisateur 2026-07-22) → sautent le T1 et l'agent choisit balisée / non
  * balisée (le choix ne s'affiche que pour ces types-là).
@@ -2256,7 +2273,7 @@ function InfoTypeDecl({ d, mode, setMode }: { d: O; mode: string; setMode: (v: s
         : <>Type T = transit : la cargaison passe par le <b>T1</b> puis la <b>Balise</b>, comme un dépotage.</>}
     </p>
     {estConso && <div className="grid2">
-      <div><label className="help">Type {type} — balise</label>
+      <div><label className="help">Type {type}, balise</label>
         <select value={mode} onChange={(e) => setMode(e.target.value)}><option value="balise">À baliser</option><option value="sansbalise">Non balisée (dispense)</option></select></div>
     </div>}
   </>;
@@ -2266,16 +2283,17 @@ function FormMagasin({ go }: { go: Nav['go'] }) {
   const [d, setD] = useState<O>({});
   const [num, setNum] = useState('');
   const [mode, setMode] = useState('balise');
-  // v4.1 — scellés du camion « comme en dépotage » (2-3). « Chargement terminé
+  // v4.1, scellés du camion « comme en dépotage » (2-3). « Chargement terminé
   // (scellés posés) » : sinon la sortie reste « En cours de chargement » et se
   // finalise depuis la fiche.
   const [chargementTermine, setChargementTermine] = useState(true);
   const [scelles, setScelles] = useState(['', '', '']);
+  const parking = useAlerteParking(); // 2026-09-24 : ce camion est-il au parking ?
   const set = (k: string, val: unknown) => setD((o) => ({ ...o, [k]: val }));
 
   /* ANTI-DOUBLON À LA SAISIE (2026-09-10).
    *
-   * Le serveur refuse déjà un camion déjà présent, mais seulement à l'envoi —
+   * Le serveur refuse déjà un camion déjà présent, mais seulement à l'envoi,
    * c'est-à-dire après que l'agent a rempli toute la déclaration. On l'avertit
    * donc dès qu'il quitte le champ ou appuie sur Entrée, avant qu'il ne travaille
    * pour rien.
@@ -2294,7 +2312,7 @@ function FormMagasin({ go }: { go: Nav['go'] }) {
       // `checkdup` renvoie AUSSI les camions déjà sortis. Ceux-là ne sont pas des
       // doublons : un camion qui revient est normal, et le serveur ne les bloque
       // pas non plus (cf. camionActif). On n'alerte que sur un camion ENCORE
-      // dans l'enceinte — sinon l'avertissement crierait au loup à chaque retour.
+      // dans l'enceinte, sinon l'avertissement crierait au loup à chaque retour.
       setDejaLa((r.camion ?? []).find((x) => x['actif'] === true) ?? null);
     } catch { /* l'avertissement est un confort : son échec ne bloque pas la saisie */ }
   }
@@ -2302,6 +2320,7 @@ function FormMagasin({ go }: { go: Nav['go'] }) {
   async function creer() {
     if (!num) { toast('N° camion requis.', 'err'); return; }
     if (chargementTermine && scelles.filter(Boolean).length < 2) { toast('Au moins 2 scellés camion (ou décochez « chargement terminé »).', 'err'); return; }
+    if (!await parking.confirmer(num)) return;
     try {
       const r = await call<{ camions: { id: string }[] }>('cargo.create', {
         typeOperation: OPERATIONS.MAGASIN, numeroCamion: num, consoMode: mode, declaration: d,
@@ -2323,7 +2342,7 @@ function FormMagasin({ go }: { go: Nav['go'] }) {
     {dejaLa && <div className="card" style={{ marginTop: 8, borderLeft: '4px solid var(--warn)' }}>
       <b style={{ color: 'var(--warn)' }}>⚠ Ce camion est déjà dans le système</b>
       <div className="help" style={{ marginTop: 4 }}>
-        <span className="mono">{String(dejaLa['numeroCamion'] ?? '')}</span> —
+        <span className="mono">{String(dejaLa['numeroCamion'] ?? '')}</span>,
         dossier <span className="mono">{String(dejaLa['id'] ?? '')}</span>,
         statut « {String(dejaLa['statut'] ?? '')} ».
       </div>
@@ -2338,25 +2357,28 @@ function FormMagasin({ go }: { go: Nav['go'] }) {
     </div>}
     <label className="help" style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 10 }}>
       <input type="checkbox" style={{ width: 'auto' }} checked={chargementTermine} onChange={(e) => setChargementTermine(e.target.checked)} />
-      <span>Chargement terminé (scellés posés) — sinon « En cours de chargement »</span>
+      <span>Chargement terminé (scellés posés), sinon « En cours de chargement »</span>
     </label>
     {chargementTermine && <div className="grid2" style={{ marginTop: 6 }}>
       {[0, 1, 2].map((k) => <div key={k}><label className="help">Scellé camion {k + 1}{k < 2 ? ' *' : ''}</label>
         <input value={scelles[k] ?? ''} onChange={(e) => setScelles((a) => a.map((x, j) => j === k ? masks.upper(e.target.value) : x))} /></div>)}
     </div>}
     <div style={{ marginTop: 12 }}><button disabled={busy} onClick={() => envoyer(creer)}>{busy ? 'Enregistrement…' : 'Créer'}</button></div>
+    {parking.fenetre}
   </div>;
 }
 
 function FormConso({ go }: { go: Nav['go'] }) {
   const [d, setD] = useState<O>({});
   const [num, setNum] = useState('');
+  const parking = useAlerteParking(); // 2026-09-24 : ce camion est-il au parking ?
   const [mode, setMode] = useState('balise');
   const [ct, setCt] = useState<O>({ num: '', taille: '', type: '', plomb: '' });
   const set = (k: string, val: unknown) => setD((o) => ({ ...o, [k]: val }));
   const setC = (k: string, val: unknown) => setCt((o) => ({ ...o, [k]: val }));
   async function creer() {
     if (!tcValide(String(ct['num']))) { toast('N° conteneur invalide.', 'err'); return; }
+    if (!await parking.confirmer(num)) return;
     try {
       const r = await call<{ camions: { id: string }[] }>('cargo.create', {
         typeOperation: OPERATIONS.CONSO, consoMode: mode, declaration: d,
@@ -2379,6 +2401,7 @@ function FormConso({ go }: { go: Nav['go'] }) {
       <div><label className="help">Scellé</label><input value={String(ct['plomb'])} onChange={(e) => setC('plomb', masks.upper(e.target.value))} /></div>
     </div>
     <div style={{ marginTop: 12 }}><button disabled={busy} onClick={() => envoyer(creer)}>{busy ? 'Enregistrement…' : 'Créer'}</button></div>
+    {parking.fenetre}
   </div>;
 }
 
@@ -2387,7 +2410,7 @@ SCREENS.stock = () => <StockList statut="tous" />;
 SCREENS.stockjour = () => <StockJournalier />;
 
 /**
- * v4.2 — STATISTIQUES DE DÉPOTAGE (demande CFS).
+ * v4.2, STATISTIQUES DE DÉPOTAGE (demande CFS).
  *
  * Trois chiffres par journée : combien de conteneurs ont été positionnés
  * (pointés), combien ont été dépotés, et combien restaient à dépoter en fin de
@@ -2425,7 +2448,7 @@ function StatsDepotage() {
         « Restant » = conteneurs pointés à cette date ou avant et pas encore dépotés
         en fin de journée : c'est le report d'un jour sur l'autre.
         <br />
-        Un conteneur re-pointé un jour suivant compte au jour de son <b>dernier</b> pointage —
+        Un conteneur re-pointé un jour suivant compte au jour de son <b>dernier</b> pointage,
         la colonne « positionnés » est une photo de la journée de travail, pas un cumul d'arrivées.
         « Au parc, jamais pointés » compte les conteneurs présents qui ne sont jamais
         passés par un pointage : ce sont eux qui échappent au suivi.
@@ -2477,10 +2500,10 @@ function StockList({ statut, titre }: { statut: string; titre?: string }) {
 }
 
 /**
- * v4.1 — Stock CFS JOURNALIER (décision client 2026-07-31). N'affiche que les
+ * v4.1, Stock CFS JOURNALIER (décision client 2026-07-31). N'affiche que les
  * conteneurs pointés AUJOURD'HUI ; les restes des jours précédents (pointés,
  * pas encore dépotés) sont comptés à part (« restes à dépoter ») et consultables
- * en dessous. Rien n'est effacé en base — seule la vue du jour se remet à zéro.
+ * en dessous. Rien n'est effacé en base, seule la vue du jour se remet à zéro.
  */
 function StockJournalier() {
   const { data, loading, error } = useAsync<{ rows: O[]; compte: O }>(() => call('stock.list', { statut: 'Positionné' }), []);
@@ -2511,7 +2534,7 @@ function StockJournalier() {
   </div>;
 }
 
-/** v4.1 — Extraction de la liste des conteneurs (statut + période, Excel/PDF). */
+/** v4.1, Extraction de la liste des conteneurs (statut + période, Excel/PDF). */
 function ExportConteneurs({ statutDefaut }: { statutDefaut: string }) {
   const p = useReportRange('mois');
   const [statut, setStatut] = useState(statutDefaut);
@@ -2540,11 +2563,11 @@ function ExportConteneurs({ statutDefaut }: { statutDefaut: string }) {
   </details>;
 }
 
-// v4 — chaque pointage propose les TC de la BONNE source à la frappe (datalist) :
+// v4, chaque pointage propose les TC de la BONNE source à la frappe (datalist) :
 // pointage matinal → stock « En stock » ; pointage PP → stock annoncé « Annoncé ».
 SCREENS.pointage = () => <PointageTC action="stock.pointage" titre="Pointage matinal" desc="Positionne un conteneur pour le dépotage du jour." suggest={{ action: 'stock.list', statut: 'En stock' }} />;
-// v4.1 — Magasin/MAD : les TC destinés au magasin ne passent PAS par le
-// positionnement du CFS (décision utilisateur 2026-07-22) — PIA les prend
+// v4.1, Magasin/MAD : les TC destinés au magasin ne passent PAS par le
+// positionnement du CFS (décision utilisateur 2026-07-22), PIA les prend
 // directement dans le yard et les pose devant le magasin. On propose donc le
 // STOCK DU PARC (« En stock »), pas les positionnés du jour. La saisie libre
 // reste ouverte : le serveur accepte un conteneur inconnu du stock et le crée.
@@ -2554,7 +2577,7 @@ SCREENS.magasin = () => <PointageTC action="stock.entreemagasin" titre="Entrée 
 SCREENS.pointentree = () => <PointageTC action="stockannonce.pointage" titre="Pointage entrée (stock annoncé)" desc="Pointe l'arrivée d'un conteneur annoncé (Porte Principale)." suggest={{ action: 'stockannonce.list', statut: 'Annoncé' }} />;
 SCREENS.confentree = () => <ConfirmerEntree />;
 /**
- * Pointage d'un conteneur — v4 : PLUS DE SAISIE À L'AVEUGLE (décision
+ * Pointage d'un conteneur, v4 : PLUS DE SAISIE À L'AVEUGLE (décision
  * utilisateur). L'agent ne tape plus les 11 caractères d'un N° ISO 6346 avant
  * de savoir s'il existe : la liste des conteneurs RÉELLEMENT pointables lui est
  * présentée, il tape éventuellement quelques caractères pour la réduire, puis
@@ -2603,7 +2626,7 @@ function PointageTC({ action, titre, desc, suggest, libre }: {
         placeholder="ex. MSKU ou 1234" autoComplete="off" autoFocus />
       <div className="help" style={{ margin: '8px 0 6px' }}>
         {loading ? 'Chargement du stock…'
-          : `${rows.length} conteneur(s) pointable(s)${q ? ` · ${visibles.length + Math.max(0, trop)} correspondant(s)` : ''} — cliquez pour choisir.`}
+          : `${rows.length} conteneur(s) pointable(s)${q ? ` · ${visibles.length + Math.max(0, trop)} correspondant(s)` : ''}, cliquez pour choisir.`}
       </div>
       {loading ? <Spinner /> : rows.length === 0
         ? <div className="empty">Aucun conteneur à pointer.</div>
@@ -2627,7 +2650,7 @@ function PointageTC({ action, titre, desc, suggest, libre }: {
                 </tr>;
               })}</tbody>
             </table></div>
-            {trop > 0 && <div className="help" style={{ marginTop: 6 }}>+ {trop} autre(s) — affinez le filtre.</div>}
+            {trop > 0 && <div className="help" style={{ marginTop: 6 }}>+ {trop} autre(s), affinez le filtre.</div>}
           </>}
     </> : null}
 
@@ -2644,10 +2667,10 @@ function PointageTC({ action, titre, desc, suggest, libre }: {
 }
 
 /**
- * v4 — Confirmer l'entrée au port sec EN LOT (décision capitaine 2026-07-17).
+ * v4, Confirmer l'entrée au port sec EN LOT (décision capitaine 2026-07-17).
  * Plus de saisie : la liste montre les conteneurs déjà pointés par la Porte
  * Principale (« en progression vers le port sec ») ; l'agent au gate coche ceux
- * physiquement entrés et valide tout d'un coup. Réutilisable le lendemain — les
+ * physiquement entrés et valide tout d'un coup. Réutilisable le lendemain, les
  * conteneurs pointés restent en attente tant qu'ils ne sont pas confirmés.
  */
 function ConfirmerEntree() {
@@ -2671,7 +2694,7 @@ function ConfirmerEntree() {
 
   return <div className="card">
     <h2>Confirmer l'entrée au port sec</h2>
-    <p className="help" style={{ marginTop: 0 }}>Conteneurs déjà pointés par la Porte Principale, en progression vers le port sec. Cochez ceux qui sont physiquement entrés, puis validez — aucune saisie manuelle. Ce qui n'est pas confirmé reste en attente (validable plus tard).</p>
+    <p className="help" style={{ marginTop: 0 }}>Conteneurs déjà pointés par la Porte Principale, en progression vers le port sec. Cochez ceux qui sont physiquement entrés, puis validez, aucune saisie manuelle. Ce qui n'est pas confirmé reste en attente (validable plus tard).</p>
     <div className="row" style={{ alignItems: 'center' }}>
       <button className="ghost xs" onClick={() => reload()}>⟳ Actualiser</button>
       <span className="help" style={{ flex: 1 }}>{rows.length} en attente · {sel.size} sélectionné(s)</span>
@@ -2697,8 +2720,8 @@ function ConfirmerEntree() {
   </div>;
 }
 
-SCREENS.import = () => <ImportExcel action="stock.import" titre="Stock initial — import" cols={['numeroTC', 'taille', 'dateEntree', 'anneeDeclaration', 'typeDeclaration', 'numeroDeclaration']} conflits />;
-SCREENS.importannonce = () => <ImportExcel action="stockannonce.import" titre="Annonce de transfert — import" cols={['numeroTC', 'taille', 'dateEntree', 'anneeDeclaration', 'bureauDeclaration', 'typeDeclaration', 'numeroDeclaration']} />;
+SCREENS.import = () => <ImportExcel action="stock.import" titre="Stock initial, import" cols={['numeroTC', 'taille', 'dateEntree', 'anneeDeclaration', 'typeDeclaration', 'numeroDeclaration']} conflits />;
+SCREENS.importannonce = () => <ImportExcel action="stockannonce.import" titre="Annonce de transfert, import" cols={['numeroTC', 'taille', 'dateEntree', 'anneeDeclaration', 'bureauDeclaration', 'typeDeclaration', 'numeroDeclaration']} />;
 function ImportExcel({ action, titre, cols, conflits }: { action: string; titre: string; cols: string[]; conflits?: boolean }) {
   const [items, setItems] = useState<O[]>([]);
   const [res, setRes] = useState('');
@@ -2748,11 +2771,11 @@ function ImportExcel({ action, titre, cols, conflits }: { action: string; titre:
 }
 
 /**
- * v4.1 — Conflits d'import (décision utilisateur 2026-07-22). Même geste que
+ * v4.1, Conflits d'import (décision utilisateur 2026-07-22). Même geste que
  * copier des fichiers dans un dossier qui en contient déjà : on annonce ce qui
  * existe, on laisse choisir. Le défaut proposé est « ignorer », parce que les
  * conteneurs déjà là ont souvent été saisis à la main et sont ENGAGÉS dans une
- * opération — les écraser réécrirait leur date d'entrée et leur déclaration
+ * opération, les écraser réécrirait leur date d'entrée et leur déclaration
  * sous les pieds des cellules en aval.
  */
 function ConflitsImport({ a, busy, onChoix, onAnnuler }: { a: O; busy: boolean; onChoix: (s: string) => void; onAnnuler: () => void }) {
@@ -2763,7 +2786,7 @@ function ConflitsImport({ a, busy, onChoix, onAnnuler }: { a: O; busy: boolean; 
   return <Modal onClose={onAnnuler}>
     <h2><span className="tp-pastille" aria-hidden="true"><Icone nom="conteneur" taille={18} /></span>{doublons.length} conteneur(s) déjà connu(s) du système</h2>
     <p className="help" style={{ marginTop: 0 }}>
-      Le fichier apporte <b>{nouveaux} nouveau(x)</b> conteneur(s) — ceux-là seront ajoutés dans tous les cas.
+      Le fichier apporte <b>{nouveaux} nouveau(x)</b> conteneur(s), ceux-là seront ajoutés dans tous les cas.
       Les {doublons.length} ci-dessous existent déjà{engages > 0 && <> et <b style={{ color: 'var(--warn)' }}>{engages} sont déjà engagés</b> (positionnés, dépotés ou rattachés à un camion)</>}.
     </p>
     {manuels > 0 && <div className="bandeau"><div className="t">⚠ {manuels} saisie(s) manuelle(s) retrouvée(s)</div>
@@ -2784,7 +2807,7 @@ function ConflitsImport({ a, busy, onChoix, onAnnuler }: { a: O; busy: boolean; 
       {String(a['invalides'])} ligne(s) du fichier sont inexploitables (N° non conforme ou répété) et seront écartées.
     </div>}
     <div className="row" style={{ marginTop: 14, flexWrap: 'wrap' }}>
-      <button disabled={busy} onClick={() => onChoix('ignorer')}>Ignorer les doublons — ne toucher à rien</button>
+      <button disabled={busy} onClick={() => onChoix('ignorer')}>Ignorer les doublons, ne toucher à rien</button>
       <button className="ghost" disabled={busy} onClick={() => onChoix('remplacer')}>Remplacer / régulariser</button>
       <button className="ghost" disabled={busy} onClick={onAnnuler}>Annuler</button>
     </div>
@@ -2861,7 +2884,7 @@ function imprimerHtml(html: string) {
   setTimeout(imprimer, 1200);
 }
 
-/* ------------- Bon de chargement — recherche par déclaration ----------- */
+/* ------------- Bon de chargement, recherche par déclaration ----------- */
 // ⚠ Format d'édition à fournir : cet écran affiche les données collectées
 // (camions + véhicules au statut « Créée » = fin de chargement). La mise en
 // page définitive du bon se branchera dessus.
@@ -2894,7 +2917,7 @@ SCREENS.chargement = () => {
   const apu = res?.['apurement'] as O | null;
 
   return <div className="card">
-    <h2>Bon de chargement — par déclaration</h2>
+    <h2>Bon de chargement, par déclaration</h2>
     <p className="help" style={{ marginTop: 0 }}>Remonte tous les camions et véhicules ayant chargé des conteneurs de la déclaration, au statut <b>« Créée » (fin de chargement)</b>.</p>
     <div className="grid2">
       <div><label className="help">N° déclaration *</label><input className="mono" value={String(q['numeroDeclaration'])} onChange={(e) => set('numeroDeclaration', masks.upper(e.target.value))} onKeyDown={(e) => e.key === 'Enter' && chercher()} autoFocus /></div>
@@ -2938,23 +2961,23 @@ function LigneChargement({ r }: { r: O }) {
     {/* Mixte : dire lesquelles des déclarations du camion ne sont PAS sur ce bon,
         sinon le total de conteneurs affiché paraît incomplet à la lecture. */}
     {autres.length > 0 && <div className="help" style={{ color: 'var(--warn)' }}>
-      Ce camion porte aussi : {autres.map((a) => `${String(a['libelle'])} (${String(a['nbConteneurs'])} TC)`).join(' · ')} — non repris sur ce bon.
+      Ce camion porte aussi : {autres.map((a) => `${String(a['libelle'])} (${String(a['nbConteneurs'])} TC)`).join(' · ')}, non repris sur ce bon.
     </div>}
     <div className="help">Date {fmtDate(r['dateCreation'])} · Agent CFS {String(r['agentCfs'] || '—')} · Destination {String(r['destinationMarchandise'] || '—')}{r['nbColis'] ? ` · ${String(r['nbColis'])} colis` : ''}</div>
     {v && <div className="help">Châssis {String(v['chassis'] ?? '')} · {String(v['marque'] ?? '')} {String(v['modele'] ?? '')} · {String(v['destination'] ?? '')}{r['conteneurOrigine'] ? ` · TC origine ${String(r['conteneurOrigine'])}` : ''}</div>}
     {sc.length > 0 && <div className="help">Scellés camion : {sc.join(' · ')}</div>}
-    {/* v4 — camion d'effets divers : pas de conteneur propre, une désignation. */}
+    {/* v4, camion d'effets divers : pas de conteneur propre, une désignation. */}
     {!conts.length && !v && r['descriptionMarchandise'] ? <div className="help">Effets divers : {String(r['descriptionMarchandise'])}</div> : null}
     {conts.length > 0 && <Table cols={[['num', 'Conteneur'], ['plomb', 'Scellé'], ['taille', 'Taille'], ['type', 'Type']]} rows={conts} />}
   </div>;
 }
 
-/* ---------- Validation du chef brigade — PAR DÉCLARATION --------------- */
+/* ---------- Validation du chef brigade, PAR DÉCLARATION --------------- */
 /**
- * v4 — Le chef brigade ne signe plus camion par camion (décision utilisateur
+ * v4, Le chef brigade ne signe plus camion par camion (décision utilisateur
  * 2026-07-19). Il ouvre une déclaration, voit tout ce qu'elle contient et signe
  * l'ensemble d'un geste. L'écran s'ouvre sur la file des déclarations en attente
- * — le chef n'a pas à connaître les numéros par cœur — et une recherche directe
+ * (le chef n'a pas à connaître les numéros par cœur) et une recherche directe
  * reste possible quand il a le dossier papier sous les yeux.
  */
 type QDecl = { numeroDeclaration: string; anneeDeclaration: string; bureauDeclaration: string; typeDeclaration: string };
@@ -2962,7 +2985,7 @@ const qVide = (): QDecl => ({ numeroDeclaration: '', anneeDeclaration: '', burea
 
 function ValidationDeclaration({ go, arg, retour, ecranPrecedent }: Nav) {
   const [q, setQ] = useState<QDecl>(qVide());
-  // v4.3 (décision utilisateur 2026-08-15) — sélection de PLUSIEURS déclarations
+  // v4.3 (décision utilisateur 2026-08-15), sélection de PLUSIEURS déclarations
   // pour les signer d'un seul geste. `sel` est indexé par la clé de déclaration.
   const [sel, setSel] = useState<Record<string, QDecl>>({});
   const [groupe, setGroupe] = useState(false);
@@ -2976,7 +2999,7 @@ function ValidationDeclaration({ go, arg, retour, ecranPrecedent }: Nav) {
   const { data, loading, error, reload } = useAsync<O>(
     () => call('report.validationdecl', ouverte ?? {}), [JSON.stringify(ouverte)]);
 
-  // 2026-09-11 — nombre de cargaisons signées à l'instant, retenu le temps que
+  // 2026-09-11 : nombre de cargaisons signées à l'instant, retenu le temps que
   // l'écran se rafraîchisse. Sert UNIQUEMENT à ne pas présenter un échec
   // d'affichage comme un échec de signature (voir `AvisApresSignature`).
   const [signee, setSignee] = useState(0);
@@ -3012,9 +3035,9 @@ function ValidationDeclaration({ go, arg, retour, ecranPrecedent }: Nav) {
     <BandeauModule icone="valider" titre="Déclarations à valider"
       sous={<>
         Ouvrez une déclaration pour examiner <b>tous</b> ses camions, véhicules et conteneurs,
-        puis signer l'ensemble en une fois — ou <b>cochez plusieurs déclarations</b> et validez-les
+        puis signer l'ensemble en une fois, ou <b>cochez plusieurs déclarations</b> et validez-les
         toutes d'un même geste.
-        {decls.length > 0 && <> — <b>{decls.length}</b> en attente.</>}
+        {decls.length > 0 && <>, <b>{decls.length}</b> en attente.</>}
       </>}
       action={<div className="bm-outils">
         <input className="mono" placeholder="N° de déclaration" style={{ width: 170 }}
@@ -3030,7 +3053,7 @@ function ValidationDeclaration({ go, arg, retour, ecranPrecedent }: Nav) {
       ? <div className="empty">Aucune déclaration en attente de validation.</div>
       : <>
         <div className="row" style={{ alignItems: 'center', justifyContent: 'space-between', marginBottom: 6, gap: 8 }}>
-          <div className="help">{decls.length} déclaration(s) en attente — la plus ancienne en tête. Cochez pour valider en lot.</div>
+          <div className="help">{decls.length} déclaration(s) en attente, la plus ancienne en tête. Cochez pour valider en lot.</div>
           <div className="row" style={{ alignItems: 'center', gap: 8 }}>
             {selCles.length > 0 && <button className="ghost xs" onClick={() => setSel({})}>Tout décocher</button>}
             <button disabled={selCles.length === 0} onClick={() => setGroupe(true)}>
@@ -3068,7 +3091,7 @@ function ValidationDeclaration({ go, arg, retour, ecranPrecedent }: Nav) {
 }
 
 /**
- * v4.3 — VALIDATION GROUPÉE sur PLUSIEURS déclarations (décision utilisateur
+ * v4.3, VALIDATION GROUPÉE sur PLUSIEURS déclarations (décision utilisateur
  * 2026-08-15). Le chef brigade coche plusieurs dossiers dans la file, les
  * parcourt regroupés par déclaration, renseigne la pesée de chaque camion, puis
  * signe l'ensemble en UN seul appel `cargo.validerlot`. Chaque cargaison reçoit
@@ -3091,7 +3114,7 @@ function ValidationGroupee({ cles, fermer, go, onDone }: {
   const aPeser = idsAPeser(dossiers);
   const setPesee = (id: string, p: Pesee) => setPesees((o) => ({ ...o, [id]: p }));
   const peseesPretes = peseesLotPretes(aValider, aPeser, pesees);
-  /* Suivi des engagements (2026-09-10) — UNE valeur pour tout le lot.
+  /* Suivi des engagements (2026-09-10), UNE valeur pour tout le lot.
    * La pesée est un fait physique propre à chaque camion ; l'engagement est un
    * régime attaché à la déclaration, et le lot est précisément l'ensemble des
    * camions d'une même déclaration. */
@@ -3117,7 +3140,7 @@ function ValidationGroupee({ cles, fermer, go, onDone }: {
   return <div>
     <button className="ghost" onClick={fermer}>← Retour à la sélection</button>
     <div className="card" style={{ marginTop: 10 }}>
-      <h2 style={{ margin: 0 }}>Validation groupée — {cles.length} déclaration(s)</h2>
+      <h2 style={{ margin: 0 }}>Validation groupée, {cles.length} déclaration(s)</h2>
       {loading ? <Spinner /> : error ? <div className="err-msg">{error}</div> : <>
         {eng.champ}
         <div className="row" style={{ alignItems: 'center', marginTop: 12 }}>
@@ -3156,7 +3179,7 @@ function ValidationGroupee({ cles, fermer, go, onDone }: {
 function DossierValidation({ decl, data, loading, error, reload, signee, onSigne, fermer, go }: {
   decl: QDecl; data: O | null; loading: boolean; error: string | null;
   reload: () => void;
-  // 2026-09-11 — cargaisons signées à l'instant, portées par l'écran parent
+  // 2026-09-11 : cargaisons signées à l'instant, portées par l'écran parent
   // (c'est lui qui tient la requête, donc lui qui sait quand elle aboutit).
   signee: number; onSigne: (n: number) => void;
   fermer: () => void; go: Nav['go'];
@@ -3173,7 +3196,7 @@ function DossierValidation({ decl, data, loading, error, reload, signee, onSigne
   const setPesee = (id: string, p: Pesee) => setPesees((o) => ({ ...o, [id]: p }));
   // Chaque DÉPOTAGE à valider doit avoir une pesée complète ; le reste est prêt d'office.
   const peseesPretes = peseesLotPretes(aValider, aPeser, pesees);
-  // Suivi des engagements (2026-09-10) — une valeur pour toute la déclaration.
+  // Suivi des engagements (2026-09-10), une valeur pour toute la déclaration.
   const eng = useSuiviEngagement();
 
   async function signer() {
@@ -3246,7 +3269,7 @@ function DossierValidation({ decl, data, loading, error, reload, signee, onSigne
 type Pesee = { enSurcharge: '' | 'oui' | 'non'; poids: string };
 export const peseeComplete = (p?: Pesee): boolean => !!p && (p.enSurcharge === 'non' || (p.enSurcharge === 'oui' && p.poids.trim() !== ''));
 
-/** v4.3 — ids des camions qui DOIVENT être pesés (dépotage) dans un/des dossier(s)
+/** v4.3, ids des camions qui DOIVENT être pesés (dépotage) dans un/des dossier(s)
  *  de validation. Les autres opérations ne sont pas pesées (2026-08-19). */
 function idsAPeser(dossiers: O[]): Set<string> {
   const s = new Set<string>();
@@ -3279,7 +3302,7 @@ function LigneValidation({ r, go, pesee, onPesee }: { r: O; go: Nav['go']; pesee
   const v = r['vehicule'] as O | undefined;
   const valide = Boolean(r['dateValidation']);
   const pe = pesee ?? { enSurcharge: '' as const, poids: '' };
-  // v4.3 — pesée seulement en dépotage (2026-08-19).
+  // v4.3, pesée seulement en dépotage (2026-08-19).
   const exigePesee = exigeControlePoids(r['typeOperation']);
   const reste = ((r['etapesEnAttente'] as string[]) ?? []).filter((e) => e !== 'VALIDATION');
   return <div style={{
@@ -3301,13 +3324,13 @@ function LigneValidation({ r, go, pesee, onPesee }: { r: O; go: Nav['go']; pesee
     {v && <div className="help">Châssis {String(v['chassis'] ?? '')} · {String(v['marque'] ?? '')} {String(v['modele'] ?? '')} · {String(v['destination'] ?? '')}</div>}
     {sc.length > 0 && <div className="help">Scellés camion : {sc.join(' · ')}</div>}
     {autres.length > 0 && <div className="help" style={{ color: 'var(--warn)' }}>
-      Porte aussi : {autres.map((a) => `${String(a['libelle'])} (${String(a['nbConteneurs'])} TC)`).join(' · ')} — hors de cette déclaration.
+      Porte aussi : {autres.map((a) => `${String(a['libelle'])} (${String(a['nbConteneurs'])} TC)`).join(' · ')}, hors de cette déclaration.
     </div>}
     {valide && <div className="help" style={{ color: 'var(--ok)' }}>Validée par {String(r['agentValidation'] || '—')}{r['roleValidation'] === 'CBPI' ? ' (par intérim)' : ''} le {fmtDate(r['dateValidation'])}</div>}
     {!valide && reste.length > 0 && <div className="help">Restera ensuite : {reste.join(' · ')}</div>}
     {conts.length > 0 && <Table cols={[['num', 'Conteneur'], ['plomb', 'Scellé'], ['taille', 'Taille'], ['type', 'Type']]} rows={conts} />}
     {!conts.length && !v && r['descriptionMarchandise'] ? <div className="help">Effets divers : {String(r['descriptionMarchandise'])}</div> : null}
-    {/* v4.1 — pesée à renseigner AVANT la signature (seulement à valider, et
+    {/* v4.1, pesée à renseigner AVANT la signature (seulement à valider, et
         seulement en DÉPOTAGE : enlèvement / véhicule ne sont pas pesés). */}
     {!valide && onPesee && exigePesee && <div className="row" style={{ alignItems: 'center', gap: 12, flexWrap: 'wrap', marginTop: 8, paddingTop: 8, borderTop: '1px dotted var(--line)' }}>
       <span className="help lbl-icone" style={{ fontWeight: 600 }}>
@@ -3323,13 +3346,13 @@ function LigneValidation({ r, go, pesee, onPesee }: { r: O; go: Nav['go']; pesee
 
 /* ------------------------------ Rapports ------------------------------- */
 /**
- * Période d'un rapport — les 4 périodes glissantes usuelles PLUS une PLAGE
+ * Période d'un rapport, les 4 périodes glissantes usuelles PLUS une PLAGE
  * PERSONNALISÉE (décision utilisateur) : les périodes calendaires ne couvrent
  * pas les questions réelles (« du 3 au 17 », une campagne, un mois écoulé à
  * cheval sur deux mois). Un seul hook pour tous les rapports et le tableau de
  * bord, afin que la période se choisisse partout de la même façon.
  */
-function useReportRange(initial: ModePeriode = 'semaine') {
+export function useReportRange(initial: ModePeriode = 'semaine') {
   const [m, setM] = useState<ModePeriode>(initial);
   // Plage personnalisée amorcée sur le mois en cours : basculer en
   // « Personnalisée » part de ce que l'agent a sous les yeux au lieu de vider
@@ -3341,9 +3364,9 @@ function useReportRange(initial: ModePeriode = 'semaine') {
   return { m, setM, du, au, duP, setDuP, auP, setAuP, inversee };
 }
 
-type Periode = ReturnType<typeof useReportRange>;
+export type Periode = ReturnType<typeof useReportRange>;
 
-function PeriodPicker({ p }: { p: Periode }) {
+export function PeriodPicker({ p }: { p: Periode }) {
   return <>
     <select value={p.m} onChange={(e) => p.setM(e.target.value as ModePeriode)} style={{ maxWidth: 170 }}>
       <option value="jour">Journalier</option>
@@ -3364,15 +3387,15 @@ function PeriodPicker({ p }: { p: Periode }) {
 /** Rappel de la période effectivement interrogée, sous le titre du rapport. */
 function PeriodeLue({ p }: { p: Periode }) {
   return <div className="help">Du {fmtJour(p.du)} au {fmtJour(p.au)}
-    {p.inversee && <span style={{ color: 'var(--warn)' }}> — dates inversées, remises à l'endroit</span>}
+    {p.inversee && <span style={{ color: 'var(--warn)' }}>, dates inversées, remises à l'endroit</span>}
   </div>;
 }
 
 /**
- * v4.1 — Rapports de cellule (CFS, Balise, PP) reproduits À L'IDENTIQUE de
+ * v4.1, Rapports de cellule (CFS, Balise, PP) reproduits À L'IDENTIQUE de
  * l'Apps Script (décision utilisateur 2026-07-22) : un bloc PAR OPÉRATION
- * (Enlèvement / Dépotage), des cartes cliquables — Camions, [TWINS], 20', 40',
- * 45', Autres, Total conteneurs, EVP — et un clic ouvre la LISTE détaillée
+ * (Enlèvement / Dépotage), des cartes cliquables, Camions, [TWINS], 20', 40',
+ * 45', Autres, Total conteneurs, EVP, et un clic ouvre la LISTE détaillée
  * (camions ou conteneurs), chaque ligne ouvrant la fiche. Plus un bloc TOTAL.
  * `twins`/`camLabel` distinguent les trois cellules ; la donnée par taille était
  * déjà calculée côté serveur.
@@ -3380,10 +3403,10 @@ function PeriodeLue({ p }: { p: Periode }) {
 type MetriqueCellule = 'camions' | 'twins' | 't20' | 't40' | 't45' | 'autres' | 'conteneurs';
 
 /**
- * Rapport d'une cellule — sert CINQ écrans (CFS, Balise, PP, T1, Bon de sortie).
+ * Rapport d'une cellule, sert CINQ écrans (CFS, Balise, PP, T1, Bon de sortie).
  *
  * 2026-09-11 : `etape` et `icone` donnent à chacun l'identité visuelle de son
- * poste — la pastille du menu, la teinte du parcours et des tuiles. Un chef qui
+ * poste, la pastille du menu, la teinte du parcours et des tuiles. Un chef qui
  * passe d'un rapport à l'autre sait où il est avant d'avoir lu le titre.
  */
 function RapportCellule({ action, detail, titre, twins, camLabel, go, etape, icone }: {
@@ -3403,7 +3426,7 @@ function RapportCellule({ action, detail, titre, twins, camLabel, go, etape, ico
 
   /* La tuile prend la TEINTE DU POSTE, et un chevron quand elle ouvre un
      détail : rien ne distinguait jusqu'ici une carte cliquable d'un simple
-     compteur — le curseur ne se voit pas sur un poste tactile. */
+     compteur, le curseur ne se voit pas sur un poste tactile. */
   function Carte({ n, l, op: o, metric, tone }: { n: unknown; l: string; op?: string; metric?: MetriqueCellule; tone?: 'ok' }) {
     const cls = `stat ${tone ?? ''} ${etape && !tone ? 'et-' + etape : ''}`;
     if (!metric) return <div className={cls}><div className="n">{Number(n ?? 0)}</div><div className="l">{l}</div></div>;
@@ -3468,7 +3491,7 @@ function DetailCellule({ detail, du, au, op, metric, go, onClose }: {
   const estCamions = data?.['kind'] === 'camions' || metric === 'camions' || metric === 'twins';
   const ouvrir = (id: unknown) => { onClose(); if (id) go('detail', id); };
   return <Modal onClose={onClose}>
-    <h2><span className="tp-pastille" aria-hidden="true"><Icone nom="liste" taille={18} /></span>{(op || 'Toutes opérations')} — {data?.titre ?? '…'} ({rows.length})</h2>
+    <h2><span className="tp-pastille" aria-hidden="true"><Icone nom="liste" taille={18} /></span>{(op || 'Toutes opérations')}, {data?.titre ?? '…'} ({rows.length})</h2>
     {loading ? <Spinner /> : rows.length === 0 ? <div className="empty">Aucun élément sur la période.</div>
       : estCamions
         ? <Table cols={[['numeroCamion', 'Camion'], ['typeOperation', 'Opération'], ['statut', 'Statut'], ['numeroGps', 'N° GPS'], ['nbConteneurs', 'Nb cont.']]} rows={rows} onRow={(r) => ouvrir(r['id'])} />
@@ -3479,7 +3502,7 @@ function DetailCellule({ detail, du, au, op, metric, go, onClose }: {
 SCREENS.cfsreport = ({ go }) => <RapportCellule action="report.cfs" detail="report.cfsdetail" titre="Rapport CFS" camLabel="Camions" go={go} etape="cfs" icone="presse" />;
 SCREENS.baliserep = ({ go }) => <RapportCellule action="report.balise" detail="report.balisedetail" titre="Rapport Balise (pose balise)" twins camLabel="Camions balisés" go={go} etape="balise" icone="balise" />;
 SCREENS.pprep = ({ go }) => <RapportCellule action="report.pp" detail="report.ppdetail" titre="Rapport Porte Principale (sorties)" camLabel="Camions sortis" go={go} etape="pp" icone="sortie" />;
-// v4.3 — rapports des cellules T1 et Bon de sortie, datés à leur propre cellule.
+// v4.3, rapports des cellules T1 et Bon de sortie, datés à leur propre cellule.
 SCREENS.t1report = ({ go }) => <RapportCellule action="report.t1" detail="report.t1detail" titre="Rapport T1 (T1 saisis)" camLabel="Camions (T1)" go={go} etape="t1" icone="t1" />;
 SCREENS.bonsortiereport = ({ go }) => <RapportCellule action="report.bonsortie" detail="report.bonsortiedetail" titre="Rapport Bon de sortie (bons émis)" camLabel="Camions (bons émis)" go={go} etape="bs" icone="bonSortie" />;
 
@@ -3530,7 +3553,7 @@ const MOIS_COURT = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', '
  *
  * Elles valaient « S1, S2… » et « M1, M2… » : sur un graphique couvrant une
  * année, personne ne peut dire de quel mois parle « M7 », et il faut
- * redescendre dans le tableau pour le savoir — ce qui vide le graphique de son
+ * redescendre dans le tableau pour le savoir, ce qui vide le graphique de son
  * intérêt. La clé de période renvoyée par le serveur porte l'information
  * (`2026`, `2026-07`, `2026-07-06`) : on l'affiche telle qu'un agent la lit.
  */
@@ -3549,7 +3572,7 @@ function libellesPeriode(rows: O[], gran: string): string[] {
 SCREENS.flux = () => {
   // Deux filtres DISTINCTS : la PÉRIODE borne l'analyse (plage personnalisée
   // comprise), le REGROUPEMENT (« répartition de la période ») décide de la
-  // maille — un point par semaine, par mois ou par an.
+  // maille, un point par semaine, par mois ou par an.
   const p = useReportRange('annee');
   const { du, au } = p;
   const [gran, setGran] = useState('mois');
@@ -3607,7 +3630,7 @@ SCREENS.controles = () => {
   const tn = (data?.['transitNational'] ?? {}) as O;
   /* Chaque motif de contrôle porte SON icône : un gabarit se mesure (balance),
      une surcharge aussi, un transit national est un régime de déclaration. Les
-     deux tuiles d'un bloc disent camions et conteneurs — elles reçoivent donc
+     deux tuiles d'un bloc disent camions et conteneurs, elles reçoivent donc
      l'icône correspondante, comme dans les tableaux. */
   const bloc = (titre: string, o: O, icone: string, tone?: 'warn') =>
     <div className="card">
@@ -3671,7 +3694,7 @@ SCREENS.destinations = () => {
       </div>
     </div>
     {loading ? <Spinner /> : <>
-      <div className="card"><div className="help" style={{ marginBottom: 6 }}>Camions sortis vers chaque destination sur la période — {Number(data?.['total'] ?? 0)} au total.</div>
+      <div className="card"><div className="help" style={{ marginBottom: 6 }}>Camions sortis vers chaque destination sur la période, {Number(data?.['total'] ?? 0)} au total.</div>
         <div className="stats">{codes.map((c) => <StatCard key={c} n={Number(parDest[c] ?? 0)} l={c} />)}</div></div>
       {/* Le classement répond à « qui pèse le plus », que la courbe ne dit pas :
           avec une destination à 80 % du volume, toutes les autres se confondent
@@ -3744,7 +3767,7 @@ SCREENS.temps = ({ go }) => {
       <PeriodeLue p={p} />
       <p className="help" style={{ marginBottom: 0 }}>
         Un dossier est rattaché au <b>jour d'entrée du camion</b>. Pour la journée en cours,
-        les moyennes ne portent donc que sur les dossiers <b>déjà sortis</b> — l'effectif
+        les moyennes ne portent donc que sur les dossiers <b>déjà sortis</b>, l'effectif
         mesuré est indiqué à côté de chaque chiffre.
       </p>
     </div>
@@ -3755,7 +3778,7 @@ SCREENS.temps = ({ go }) => {
         : <div className="card"><div className="err-msg">{error}</div></div>
     ) : <>
       <div className="card">
-        <h2>Performance globale — entrée du camion → sortie à la PP</h2>
+        <h2>Performance globale, entrée du camion → sortie à la PP</h2>
         <div className="stats">
           <StatCard n={Number(cp['dossiers'] ?? 0)} l="Dossiers de la période" />
           <StatCard n={Number(cp['sortis'] ?? 0)} l="Déjà sortis" tone="ok" />
@@ -3764,13 +3787,13 @@ SCREENS.temps = ({ go }) => {
           <StatCard n={dureeLisible(glob['p90'] as number | null)} l="9 dossiers sur 10 en moins de" />
         </div>
         {Number(cp['sansFin'] ?? 0) > 0 && <p className="help" style={{ color: 'var(--warn)', marginBottom: 0 }}>
-          ⚠ {String(cp['sansFin'])} dossier(s) sans horodatage de fin de chargement — antérieurs à la mise en service
+          ⚠ {String(cp['sansFin'])} dossier(s) sans horodatage de fin de chargement, antérieurs à la mise en service
           de cette mesure. Leur <b>temps global reste exact</b>, mais le détail par poste n'est pas
           reconstituable et n'est donc pas compté (plutôt que d'être inventé).
         </p>}
         {Number(cp['incoherents'] ?? 0) > 0 && <p className="help" style={{ color: 'var(--warn)', marginBottom: 0 }}>
           ⚠ {String(cp['incoherents'])} dossier(s) portent des dates incohérentes (une étape enregistrée
-          avant l'étape qui la précède). Ces durées sont écartées des moyennes — voir la colonne du détail.
+          avant l'étape qui la précède). Ces durées sont écartées des moyennes, voir la colonne du détail.
         </p>}
       </div>
 
@@ -3816,7 +3839,7 @@ SCREENS.temps = ({ go }) => {
           }))}
           onRow={(r) => go('detail', r['id'])} />
         <p className="help" style={{ marginBottom: 0 }}>
-          « — » = étape non mesurée : cellule sautée par nature (type C/A sans T1, véhicule sans balise),
+          « · » = étape non mesurée : cellule sautée par nature (type C/A sans T1, véhicule sans balise),
           étape pas encore faite, ou dossier antérieur à la mise en service de la mesure.
         </p>
       </div>
@@ -3876,7 +3899,7 @@ SCREENS.horodatage = () => {
  * Archivage des vieux dossiers (2026-08-19). Les dossiers migrés jamais menés à
  * la sortie restent « en attente » pour toujours et gonflent les files. Cet
  * écran les analyse (par statut / poste / âge) et permet à l'ADMIN de les
- * ARCHIVER — clôture RÉVERSIBLE et TRACÉE : rien n'est supprimé, ils sortent
+ * ARCHIVER · clôture RÉVERSIBLE et TRACÉE : rien n'est supprimé, ils sortent
  * seulement des files et des rapports. Un désarchivage les réactive.
  */
 function BlocArchives() {
@@ -3892,7 +3915,7 @@ function BlocArchives() {
     catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(false); }
   }
   return <details className="card">
-    <summary style={{ cursor: 'pointer', fontWeight: 600 }}>Dossiers archivés {data ? `(${data.total})` : ''} — désarchiver</summary>
+    <summary style={{ cursor: 'pointer', fontWeight: 600 }}>Dossiers archivés {data ? `(${data.total})` : ''}, désarchiver</summary>
     {loading ? <Spinner /> : rows.length === 0 ? <p className="help">Aucun dossier archivé.</p> : <>
       <div className="row" style={{ margin: '8px 0' }}>
         <button disabled={busy || !sel.size} onClick={desarchiver}><Icone nom="fleche" taille={15} /> Désarchiver la sélection ({sel.size})</button>
@@ -3925,7 +3948,7 @@ SCREENS.goulots = (nav) => {
   async function archiver() {
     if (!sel.size) { toast('Sélectionnez au moins un dossier.', 'err'); return; }
     if (!motif.trim()) { toast("Indiquez le motif de l'archivage.", 'err'); return; }
-    if (!window.confirm(`Archiver ${sel.size} dossier(s) ?\n\nIls sortiront des files et des rapports.\nRien n'est supprimé — l'opération est réversible (désarchivage).`)) return;
+    if (!window.confirm(`Archiver ${sel.size} dossier(s) ?\n\nIls sortiront des files et des rapports.\nRien n'est supprimé, l'opération est réversible (désarchivage).`)) return;
     setBusy(true);
     try {
       const r = await call<{ compte: O; erreurs: O[] }>('cargo.archiver', { ids: [...sel], motif: motif.trim() });
@@ -3935,12 +3958,12 @@ SCREENS.goulots = (nav) => {
   }
   return <>
     <BandeauModule icone="nettoyage" titre="Nettoyage des goulots"
-      sous={<>Vieux dossiers restés en attente — l'archivage est <b>réversible</b> et <b>tracé</b>.</>} />
+      sous={<>Vieux dossiers restés en attente, l'archivage est <b>réversible</b> et <b>tracé</b>.</>} />
     <div className="card">
       <h2>Dossiers retenus</h2>
       <p className="help" style={{ marginTop: 0 }}>
         Dossiers encore « en attente » (non sortis, non annulés) plus vieux que le seuil choisi.
-        Les <b>archiver</b> les sort des files et des rapports — <b>rien n'est supprimé</b>.
+        Les <b>archiver</b> les sort des files et des rapports, <b>rien n'est supprimé</b>.
       </p>
       <div className="row" style={{ alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
         <label className="help" style={{ margin: 0 }}>Plus vieux que</label>
@@ -3973,7 +3996,7 @@ SCREENS.goulots = (nav) => {
         {rows.length > 0 && <button className="ghost xs" onClick={() => setSel(tousCoches ? new Set() : new Set(rows.map((r) => String(r['id']))))}>
           {tousCoches ? 'Tout décocher' : 'Tout cocher'}</button>}
       </div>
-      {!admin && <p className="help">Lecture seule — seul un administrateur peut archiver.</p>}
+      {!admin && <p className="help">Lecture seule, seul un administrateur peut archiver.</p>}
       {admin && <div className="row" style={{ alignItems: 'center', gap: 8, flexWrap: 'wrap', margin: '8px 0' }}>
         <input value={motif} onChange={(e) => setMotif(e.target.value)} placeholder="Motif de l'archivage (obligatoire)" style={{ flex: 1, minWidth: 240 }} />
         <button disabled={busy || !sel.size} onClick={archiver}><Icone nom="archive" taille={15} /> Archiver la sélection ({sel.size})</button>
@@ -3994,7 +4017,7 @@ SCREENS.goulots = (nav) => {
 };
 
 /**
- * Séries du graphique — même ordre et mêmes libellés que le serveur.
+ * Séries du graphique, même ordre et mêmes libellés que le serveur.
  *
  * Le temps GLOBAL est volontairement ABSENT : il vaut la somme des attentes
  * cumulées, donc plusieurs fois n'importe quel poste. Tracé sur le même axe, il
@@ -4082,14 +4105,14 @@ SCREENS.users = () => {
   }
 
   return <>
-    {/* BANDEAU DE MODULE (2026-09-11) — repris de la disposition fournie : un
+    {/* BANDEAU DE MODULE (2026-09-11) · repris de la disposition fournie : un
         panneau coloré qui annonce le module, son volume et son action
         principale. Il remplace un titre nu suivi d'un petit bouton. */}
     <div className="bandeau-module">
       <span className="bm-pastille" aria-hidden="true"><Icone nom="utilisateurs" taille={24} /></span>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div className="bm-titre">Gestion des utilisateurs</div>
-        <div className="bm-sous">{comptes.length} compte(s) — rôles et accès aux modules</div>
+        <div className="bm-sous">{comptes.length} compte(s), rôles et accès aux modules</div>
       </div>
       <button className="bm-action" onClick={() => setForm({ username: '', nomComplet: '', role: 'CFS', password: '' })}>
         <Icone nom="plus" taille={15} />Nouvel utilisateur
@@ -4098,9 +4121,9 @@ SCREENS.users = () => {
     <div className="card">
     {loading ? <Spinner /> : <TableUtilisateurs rows={comptes} onAction={agir} />}
     </div>
-    {/* FENÊTRE D'AJOUT — refaite le 2026-09-11 sur le modèle fourni : un bandeau
+    {/* FENÊTRE D'AJOUT · refaite le 2026-09-11 sur le modèle fourni : un bandeau
         coloré en tête, qui annonce ce qu'on est en train de créer et reflète le
-        rôle choisi EN DIRECT. Le formulaire dessous, en une colonne centrée —
+        rôle choisi EN DIRECT. Le formulaire dessous, en une colonne centrée,
         quatre champs courts n'ont pas besoin de deux colonnes, qui obligent
         l'œil à faire des allers-retours. */}
     {form && <Modal onClose={() => setForm(null)}>
@@ -4135,17 +4158,17 @@ SCREENS.users = () => {
       </div>
     </Modal>}
 
-    {/* L'ŒIL — les volets auxquels ce rôle accède. La liste est lue dans la MÊME
+    {/* L'ŒIL : les volets auxquels ce rôle accède. La liste est lue dans la MÊME
         table que le menu : ce qui s'affiche ici est exactement ce que l'agent
         verra en se connectant, sans risque de divergence.
         ⚠ C'est un aperçu de MENU, pas la matrice des droits. L'autorité reste
-        `PERMISSIONS`, côté serveur — le texte le dit, pour qu'un administrateur
+        `PERMISSIONS`, côté serveur, le texte le dit, pour qu'un administrateur
         ne prenne pas cet écran pour un état des permissions. */}
     {acces && <Modal onClose={() => setAcces(null)}>
       <h2><span className="tp-pastille" aria-hidden="true"><Icone nom="oeil" taille={18} /></span>
         Accès de {String(acces['nomComplet'] || acces['username'])}</h2>
       <p className="help" style={{ marginTop: 0 }}>
-        Rôle <b>{roleLabel(String(acces['role']))}</b> — {(MENUS[String(acces['role'])] ?? []).length} volet(s).
+        Rôle <b>{roleLabel(String(acces['role']))}</b>, {(MENUS[String(acces['role'])] ?? []).length} volet(s).
         Voici ce que cet agent voit dans sa barre latérale. Les droits d'ÉCRITURE, eux,
         sont vérifiés par le serveur à chaque action, indépendamment de ce menu.
       </p>
@@ -4156,7 +4179,7 @@ SCREENS.users = () => {
       </div>
     </Modal>}
 
-    {/* LE CRAYON — nom et rôle. L'identifiant ne se modifie pas : il est la clé
+    {/* LE CRAYON · nom et rôle. L'identifiant ne se modifie pas : il est la clé
         du compte et se retrouve dans chaque ligne du journal d'audit. */}
     {edition && <Modal onClose={() => setEdition(null)}>
       <h2><span className="tp-pastille" aria-hidden="true"><Icone nom="crayon" taille={18} /></span>
@@ -4178,12 +4201,12 @@ SCREENS.users = () => {
 };
 
 /**
- * LISTE DES COMPTES — 2026-09-11, reprise de la disposition fournie.
+ * LISTE DES COMPTES : 2026-09-11, reprise de la disposition fournie.
  *
  * Chaque ligne porte un AVATAR à l'initiale, le nom avec son rôle en dessous,
  * l'identifiant en chasse fixe et une pastille de rôle. La couleur de l'avatar
  * est TIRÉE DU NOM, jamais du rang dans la liste : le même agent garde sa
- * couleur quand on filtre ou qu'on ajoute un compte — sinon les repères de
+ * couleur quand on filtre ou qu'on ajoute un compte, sinon les repères de
  * couleur se déplaceraient à chaque changement et ne serviraient à rien.
  */
 function TableUtilisateurs({ rows, onAction }: { rows: O[]; onAction: (quoi: string, u: O) => void }) {
@@ -4211,7 +4234,7 @@ function TableUtilisateurs({ rows, onAction }: { rows: O[]; onAction: (quoi: str
         <td>{fmtDate(u['derniereConnexion'])}</td>
         <td><span className={`pastille-statut ${inactif ? 'ko' : 'ok'}`}>{inactif ? 'Désactivé' : 'Actif'}</span></td>
         <td>
-          {/* Quatre gestes distincts, quatre boutons — l'invite `prompt('1, 2
+          {/* Quatre gestes distincts, quatre boutons, l'invite `prompt('1, 2
               ou 3 ?')` qui servait jusqu'ici ne disait pas ce que chaque
               numéro faisait, et ne laissait aucun moyen de revenir en arrière. */}
           <span className="actions-u">
@@ -4233,7 +4256,7 @@ function TableUtilisateurs({ rows, onAction }: { rows: O[]; onAction: (quoi: str
 }
 
 /**
- * Couleur d'avatar déduite du nom — somme des codes de caractères ramenée à la
+ * Couleur d'avatar déduite du nom, somme des codes de caractères ramenée à la
  * palette validée des graphiques. Déterministe : le même nom donne toujours la
  * même couleur, sur tous les postes et d'une session à l'autre.
  */
@@ -4248,7 +4271,7 @@ function couleurDepuisNom(nom: string): string {
 const EVENEMENTS = [
   'Création cargaison', 'Création rapport', 'Modification cargaison', 'Correction N° camion',
   'Chargement mixte', 'Rapport de chargement', 'Affectation GPS', 'Remplacement GPS',
-  'Étape Balise — sans balise', 'Enregistrement sortie',
+  'Étape Balise, sans balise', 'Enregistrement sortie',
   'Rapport CFS (vue)', 'Rapport Balise (vue)', 'Rapport PP (vue)', 'Rapport séjour (vue)', 'Rapport flux (vue)',
   'Export XLSX', 'Export PDF', 'Export historique XLSX', 'Export séjour XLSX',
   'Export Rapport PP XLSX', 'Export Rapport PP PDF', 'Export Rapport Balise XLSX', 'Export Rapport Balise PDF',
@@ -4276,7 +4299,7 @@ SCREENS.history = () => {
 
   return <>
     <BandeauModule icone="historique" titre="Journal d'activité"
-      sous="Qui a fait quoi, et quand — chaque écriture de la plateforme y est scellée." />
+      sous="Qui a fait quoi, et quand, chaque écriture de la plateforme y est scellée." />
     <div className="card">
     <div className="row" style={{ alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
       <h2 style={{ flex: 1, margin: 0 }}>Filtrer le journal</h2>
@@ -4321,7 +4344,7 @@ SCREENS.account = ({ user }) => {
     catch (e) { toast((e as Error).message, 'err'); }
   }
   return <><BandeauModule icone="compte" titre="Mon compte"
-    sous={<>{user.nomComplet} — <b>{roleLabel(user.role)}</b></>} />
+    sous={<>{user.nomComplet}, <b>{roleLabel(user.role)}</b></>} />
     <div className="ecran-compte">
       <div className="card">
         {/* EN-TETE ILLUSTRE (2026-09-12) - le logo, un anneau qui tourne, et
@@ -4346,7 +4369,7 @@ SCREENS.account = ({ user }) => {
         <TitrePanneau icone="interrupteur">Changer mon mot de passe</TitrePanneau>
         <label className="help lbl-icone"><Icone nom="oeil" taille={14} />Ancien</label>
         <input type="password" value={anc} onChange={(e) => setAnc(e.target.value)} />
-        <label className="help lbl-icone"><Icone nom="valider" taille={14} />Nouveau — 12 caractères minimum, 3 familles</label>
+        <label className="help lbl-icone"><Icone nom="valider" taille={14} />Nouveau, 12 caractères minimum, 3 familles</label>
         <input type="password" value={nouv} onChange={(e) => setNouv(e.target.value)} minLength={12} />
         <div style={{ marginTop: 14 }}>
           <button onClick={changer} disabled={!anc || nouv.length < 6}>Changer le mot de passe</button>
@@ -4369,12 +4392,12 @@ function telecharger(f: O) {
 export { SCREENS };
 
 /**
- * ARCHIVE — dossiers de plus d'un an (ADMIN, 2026-09-10).
+ * ARCHIVE : dossiers de plus d'un an (ADMIN, 2026-09-10).
  *
  * DISTINCT de l'écran « Nettoyage (goulots) », qui liste les dossiers archivés à
  * la main. Ici, aucun geste : c'est l'ancienneté seule qui définit l'archive.
  *
- * Les données ne sont PAS déplacées ailleurs — voir `archiveAncienne` côté
+ * Les données ne sont PAS déplacées ailleurs, voir `archiveAncienne` côté
  * serveur pour le raisonnement. Une cargaison de plus d'un an reste consultable
  * et recherchable comme n'importe quelle autre ; cet écran est une VUE sur elle,
  * pas un entrepôt séparé.
@@ -4405,7 +4428,7 @@ SCREENS.archive = ({ go }) => {
 
   return <>
     <BandeauModule icone="archive" titre="Archive"
-      sous={<>Dossiers entrés il y a plus de <b>{mois} mois</b>{data?.['total'] ? <> — <b>{String(data['total'])}</b> dossier(s)</> : null}</>} />
+      sous={<>Dossiers entrés il y a plus de <b>{mois} mois</b>{data?.['total'] ? <>, <b>{String(data['total'])}</b> dossier(s)</> : null}</>} />
     <div className="card">
       <p className="help" style={{ marginTop: 0 }}>
         Cargaisons entrées avant le <b>{fmtJour(data?.['seuil'])}</b>. Elles restent

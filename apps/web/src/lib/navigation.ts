@@ -1,12 +1,12 @@
 /**
- * Historique de navigation — « Retour » ramène là où l'on était, jamais sur un
+ * Historique de navigation, « Retour » ramène là où l'on était, jamais sur un
  * écran fixe (avant : le détail renvoyait toujours vers « Cargaisons », ce qui
  * faisait perdre sa file d'attente ou son dossier de validation).
  *
  * Modèle = LISTE de vues + CURSEUR (et non simple pile), pour que le bouton
  * « Suivant » du navigateur/téléphone fonctionne aussi : reculer ne détruit pas
  * les vues suivantes, il déplace seulement le curseur. Naviguer vers un nouvel
- * écran depuis une position reculée tronque l'avant — comportement d'un
+ * écran depuis une position reculée tronque l'avant, comportement d'un
  * navigateur, celui que les agents connaissent déjà.
  *
  * Logique PURE et isolée du composant : elle porte tous les cas limites
