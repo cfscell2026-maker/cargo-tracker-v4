@@ -16,6 +16,7 @@ import {
   normaliserConteneur, normaliserDeclaration, parseConteneursDetails,
   declKey, typeDeRoutage, tailleBucket, construireCamion, verifierBinome, apercuConteneurs,
   etapesEnAttente, etatCellules, estOui, aFait, sautsTypeC,
+  etapePrecedenteManquante, messageEtapePrecedente,
 } from '../../_shared/domaine/src/index.ts';
 import {
   getCargo, patchCargo, nextId, nextRapportId, ajouterConteneurs, supprimerConteneursDe,
@@ -942,6 +943,11 @@ export async function gps(ctx: Ctx, p: Record<string, unknown>) {
       );
   }
   if (c['estVehicule'] === true || c['estVehicule'] === 'Oui') throw new Error('Les véhicules ne passent pas par la cellule Balise.');
+  /* LA BALISE ATTEND LE T1 (2026-09-24, demande utilisateur). Le refus NOMME
+     ce qui manque : « impossible » sans raison renvoyait l'agent à l'aveugle. */
+  const manqueAvantBalise = etapePrecedenteManquante(c as never, 'BALISE');
+  if (ctx.session.role !== ROLES.ADMIN && manqueAvantBalise)
+    throw new ErreurMetier(messageEtapePrecedente(manqueAvantBalise, 'BALISE'));
   if (ctx.session.role !== ROLES.ADMIN && etapesEnAttente(c as never).indexOf('BALISE') < 0)
     throw new Error('Étape Balise impossible : chargement non terminé ou déjà balisée (statut « ' + c['statut'] + ' »).');
   const avancer = etapesEnAttente(c as never).indexOf('BALISE') >= 0;
@@ -1003,6 +1009,10 @@ export async function bonsortie(ctx: Ctx, p: Record<string, unknown>) {
   }
   const cargo = await getCargo(ctx, id);
   const c = cargo.o;
+  /* LE BON DE SORTIE ATTEND LA BALISE (2026-09-24, demande utilisateur). */
+  const manqueAvantBS = etapePrecedenteManquante(c as never, 'BS');
+  if (ctx.session.role !== ROLES.ADMIN && manqueAvantBS)
+    throw new ErreurMetier(messageEtapePrecedente(manqueAvantBS, 'BS'));
   if (ctx.session.role !== ROLES.ADMIN && etapesEnAttente(c as never).indexOf('BS') < 0)
     throw new Error('Bon de sortie impossible : chargement non terminé ou bon déjà émis (statut « ' + c['statut'] + ' »).');
   const avancer = etapesEnAttente(c as never).indexOf('BS') >= 0;

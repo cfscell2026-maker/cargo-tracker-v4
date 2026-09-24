@@ -10,7 +10,8 @@ import { useParametres, Spinner, Tag, Modal, masks, toast, fmtDate, BoutonRetour
 import type { Nav } from './App.tsx';
 import {
   STATUTS, OPERATIONS, ROLES, TYPES_DECLARATION, ETATS_SORTIE, dateDansNJours,
-  etapesEnAttente, estOui, tcValide, parseConteneursDetails, tailleBucket,
+  etapesEnAttente, etatCellules, etapePrecedenteManquante, messageEtapePrecedente, LIBELLE_ETAPE,
+  estOui, tcValide, parseConteneursDetails, tailleBucket,
   groupesDeclaration, libelleDeclaration, estTypeSansT1, libelleTypeSansT1, exigeControlePoids,
 } from '../../../supabase/functions/_shared/domaine/src/index.ts';
 
@@ -29,6 +30,7 @@ export function Detail({ user, arg, go, retour, ecranPrecedent }: Nav) {
   if (!c) return <div className="card">Introuvable.</div>;
 
   const pend = etapesEnAttente(c as never);
+  const cellules = etatCellules(c as never);
   const role = user.role;
   const can = (...roles: string[]) => roles.includes(role);
   const dets = parseConteneursDetails(c['conteneursDetails']);
@@ -81,6 +83,14 @@ export function Detail({ user, arg, go, retour, ecranPrecedent }: Nav) {
       {pend.includes('T1') && can(ROLES.T1, A) && <PanneauT1 c={c} dets={dets} action={action} />}
       {pend.includes('BALISE') && can(ROLES.BALISE, A) && !estVeh && <PanneauBalise c={c} action={action} />}
       {pend.includes('BS') && can(ROLES.BON_SORTIE, A) && <PanneauBS c={c} dets={dets} action={action} />}
+      {/* CHAÎNE T1 → BALISE → BON DE SORTIE (2026-09-24, demande utilisateur).
+          Quand la cellule ouvre une fiche dont l'étape précédente manque, elle
+          trouvait un écran sans panneau, sans un mot. Elle lit désormais ce qui
+          manque et à qui cela revient. */}
+      {!cellules.sorti && !cellules.balise && !estVeh && can(ROLES.BALISE) &&
+        <EtapeBloquee voulue="BALISE" c={c} />}
+      {!cellules.sorti && !cellules.bs && can(ROLES.BON_SORTIE) &&
+        <EtapeBloquee voulue="BS" c={c} />}
       {pend.includes('PP') && can(ROLES.PP, A) && <PanneauPP c={c} estVeh={estVeh} action={action} />}
       {c['statut'] === STATUTS.GPS && can(ROLES.BALISE, A) && <PanneauGpsEdit c={c} action={action} />}
       {/* CORRECTIONS DE CELLULES REMPLIES (2026-09-10), ajout.
@@ -847,6 +857,43 @@ function PanneauT1({ c, dets, action }: { c: O; dets: ReturnType<typeof parseCon
         <input value={nums[i]} onChange={(e) => setNums((a) => a.map((x, j) => j === i ? masks.upper(e.target.value) : x))} placeholder="N° T1" /></div>
     )) : <input value={nums[0]} onChange={(e) => setNums([masks.upper(e.target.value)])} placeholder="N° T1" />}
     <div style={{ marginTop: 12 }}><button onClick={valider}>Enregistrer le T1</button></div>
+  </div>;
+}
+
+/**
+ * ÉTAPE PRÉCÉDENTE MANQUANTE (2026-09-24, demande utilisateur).
+ *
+ * Encadré posé à la place du panneau de saisie quand la chaîne n'est pas
+ * respectée : il nomme l'étape qui manque, la cellule qui doit la faire, et
+ * rappelle que le serveur refusera de toute façon. Rend `null` quand la voie
+ * est libre — le panneau de saisie s'affiche alors normalement.
+ */
+const CELLULE_DE_L_ETAPE: Record<string, string> = {
+  CFS: 'le CFS', VALIDATION: 'le chef de brigade', T1: 'la cellule T1',
+  BALISE: 'la cellule Balise', BS: 'la cellule Bon de sortie', PP: 'la Porte Principale',
+};
+
+function EtapeBloquee({ c, voulue }: { c: O; voulue: 'BALISE' | 'BS' }) {
+  const manquante = etapePrecedenteManquante(c as never, voulue);
+  if (!manquante) return null;
+  return <div className="card etape-bloquee">
+    <div className="eb-entete">
+      <span className="eb-pastille" aria-hidden="true"><Icone nom="attente" taille={18} /></span>
+      <div>
+        <b>{messageEtapePrecedente(manquante, voulue)}</b>
+        <div className="help" style={{ marginTop: 3 }}>
+          Ce camion attend {LIBELLE_ETAPE[manquante]}, qui revient à {CELLULE_DE_L_ETAPE[manquante]}.
+          Votre saisie sera refusée tant que ce n'est pas fait.
+        </div>
+      </div>
+    </div>
+    <div className="eb-chaine" aria-hidden="true">
+      {(['T1', 'BALISE', 'BS'] as const).map((e, i) => <span key={e}
+        className={`eb-maillon ${e === manquante ? 'manque' : e === voulue ? 'voulue' : ''}`}>
+        {i > 0 ? <span className="eb-fleche">→</span> : null}
+        {e === 'T1' ? 'T1' : e === 'BALISE' ? 'Balise' : 'Bon de sortie'}
+      </span>)}
+    </div>
   </div>;
 }
 

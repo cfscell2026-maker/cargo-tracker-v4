@@ -849,11 +849,16 @@ export async function ficheBord(ctx: Ctx, p: Record<string, unknown>) {
     // et conso non balisées (jamais de balise à prendre), les camions encore en
     // chargement au CFS, et toute la base migrée restée à un statut intermédiaire.
     // « Camions au parking » = PHYSIQUEMENT au parc en attente de pose de balise :
-    // tout camion à qui il reste la BALISE à faire (qu'il soit ou non déjà validé
-    // / passé au T1). On garde donc la MEMBRESHIP parallèle (etapesEnAttente), et
-    // NON la file unique (fileAttente), ici on compte une présence au parc, pas
-    // une place dans la file séquentielle du tableau de bord.
-    if (etapesEnAttente(c as never).indexOf('BALISE') >= 0) balise.parking++;
+    // tout camion à qui il reste la BALISE à faire, qu'il soit ou non déjà validé
+    // ou passé au T1.
+    //
+    // ⚠ ON NE PASSE PLUS PAR `etapesEnAttente` (2026-09-24). Depuis que la chaîne
+    // T1 → Balise → Bon de sortie est stricte, un camion sans T1 n'a plus
+    // « BALISE » dans ses étapes en attente : il serait sorti de ce compte alors
+    // qu'il est bel et bien au parc, à attendre. On lit donc l'ÉTAT des cellules,
+    // qui dit une présence et non une place dans une file.
+    const cel = etatCellules(c as never);
+    if (!cel.sorti && cel.cfs && !cel.balise) balise.parking++;
 
     /* --- BON DE SORTIE : à la date d'émission --- */
     if (inRange(c['dateBonSortie'], du, au) && aFait(c['bonSortieNumero'])) bs.total++;

@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import {
   STATUTS, OPERATIONS, ROLES,
   etatCellules, etapesEnAttente, fileAttente, prochaineEtape, estOui, aFait, exigeControlePoids,
+  etapePrecedenteManquante, messageEtapePrecedente,
   tcValide, maj, alphaNumMaj, normAlphaNum, declKey, normaliserDeclaration,
   parseConteneursDetails, parseDateImport, tailleBucket, evpDeTaille, trancheAge,
   verifierPermission, PERMISSIONS, TYPES_DECLARATION,
@@ -25,17 +26,39 @@ test('camion vide → étape CFS', () => {
   assert.deepEqual(etapesEnAttente({ statut: STATUTS.VEHICULE_OUILLAGE }), ['CFS']);
 });
 
-test('après CFS (Créée) → validation + cellules en parallèle', () => {
-  assert.deepEqual(etapesEnAttente({ statut: STATUTS.CREEE }), ['VALIDATION', 'T1', 'BALISE', 'BS']);
+/* CHAINE STRICTE depuis le 2026-09-24 (demande utilisateur) : la balise attend
+   le T1, le bon de sortie attend la balise. Seule la validation reste en
+   parallele, elle n'a jamais bloque le parcours. */
+test('après CFS (Créée) → validation et T1, mais PAS la balise', () => {
+  assert.deepEqual(etapesEnAttente({ statut: STATUTS.CREEE }), ['VALIDATION', 'T1']);
 });
 
-test('validé → T1 / Balise / Bon de sortie en parallèle', () => {
-  assert.deepEqual(etapesEnAttente({ statut: STATUTS.CREEE, dateValidation: '2026-01-01' }), ['T1', 'BALISE', 'BS']);
+test('validé → le T1 seul est ouvert', () => {
+  assert.deepEqual(etapesEnAttente({ statut: STATUTS.CREEE, dateValidation: '2026-01-01' }), ['T1']);
 });
 
-test('après T1 → BALISE et BS EN PARALLÈLE', () => {
+test("après T1 → la BALISE s'ouvre, le bon de sortie attend encore", () => {
   const c = { statut: STATUTS.T1, dateValidation: 'x', dateT1: 'x' };
-  assert.deepEqual(etapesEnAttente(c), ['BALISE', 'BS']);
+  assert.deepEqual(etapesEnAttente(c), ['BALISE']);
+});
+
+test('sans T1, ni balise ni bon de sortie ne sont ouverts', () => {
+  const c = { statut: STATUTS.CREEE, dateValidation: 'x' };
+  assert.equal(etapePrecedenteManquante(c, 'BALISE'), 'T1');
+  assert.equal(etapePrecedenteManquante(c, 'BS'), 'T1');
+  assert.match(messageEtapePrecedente('T1', 'BALISE'), /le T1 doit être fait avant la pose de la balise/);
+});
+
+test("T1 sauté par nature (type C) : la balise s'ouvre quand même", () => {
+  const c = { statut: STATUTS.CREEE, dateValidation: 'x', typeDeclaration: 'C' };
+  assert.equal(etapePrecedenteManquante(c, 'BALISE'), null);
+  assert.deepEqual(etapesEnAttente(c), ['BALISE']);
+});
+
+test("balise dispensée : le bon de sortie s'ouvre", () => {
+  const c = { statut: STATUTS.CREEE, dateValidation: 'x', typeDeclaration: 'C', sauteBalise: true };
+  assert.equal(etapePrecedenteManquante(c, 'BS'), null);
+  assert.deepEqual(etapesEnAttente(c), ['BS', 'PP']);
 });
 
 test('balise posée → Bon de sortie ouvert + PP possible', () => {

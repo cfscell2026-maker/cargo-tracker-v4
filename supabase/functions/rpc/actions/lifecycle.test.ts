@@ -67,7 +67,7 @@ test('cycle de vie complet, ENLÈVEMENT (2 conteneurs 20\', binôme)', async () 
   // 3) Chef brigade valide (signature).
   await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'Chef Brigade'), { id, enSurcharge: false, suiviEngagement: false });
   assert.ok(db.store['cargaisons'][0]!['date_validation']);
-  assert.deepEqual(etapesEnAttente(versCamel(db.store['cargaisons'][0]!) as never), ['T1', 'BALISE', 'BS']);
+  assert.deepEqual(etapesEnAttente(versCamel(db.store['cargaisons'][0]!) as never), ['T1']);
 
   // 4) Cellule T1 (1 T1 par conteneur).
   await ecr.t1(ctxRole(db, 'T1', 'Agent T1'), {
@@ -76,7 +76,7 @@ test('cycle de vie complet, ENLÈVEMENT (2 conteneurs 20\', binôme)', async () 
   });
   assert.equal(statutDe(db, id), STATUTS.T1);
   // Après T1 : Balise ET Bon de sortie en attente (parallèle).
-  assert.deepEqual(etapesEnAttente(versCamel(db.store['cargaisons'][0]!) as never), ['BALISE', 'BS']);
+  assert.deepEqual(etapesEnAttente(versCamel(db.store['cargaisons'][0]!) as never), ['BALISE']);
 
   // 5) Balise posée (le statut avance à « GPS Installé »).
   await ecr.gps(ctxRole(db, 'BALISE', 'Agent Balise'), { id, baliseRequise: 'Oui', t1Correct: 'Oui', numeroGPS: 'GPS-1' });
@@ -111,7 +111,7 @@ test('déclaration type C balisée : saute le T1, garde la Balise', async () => 
   assert.equal(c['sauteBalise'], false);
   // Après validation : le T1 est sauté → Balise ET Bon de sortie en attente.
   await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'), { id, enSurcharge: false, suiviEngagement: false });
-  assert.deepEqual(etapesEnAttente(versCamel(db.store['cargaisons'][0]!) as never), ['BALISE', 'BS']);
+  assert.deepEqual(etapesEnAttente(versCamel(db.store['cargaisons'][0]!) as never), ['BALISE']);
 });
 
 test('déclaration type C non balisée : saute le T1 ET la Balise', async () => {
@@ -470,14 +470,19 @@ test('garde-fou : sortie refusée tant que la Balise n\'est pas posée', async (
     () => ecr.sortie(ctxRole(db, 'PP', 'PP'), { id, ckCfs: true, ckT1: true, ckBalise: true, ckBs: true }),
     /le T1 et la Balise/,
   );
-  // Balise posée mais T1 pas encore fait → toujours refusé (transit).
-  await ecr.gps(ctxRole(db, 'BALISE', 'B'), { id, baliseRequise: 'Oui', t1Correct: 'Oui', numeroGPS: 'G' });
+  // CHAINE STRICTE (2026-09-24) : la balise ne peut meme pas etre posee sans T1.
+  await assert.rejects(
+    () => ecr.gps(ctxRole(db, 'BALISE', 'B'), { id, baliseRequise: 'Oui', t1Correct: 'Oui', numeroGPS: 'G' }),
+    /le T1 doit être fait avant la pose de la balise/,
+  );
+  // T1 fait, balise pas encore → la PP refuse toujours.
+  await ecr.t1(ctxRole(db, 'T1', 'T1'), { id, bureauDestination: 'TG120', t1Numeros: [{ conteneur: 'MSKU1234567', numero: 'T1-Z' }] });
   await assert.rejects(
     () => ecr.sortie(ctxRole(db, 'PP', 'PP'), { id, ckCfs: true, ckT1: true, ckBalise: true, ckBs: true }),
     /le T1 et la Balise/,
   );
-  // T1 fait → la sortie passe enfin.
-  await ecr.t1(ctxRole(db, 'T1', 'T1'), { id, bureauDestination: 'TG120', t1Numeros: [{ conteneur: 'MSKU1234567', numero: 'T1-Z' }] });
+  // Balise posee → la sortie passe enfin.
+  await ecr.gps(ctxRole(db, 'BALISE', 'B'), { id, baliseRequise: 'Oui', t1Correct: 'Oui', numeroGPS: 'G' });
   await ecr.sortie(ctxRole(db, 'PP', 'PP'), { id, ckCfs: true, ckT1: true, ckBalise: true, ckBs: true });
   assert.equal(statutDe(db, id), STATUTS.SORTIE);
 });
@@ -598,6 +603,8 @@ test('correction conteneur refusée après validation (hors ADMIN)', async () =>
   const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'FIX003/RM01', routage: 'Enlèvement' })) as { id: string };
   await ecr.cfs(cfs, { id, conteneur: { num: 'MSKU1111111', taille: "40'", type: 'DRY', plomb: 'S1' }, declaration: DECL_OK });
   await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'), { id, enSurcharge: false, suiviEngagement: false });
+  // La balise exige le T1 depuis le 2026-09-24 : on le pose d'abord.
+  await ecr.t1(ctxRole(db, 'T1', 'Agent T1'), { id, bureauDestination: 'TG120', t1Numeros: [{ conteneur: 'MSKU1111111', numero: 'T1-F' }] });
   await ecr.gps(ctxRole(db, 'BALISE', 'B'), { id, baliseRequise: 'Oui', t1Correct: 'Oui', numeroGPS: 'G' });
 
   // CORRECTION sans motif sur un dossier qui a avancé : refusée.
@@ -749,6 +756,8 @@ async function camionBalise(db: FakeDB, plaque = 'COR001/RM01') {
   const cfs = ctxAvec(db);
   const { id } = (await ecr.createcamion(cfs, { numeroCamion: plaque, routage: 'Enlèvement' })) as { id: string };
   await ecr.cfs(cfs, { id, conteneur: { num: 'MSKU1111111', taille: "40'", type: 'DRY', plomb: 'S1' }, declaration: DECL_OK });
+  // La balise exige le T1 depuis le 2026-09-24 : on le pose d'abord.
+  await ecr.t1(ctxRole(db, 'T1', 'Agent T1'), { id, bureauDestination: 'TG120', t1Numeros: [{ conteneur: 'MSKU1111111', numero: 'T1-P' }] });
   await ecr.gps(ctxRole(db, 'BALISE', 'Agent Balise'), { id, baliseRequise: 'Oui', t1Correct: 'Oui', numeroGPS: 'GPS-AAA' });
   return id;
 }
@@ -775,9 +784,7 @@ test('cellule Balise : corrige son propre N° de balise, correction tracée', as
 test('correction de balise impossible une fois le camion sorti', async () => {
   const db = new FakeDB();
   db.store['stock'].push({ numero_tc: 'MSKU1111111', taille: "40'", statut: 'En stock' });
-  const id = await camionBalise(db);
-  // v4.1, la PP exige le T1 avant la sortie (transit).
-  await ecr.t1(ctxRole(db, 'T1', 'Agent T1'), { id, bureauDestination: 'TG120', t1Numeros: [{ conteneur: 'MSKU1111111', numero: 'T1-Q' }] });
+  const id = await camionBalise(db); // pose deja le T1, que la balise exige
   await ecr.bonsortie(ctxRole(db, 'BON_SORTIE', 'Agent BS'), { id, bonSortieNumero: 'BS-1' });
   await ecr.sortie(ctxRole(db, 'PP', 'Agent PP'), { id, ckCfs: true, ckT1: true, ckBalise: true, ckBs: true });
 
@@ -827,8 +834,7 @@ test('plaque : verrouillée après validation, puis après la sortie (SEC-11)', 
   assert.equal(versCamel(db.store['cargaisons'][0]!)['numeroCamion'], 'APRES2/RM01');
 
   // Après la sortie, plus personne, pas même l'ADMIN : le camion est parti
-  // avec un bon de sortie portant cette plaque. (Le T1 conditionne la sortie.)
-  await ecr.t1(ctxRole(db, 'T1', 'T1'), { id, bureauDestination: 'TG120', t1Numeros: [{ conteneur: 'MSKU1111111', numero: 'T1-1' }] });
+  // avec un bon de sortie portant cette plaque. (Le T1 est posé par le montage.)
   await ecr.sortie(ctxRole(db, 'PP', 'PP'), { id, ckCfs: true, ckT1: true, ckBalise: true, ckBs: true });
   await assert.rejects(
     () => ecr.editcamion(ctxRole(db, 'ADMIN', 'Admin'), { id, numeroCamion: 'APRES3/RM01', motif: 'x' }),
@@ -839,8 +845,7 @@ test('plaque : verrouillée après validation, puis après la sortie (SEC-11)', 
 test('checklist PP : une case cochée ne crée pas la pièce manquante (SEC-13)', async () => {
   const db = new FakeDB();
   db.store['stock'].push({ numero_tc: 'MSKU1111111', taille: "40'", statut: 'En stock' });
-  const id = await camionBalise(db, 'CHKPP1/RM01');
-  await ecr.t1(ctxRole(db, 'T1', 'T1'), { id, bureauDestination: 'TG120', t1Numeros: [{ conteneur: 'MSKU1111111', numero: 'T1-9' }] });
+  const id = await camionBalise(db, 'CHKPP1/RM01'); // T1 pose par le montage
 
   // L'agent coche les 4 contrôles alors qu'AUCUN bon de sortie n'a été émis.
   const pp = ctxTrace(db, 'PP', 'Agent PP');
@@ -866,7 +871,7 @@ test('enlèvement : la saisie du conteneur (scellé) passe SEULE en « Créée �
   await ecr.cfs(cfs, { id, conteneur: { num: 'MSKU1111111', taille: "40'", type: 'DRY', plomb: 'S1' }, declaration: DECL_OK });
   // Aucune confirmation : l'étape CFS est franchie d'emblée.
   assert.equal(statutDe(db, id), STATUTS.CREEE);
-  assert.deepEqual(etapesEnAttente(versCamel(db.store['cargaisons'][0]!) as never), ['VALIDATION', 'T1', 'BALISE', 'BS']);
+  assert.deepEqual(etapesEnAttente(versCamel(db.store['cargaisons'][0]!) as never), ['VALIDATION', 'T1']);
 });
 
 test('rattrapage : un enlèvement resté « En cours de chargement » se termine en un clic', async () => {
@@ -3378,4 +3383,41 @@ test('apurement : correction bornee par le restant, suppression bloquee par le c
   assert.equal(permis('CFS', 'entrepot.sortiedelete'), false, 'la suppression non');
   assert.equal(permis('CHEF_BRIGADE', 'entrepot.entreedelete'), false);
   assert.equal(permis('ADMIN', 'entrepot.entreedelete'), true);
+});
+
+test('chaine stricte : pas de bon de sortie sans balise, pas de balise sans T1', async () => {
+  const db = new FakeDB();
+  db.store['stock'].push({ numero_tc: 'MSKU9100001', taille: "40'", statut: 'En stock' });
+  const cfs = ctxAvec(db);
+  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'CHN001/RM01', routage: 'Enlèvement' })) as { id: string };
+  await ecr.cfs(cfs, { id, conteneur: { num: 'MSKU9100001', taille: "40'", type: 'DRY', plomb: 'S1' }, declaration: DECL_OK });
+  await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'), { id, enSurcharge: false, suiviEngagement: false });
+
+  // Sans T1 : ni balise, ni bon de sortie.
+  await assert.rejects(
+    () => ecr.gps(ctxRole(db, 'BALISE', 'B'), { id, baliseRequise: 'Oui', t1Correct: 'Oui', numeroGPS: 'G1' }),
+    /le T1 doit être fait avant la pose de la balise/);
+  await assert.rejects(
+    () => ecr.bonsortie(ctxRole(db, 'BON_SORTIE', 'BS'), { id, bonSortieNumero: 'BS-1' }),
+    /le T1 doit être fait avant le bon de sortie/);
+
+  // T1 fait : la balise s'ouvre, le bon de sortie attend encore la balise.
+  await ecr.t1(ctxRole(db, 'T1', 'T1'), { id, bureauDestination: 'TG120', t1Numeros: [{ conteneur: 'MSKU9100001', numero: 'T1-C' }] });
+  await assert.rejects(
+    () => ecr.bonsortie(ctxRole(db, 'BON_SORTIE', 'BS'), { id, bonSortieNumero: 'BS-1' }),
+    /la pose de la balise doit être fait avant le bon de sortie/);
+
+  // Balise posée : le bon de sortie passe.
+  await ecr.gps(ctxRole(db, 'BALISE', 'B'), { id, baliseRequise: 'Oui', t1Correct: 'Oui', numeroGPS: 'G1' });
+  await ecr.bonsortie(ctxRole(db, 'BON_SORTIE', 'BS'), { id, bonSortieNumero: 'BS-1' });
+  assert.equal(statutDe(db, id), STATUTS.BS);
+
+  // L'ADMIN reste capable de depanner un dossier bloque.
+  const db2 = new FakeDB();
+  db2.store['stock'].push({ numero_tc: 'MSKU9100002', taille: "40'", statut: 'En stock' });
+  const cfs2 = ctxAvec(db2);
+  const r2 = (await ecr.createcamion(cfs2, { numeroCamion: 'CHN002/RM01', routage: 'Enlèvement' })) as { id: string };
+  await ecr.cfs(cfs2, { id: r2.id, conteneur: { num: 'MSKU9100002', taille: "40'", type: 'DRY', plomb: 'S2' }, declaration: DECL_OK });
+  await ecr.gps(ctxRole(db2, 'ADMIN', 'Admin'), { id: r2.id, baliseRequise: 'Oui', t1Correct: 'Oui', numeroGPS: 'G2' });
+  assert.ok(versCamel(db2.store['cargaisons'][0]!)['datePoseGps'], "l'ADMIN passe outre la chaine");
 });

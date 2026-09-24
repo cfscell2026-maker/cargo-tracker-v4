@@ -128,11 +128,58 @@ export function etapesEnAttente(c: SourceEtapes): Etape[] {
   // pour la Balise). Le Bon de sortie reste, lui, non bloquant.
   const p: Etape[] = [];
   if (!e.valide) p.push('VALIDATION');
+  /* CHAINE STRICTE T1 -> BALISE -> BON DE SORTIE (2026-09-24, demande
+     utilisateur). Ces trois cellules ne travaillent plus en parallele : la
+     balise attend le T1, le bon de sortie attend la balise. Une etape SAUTEE
+     par nature (type C/A/S pour le T1, vehicule ou dispense pour la balise,
+     ouillage et magasin pour le bon de sortie) compte comme faite : la chaine
+     encadre l'ordre de travail, elle ne rouvre pas des etapes que le regime de
+     la declaration ne prevoit pas.
+     La VALIDATION reste en parallele : elle n'a jamais bloque le parcours, et
+     le T1 la vaut (cascade descendante, voir etatCellules). */
   if (!e.t1) p.push('T1');
-  if (!e.balise) p.push('BALISE');
-  if (!e.bs) p.push('BS');
+  else if (!e.balise) p.push('BALISE');
+  else if (!e.bs) p.push('BS');
   if (e.t1 && e.balise) p.push('PP');
   return p;
+}
+
+/** Libellé lisible d'une étape, pour les messages adressés à l'agent. */
+export const LIBELLE_ETAPE: Record<Etape, string> = {
+  CFS: 'la saisie CFS (fin de chargement)',
+  VALIDATION: 'la validation du chef de brigade',
+  T1: 'le T1',
+  BALISE: 'la pose de la balise',
+  BS: 'le bon de sortie',
+  PP: 'la sortie à la Porte Principale',
+};
+
+/**
+ * L'étape qui doit être franchie AVANT celle qu'on veut faire, si elle manque.
+ *
+ * Une seule source pour les deux bouts : le serveur s'en sert pour REFUSER avec
+ * une phrase juste, l'écran pour PRÉVENIR avant même le clic. Rend `null` quand
+ * la voie est libre.
+ */
+export function etapePrecedenteManquante(c: SourceEtapes, etape: Etape): Etape | null {
+  const e = etatCellules(c);
+  if (etape !== 'CFS' && !e.cfs) return 'CFS';
+  if (etape === 'BALISE' && !e.t1) return 'T1';
+  if (etape === 'BS') {
+    if (!e.t1) return 'T1';
+    if (!e.balise) return 'BALISE';
+  }
+  if (etape === 'PP') {
+    if (!e.t1) return 'T1';
+    if (!e.balise) return 'BALISE';
+  }
+  return null;
+}
+
+/** La phrase montrée à l'agent : ce qui manque, et ce qu'il faut faire d'abord. */
+export function messageEtapePrecedente(manquante: Etape, voulue: Etape): string {
+  return 'Étape précédente manquante : ' + LIBELLE_ETAPE[manquante] + ' doit être fait avant '
+    + LIBELLE_ETAPE[voulue] + '.';
 }
 
 /** Compat : 1re étape en attente (ou null si terminé). */

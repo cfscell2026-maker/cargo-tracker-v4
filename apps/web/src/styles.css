@@ -1731,6 +1731,27 @@ tr.clk{cursor:pointer} tr.clk:hover{background:var(--accent-soft)}
 .tranche-puce b{font-size:13px}
 .pagination-tc{justify-content:center;align-items:center;gap:12px;margin-top:10px}
 .pagination-tc .help{margin:0}
+
+/* ---- Etape precedente manquante (2026-09-24) --------------------------
+   L'encadre remplace le panneau de saisie : il doit se lire comme un ARRET,
+   sans crier a l'erreur — l'agent n'a rien fait de mal, il est simplement
+   arrive trop tot. D'ou l'ambre de l'attente, et non le rouge du refus. */
+.etape-bloquee{border-left:4px solid var(--warn)}
+.eb-entete{display:flex;align-items:flex-start;gap:12px}
+.eb-pastille{
+  flex:0 0 auto;width:34px;height:34px;border-radius:11px;
+  display:grid;place-items:center;
+  color:var(--warn);background:color-mix(in srgb,var(--warn) 14%,#fff);
+}
+.eb-chaine{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:12px}
+.eb-maillon{
+  display:inline-flex;align-items:center;gap:6px;
+  font-size:12px;font-weight:600;color:var(--muted);
+  background:#f2f5f8;border:1px solid var(--line);border-radius:999px;padding:3px 11px;
+}
+.eb-maillon.manque{color:#fff;background:var(--warn);border-color:transparent}
+.eb-maillon.voulue{color:var(--accent);border-color:var(--accent);background:var(--accent-soft)}
+.eb-fleche{color:var(--muted);font-weight:400;margin-right:2px}
 .depot-actions{justify-content:flex-end;gap:8px;margin-top:8px}
 .tc-bloc{margin-top:6px}
 .tc-entete{display:flex;align-items:center;gap:6px;margin:0 0 5px}
