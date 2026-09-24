@@ -10,8 +10,9 @@
  *
  *  SORTIE DU PARKING : automatique, quand le camion est signalé à la Porte
  *  Principale (décision utilisateur). Voir `fermerParkingPourCamion`, appelée
- *  par `cargo.sortie`. Un chef ou l'administrateur peut aussi la déclarer à la
- *  main : un camion peut quitter le parc sans jamais passer par un dossier.
+ *  par `cargo.sortie`. Il n'existe PAS de sortie manuelle : elle faisait double
+ *  emploi (décision utilisateur, 2026-09-24). Une ligne posée par erreur se
+ *  supprime (`parking.delete`, ADMIN).
  *
  *  ⚠ LES TABLES PEUVENT NE PAS EXISTER (migration 00201 pas encore appliquée).
  *  Comme pour les paramètres : la lecture rend une liste vide plutôt que de
@@ -320,8 +321,8 @@ export async function parkingEdit(ctx: Ctx, p: Record<string, unknown>) {
  * `parking.delete`, supprime la ligne ET ses pointages (ADMINISTRATEUR).
  *
  * SUPPRESSION RÉELLE, réservée à la ligne créée par erreur. Un camion qui a bel
- * et bien stationné se SORT (`parking.sortie`) : son séjour appartient à
- * l'historique. Le motif est obligatoire et reste au journal.
+ * et bien stationné sort de lui-même à la Porte Principale : son séjour
+ * appartient à l'historique. Le motif est obligatoire et reste au journal.
  */
 export async function parkingSupprimer(ctx: Ctx, p: Record<string, unknown>) {
   const id = String(p['id'] ?? '').trim();
@@ -339,30 +340,5 @@ export async function parkingSupprimer(ctx: Ctx, p: Record<string, unknown>) {
   const { error: e2 } = await ctx.db.from('parking_camions').delete().eq('id', id);
   if (e2) throw new Error(e2.message);
   await ctx.log('Suppression parking', id, String(data['numero_camion']) + ' · ' + motif);
-  return { id, numeroCamion: data['numero_camion'] };
-}
-
-/**
- * `parking.sortie`, sortie déclarée à la main (chefs et administrateur).
- *
- * La sortie normale est automatique à la Porte Principale. Celle-ci existe pour
- * le camion qui quitte le parc SANS dossier : sans elle il resterait « présent »
- * indéfiniment et fausserait le comptage.
- */
-export async function parkingSortie(ctx: Ctx, p: Record<string, unknown>) {
-  const id = String(p['id'] ?? '').trim();
-  const motif = maj(p['motif'], 200);
-  if (!id) throw new ErreurMetier('Identifiant requis.');
-  if (!motif) throw new ErreurMetier('Motif de la sortie requis.');
-  const { data, error } = await ctx.db.from('parking_camions').select('*').eq('id', id).maybeSingle();
-  if (error) throw new Error(estTableAbsente(error.message) ? TABLES_ABSENTES : error.message);
-  if (!data) throw new ErreurMetier('Camion introuvable au parking.');
-  if (data['statut'] === SORTI) throw new ErreurMetier('Ce camion est déjà sorti du parking.');
-  const now = new Date().toISOString();
-  const { error: e2 } = await ctx.db.from('parking_camions').update({
-    statut: SORTI, date_sortie: now, sortie_par: ctx.session.nomComplet, derniere_maj: now,
-  }).eq('id', id);
-  if (e2) throw new Error(e2.message);
-  await ctx.log('Sortie parking (manuelle)', id, String(data['numero_camion']) + ' · ' + motif);
   return { id, numeroCamion: data['numero_camion'] };
 }

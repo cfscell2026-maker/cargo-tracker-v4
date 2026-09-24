@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react';
 import { call } from './lib/rpc.ts';
 import { useAsync } from './lib/hooks.ts';
 import { Icone } from './lib/icones.tsx';
-import { useParametres, Spinner, Tag, masks, toast, fmtDate, BoutonRetour, ChampDestination, useSuiviEngagement, ChampCamion, roleLabel, ChoixSegmente, BoutonBascule } from './lib/ui.tsx';
+import { useParametres, Spinner, Tag, Modal, masks, toast, fmtDate, BoutonRetour, ChampDestination, useSuiviEngagement, ChampCamion, roleLabel, ChoixSegmente, BoutonBascule } from './lib/ui.tsx';
 import type { Nav } from './App.tsx';
 import {
   STATUTS, OPERATIONS, ROLES, TYPES_DECLARATION, ETATS_SORTIE, dateDansNJours,
@@ -1045,11 +1045,16 @@ function PanneauEditConteneurs({ c, dets, action, admin }: { c: O; dets: ReturnT
     await action(() => call('cargo.editconteneur', { id, index: i, ...f, declaration: d, motif }), 'Conteneur corrigé.');
     setI(null);
   }
-  async function retirer(k: number) {
-    const ct = dets.conteneurs[k]!;
-    if (!confirm(`Retirer le conteneur ${ct.num} de ce camion ?`)) return;
-    await action(() => call('cargo.editconteneur', { id, index: k, supprimer: true, motif }), 'Conteneur retiré.');
-    setI(null);
+  /* RETRAIT : une fenetre qui RECLAME LE MOTIF, et non plus un simple
+     « Confirmer ? ». Le motif partait vide dans la plupart des cas, alors
+     qu'une ligne disparait et que son conteneur retourne au stock. */
+  const [retrait, setRetrait] = useState<number | null>(null);
+  const [motifRetrait, setMotifRetrait] = useState('');
+  async function retirer() {
+    if (retrait === null) return;
+    const k = retrait;
+    await action(() => call('cargo.editconteneur', { id, index: k, supprimer: true, motif: motifRetrait }), 'Conteneur retiré.');
+    setRetrait(null); setMotifRetrait(''); setI(null);
   }
 
   return <details style={EDIT_ITEM}><summary style={{ cursor: 'pointer', fontWeight: 600 }}>Corriger un conteneur (N°, taille, scellé, déclaration)</summary>
@@ -1061,7 +1066,7 @@ function PanneauEditConteneurs({ c, dets, action, admin }: { c: O; dets: ReturnT
         <span className="help">, décl. {declDe(ct as unknown as O) || '(celle du camion)'}</span>
       </span>
       <button className="ghost xs" onClick={() => ouvrir(k)}>Corriger</button>
-      <button className="ghost xs" onClick={() => retirer(k)}>Retirer</button>
+      <button className="ghost xs" onClick={() => { setRetrait(k); setMotifRetrait(''); }}>Retirer</button>
     </div>)}
     {i !== null && <div style={{ borderTop: '1px solid var(--line)', marginTop: 10, paddingTop: 10 }}>
       <div className="section-title">Nouvelle saisie, ligne {i + 1}</div>
@@ -1091,6 +1096,23 @@ function PanneauEditConteneurs({ c, dets, action, admin }: { c: O; dets: ReturnT
         <button className="ghost" onClick={() => setI(null)}>Annuler</button>
       </div>
     </div>}
+    {retrait !== null && <Modal onClose={() => setRetrait(null)}>
+      <h2>Retirer ce conteneur ?</h2>
+      <p className="help">
+        <b className="mono">{dets.conteneurs[retrait]?.num}</b> sera retiré de ce camion et
+        <b> reviendra au stock</b>, où il redeviendra sélectionnable. L'apurement de sa
+        déclaration est rendu. L'opération est inscrite au journal d'audit.
+      </p>
+      <label className="help">Motif du retrait (obligatoire)</label>
+      <input value={motifRetrait} onChange={(e) => setMotifRetrait(e.target.value)}
+        placeholder="ex. conteneur jamais chargé" autoFocus />
+      <div className="row" style={{ marginTop: 12, justifyContent: 'flex-end' }}>
+        <button className="ghost" onClick={() => setRetrait(null)}>Annuler</button>
+        <button className="acts-suppr-plein" disabled={!motifRetrait.trim()} onClick={retirer}>
+          Retirer le conteneur
+        </button>
+      </div>
+    </Modal>}
   </details>;
 }
 

@@ -159,7 +159,6 @@ export const ACTIONS: Record<string, H> = {
   'parking.point': d(prk.parkingPointer),
   'parking.edit': d(prk.parkingEdit),
   'parking.delete': d(prk.parkingSupprimer),
-  'parking.sortie': d(prk.parkingSortie),
   'params.get': d(prm.paramsGet),
   'params.set': d(prm.paramsSet),
 

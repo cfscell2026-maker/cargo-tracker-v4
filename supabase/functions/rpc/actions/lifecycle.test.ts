@@ -584,7 +584,7 @@ test('correction conteneur : retrait de la ligne → camion revenu à « Camion 
   const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'FIX002/RM01', routage: 'Enlèvement' })) as { id: string };
   await ecr.cfs(cfs, { id, conteneur: { num: 'MSKU1111111', taille: "40'", type: 'DRY', plomb: 'S1' }, declaration: DECL_OK });
 
-  await ecr.editconteneur(cfs, { id, index: 0, supprimer: true });
+  await ecr.editconteneur(cfs, { id, index: 0, supprimer: true, motif: 'erreur de saisie' });
 
   assert.equal(statutDe(db, id), STATUTS.CAMION);
   assert.equal(db.store['conteneurs'].length, 0);
@@ -600,7 +600,12 @@ test('correction conteneur refusée après validation (hors ADMIN)', async () =>
   await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'), { id, enSurcharge: false, suiviEngagement: false });
   await ecr.gps(ctxRole(db, 'BALISE', 'B'), { id, baliseRequise: 'Oui', t1Correct: 'Oui', numeroGPS: 'G' });
 
-  await assert.rejects(() => ecr.editconteneur(cfs, { id, index: 0, supprimer: true }), /a déjà avancé/);
+  // CORRECTION sans motif sur un dossier qui a avancé : refusée.
+  await assert.rejects(
+    () => ecr.editconteneur(cfs, { id, index: 0, num: 'MSKU1111111', taille: "20'", type: 'DRY', plomb: 'S2' }),
+    /a déjà avancé/);
+  // SUPPRESSION sans motif : refusée aussi, et désormais quel que soit le statut.
+  await assert.rejects(() => ecr.editconteneur(cfs, { id, index: 0, supprimer: true }), /MOTIF du retrait/);
   // L'ADMIN, lui, peut toujours corriger un historique.
   await ecr.editconteneur(ctxRole(db, 'ADMIN', 'Admin'), { id, index: 0, num: 'MSKU1111111', taille: "20'", type: 'DRY', plomb: 'S9' });
   const c = versCamel(db.store['cargaisons'][0]!);
@@ -2024,7 +2029,7 @@ test('00170, retirer un conteneur DÉCRÉMENTE son apurement', async () => {
   const { id, cfs } = await camionDeuxConteneurs(db, '5001');
   assert.equal(apuresDe(db, '5001'), 2, 'deux conteneurs ajoutés = deux apurés');
 
-  await ecr.editconteneur(cfs, { id, index: 1, supprimer: true });
+  await ecr.editconteneur(cfs, { id, index: 1, supprimer: true, motif: 'erreur de saisie' });
 
   assert.equal(apuresDe(db, '5001'), 1, 'le conteneur retiré ne doit plus être apuré');
 });
@@ -2060,8 +2065,8 @@ test('00170, le décrément ne descend jamais sous zéro', async () => {
   const db = new FakeDB();
   const { id, cfs } = await camionDeuxConteneurs(db, '5005');
 
-  await ecr.editconteneur(cfs, { id, index: 1, supprimer: true });
-  await ecr.editconteneur(cfs, { id, index: 0, supprimer: true });
+  await ecr.editconteneur(cfs, { id, index: 1, supprimer: true, motif: 'erreur de saisie' });
+  await ecr.editconteneur(cfs, { id, index: 0, supprimer: true, motif: 'erreur de saisie' });
 
   assert.equal(apuresDe(db, '5005'), 0, 'plus aucun conteneur : apurement à zéro');
 
@@ -3172,20 +3177,21 @@ test('parking : le camion signalé à la Porte Principale sort du parking', asyn
   await assert.rejects(() => prk.parkingPointer(agent, { id: String(ligne['id']) }), /sorti du parking/);
 });
 
-test("parking : sortie manuelle réservée à l'ADMIN, motif obligatoire", async () => {
+test("parking : les droits, correction pour tous, suppression a l'ADMIN", async () => {
   const db = new FakeDB();
   const admin = ctxRole(db, 'ADMIN', 'Admin');
   const { id } = (await prk.parkingAdd(admin, { numeroCamion: 'TG9999YY/RM07' })) as { id: string };
-  await assert.rejects(() => prk.parkingSortie(admin, { id }), /Motif/);
-  await prk.parkingSortie(admin, { id, motif: 'Reparti à vide' });
-  assert.equal(db.store['parking_camions'][0]?.['statut'], 'Sorti');
+  // Pas de sortie manuelle : un camion quitte le parking a la Porte Principale.
+  assert.equal((prk as Record<string, unknown>)['parkingSortie'], undefined);
+  await prk.parkingSupprimer(admin, { id, motif: 'ligne creee par erreur' });
+  assert.equal(db.store['parking_camions'].length, 0);
+
   const permis = (role: string, action: string) => {
     try { verifierPermission(role, action); return true; } catch { return false; }
   };
-  assert.equal(permis('CFS', 'parking.sortie'), false, 'un agent ne sort pas un camion à la main');
-  assert.equal(permis('CFS', 'parking.point'), true, 'mais tout agent pointe');
-  assert.equal(permis('BALISE', 'parking.add'), true);
-  assert.equal(permis('PP', 'parking.list'), true);
+  assert.equal(permis('CFS', 'parking.delete'), false, 'un agent ne supprime pas');
+  assert.equal(permis('CFS', 'parking.edit'), true, 'mais tout agent corrige');
+  assert.equal(permis('ADMIN', 'parking.sortie'), false, 'action retiree');
 });
 
 test('parking : correction ouverte a tous, plaque doublee refusee', async () => {
@@ -3252,4 +3258,27 @@ test('parking : duree du sejour en minutes, et filtre de periode', async () => {
   const janvier = (await prk.parkingList(agent, { statut: 'tous', du: '2026-01-01', au: '2026-01-31' })) as { lignes: Record<string, unknown>[]; du: string };
   assert.deepEqual(janvier.lignes.map((l) => l['id']), ['PK-C']);
   assert.equal(janvier.du, '2026-01-01');
+});
+
+test('suppression : le motif est exige AVANT de retirer un conteneur', async () => {
+  const db = new FakeDB();
+  db.store['stock'].push({ numero_tc: 'MSKU8000001', taille: "40'", statut: 'En stock' });
+  const cfs = ctxAvec(db);
+  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'MOT001/RM01', routage: 'Enlèvement' })) as { id: string };
+  await ecr.cfs(cfs, { id, conteneur: { num: 'MSKU8000001', taille: "40'", type: 'DRY', plomb: 'S1' }, declaration: DECL_OK });
+
+  // Dossier a peine cree, agent CFS : c'est le cas ou rien n'etait demande.
+  await assert.rejects(() => ecr.editconteneur(cfs, { id, index: 0, supprimer: true }), /MOTIF du retrait/);
+  // L'ADMIN n'y echappe pas non plus.
+  await assert.rejects(
+    () => ecr.editconteneur(ctxRole(db, 'ADMIN', 'Admin'), { id, index: 0, supprimer: true }), /MOTIF du retrait/);
+  // Le conteneur est toujours la : rien n'a ete retire.
+  assert.equal(Number(db.store['cargaisons'][0]?.['nb_conteneurs']), 1);
+
+  // Avec motif : le retrait passe, et le motif est inscrit au journal.
+  const trace = ctxTrace(db, 'CFS', 'Agent CFS');
+  await ecr.editconteneur(trace.ctx, { id, index: 0, supprimer: true, motif: 'jamais chargé' });
+  assert.equal(Number(db.store['cargaisons'][0]?.['nb_conteneurs']), 0);
+  assert.ok(trace.traces.some((t) => /retiré · motif : jamais chargé/.test(t.detail)),
+    'le motif suit le retrait dans le journal');
 });

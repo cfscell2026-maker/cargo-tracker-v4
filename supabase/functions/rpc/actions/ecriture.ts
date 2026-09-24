@@ -1451,6 +1451,19 @@ export async function editconteneur(ctx: Ctx, p: Record<string, unknown>) {
   const cargo = await getCargo(ctx, id);
   const c = cargo.o;
   const estAdmin = ctx.session.role === ROLES.ADMIN;
+  /* MOTIF OBLIGATOIRE AVANT TOUTE SUPPRESSION (2026-09-24, demande
+     utilisateur). La regle valait deja pour l'annulation d'un dossier, la
+     suppression d'un compte, d'un magasin, d'une ligne de declaration et d'une
+     ligne de parking ; le retrait d'un conteneur y echappait tant que la
+     cargaison n'avait pas avance, et pour l'ADMIN en toutes circonstances.
+     Elle ne depend donc plus ni du statut ni du role : ce qui disparait
+     s'explique, et l'explication reste au journal. */
+  const motifRetrait = txt(p['motif'], 200).trim();
+  if (supprimer && !motifRetrait)
+    throw new ErreurMetier(
+      'Indiquez le MOTIF du retrait de ce conteneur (erreur de saisie, conteneur '
+      + "non charge…). Il est inscrit au journal d'audit.",
+    );
   const motifAvance = exigerMotifSiAvancee(ctx, c, p);
 
   const type = String(c['typeOperation'] || '');
@@ -1567,9 +1580,9 @@ export async function editconteneur(ctx: Ctx, p: Record<string, unknown>) {
   await ctx.log(
     supprimer ? 'Correction, suppression conteneur' : 'Correction conteneur',
     id,
-    (supprimer ? ancien.num + ' retiré'
-      : ancien.num + ' → ' + nouveauNum + (declApres !== declAvant ? ' · déclaration ' + declAvant + ' → ' + declApres : ''))
-      + motifAvance,
+    (supprimer ? ancien.num + ' retiré · motif : ' + motifRetrait
+      : ancien.num + ' → ' + nouveauNum + (declApres !== declAvant ? ' · déclaration ' + declAvant + ' → ' + declApres : '')
+        + motifAvance),
   );
   return { id, conteneurs: conts.length, ancien: ancien.num, nouveau: nouveauNum };
 }

@@ -45,10 +45,10 @@ export const PERMISSIONS: Record<string, Role[]> = {
   'parking.add': TOUS_ROLES,
   'parking.point': TOUS_ROLES,
   // La CORRECTION est ouverte à tous (celui qui voit l'erreur la répare) ;
-  // la SUPPRESSION et la sortie manuelle restent à l'ADMIN.
+  // la SUPPRESSION reste à l'ADMIN. Pas de sortie manuelle : un camion quitte
+  // le parking en passant à la Porte Principale.
   'parking.edit': TOUS_ROLES,
   'parking.delete': [ROLES.ADMIN],
-  'parking.sortie': [ROLES.ADMIN],
   // Écriture par étape (1 cellule = 1 rôle ; CFS = cellule unifiée entrée + chargement)
   'cargo.createcamion': [ROLES.CFS, ROLES.ADMIN],
   'cargo.cfs': [ROLES.CFS, ROLES.ADMIN],

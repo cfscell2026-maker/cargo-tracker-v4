@@ -34,7 +34,6 @@ export function EcranParking({ user }: Nav) {
   const [statut, setStatut] = useState('presents');
   const [ajout, setAjout] = useState(false);
   const [detail, setDetail] = useState<string | null>(null);
-  const [sortie, setSortie] = useState<O | null>(null);
   const [edite, setEdite] = useState<O | null>(null);
   const [supprime, setSupprime] = useState<O | null>(null);
   const [busy, setBusy] = useState('');
@@ -177,7 +176,6 @@ export function EcranParking({ user }: Nav) {
                     {busy === id ? 'Pointage…' : 'Pointer'}
                   </button>}
                   <button className="ghost xs" onClick={() => setEdite(l)}>Modifier</button>
-                  {admin && !sorti && <button className="ghost xs" onClick={() => setSortie(l)}>Sortie</button>}
                   {admin && <button className="ghost xs acts-suppr" onClick={() => setSupprime(l)}>Supprimer</button>}
                 </td>
               </tr>;
@@ -189,8 +187,6 @@ export function EcranParking({ user }: Nav) {
 
     {ajout && <ModaleAjoutParking onClose={() => setAjout(false)} onFait={() => { setAjout(false); reload(); }} />}
     {detail && <ModaleDetailParking id={detail} onClose={() => setDetail(null)} onFait={reload} />}
-    {sortie && <ModaleSortieParking ligne={sortie} onClose={() => setSortie(null)}
-      onFait={() => { setSortie(null); reload(); }} />}
     {edite && <ModaleModifierParking ligne={edite} onClose={() => setEdite(null)}
       onFait={() => { setEdite(null); reload(); }} />}
     {supprime && <ModaleSupprimerParking ligne={supprime} onClose={() => setSupprime(null)}
@@ -383,37 +379,6 @@ function ModaleDetailParking({ id, onClose, onFait }: { id: string; onClose: () 
           <button disabled={busy} onClick={pointer}>{busy ? 'Pointage…' : 'Pointer aujourd\'hui'}</button>}
       </div>
     </>}
-  </Modal>;
-}
-
-/* ------------------------------------------------------ sortie manuelle */
-
-function ModaleSortieParking({ ligne, onClose, onFait }: { ligne: O; onClose: () => void; onFait: () => void }) {
-  const [motif, setMotif] = useState('');
-  const [busy, setBusy] = useState(false);
-
-  async function sortir() {
-    setBusy(true);
-    try {
-      await call('parking.sortie', { id: s(ligne['id']), motif });
-      toast('Camion sorti du parking.', 'ok');
-      onFait();
-    } catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(false); }
-  }
-
-  return <Modal onClose={onClose}>
-    <h2>Sortir ce camion du parking ?</h2>
-    <p className="help">
-      Camion <b className="mono">{s(ligne['numeroCamion'])}</b>. Normalement un camion sort tout seul
-      quand il est signalé à la Porte Principale. Cette sortie manuelle est là pour le camion
-      qui quitte le parc <b>sans dossier</b>, sans elle il resterait compté comme présent.
-    </p>
-    <label className="help">Motif de la sortie (obligatoire)</label>
-    <input value={motif} onChange={(e) => setMotif(e.target.value)} placeholder="ex. reparti à vide" autoFocus />
-    <div className="row" style={{ marginTop: 12, justifyContent: 'flex-end' }}>
-      <button className="ghost" onClick={onClose}>Annuler</button>
-      <button disabled={busy || !motif.trim()} onClick={sortir}>{busy ? 'Sortie…' : 'Sortir du parking'}</button>
-    </div>
   </Modal>;
 }
 
