@@ -12,6 +12,7 @@
  */
 import type { Ctx } from '../ctx.ts';
 import { versCamel } from '../ctx.ts';
+import { ErreurMetier } from '../ctx.ts';
 import {
   ENTREPOT_TYPES, ARTICLES_MAX, uniteApurement, cleDecl, maj, tcValide, estTypeSansT1,
   STATUTS, OPERATIONS, sautsTypeC,
@@ -368,6 +369,234 @@ export async function entrepotSortiesDetail(ctx: Ctx, opts: { entrepotCode?: str
       cargaisonId: s['cargaisonId'],
     })),
   };
+}
+
+/* ------------------- Correction et suppression (2026-09-24) -------------
+ *
+ * Demande utilisateur : pouvoir reprendre un depot ou un apurement mal saisi.
+ * La CORRECTION est ouverte a tous ceux qui voient l'ecran ; la SUPPRESSION est
+ * reservee a l'administration, et reclame un motif comme partout ailleurs.
+ * ---------------------------------------------------------------------- */
+
+/** Les apurements deja poses sur une entree, article par article. */
+async function apuresParArticle(ctx: Ctx, entreeId: string): Promise<Map<number, number>> {
+  const { data } = await ctx.db.from('entrepot_sorties').select('*').eq('entree_id', entreeId);
+  const parArticle = new Map<number, number>();
+  for (const r of (data ?? []) as Record<string, unknown>[]) {
+    const n = Number(r['numero_article'] ?? 0);
+    const q = num(r['nb_colis']) || num(r['poids']);
+    parArticle.set(n, (parArticle.get(n) ?? 0) + q);
+  }
+  return parArticle;
+}
+
+/**
+ * `entrepot.entreeedit` : corriger un DEPOT (declaration, declarant,
+ * conteneurs, designations et quantites). Les quantites ne peuvent pas passer
+ * sous ce qui est deja sorti, et on ne retire pas un article qui a servi.
+ */
+export async function entrepotEntreeEdit(ctx: Ctx, p: Record<string, unknown>) {
+  const id = maj(p['id'], 30);
+  if (!id) throw new ErreurMetier('Identifiant de l\'entree requis.');
+  const { data: e } = await ctx.db.from('entrepot_entrees').select('*').eq('id', id).maybeSingle();
+  if (!e) throw new ErreurMetier('Entree « ' + id + ' » introuvable.');
+  const avant = versCamel(e);
+
+  const patch: Record<string, unknown> = {};
+  const traces: string[] = [];
+  const d = (p['declaration'] ?? {}) as Record<string, unknown>;
+
+  const champs: [string, string, string, number][] = [
+    ['numeroDeclaration', 'numero_declaration', 'n° declaration', 30],
+    ['anneeDeclaration', 'annee_declaration', 'annee', 6],
+    ['bureauDeclaration', 'bureau_declaration', 'bureau', 20],
+    ['typeDeclaration', 'type_declaration', 'type', 10],
+  ];
+  for (const [cle, colonne, libelle, taille] of champs) {
+    if (d[cle] === undefined) continue;
+    const v = maj(d[cle], taille);
+    if (v !== String(avant[cle] ?? '')) { patch[colonne] = v; traces.push(libelle + ' ' + (avant[cle] || '(vide)') + ' -> ' + (v || '(vide)')); }
+  }
+  if (p['declarant'] !== undefined) {
+    const v = maj(p['declarant'], 120);
+    if (v !== String(avant['declarant'] ?? '')) { patch['declarant'] = v; traces.push('declarant'); }
+  }
+  if (p['observations'] !== undefined) {
+    const v = maj(p['observations'], 1000);
+    if (v !== String(avant['observations'] ?? '')) { patch['observations'] = v; traces.push('observations'); }
+  }
+
+  // CONTENEURS : liste nettoyee, sans doublon, et chaque numero controle.
+  if (p['conteneurs'] !== undefined) {
+    const bruts = (Array.isArray(p['conteneurs']) ? (p['conteneurs'] as unknown[]) : []).map(normTC).filter(Boolean);
+    const conteneurs = [...new Set(bruts)];
+    for (const tc of conteneurs) if (!tcValide(tc)) throw new ErreurMetier('Conteneur invalide : ' + tc + ' (4 lettres + 7 chiffres).');
+    const ancien = (Array.isArray(avant['conteneurs']) ? avant['conteneurs'] : []) as string[];
+    if (conteneurs.join(',') !== ancien.join(',')) {
+      patch['conteneurs'] = conteneurs;
+      patch['conteneurise'] = conteneurs.length > 0;
+      traces.push('conteneurs ' + ancien.length + ' -> ' + conteneurs.length);
+    }
+  }
+
+  // ARTICLES : designation et quantite. Jamais sous ce qui est deja sorti.
+  if (p['articles'] !== undefined) {
+    const articles = normArticles(p['articles']);
+    if (!articles.length) throw new ErreurMetier('Renseignez au moins un article (designation + quantite).');
+    const anciens = (Array.isArray(avant['articles']) ? avant['articles'] : []) as Record<string, unknown>[];
+    const apures = await apuresParArticle(ctx, id);
+    if (articles.length < anciens.length) {
+      for (let i = articles.length; i < anciens.length; i++) {
+        if ((apures.get(i + 1) ?? 0) > 0)
+          throw new ErreurMetier(
+            'L\'article ' + (i + 1) + ' a deja ete apure : il ne peut pas etre retire. '
+            + 'Supprimez d\'abord ses apurements.');
+      }
+    }
+    articles.forEach((a, i) => {
+      const sorti = apures.get(i + 1) ?? 0;
+      const q = num(a['nbColis']) || num(a['poids']);
+      if (sorti > 0 && q < sorti)
+        throw new ErreurMetier(
+          'Article ' + (i + 1) + ' : ' + sorti + ' deja sorti(s), la quantite ne peut pas descendre a ' + q + '.');
+    });
+    patch['articles'] = articles;
+    traces.push('articles (' + articles.length + ')');
+  }
+
+  if (!traces.length) return { id, inchange: true };
+  const { error } = await ctx.db.from('entrepot_entrees').update(patch).eq('id', id);
+  if (error) throw new Error(error.message);
+  await ctx.log('Correction entree entrepot ' + String(avant['entrepotCode']), id, traces.join(' · '));
+  return { id, modifie: traces.length };
+}
+
+/**
+ * `entrepot.entreedelete` : supprimer un DEPOT (administration).
+ * Refuse tant qu'un apurement s'y rattache : ce sont eux qui donneraient un
+ * sommier faux, pas l'entree elle-meme.
+ */
+export async function entrepotEntreeSupprimer(ctx: Ctx, p: Record<string, unknown>) {
+  const id = maj(p['id'], 30);
+  const motif = maj(p['motif'], 200);
+  if (!id) throw new ErreurMetier('Identifiant de l\'entree requis.');
+  if (!motif) throw new ErreurMetier('Motif de la suppression requis.');
+  const { data: e } = await ctx.db.from('entrepot_entrees').select('*').eq('id', id).maybeSingle();
+  if (!e) throw new ErreurMetier('Entree « ' + id + ' » introuvable.');
+
+  const { data: sorties } = await ctx.db.from('entrepot_sorties').select('id').eq('entree_id', id);
+  const n = (sorties ?? []).length;
+  if (n > 0)
+    throw new ErreurMetier(
+      'Suppression impossible : ' + n + ' apurement(s) se rattachent a ce depot. '
+      + 'Supprimez-les d\'abord, sinon le sommier ne se retrouverait plus.');
+
+  const { error } = await ctx.db.from('entrepot_entrees').delete().eq('id', id);
+  if (error) throw new Error(error.message);
+  /* Les conteneurs de cette entree avaient ete marques « Depote » au stock. On
+     ne revient pas dessus : leur etat d'avant n'est pas connu, et le dire ici
+     vaut mieux que de le deviner. */
+  await ctx.log('Suppression entree entrepot ' + String(e['entrepot_code']), id,
+    String(e['numero_declaration'] ?? '') + ' · ' + motif);
+  return { id };
+}
+
+/**
+ * `entrepot.sortieedit` : corriger un APUREMENT (quantite, camion, scelles,
+ * declaration d'apurement). La quantite reste bornee par ce qui restait.
+ */
+export async function entrepotSortieEdit(ctx: Ctx, p: Record<string, unknown>) {
+  const id = maj(p['id'], 30);
+  if (!id) throw new ErreurMetier('Identifiant de l\'apurement requis.');
+  const { data: s0 } = await ctx.db.from('entrepot_sorties').select('*').eq('id', id).maybeSingle();
+  if (!s0) throw new ErreurMetier('Apurement « ' + id + ' » introuvable.');
+  const avant = versCamel(s0);
+  const code = String(avant['entrepotCode']);
+  const entreeId = String(avant['entreeId']);
+  const numeroArticle = Number(avant['numeroArticle'] ?? 1);
+  const type = String((await ctx.db.from('entrepots').select('type').eq('code', code).maybeSingle()).data?.type ?? 'MAD');
+  const unite = uniteApurement(type);
+
+  const patch: Record<string, unknown> = {};
+  const traces: string[] = [];
+
+  if (p['nbColis'] !== undefined || p['poids'] !== undefined) {
+    const nbColis = p['nbColis'] !== undefined ? Math.round(num(p['nbColis'])) : num(avant['nbColis']);
+    const poids = p['poids'] !== undefined ? num(p['poids']) : num(avant['poids']);
+    const quantite = unite === 'poids' ? poids : nbColis;
+    if (quantite <= 0) throw new ErreurMetier('Quantite apuree invalide.');
+    // Le restant est calcule SANS cet apurement : on remplace, on n'ajoute pas.
+    const { rows } = await entrepotEntrees(ctx, { entrepotCode: code });
+    const art = (rows.find((r) => r['id'] === entreeId)?.['articles'] as Record<string, unknown>[] | undefined)?.[numeroArticle - 1];
+    const ancienneQuantite = unite === 'poids' ? num(avant['poids']) : num(avant['nbColis']);
+    const disponible = Number(art?.['restant'] ?? 0) + ancienneQuantite;
+    if (quantite > disponible)
+      throw new ErreurMetier('Apurement (' + quantite + ') superieur au restant disponible (' + disponible + ').');
+    if (nbColis !== num(avant['nbColis']) || poids !== num(avant['poids'])) {
+      patch['nb_colis'] = nbColis; patch['poids'] = poids;
+      traces.push('quantite ' + ancienneQuantite + ' -> ' + quantite);
+    }
+  }
+  if (p['numeroCamion'] !== undefined) {
+    const v = maj(p['numeroCamion'], 30).replace(/[^A-Z0-9/-]/g, '');
+    if (v !== String(avant['numeroCamion'] ?? '')) { patch['numero_camion'] = v; traces.push('camion ' + (avant['numeroCamion'] || '(vide)') + ' -> ' + (v || '(vide)')); }
+  }
+  if (p['scelles'] !== undefined) {
+    const v = (Array.isArray(p['scelles']) ? (p['scelles'] as unknown[]) : []).map((x) => maj(x, 30)).filter(Boolean);
+    const ancien = (Array.isArray(avant['scelles']) ? avant['scelles'] : []) as string[];
+    if (v.join(',') !== ancien.join(',')) { patch['scelles'] = v; traces.push('scelles'); }
+  }
+  if (p['designation'] !== undefined) {
+    const v = maj(p['designation'], 200);
+    if (v !== String(avant['designation'] ?? '')) { patch['designation'] = v; traces.push('designation'); }
+  }
+  const d = (p['declarationApurement'] ?? {}) as Record<string, unknown>;
+  const champs: [string, string, string, number][] = [
+    ['numeroDeclaration', 'numero_declaration', 'n° declaration', 30],
+    ['anneeDeclaration', 'annee_declaration', 'annee', 6],
+    ['bureauDeclaration', 'bureau_declaration', 'bureau', 20],
+    ['typeDeclaration', 'type_declaration', 'type', 10],
+  ];
+  for (const [cle, colonne, libelle, taille] of champs) {
+    if (d[cle] === undefined) continue;
+    const v = maj(d[cle], taille);
+    if (v !== String(avant[cle] ?? '')) { patch[colonne] = v; traces.push(libelle); }
+  }
+
+  if (!traces.length) return { id, inchange: true };
+  const { error } = await ctx.db.from('entrepot_sorties').update(patch).eq('id', id);
+  if (error) throw new Error(error.message);
+  await ctx.log('Correction apurement ' + code, id, traces.join(' · '));
+  return { id, modifie: traces.length };
+}
+
+/**
+ * `entrepot.sortiedelete` : supprimer un APUREMENT (administration).
+ * Refuse si un camion a ete cree pour cette sortie et vit encore : le dossier
+ * dirait qu'une marchandise est sortie que le sommier aurait oubliee.
+ */
+export async function entrepotSortieSupprimer(ctx: Ctx, p: Record<string, unknown>) {
+  const id = maj(p['id'], 30);
+  const motif = maj(p['motif'], 200);
+  if (!id) throw new ErreurMetier('Identifiant de l\'apurement requis.');
+  if (!motif) throw new ErreurMetier('Motif de la suppression requis.');
+  const { data: s0 } = await ctx.db.from('entrepot_sorties').select('*').eq('id', id).maybeSingle();
+  if (!s0) throw new ErreurMetier('Apurement « ' + id + ' » introuvable.');
+
+  const cargaisonId = String(s0['cargaison_id'] ?? '');
+  if (cargaisonId) {
+    const { data: cargo } = await ctx.db.from('cargaisons').select('id, statut, annule').eq('id', cargaisonId).maybeSingle();
+    if (cargo && cargo['annule'] !== true)
+      throw new ErreurMetier(
+        'Cet apurement a cree le camion ' + cargaisonId + ' (statut « ' + String(cargo['statut']) + ' »). '
+        + 'Annulez d\'abord ce dossier, sinon il resterait un camion sorti sans apurement.');
+  }
+
+  const { error } = await ctx.db.from('entrepot_sorties').delete().eq('id', id);
+  if (error) throw new Error(error.message);
+  await ctx.log('Suppression apurement ' + String(s0['entrepot_code']), id,
+    String(s0['numero_declaration'] ?? '') + ' · ' + motif);
+  return { id };
 }
 
 /* ----------------------------- Statistiques ---------------------------- */

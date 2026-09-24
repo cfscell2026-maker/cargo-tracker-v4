@@ -3282,3 +3282,100 @@ test('suppression : le motif est exige AVANT de retirer un conteneur', async () 
   assert.ok(trace.traces.some((t) => /retiré · motif : jamais chargé/.test(t.detail)),
     'le motif suit le retrait dans le journal');
 });
+
+/* ---------------- Depots et apurements : corriger / supprimer ----------- */
+
+/** Un magasin MAD avec un depot de 100 colis, pret a etre apure. */
+async function magasinAvecDepot(db: FakeDB) {
+  const admin = ctxRole(db, 'ADMIN', 'Admin');
+  db.store['entrepots'] = [{ code: 'MAD-T', nom: 'Magasin test', type: 'MAD', actif: true }];
+  const cfs = ctxAvec(db);
+  const r = (await entrepot.entrepotEntree(cfs, {
+    entrepotCode: 'MAD-T',
+    declaration: { numeroDeclaration: '900', anneeDeclaration: '2026', bureauDeclaration: 'TG120', typeDeclaration: 'A', declarant: 'UPAL' },
+    conteneurise: true,
+    conteneurs: ['MSMU3164088', 'MSBU1727337', 'MSMU3164088'],
+    articles: [{ designation: 'RIZ', nbColis: 100 }],
+  })) as { id: string };
+  return { admin, cfs, entreeId: r.id };
+}
+
+test('depot : la correction est ouverte a tous, les quantites restent tenables', async () => {
+  const db = new FakeDB();
+  const { cfs, entreeId } = await magasinAvecDepot(db);
+
+  // Doublon de conteneur elimine a la correction.
+  await entrepot.entrepotEntreeEdit(cfs, { id: entreeId, conteneurs: ['MSMU3164088', 'MSBU1727337', 'MSMU3164088'] });
+  const apres = db.store['entrepot_entrees'].find((x) => x['id'] === entreeId)!;
+  assert.deepEqual(apres['conteneurs'], ['MSMU3164088', 'MSBU1727337'], 'un conteneur n\'est liste qu\'une fois');
+
+  // Un numero de conteneur invalide est refuse.
+  await assert.rejects(() => entrepot.entrepotEntreeEdit(cfs, { id: entreeId, conteneurs: ['ABC123'] }), /Conteneur invalide/);
+
+  // Sortie de 40 colis, puis tentative de ramener l'article a 30.
+  await entrepot.entrepotSortie(cfs, {
+    entreeId, numeroArticle: 1, nbColis: 40, numeroCamion: 'TG1000AA/RM01', scelles: ['S1'],
+    declarationApurement: { numeroDeclaration: '901', anneeDeclaration: '2026', bureauDeclaration: 'TG120', typeDeclaration: 'A' },
+  });
+  await assert.rejects(
+    () => entrepot.entrepotEntreeEdit(cfs, { id: entreeId, articles: [{ designation: 'RIZ', nbColis: 30 }] }),
+    /40 deja sorti/);
+  // Mais au-dessus du sorti, la correction passe.
+  await entrepot.entrepotEntreeEdit(cfs, { id: entreeId, articles: [{ designation: 'RIZ BRISURE', nbColis: 120 }] });
+  const art = (db.store['entrepot_entrees'].find((x) => x['id'] === entreeId)!['articles'] as Record<string, unknown>[])[0]!;
+  assert.equal(art['designation'], 'RIZ BRISURE');
+  assert.equal(Number(art['nbColis']), 120);
+});
+
+test('depot : suppression refusee tant qu\'un apurement s\'y rattache', async () => {
+  const db = new FakeDB();
+  const { admin, cfs, entreeId } = await magasinAvecDepot(db);
+  // Apurement SANS camion : aucun dossier n'est cree, il pourra donc partir.
+  await entrepot.entrepotSortie(cfs, {
+    entreeId, numeroArticle: 1, nbColis: 10,
+    declarationApurement: { numeroDeclaration: '901', anneeDeclaration: '2026', bureauDeclaration: 'TG120', typeDeclaration: 'A' },
+  });
+  await assert.rejects(() => entrepot.entrepotEntreeSupprimer(admin, { id: entreeId, motif: 'saisie en double' }), /apurement\(s\) se rattachent/);
+
+  // Motif obligatoire, la aussi.
+  const sortieId = String(db.store['entrepot_sorties'][0]!['id']);
+  await assert.rejects(() => entrepot.entrepotSortieSupprimer(admin, { id: sortieId }), /Motif/);
+
+  // On retire l'apurement, puis le depot part.
+  await entrepot.entrepotSortieSupprimer(admin, { id: sortieId, motif: 'apurement saisi par erreur' });
+  await entrepot.entrepotEntreeSupprimer(admin, { id: entreeId, motif: 'saisie en double' });
+  assert.equal(db.store['entrepot_entrees'].length, 0);
+  assert.equal(db.store['entrepot_sorties'].length, 0);
+});
+
+test('apurement : correction bornee par le restant, suppression bloquee par le camion', async () => {
+  const db = new FakeDB();
+  const { admin, cfs, entreeId } = await magasinAvecDepot(db);
+  await entrepot.entrepotSortie(cfs, {
+    entreeId, numeroArticle: 1, nbColis: 40, numeroCamion: 'TG1000AA/RM01', scelles: ['S1'],
+    declarationApurement: { numeroDeclaration: '901', anneeDeclaration: '2026', bureauDeclaration: 'TG120', typeDeclaration: 'A' },
+  });
+  const sortie = db.store['entrepot_sorties'][0]!;
+  const sortieId = String(sortie['id']);
+
+  // 40 deja pris sur 100 : on peut monter jusqu'a 100, pas au-dela.
+  await assert.rejects(() => entrepot.entrepotSortieEdit(cfs, { id: sortieId, nbColis: 140 }), /superieur au restant/);
+  await entrepot.entrepotSortieEdit(cfs, { id: sortieId, nbColis: 60, numeroCamion: 'TG2000BB/RM02' });
+  const apres = db.store['entrepot_sorties'][0]!;
+  assert.equal(Number(apres['nb_colis']), 60);
+  assert.equal(apres['numero_camion'], 'TG2000BB/RM02');
+
+  // Un camion a ete cree pour cette sortie : la suppression est refusee.
+  if (apres['cargaison_id']) {
+    await assert.rejects(() => entrepot.entrepotSortieSupprimer(admin, { id: sortieId, motif: 'erreur' }), /Annulez d\'abord/);
+  }
+
+  const permis = (role: string, action: string) => {
+    try { verifierPermission(role, action); return true; } catch { return false; }
+  };
+  assert.equal(permis('CFS', 'entrepot.sortieedit'), true, 'la correction est ouverte a tous');
+  assert.equal(permis('CFS', 'entrepot.entreeedit'), true);
+  assert.equal(permis('CFS', 'entrepot.sortiedelete'), false, 'la suppression non');
+  assert.equal(permis('CHEF_BRIGADE', 'entrepot.entreedelete'), false);
+  assert.equal(permis('ADMIN', 'entrepot.entreedelete'), true);
+});

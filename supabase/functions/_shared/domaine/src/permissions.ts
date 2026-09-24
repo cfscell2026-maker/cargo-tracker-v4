@@ -193,6 +193,14 @@ export const PERMISSIONS: Record<string, Role[]> = {
   // seul, comme partout ailleurs dans l'application.
   'entrepot.edit': [ROLES.ADMIN, ROLES.CHEF_BRIGADE, ROLES.CHEF_DIVISION],
   'entrepot.delete': [ROLES.ADMIN],
+  /* DEPOTS ET APUREMENTS (2026-09-24, decision utilisateur) : la CORRECTION est
+     ouverte a tous — celui qui voit l'erreur la repare — et la SUPPRESSION est
+     reservee a l'administration, c'est-a-dire au seul role qui voit TOUS les
+     volets de l'application. */
+  'entrepot.entreeedit': TOUS_ROLES,
+  'entrepot.sortieedit': TOUS_ROLES,
+  'entrepot.entreedelete': [ROLES.ADMIN],
+  'entrepot.sortiedelete': [ROLES.ADMIN],
   // Saisie des entrées / sorties : opérationnel = CFS (+ ADMIN).
   'entrepot.entree': [ROLES.CFS, ROLES.ADMIN],
   'entrepot.sortie': [ROLES.CFS, ROLES.ADMIN],

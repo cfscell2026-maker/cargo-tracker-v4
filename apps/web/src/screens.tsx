@@ -999,7 +999,7 @@ function EcranEntrepot({ nav, type }: { nav: Nav; type: EntrepotType }) {
       ? <div className="card"><div className="empty">Aucun entrepôt {titre}. {peutGerer ? 'Créez-en un dans l\'onglet « Entrepôts ».' : 'Demandez à un chef d\'en créer un.'}</div></div>
       : onglet === 'entree' ? <EntrepotEntree type={type} entrepots={entrepots} />
         : onglet === 'sortie' ? <EntrepotSortie type={type} entrepots={entrepots} nav={nav} />
-          : onglet === 'stats' ? <EntrepotStats type={type} />
+          : onglet === 'stats' ? <EntrepotStats type={type} role={nav.user.role} />
             : <EntrepotGerer type={type} reload={reload} admin={nav.user.role === 'ADMIN'} />}
   </>;
 }
@@ -1332,10 +1332,10 @@ function EntrepotSortie({ type, entrepots, nav }: { type: EntrepotType; entrepot
  * cliquer un magasin ouvre le détail de ses entrées/articles ; cliquer une
  * quantité apurée ouvre la liste des déclarations venues apurer.
  */
-function EntrepotStats({ type }: { type: EntrepotType }) {
+function EntrepotStats({ type, role }: { type: EntrepotType; role: string }) {
   const indus = estIndus(type);
   const lib = indus ? 'Entrepôt' : 'Magasin';
-  const { data, loading } = useAsync<O>(() => call('entrepot.stats', { type }), [type]);
+  const { data, loading, reload } = useAsync<O>(() => call('entrepot.stats', { type }), [type]);
   const u = String(data?.['unite'] ?? 'colis') === 'poids' ? 'kg' : 'colis';
   const ents = (data?.['entrepots'] ?? []) as O[];
   const decls = (data?.['parDeclaration'] ?? []) as O[];
@@ -1352,47 +1352,204 @@ function EntrepotStats({ type }: { type: EntrepotType }) {
         : <Table cols={[['libelle', 'Déclaration'], ['entrepotCode', lib], ['entrees', `Entrées (${u})`], ['sorties', `Sorties (${u})`], ['restant', `Restant (${u})`]]}
           icones={{ libelle: 'document', entrepotCode: indus ? 'usine' : 'entrepot' }} rows={decls} />}
     </div>
-    {sel && <DetailEntrepotStats entrepot={sel} unite={u} lib={lib} onClose={() => setSel(null)} />}
+    {sel && <DetailEntrepotStats entrepot={sel} unite={u} lib={lib} role={role}
+      onClose={() => setSel(null)} onFait={reload} />}
   </>;
 }
 
+/** Combien d'entrées on montre d'emblée : les plus récentes suffisent à la
+ *  consultation courante, le reste s'ouvre d'un bouton. */
+const ENTREES_VISIBLES = 10;
+
+/**
+ * LES CONTENEURS D'UN DÉPÔT (2026-09-24, demande utilisateur).
+ *
+ * Ils s'affichaient en une phrase de vingt numéros séparés par des virgules :
+ * illisible, et l'œil ne pouvait ni compter ni repérer un numéro. Ils sont
+ * désormais posés en pastilles, triés, et dédoublonnés — un même conteneur
+ * saisi deux fois est compté une fois, et le doublon est signalé plutôt que
+ * caché.
+ */
+function ListeConteneurs({ conteneurs }: { conteneurs: string[] }) {
+  const propres = conteneurs.map((x) => String(x ?? '').trim().toUpperCase()).filter(Boolean);
+  const uniques = [...new Set(propres)].sort();
+  const doublons = propres.length - uniques.length;
+  if (!uniques.length) return null;
+  return <div className="tc-bloc">
+    <div className="help tc-entete">
+      <Icone nom="conteneur" taille={13} />
+      {uniques.length} conteneur{uniques.length > 1 ? 's' : ''} dépoté{uniques.length > 1 ? 's' : ''}
+      {doublons > 0 ? <span className="tc-doublon"> · {doublons} doublon{doublons > 1 ? 's' : ''} de saisie</span> : null}
+    </div>
+    <div className="tc-liste">{uniques.map((tc) => <span key={tc} className="tc-puce mono">{tc}</span>)}</div>
+  </div>;
+}
+
 /** Tiroir d'un magasin/entrepôt : ses entrées, chaque article (entrée / apuré / restant). */
-function DetailEntrepotStats({ entrepot, unite, lib, onClose }: { entrepot: O; unite: string; lib: string; onClose: () => void }) {
+function DetailEntrepotStats({ entrepot, unite, lib, role, onClose, onFait }: {
+  entrepot: O; unite: string; lib: string; role: string; onClose: () => void; onFait: () => void;
+}) {
   const code = String(entrepot['code']);
-  const { data, loading } = useAsync<{ rows: O[] }>(() => call('entrepot.entrees', { entrepotCode: code }), [code]);
-  const entrees = (data?.rows ?? []) as O[];
+  const { data, loading, reload } = useAsync<{ rows: O[] }>(() => call('entrepot.entrees', { entrepotCode: code }), [code]);
   const [apur, setApur] = useState<{ entreeId: string; numero: number; designation: string } | null>(null);
+  const [tout, setTout] = useState(false);
+  const [edite, setEdite] = useState<O | null>(null);
+  const [supprime, setSupprime] = useState<O | null>(null);
+  // Suppression réservée à l'administration : le seul rôle qui voit TOUS les
+  // volets de l'application (décision utilisateur).
+  const admin = role === ROLES.ADMIN;
+
+  // Les plus récentes d'abord : on consulte un magasin par son actualité.
+  const toutes = ((data?.rows ?? []) as O[]).slice()
+    .sort((a, b) => String(b['dateEntree'] ?? '').localeCompare(String(a['dateEntree'] ?? '')));
+  const entrees = tout ? toutes : toutes.slice(0, ENTREES_VISIBLES);
+  const reste = toutes.length - entrees.length;
+
+  const rafraichir = () => { reload(); onFait(); };
+
   return <Modal onClose={onClose}>
     <h2><span className="tp-pastille" aria-hidden="true"><Icone nom="entrepot" taille={18} /></span>{lib} {String(entrepot['nom'])} ({code})</h2>
     <div className="help" style={{ marginBottom: 8 }}>Entrées : {String(entrepot['entrees'])} {unite} · Sorties : {String(entrepot['sorties'])} {unite} · Restant : <b>{String(entrepot['restant'])}</b> {unite}</div>
-    {loading ? <Spinner /> : entrees.length === 0 ? <div className="empty">Aucune entrée.</div>
-      : entrees.map((e) => <div key={String(e['id'])} style={{ border: '1px solid var(--line)', borderRadius: 6, padding: 10, marginTop: 10 }}>
-        <div className="row" style={{ alignItems: 'center' }}>
-          <b className="mono" style={{ flex: 1 }}>{[e['numeroDeclaration'], e['anneeDeclaration'], e['bureauDeclaration'], e['typeDeclaration']].filter(Boolean).join(' · ')}</b>
-          <span className="help">{fmtDate(e['dateEntree'])}</span>
-        </div>
-        <div className="help">Déclarant {String(e['declarant'] || '—')}{e['conteneurise'] ? ` · conteneurs : ${((e['conteneurs'] as string[]) || []).join(', ') || '—'}` : ''}</div>
-        <div className="tbl" style={{ marginTop: 6 }}><table>
-          <thead><tr><th>Art.</th><th>Désignation</th><th>Entrée</th><th>Apuré</th><th>Restant</th></tr></thead>
-          <tbody>{(e['articles'] as O[]).map((a) => <tr key={String(a['numero'])}>
-            <td>{String(a['numero'])}</td><td>{String(a['designation'] || '—')}</td>
-            <td>{String(a['initial'])}</td>
-            <td>{Number(a['sorti']) > 0
-              ? <button className="ghost xs" onClick={() => setApur({ entreeId: String(e['id']), numero: Number(a['numero']), designation: String(a['designation'] || '') })}>{String(a['sorti'])} ▸</button>
-              : '0'}</td>
-            <td><b>{String(a['restant'])}</b></td>
-          </tr>)}</tbody>
-        </table></div>
-      </div>)}
-    {apur && <DetailApurements code={code} apur={apur} unite={unite} onClose={() => setApur(null)} />}
+    {loading ? <Spinner /> : toutes.length === 0 ? <div className="empty">Aucune entrée.</div>
+      : <>
+        <div className="help">{tout
+          ? `${toutes.length} dépôt(s), du plus récent au plus ancien`
+          : `Les ${entrees.length} dépôts les plus récents sur ${toutes.length}`}</div>
+        {entrees.map((e) => <div key={String(e['id'])} className="depot-bloc">
+          <div className="row" style={{ alignItems: 'center' }}>
+            <b className="mono" style={{ flex: 1 }}>{[e['numeroDeclaration'], e['anneeDeclaration'], e['bureauDeclaration'], e['typeDeclaration']].filter(Boolean).join(' · ')}</b>
+            <span className="help">{fmtDate(e['dateEntree'])}</span>
+          </div>
+          <div className="help">Déclarant {String(e['declarant'] || '—')}</div>
+          {e['conteneurise'] ? <ListeConteneurs conteneurs={(e['conteneurs'] as string[]) || []} /> : null}
+          <div className="tbl" style={{ marginTop: 6 }}><table>
+            <thead><tr><th>Art.</th><th>Désignation</th><th>Entrée</th><th>Apuré</th><th>Restant</th></tr></thead>
+            <tbody>{(e['articles'] as O[]).map((a) => <tr key={String(a['numero'])}>
+              <td>{String(a['numero'])}</td><td>{String(a['designation'] || '—')}</td>
+              <td>{String(a['initial'])}</td>
+              <td>{Number(a['sorti']) > 0
+                ? <button className="ghost xs" onClick={() => setApur({ entreeId: String(e['id']), numero: Number(a['numero']), designation: String(a['designation'] || '') })}>{String(a['sorti'])} ▸</button>
+                : '0'}</td>
+              <td><b>{String(a['restant'])}</b></td>
+            </tr>)}</tbody>
+          </table></div>
+          <div className="row depot-actions">
+            <button className="ghost xs" onClick={() => setEdite(e)}>Modifier</button>
+            {admin && <button className="ghost xs acts-suppr" onClick={() => setSupprime(e)}>Supprimer</button>}
+          </div>
+        </div>)}
+        {(reste > 0 || tout) && <div className="row" style={{ justifyContent: 'center', marginTop: 12 }}>
+          <button className="ghost" onClick={() => setTout(!tout)}>
+            {tout ? `Revenir aux ${ENTREES_VISIBLES} plus récents` : `Voir tous les dépôts (${toutes.length})`}
+          </button>
+        </div>}
+      </>}
+    {apur && <DetailApurements code={code} apur={apur} unite={unite} role={role}
+      onClose={() => setApur(null)} onFait={rafraichir} />}
+    {edite && <ModaleModifierDepot entree={edite} unite={unite} onClose={() => setEdite(null)}
+      onFait={() => { setEdite(null); rafraichir(); }} />}
+    {supprime && <ModaleSupprimerDepot entree={supprime} onClose={() => setSupprime(null)}
+      onFait={() => { setSupprime(null); rafraichir(); }} />}
+  </Modal>;
+}
+
+/** Correction d'un DÉPÔT : ouverte à tous (décision utilisateur). */
+function ModaleModifierDepot({ entree, unite, onClose, onFait }: { entree: O; unite: string; onClose: () => void; onFait: () => void }) {
+  const [declarant, setDeclarant] = useState(String(entree['declarant'] ?? ''));
+  const [conteneurs, setConteneurs] = useState(((entree['conteneurs'] as string[]) || []).join('\n'));
+  const articles0 = ((entree['articles'] as O[]) || []).map((a) => ({
+    designation: String(a['designation'] ?? ''), quantite: String(a['initial'] ?? ''), sorti: Number(a['sorti'] ?? 0),
+  }));
+  const [articles, setArticles] = useState(articles0);
+  const [busy, setBusy] = useState(false);
+  const majArticle = (i: number, patch: Partial<typeof articles0[0]>) =>
+    setArticles((a) => a.map((x, j) => (j === i ? { ...x, ...patch } : x)));
+
+  async function enregistrer() {
+    setBusy(true);
+    try {
+      const champ = unite === 'kg' ? 'poids' : 'nbColis';
+      const r = await call<O>('entrepot.entreeedit', {
+        id: String(entree['id']),
+        declarant,
+        conteneurs: conteneurs.split(/[\s,;]+/).map((x) => x.trim()).filter(Boolean),
+        articles: articles.map((a) => ({ designation: a.designation, [champ]: Number(a.quantite) || 0 })),
+      });
+      toast(r['inchange'] ? 'Aucune modification.' : 'Dépôt corrigé.', 'ok');
+      onFait();
+    } catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(false); }
+  }
+
+  return <Modal onClose={onClose}>
+    <h2>Corriger ce dépôt</h2>
+    <p className="help" style={{ marginTop: 0 }}>
+      Déclaration <b className="mono">{[entree['numeroDeclaration'], entree['anneeDeclaration'], entree['bureauDeclaration']].filter(Boolean).join(' · ')}</b>,
+      entrée le <b>{fmtDate(entree['dateEntree'])}</b>. Une quantité ne peut pas descendre sous ce qui est déjà apuré.
+    </p>
+    <label className="help">Déclarant</label>
+    <input value={declarant} onChange={(e) => setDeclarant(masks.upper(e.target.value))} />
+    <label className="help">Conteneurs (un par ligne, ou séparés par des espaces)</label>
+    <textarea className="mono" rows={4} value={conteneurs} onChange={(e) => setConteneurs(e.target.value.toUpperCase())} />
+    <div className="section-title" style={{ marginTop: 12 }}>Articles ({unite})</div>
+    {articles.map((a, i) => <div key={i} className="grid2" style={{ marginBottom: 6 }}>
+      <div><label className="help">Désignation {i + 1}</label>
+        <input value={a.designation} onChange={(e) => majArticle(i, { designation: masks.upper(e.target.value) })} /></div>
+      <div><label className="help">Quantité{a.sorti > 0 ? ` (déjà apuré : ${a.sorti})` : ''}</label>
+        <input inputMode="numeric" value={a.quantite} onChange={(e) => majArticle(i, { quantite: e.target.value.replace(/[^0-9.]/g, '') })} /></div>
+    </div>)}
+    <div className="row" style={{ marginTop: 12, justifyContent: 'flex-end' }}>
+      <button className="ghost" onClick={onClose}>Annuler</button>
+      <button disabled={busy} onClick={enregistrer}>{busy ? 'Enregistrement…' : 'Enregistrer'}</button>
+    </div>
+  </Modal>;
+}
+
+/** Suppression d'un DÉPÔT : administration seule, motif obligatoire. */
+function ModaleSupprimerDepot({ entree, onClose, onFait }: { entree: O; onClose: () => void; onFait: () => void }) {
+  const [motif, setMotif] = useState('');
+  const [busy, setBusy] = useState(false);
+  const apures = ((entree['articles'] as O[]) || []).reduce((n, a) => n + Number(a['sorti'] ?? 0), 0);
+
+  async function supprimer() {
+    setBusy(true);
+    try {
+      await call('entrepot.entreedelete', { id: String(entree['id']), motif });
+      toast('Dépôt supprimé.', 'ok'); onFait();
+    } catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(false); }
+  }
+
+  return <Modal onClose={onClose}>
+    <h2>Supprimer ce dépôt ?</h2>
+    <p className="help">
+      Déclaration <b className="mono">{[entree['numeroDeclaration'], entree['anneeDeclaration'], entree['bureauDeclaration']].filter(Boolean).join(' · ')}</b>,
+      entrée le <b>{fmtDate(entree['dateEntree'])}</b>. La ligne disparaît du sommier, définitivement.
+    </p>
+    {apures > 0 && <p className="help" style={{ color: 'var(--err)' }}>
+      Ce dépôt porte déjà <b>{apures}</b> apurement(s) : le serveur refusera la suppression tant
+      qu'ils existent. Supprimez-les d'abord, sinon le sommier ne se retrouverait plus.
+    </p>}
+    <label className="help">Motif de la suppression (obligatoire)</label>
+    <input value={motif} onChange={(e) => setMotif(e.target.value)} placeholder="ex. dépôt saisi deux fois" autoFocus />
+    <div className="row" style={{ marginTop: 12, justifyContent: 'flex-end' }}>
+      <button className="ghost" onClick={onClose}>Annuler</button>
+      <button className="acts-suppr-plein" disabled={busy || !motif.trim()} onClick={supprimer}>
+        {busy ? 'Suppression…' : 'Supprimer le dépôt'}
+      </button>
+    </div>
   </Modal>;
 }
 
 /** Tiroir « quantité apurée » : les déclarations venues apurer un article. */
-function DetailApurements({ code, apur, unite, onClose }: { code: string; apur: { entreeId: string; numero: number; designation: string }; unite: string; onClose: () => void }) {
-  const { data, loading } = useAsync<{ rows: O[] }>(
+function DetailApurements({ code, apur, unite, role, onClose, onFait }: {
+  code: string; apur: { entreeId: string; numero: number; designation: string }; unite: string;
+  role: string; onClose: () => void; onFait: () => void;
+}) {
+  const { data, loading, reload } = useAsync<{ rows: O[] }>(
     () => call('entrepot.sorties', { entrepotCode: code, entreeId: apur.entreeId, numeroArticle: apur.numero }), [code, apur.entreeId, apur.numero]);
   const champ = unite === 'kg' ? 'poids' : 'nbColis';
+  const admin = role === ROLES.ADMIN;
+  const [edite, setEdite] = useState<O | null>(null);
+  const [supprime, setSupprime] = useState<O | null>(null);
   const rows = ((data?.rows ?? []) as O[]).map((r) => {
     const scelles = ((r['scelles'] as string[]) || []).filter(Boolean);
     // Sorties récentes : N° camion + scellés. Anciennes : liste de châssis (véhicules).
@@ -1401,11 +1558,101 @@ function DetailApurements({ code, apur, unite, onClose }: { code: string; apur: 
       : ((r['vehicules'] as O[]) || []).map((v) => String(v['chassis'] ?? '')).filter(Boolean).join(', ');
     return { ...r, camion: camion || '—' };
   });
+
+  const rafraichir = () => { reload(); onFait(); };
+
   return <Modal onClose={onClose}>
     <h2><span className="tp-pastille" aria-hidden="true"><Icone nom="boites" taille={18} /></span>Apurements, article n°{apur.numero}{apur.designation ? ` (${apur.designation})` : ''}</h2>
     <p className="help" style={{ marginTop: 0 }}>Déclarations venues apurer cet article ({unite}).</p>
     {loading ? <Spinner /> : rows.length === 0 ? <div className="empty">Aucun apurement.</div>
-      : <Table cols={[['declaration', 'Déclaration d\'apurement'], [champ, `Quantité (${unite})`], ['dateSortie', 'Date'], ['camion', 'Camion / scellés'], ['agent', 'Agent']]} rows={rows} />}
+      : <Table cols={[['declaration', 'Déclaration d\'apurement'], [champ, `Quantité (${unite})`], ['dateSortie', 'Date'], ['camion', 'Camion / scellés'], ['agent', 'Agent']]}
+        rows={rows}
+        actions={(r) => <>
+          <button className="ghost xs" onClick={() => setEdite(r)}>Modifier</button>
+          {admin && <button className="ghost xs acts-suppr" onClick={() => setSupprime(r)}>Supprimer</button>}
+        </>} />}
+    {edite && <ModaleModifierApurement sortie={edite} unite={unite} onClose={() => setEdite(null)}
+      onFait={() => { setEdite(null); rafraichir(); }} />}
+    {supprime && <ModaleSupprimerApurement sortie={supprime} onClose={() => setSupprime(null)}
+      onFait={() => { setSupprime(null); rafraichir(); }} />}
+  </Modal>;
+}
+
+/** Correction d'un APUREMENT : ouverte à tous. */
+function ModaleModifierApurement({ sortie, unite, onClose, onFait }: { sortie: O; unite: string; onClose: () => void; onFait: () => void }) {
+  const kg = unite === 'kg';
+  const [quantite, setQuantite] = useState(String(kg ? (sortie['poids'] ?? '') : (sortie['nbColis'] ?? '')));
+  const [camion, setCamion] = useState(String(sortie['numeroCamion'] ?? ''));
+  const [scelles, setScelles] = useState(((sortie['scelles'] as string[]) || []).join(', '));
+  const [busy, setBusy] = useState(false);
+
+  async function enregistrer() {
+    setBusy(true);
+    try {
+      const r = await call<O>('entrepot.sortieedit', {
+        id: String(sortie['id']),
+        [kg ? 'poids' : 'nbColis']: Number(quantite) || 0,
+        numeroCamion: camion,
+        scelles: scelles.split(/[,;]+/).map((x) => x.trim()).filter(Boolean),
+      });
+      toast(r['inchange'] ? 'Aucune modification.' : 'Apurement corrigé.', 'ok');
+      onFait();
+    } catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(false); }
+  }
+
+  return <Modal onClose={onClose}>
+    <h2>Corriger cet apurement</h2>
+    <p className="help" style={{ marginTop: 0 }}>
+      Apurement <b className="mono">{String(sortie['id'])}</b> du <b>{fmtDate(sortie['dateSortie'])}</b>.
+      La quantité reste bornée par ce qui restait sur l'article.
+    </p>
+    <div className="grid2">
+      <div><label className="help">Quantité ({unite})</label>
+        <input inputMode="numeric" value={quantite} onChange={(e) => setQuantite(e.target.value.replace(/[^0-9.]/g, ''))} autoFocus /></div>
+      <div><label className="help">N° camion</label>
+        <input className="mono" value={camion} onChange={(e) => setCamion(masks.upper(e.target.value))} /></div>
+    </div>
+    <label className="help">Scellés (séparés par des virgules)</label>
+    <input className="mono" value={scelles} onChange={(e) => setScelles(masks.upper(e.target.value))} />
+    <div className="row" style={{ marginTop: 12, justifyContent: 'flex-end' }}>
+      <button className="ghost" onClick={onClose}>Annuler</button>
+      <button disabled={busy || !quantite.trim()} onClick={enregistrer}>{busy ? 'Enregistrement…' : 'Enregistrer'}</button>
+    </div>
+  </Modal>;
+}
+
+/** Suppression d'un APUREMENT : administration seule, motif obligatoire. */
+function ModaleSupprimerApurement({ sortie, onClose, onFait }: { sortie: O; onClose: () => void; onFait: () => void }) {
+  const [motif, setMotif] = useState('');
+  const [busy, setBusy] = useState(false);
+  const cargaison = String(sortie['cargaisonId'] ?? '');
+
+  async function supprimer() {
+    setBusy(true);
+    try {
+      await call('entrepot.sortiedelete', { id: String(sortie['id']), motif });
+      toast('Apurement supprimé.', 'ok'); onFait();
+    } catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(false); }
+  }
+
+  return <Modal onClose={onClose}>
+    <h2>Supprimer cet apurement ?</h2>
+    <p className="help">
+      Apurement <b className="mono">{String(sortie['id'])}</b> du <b>{fmtDate(sortie['dateSortie'])}</b>.
+      La quantité revient au restant de l'article, et la ligne disparaît définitivement.
+    </p>
+    {cargaison && <p className="help" style={{ color: 'var(--err)' }}>
+      Cet apurement a créé le camion <b className="mono">{cargaison}</b> : le serveur refusera la
+      suppression tant que ce dossier vit. Annulez-le d'abord.
+    </p>}
+    <label className="help">Motif de la suppression (obligatoire)</label>
+    <input value={motif} onChange={(e) => setMotif(e.target.value)} placeholder="ex. apurement saisi par erreur" autoFocus />
+    <div className="row" style={{ marginTop: 12, justifyContent: 'flex-end' }}>
+      <button className="ghost" onClick={onClose}>Annuler</button>
+      <button className="acts-suppr-plein" disabled={busy || !motif.trim()} onClick={supprimer}>
+        {busy ? 'Suppression…' : 'Supprimer l\'apurement'}
+      </button>
+    </div>
   </Modal>;
 }
 

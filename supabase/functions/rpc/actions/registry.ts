@@ -81,6 +81,12 @@ export const ACTIONS: Record<string, H> = {
   'entrepot.sortie': d(entrepot.entrepotSortie),
   'entrepot.stats': d(entrepot.entrepotStats),
   'entrepot.sorties': d(entrepot.entrepotSortiesDetail), // v4.1 : détail des apurements
+  // 2026-09-24 : reprendre un depot ou un apurement mal saisi. Correction pour
+  // tous, suppression pour l'administration, motif obligatoire.
+  'entrepot.entreeedit': d(entrepot.entrepotEntreeEdit),
+  'entrepot.entreedelete': d(entrepot.entrepotEntreeSupprimer),
+  'entrepot.sortieedit': d(entrepot.entrepotSortieEdit),
+  'entrepot.sortiedelete': d(entrepot.entrepotSortieSupprimer),
 
   /* ----- Spéciaux ----- */
   'cargo.create': d(spe.create),
