@@ -1439,9 +1439,14 @@ function DetailEntrepotStats({ entrepot, unite, lib, role, onClose, onFait }: {
     <h2><span className="tp-pastille" aria-hidden="true"><Icone nom="entrepot" taille={18} /></span>{lib} {String(entrepot['nom'])} ({code})</h2>
     <div className="help" style={{ marginBottom: 8 }}>Entrées : {String(entrepot['entrees'])} {unite} · Sorties : {String(entrepot['sorties'])} {unite} · Restant : <b>{String(entrepot['restant'])}</b> {unite}</div>
     <div className="row depot-recherche">
-      <input value={q} onChange={(e) => setQ(e.target.value)}
-        placeholder="Déclaration, déclarant, conteneur, marchandise…"
-        title="Cherche dans les déclarations, les déclarants, les marchandises et les N° de conteneurs" />
+      {/* La loupe DANS le champ : elle dit à quoi il sert avant qu'on ait lu
+          le texte grisé, qui disparaît dès la première frappe. */}
+      <span className="champ-loupe">
+        <Icone nom="loupe" taille={15} />
+        <input value={q} onChange={(e) => setQ(e.target.value)}
+          placeholder="Déclaration, déclarant, conteneur, marchandise…"
+          title="Cherche dans les déclarations, les déclarants, les marchandises et les N° de conteneurs" />
+      </span>
       {cherche && <button className="ghost xs" onClick={() => setQ('')}>Effacer</button>}
     </div>
     {loading ? <Spinner /> : toutes.length === 0

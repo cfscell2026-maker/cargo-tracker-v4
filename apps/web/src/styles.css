@@ -1714,9 +1714,13 @@ tr.clk{cursor:pointer} tr.clk:hover{background:var(--accent-soft)}
    pastilles, l'oeil compte et repere ; la grille se resserre d'elle-meme sur
    un telephone. */
 .depot-bloc{border:1px solid var(--line);border-radius:10px;padding:10px;margin-top:10px}
-/* La recherche du tiroir : pleine largeur, collee au bilan qu'elle affine. */
+/* La recherche du tiroir : pleine largeur, collee au bilan qu'elle affine.
+   La loupe est POSEE DANS le champ, le texte se decale pour lui laisser la
+   place ; elle ne capte pas le clic, qui revient au champ. */
 .depot-recherche{gap:8px;align-items:center;margin-bottom:6px}
-.depot-recherche input{flex:1;min-width:0}
+.champ-loupe{position:relative;display:flex;align-items:center;flex:1;min-width:0}
+.champ-loupe > svg{position:absolute;left:11px;color:var(--muted);pointer-events:none}
+.champ-loupe input{flex:1;min-width:0;padding-left:34px}
 .depot-actions{justify-content:flex-end;gap:8px;margin-top:8px}
 .tc-bloc{margin-top:6px}
 .tc-entete{display:flex;align-items:center;gap:6px;margin:0 0 5px}
