@@ -18,7 +18,7 @@ import * as XLSX from 'xlsx';
 import { call } from './lib/rpc.ts';
 import { useAsync } from './lib/hooks.ts';
 import { Icone } from './lib/icones.tsx';
-import { Spinner, StatCard, Modal, masks, toast, fmtDate, fmtJour, ChampCamion, ChoixSegmente } from './lib/ui.tsx';
+import { Spinner, StatCard, Modal, masks, toast, fmtDate, fmtJour, ChampCamion, ChoixSegmente, BoutonBascule } from './lib/ui.tsx';
 import { BandeauModule, useReportRange } from './screens.tsx';
 import type { ModePeriode } from './lib/periode.ts';
 import type { Nav } from './App.tsx';
@@ -290,10 +290,15 @@ export function ModaleAjoutParking({ onClose, onFait }: { onClose: () => void; o
         <input className="mono" value={plomb} onChange={(e) => setPlomb(masks.upper(e.target.value))} />
       </div>
     </div>
-    <label className="help" style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 10 }}>
-      <input type="checkbox" style={{ width: 'auto' }} checked={pointer} onChange={(e) => setPointer(e.target.checked)} />
-      <span>Pointer ce camion maintenant (présence du jour)</span>
-    </label>
+    {/* UN BOUTON, PAS UNE CASE A COCHER (2026-09-24, demande utilisateur). Le
+        pointage est un GESTE ; il se clique, et la mention a cote dit ce que
+        le clic change. Le voyant allume rappelle l'etat retenu. */}
+    <div className="park-pointer">
+      <BoutonBascule actif={pointer} onChange={setPointer} libelle="Pointer maintenant" icone="valider" />
+      <span className="help">{pointer
+        ? "Ce camion sera compté présent aujourd'hui."
+        : 'Cliquez si vous voulez le pointer tout de suite.'}</span>
+    </div>
     {/* CE QUI MANQUE, ECRIT NOIR SUR BLANC (2026-09-24). Le bouton grisé
         laissait deviner qu'il attendait quelque chose, sans dire quoi. */}
     <div className="row park-pied" style={{ marginTop: 12 }}>
