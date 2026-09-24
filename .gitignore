@@ -25,3 +25,8 @@ comptes-provisoires.csv
 scripts/migration/backup_data.sql
 scripts/migration/conteneurs-rejetes.csv
 scripts/migration/supabase/.temp/
+
+# Exports de l'éditeur SQL Supabase et rapprochements avec la PIA : listes de
+# conteneurs réels tirées de la production. Même règle — ils restent en local.
+*.csv
+scripts/diagnostic/rapprochement-pia-*.sql

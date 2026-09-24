@@ -851,7 +851,7 @@ export async function ficheBord(ctx: Ctx, p: Record<string, unknown>) {
     // « Camions au parking » = PHYSIQUEMENT au parc en attente de pose de balise :
     // tout camion à qui il reste la BALISE à faire (qu'il soit ou non déjà validé
     // / passé au T1). On garde donc la MEMBRESHIP parallèle (etapesEnAttente), et
-    // NON la file unique (fileAttente), ici on compte une présence au parc, pas
+    // NON la file unique (fileAttente) — ici on compte une présence au parc, pas
     // une place dans la file séquentielle du tableau de bord.
     if (etapesEnAttente(c as never).indexOf('BALISE') >= 0) balise.parking++;
 
