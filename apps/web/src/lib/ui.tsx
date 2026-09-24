@@ -933,13 +933,15 @@ export function ChampCamion({ value, onChange, label = 'N° de camion', style, a
         doit pouvoir être enregistré. L'aide PROPOSE donc les deux formes au lieu
         d'en imposer une, et l'alerte ne se déclenche plus que sur une saisie
         manifestement avortée. */}
+    {/* UNE LIGNE COURTE, PAS UN PARAGRAPHE (2026-09-24, demande utilisateur).
+        Les deux mentions tenaient sur trois lignes dans une fenêtre étroite et
+        pesaient plus que le champ qu'elles accompagnent. Le format complet
+        reste donné en exemple, mais sans la phrase qui l'entourait. */}
     {invalide
       ? <div className="help" style={{ color: 'var(--err)' }}>
-        Saisie trop courte : indiquez la plaque complète, par exemple{' '}
-        <span className="mono">TG2489BK</span>, ou l'ensemble{' '}
-        <span className="mono">TG2489BK/2725BP</span>.
+        Plaque incomplète (ex. <span className="mono">TG2489BK</span>).
       </div>
-      : <div className="help">Plaque seule, ou tracteur et remorque séparés par « / ».</div>}
+      : <div className="help">Plaque seule ou tracteur/remorque.</div>}
     {/* Antécédents du camion, s'affiche dès que la plaque est complète, sur
         TOUS les champs de saisie puisque le composant est unique. */}
     <PassagesAnterieurs numeroCamion={value} excludeId={excludeId} />
