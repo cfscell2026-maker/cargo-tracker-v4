@@ -1714,6 +1714,9 @@ tr.clk{cursor:pointer} tr.clk:hover{background:var(--accent-soft)}
    pastilles, l'oeil compte et repere ; la grille se resserre d'elle-meme sur
    un telephone. */
 .depot-bloc{border:1px solid var(--line);border-radius:10px;padding:10px;margin-top:10px}
+/* La recherche du tiroir : pleine largeur, collee au bilan qu'elle affine. */
+.depot-recherche{gap:8px;align-items:center;margin-bottom:6px}
+.depot-recherche input{flex:1;min-width:0}
 .depot-actions{justify-content:flex-end;gap:8px;margin-top:8px}
 .tc-bloc{margin-top:6px}
 .tc-entete{display:flex;align-items:center;gap:6px;margin:0 0 5px}

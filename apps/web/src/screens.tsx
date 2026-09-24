@@ -1385,6 +1385,29 @@ function ListeConteneurs({ conteneurs }: { conteneurs: string[] }) {
   </div>;
 }
 
+/**
+ * RECHERCHE DANS UN MAGASIN (2026-09-24, demande utilisateur). Un magasin porte
+ * des dizaines de dépôts et des centaines de conteneurs : sans recherche, on
+ * déroule. Elle porte sur TOUT ce qui identifie un dépôt — déclaration,
+ * déclarant, marchandise et numéro de conteneur — et ignore espaces et tirets,
+ * comme partout ailleurs dans l'application.
+ */
+function depotCorrespond(e: O, q: string): boolean {
+  if (!q) return true;
+  const brut = q.trim().toUpperCase();
+  const alnum = brut.replace(/[^A-Z0-9]/g, '');
+  const champs = [
+    String(e['numeroDeclaration'] ?? ''), String(e['anneeDeclaration'] ?? ''),
+    String(e['bureauDeclaration'] ?? ''), String(e['typeDeclaration'] ?? ''),
+    String(e['declarant'] ?? ''),
+    ...((e['articles'] as O[]) ?? []).map((a) => String(a['designation'] ?? '')),
+  ].join(' ').toUpperCase();
+  if (champs.includes(brut)) return true;
+  if (!alnum) return false;
+  // Conteneurs : comparaison sur les seules lettres et chiffres.
+  return ((e['conteneurs'] as string[]) ?? []).some((tc) => String(tc ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '').includes(alnum));
+}
+
 /** Tiroir d'un magasin/entrepôt : ses entrées, chaque article (entrée / apuré / restant). */
 function DetailEntrepotStats({ entrepot, unite, lib, role, onClose, onFait }: {
   entrepot: O; unite: string; lib: string; role: string; onClose: () => void; onFait: () => void;
@@ -1393,6 +1416,7 @@ function DetailEntrepotStats({ entrepot, unite, lib, role, onClose, onFait }: {
   const { data, loading, reload } = useAsync<{ rows: O[] }>(() => call('entrepot.entrees', { entrepotCode: code }), [code]);
   const [apur, setApur] = useState<{ entreeId: string; numero: number; designation: string } | null>(null);
   const [tout, setTout] = useState(false);
+  const [q, setQ] = useState('');
   const [edite, setEdite] = useState<O | null>(null);
   const [supprime, setSupprime] = useState<O | null>(null);
   // Suppression réservée à l'administration : le seul rôle qui voit TOUS les
@@ -1400,9 +1424,13 @@ function DetailEntrepotStats({ entrepot, unite, lib, role, onClose, onFait }: {
   const admin = role === ROLES.ADMIN;
 
   // Les plus récentes d'abord : on consulte un magasin par son actualité.
-  const toutes = ((data?.rows ?? []) as O[]).slice()
+  const recues = ((data?.rows ?? []) as O[]).slice()
     .sort((a, b) => String(b['dateEntree'] ?? '').localeCompare(String(a['dateEntree'] ?? '')));
-  const entrees = tout ? toutes : toutes.slice(0, ENTREES_VISIBLES);
+  const cherche = q.trim() !== '';
+  const toutes = cherche ? recues.filter((e) => depotCorrespond(e, q)) : recues;
+  // Une recherche montre TOUT ce qu'elle trouve : la limite des dix ne vaut
+  // que pour la consultation courante.
+  const entrees = (tout || cherche) ? toutes : toutes.slice(0, ENTREES_VISIBLES);
   const reste = toutes.length - entrees.length;
 
   const rafraichir = () => { reload(); onFait(); };
@@ -1410,11 +1438,20 @@ function DetailEntrepotStats({ entrepot, unite, lib, role, onClose, onFait }: {
   return <Modal onClose={onClose}>
     <h2><span className="tp-pastille" aria-hidden="true"><Icone nom="entrepot" taille={18} /></span>{lib} {String(entrepot['nom'])} ({code})</h2>
     <div className="help" style={{ marginBottom: 8 }}>Entrées : {String(entrepot['entrees'])} {unite} · Sorties : {String(entrepot['sorties'])} {unite} · Restant : <b>{String(entrepot['restant'])}</b> {unite}</div>
-    {loading ? <Spinner /> : toutes.length === 0 ? <div className="empty">Aucune entrée.</div>
+    <div className="row depot-recherche">
+      <input value={q} onChange={(e) => setQ(e.target.value)}
+        placeholder="Déclaration, déclarant, conteneur, marchandise…"
+        title="Cherche dans les déclarations, les déclarants, les marchandises et les N° de conteneurs" />
+      {cherche && <button className="ghost xs" onClick={() => setQ('')}>Effacer</button>}
+    </div>
+    {loading ? <Spinner /> : toutes.length === 0
+      ? <div className="empty">{cherche ? 'Aucun dépôt ne correspond à cette recherche.' : 'Aucune entrée.'}</div>
       : <>
-        <div className="help">{tout
-          ? `${toutes.length} dépôt(s), du plus récent au plus ancien`
-          : `Les ${entrees.length} dépôts les plus récents sur ${toutes.length}`}</div>
+        <div className="help">{cherche
+          ? `${toutes.length} dépôt(s) trouvé(s) sur ${recues.length}`
+          : tout
+            ? `${toutes.length} dépôt(s), du plus récent au plus ancien`
+            : `Les ${entrees.length} dépôts les plus récents sur ${toutes.length}`}</div>
         {entrees.map((e) => <div key={String(e['id'])} className="depot-bloc">
           <div className="row" style={{ alignItems: 'center' }}>
             <b className="mono" style={{ flex: 1 }}>{[e['numeroDeclaration'], e['anneeDeclaration'], e['bureauDeclaration'], e['typeDeclaration']].filter(Boolean).join(' · ')}</b>
@@ -1438,7 +1475,7 @@ function DetailEntrepotStats({ entrepot, unite, lib, role, onClose, onFait }: {
             {admin && <button className="ghost xs acts-suppr" onClick={() => setSupprime(e)}>Supprimer</button>}
           </div>
         </div>)}
-        {(reste > 0 || tout) && <div className="row" style={{ justifyContent: 'center', marginTop: 12 }}>
+        {!cherche && (reste > 0 || tout) && <div className="row" style={{ justifyContent: 'center', marginTop: 12 }}>
           <button className="ghost" onClick={() => setTout(!tout)}>
             {tout ? `Revenir aux ${ENTREES_VISIBLES} plus récents` : `Voir tous les dépôts (${toutes.length})`}
           </button>
