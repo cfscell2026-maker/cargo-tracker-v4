@@ -846,16 +846,29 @@ function PanneauT1({ c, dets, action }: { c: O; dets: ReturnType<typeof parseCon
   async function valider() {
     const t1Numeros = estEnl
       ? dets.conteneurs.map((ct, i) => ({ conteneur: ct.num, numero: nums[i] })).filter((x) => x.numero)
-      : nums.filter(Boolean);
+      : nums.map((x) => x.trim()).filter(Boolean);
     await action(() => call('cargo.t1', { id, bureauDestination: bureau, t1Numeros }), 'T1 enregistré.');
   }
+  /* DÉPOTAGE : AUTANT DE T1 QUE NÉCESSAIRE (2026-09-24, demande utilisateur).
+     La marchandise d'un même camion peut voyager sous plusieurs T1. Le serveur
+     l'acceptait déjà (il reçoit une liste) ; seul l'écran n'offrait qu'un champ.
+     En enlèvement, rien ne change : un T1 par conteneur, lié à son conteneur. */
+  const ajouterT1 = () => setNums((a) => [...a, '']);
+  const retirerT1 = (i: number) => setNums((a) => (a.length > 1 ? a.filter((_, j) => j !== i) : a));
   return <div className="card"><TitrePanneau icone="t1" etape="t1">Cellule T1</TitrePanneau>
     <Champ label="Bureau de destination" value={bureau} onChange={(e) => setBureau(masks.upper(e.target.value))} />
     <div className="section-title">Numéros T1 {estEnl ? '(1 par conteneur)' : '(1 ou plusieurs)'}</div>
     {estEnl ? dets.conteneurs.map((ct, i) => (
       <div key={i} className="row" style={{ marginBottom: 6 }}><span className="mono" style={{ minWidth: 130 }}>{ct.num}</span>
         <input value={nums[i]} onChange={(e) => setNums((a) => a.map((x, j) => j === i ? masks.upper(e.target.value) : x))} placeholder="N° T1" /></div>
-    )) : <input value={nums[0]} onChange={(e) => setNums([masks.upper(e.target.value)])} placeholder="N° T1" />}
+    )) : <>
+      {nums.map((v, i) => <div key={i} className="row" style={{ marginBottom: 6, alignItems: 'center' }}>
+        <input value={v} placeholder={nums.length > 1 ? `N° T1 ${i + 1}` : 'N° T1'}
+          onChange={(e) => setNums((a) => a.map((x, j) => j === i ? masks.upper(e.target.value) : x))} />
+        {nums.length > 1 && <button className="ghost xs" onClick={() => retirerT1(i)} title="Retirer cette ligne">Retirer</button>}
+      </div>)}
+      <button className="ghost xs" onClick={ajouterT1}><Icone nom="plus" taille={14} />Ajouter un T1</button>
+    </>}
     <div style={{ marginTop: 12 }}><button onClick={valider}>Enregistrer le T1</button></div>
   </div>;
 }
@@ -1261,9 +1274,12 @@ function PanneauT1Edit({ c, dets, action }: { c: O; dets: ReturnType<typeof pars
   async function enregistrer() {
     const t1Numeros = estEnl
       ? dets.conteneurs.map((ct, i) => ({ conteneur: ct.num, numero: nums[i] })).filter((x) => x.numero)
-      : nums.filter(Boolean);
+      : nums.map((x) => x.trim()).filter(Boolean);
     await action(() => call('cargo.t1edit', { id, bureauDestination: bureau, t1Numeros }), 'T1 corrigé.');
   }
+  // La correction suit la saisie : en dépotage, on ajoute ou on retire un T1.
+  const ajouterT1 = () => setNums((a) => [...a, '']);
+  const retirerT1 = (i: number) => setNums((a) => (a.length > 1 ? a.filter((_, j) => j !== i) : ['']));
 
   return <details style={EDIT_ITEM}><summary style={{ cursor: 'pointer', fontWeight: 600 }}>Corriger le T1</summary>
     <p className="help" style={{ marginTop: 10 }}>
@@ -1277,10 +1293,14 @@ function PanneauT1Edit({ c, dets, action }: { c: O; dets: ReturnType<typeof pars
         <span className="mono" style={{ minWidth: 130 }}>{ct.num}</span>
         <input value={nums[i] ?? ''} onChange={(e) => setNums((o) => o.map((v, k) => k === i ? masks.upper(e.target.value) : v))} />
       </div>
-    )) : nums.map((v, i) => (
-      <input key={i} style={{ marginBottom: 6 }} value={v}
-        onChange={(e) => setNums((o) => o.map((x, k) => k === i ? masks.upper(e.target.value) : x))} />
-    ))}
+    )) : <>
+      {nums.map((v, i) => <div key={i} className="row" style={{ marginBottom: 6, alignItems: 'center' }}>
+        <input value={v} placeholder={nums.length > 1 ? `N° T1 ${i + 1}` : 'N° T1'}
+          onChange={(e) => setNums((o) => o.map((x, k) => k === i ? masks.upper(e.target.value) : x))} />
+        <button className="ghost xs" onClick={() => retirerT1(i)} title="Retirer cette ligne">Retirer</button>
+      </div>)}
+      <button className="ghost xs" onClick={ajouterT1}><Icone nom="plus" taille={14} />Ajouter un T1</button>
+    </>}
     <button style={{ marginTop: 8 }} onClick={enregistrer}>Enregistrer la correction</button>
   </details>;
 }

@@ -1834,14 +1834,30 @@ export async function t1edit(ctx: Ctx, p: Record<string, unknown>) {
   const brut = Array.isArray(p['t1Numeros']) ? (p['t1Numeros'] as unknown[]) : null;
   if (!brut || !brut.length) throw new ErreurMetier('Indiquez au moins un numéro T1.');
 
+  /* MÊME NETTOYAGE QUE LA SAISIE (2026-09-24). La correction écrivait la charge
+     utile TELLE QUELLE : elle pouvait donc déposer des numéros en double, des
+     lignes vides, ou une forme différente de celle posée par `t1()`. Une
+     correction ne doit pas pouvoir écrire ce que la saisie refuse. */
+  const items = brut
+    .map((o) =>
+      o && typeof o === 'object'
+        ? { conteneur: maj((o as Record<string, unknown>)['conteneur'], 20), numero: maj((o as Record<string, unknown>)['numero'], 40) }
+        : { conteneur: '', numero: maj(o, 40) },
+    )
+    .filter((o) => o.numero);
+  if (!items.length) throw new ErreurMetier('Indiquez au moins un numéro T1.');
+  const numeros = items.map((o) => o.numero);
+  if (new Set(numeros).size !== numeros.length)
+    throw new ErreurMetier('Les numéros T1 doivent être distincts.');
+
   const avant = JSON.stringify(c['t1Numeros'] ?? []);
   await patchCargo(ctx, cargo, {
     bureau_destination: bureau,
-    t1_numeros: brut,
+    t1_numeros: items,
     observations_t1: p['observations'] !== undefined ? txt(p['observations'], 1000) : c['observationsT1'],
   });
   await ctx.log('Correction T1', id,
-    'Avant ' + avant.slice(0, 300) + ' → après ' + JSON.stringify(brut).slice(0, 300) + ' · bureau ' + bureau);
+    'Avant ' + avant.slice(0, 300) + ' → après ' + JSON.stringify(items).slice(0, 300) + ' · bureau ' + bureau);
   return { id };
 }
 

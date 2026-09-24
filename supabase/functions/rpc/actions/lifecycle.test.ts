@@ -3421,3 +3421,24 @@ test('chaine stricte : pas de bon de sortie sans balise, pas de balise sans T1',
   await ecr.gps(ctxRole(db2, 'ADMIN', 'Admin'), { id: r2.id, baliseRequise: 'Oui', t1Correct: 'Oui', numeroGPS: 'G2' });
   assert.ok(versCamel(db2.store['cargaisons'][0]!)['datePoseGps'], "l'ADMIN passe outre la chaine");
 });
+
+test('depotage : plusieurs T1 sur un meme camion, numeros distincts exiges', async () => {
+  const db = new FakeDB();
+  db.store['stock'].push({ numero_tc: 'TCNU6451183', taille: "40'", statut: 'Positionné' });
+  const { cfs, id } = await depotagePret(db, 'MT1001/RM01');
+  // Transit (type T) : le T1 est bien attendu — un type C le sauterait.
+  await ecr.cfs(cfs, { id, declaration: { ...DECL_PNT, typeDeclaration: 'T' }, conteneur: { num: 'TCNU6451183', taille: "40'", type: 'DRY' } });
+  await ecr.declaration(cfs, { id, hauteurChargement: '3', nbColis: '10', scellesCamion: ['S1', 'S2'] });
+  const t1 = ctxRole(db, 'T1', 'Agent T1');
+
+  // Trois T1 pour un seul camion : accepte en depotage.
+  await ecr.t1(t1, { id, bureauDestination: 'TG120', t1Numeros: ['T1-A', 'T1-B', 'T1-C'] });
+  const stockes = versCamel(db.store['cargaisons'][0]!)['t1Numeros'] as { numero: string }[];
+  assert.equal(stockes.length, 3);
+  assert.deepEqual(stockes.map((x) => x.numero), ['T1-A', 'T1-B', 'T1-C']);
+
+  // Mais deux fois le meme numero reste refuse.
+  await assert.rejects(
+    () => ecr.t1edit(t1, { id, bureauDestination: 'TG120', t1Numeros: ['T1-A', 'T1-A'] }),
+    /distincts/);
+});
