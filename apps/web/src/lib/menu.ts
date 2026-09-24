@@ -42,7 +42,7 @@ export const MENUS: Record<string, MenuItem[]> = {
     ['dash', 'Tableau de bord', 'tableau'], ['wait_valid', 'À valider', 'valider'],
     // 2026-09-17 : le volet des engagements — tous les camions engages, et les
     // trois gestes (solder, corriger, retirer) au meme endroit.
-    ['engagements', 'Engagements', 'sablier'], ['search', 'Recherche (en cours)', 'loupe'],
+    ['engagements', 'Engagements', 'sablier'], ['parking', 'Parking', 'parking'], ['search', 'Recherche (en cours)', 'loupe'],
     ['list', 'Cargaisons', 'liste'], ['vehicules', 'Véhicules', 'voiture'],
     ['etatcfs', 'Pointage camions (sortie)', 'presse'], ['chargement', 'Bon de chargement', 'document'],
     ['cfsreport', 'Rapport CFS', 'rapport'], ['vehreport', 'Rapport véhicules', 'rapport'], ['baliserep', 'Rapport Balise', 'rapport'],
@@ -50,28 +50,28 @@ export const MENUS: Record<string, MenuItem[]> = {
     ['dispenses', 'Dispenses', 'drapeau'],
     ['flux', 'Analyse des flux', 'flux'], ['destinations', 'Par destination', 'carte'], ['controles', 'Contrôles (gabarit/surcharge)', 'balance'],
     ['dwell', 'Délai & instance', 'horloge'], ['stockdwell', 'Séjour conteneurs', 'horloge'], ['temps', 'Temps de passage', 'sablier'],
-    ['horodatage', 'Heures d\'activité', 'horloge'], ['parking', 'Parking', 'parking'], ['account', 'Mon compte', 'compte'],
+    ['horodatage', 'Heures d\'activité', 'horloge'], ['account', 'Mon compte', 'compte'],
   ],
   CHEF_BRIGADE_ADJOINT: [
-    ['engagements', 'Engagements', 'sablier'],
+    ['engagements', 'Engagements', 'sablier'], ['parking', 'Parking', 'parking'],
     ['search', 'Recherche (en cours)', 'loupe'], ['list', 'Cargaisons', 'liste'], ['vehicules', 'Véhicules', 'voiture'],
     ['controles', 'Contrôles (gabarit/surcharge)', 'balance'], ['temps', 'Temps de passage', 'sablier'],
-    ['horodatage', 'Heures d\'activité', 'horloge'], ['parking', 'Parking', 'parking'], ['account', 'Mon compte', 'compte'],
+    ['horodatage', 'Heures d\'activité', 'horloge'], ['account', 'Mon compte', 'compte'],
   ],
   // CBPI — chef brigade par intérim : UNIQUEMENT la file « À valider » (+ son
   // compte). Aucun autre écran : c'est une délégation de signature, rien d'autre.
   CBPI: [['wait_valid', 'À valider', 'valider'], ['account', 'Mon compte', 'compte']],
   CHEF_VISITE: [
-    ['dash', 'Tableau de bord', 'tableau'], ['engagements', 'Engagements', 'sablier'],
+    ['dash', 'Tableau de bord', 'tableau'], ['engagements', 'Engagements', 'sablier'], ['parking', 'Parking', 'parking'],
     ['search', 'Recherche (en cours)', 'loupe'], ['list', 'Cargaisons', 'liste'],
     ['vehicules', 'Véhicules', 'voiture'], ['controles', 'Contrôles (gabarit/surcharge)', 'balance'],
-    ['temps', 'Temps de passage', 'sablier'], ['horodatage', 'Heures d\'activité', 'horloge'], ['parking', 'Parking', 'parking'], ['account', 'Mon compte', 'compte'],
+    ['temps', 'Temps de passage', 'sablier'], ['horodatage', 'Heures d\'activité', 'horloge'], ['account', 'Mon compte', 'compte'],
   ],
   CHEF_DIVISION: [
-    ['dash', 'Tableau de bord', 'tableau'], ['engagements', 'Engagements', 'sablier'],
+    ['dash', 'Tableau de bord', 'tableau'], ['engagements', 'Engagements', 'sablier'], ['parking', 'Parking', 'parking'],
     ['search', 'Recherche (en cours)', 'loupe'], ['list', 'Cargaisons', 'liste'],
     ['vehicules', 'Véhicules', 'voiture'], ['controles', 'Contrôles (gabarit/surcharge)', 'balance'],
-    ['temps', 'Temps de passage', 'sablier'], ['horodatage', 'Heures d\'activité', 'horloge'], ['parking', 'Parking', 'parking'], ['account', 'Mon compte', 'compte'],
+    ['temps', 'Temps de passage', 'sablier'], ['horodatage', 'Heures d\'activité', 'horloge'], ['account', 'Mon compte', 'compte'],
   ],
   T1: [
     ['t1', 'Cellule T1', 't1'], ['wait_t1', 'En attente T1', 'attente'], ['search', 'Recherche (en cours)', 'loupe'],
@@ -97,7 +97,7 @@ export const MENUS: Record<string, MenuItem[]> = {
   ADMIN: [
     ['dash', 'Tableau de bord', 'tableau'], ['creercamion', 'Créer un camion', 'camionPlus'],
     ['completer', 'Saisir / compléter', 'crayon'], ['wait_valid', 'À valider', 'valider'],
-    ['engagements', 'Engagements', 'sablier'],
+    ['engagements', 'Engagements', 'sablier'], ['parking', 'Parking', 'parking'],
     ['search', 'Recherche (en cours)', 'loupe'], ['list', 'Cargaisons', 'liste'], ['vehicules', 'Véhicules', 'voiture'],
     ['conteneurs', 'Opérations sur conteneurs', 'conteneur'], ['mad', 'Magasin / MAD', 'entrepot'],
     ['entrepindus', 'Entrepôt industriel', 'usine'], ['etatcfs', 'Pointage camions (sortie)', 'presse'],
@@ -110,7 +110,7 @@ export const MENUS: Record<string, MenuItem[]> = {
     ['stockdwell', 'Séjour conteneurs', 'horloge'], ['temps', 'Temps de passage', 'sablier'],
     ['horodatage', 'Heures d\'activité', 'horloge'], ['goulots', 'Nettoyage (goulots)', 'nettoyage'], ['parametres', 'Paramètres', 'reglages'],
     ['archive', 'Archive (+1 an)', 'archive'], ['history', 'Historique', 'historique'],
-    ['users', 'Utilisateurs', 'utilisateurs'], ['parking', 'Parking', 'parking'], ['account', 'Mon compte', 'compte'],
+    ['users', 'Utilisateurs', 'utilisateurs'], ['account', 'Mon compte', 'compte'],
   ],
 };
 

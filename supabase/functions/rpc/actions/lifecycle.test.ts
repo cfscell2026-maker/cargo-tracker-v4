@@ -3187,3 +3187,69 @@ test("parking : sortie manuelle réservée à l'ADMIN, motif obligatoire", async
   assert.equal(permis('BALISE', 'parking.add'), true);
   assert.equal(permis('PP', 'parking.list'), true);
 });
+
+test('parking : correction ouverte a tous, plaque doublee refusee', async () => {
+  const db = new FakeDB();
+  const agent = ctxRole(db, 'BALISE', 'Agent Balise');
+  const a = (await prk.parkingAdd(agent, { numeroCamion: 'TG1111AA/RM01', plomb: 'PL-1' })) as { id: string };
+  const b = (await prk.parkingAdd(agent, { numeroCamion: 'TG2222BB/RM02' })) as { id: string };
+
+  await prk.parkingEdit(agent, { id: a.id, numeroCamion: 'TG1111AA/RM01', numeroConteneur: 'MSKU9000001', plomb: 'PL-2' });
+  const ligne = db.store['parking_camions'].find((x) => x['id'] === a.id)!;
+  assert.equal(ligne['numero_conteneur'], 'MSKU9000001');
+  assert.equal(ligne['plomb'], 'PL-2');
+
+  // La plaque se corrige aussi — la clef de recherche suit.
+  await prk.parkingEdit(agent, { id: a.id, numeroCamion: 'TG1111AC/RM01' });
+  const apres = db.store['parking_camions'].find((x) => x['id'] === a.id)!;
+  assert.equal(apres['numero_camion'], 'TG1111AC/RM01');
+  assert.equal(apres['numero_camion_norm'], 'TG1111ACRM01');
+
+  // Mais pas pour prendre celle d'un camion deja present.
+  await assert.rejects(() => prk.parkingEdit(agent, { id: b.id, numeroCamion: 'TG1111AC/RM01' }), /deja au parking/);
+  // Sans changement : rien n'est ecrit.
+  const r = (await prk.parkingEdit(agent, { id: b.id, plomb: '' })) as { inchange?: boolean };
+  assert.equal(r.inchange, true);
+});
+
+test('parking : suppression ADMIN seule, motif obligatoire, pointages effaces', async () => {
+  const db = new FakeDB();
+  const admin = ctxRole(db, 'ADMIN', 'Admin');
+  const { id } = (await prk.parkingAdd(admin, { numeroCamion: 'TG3333CC/RM03' })) as { id: string };
+  assert.equal(db.store['parking_pointages'].length, 1);
+  await assert.rejects(() => prk.parkingSupprimer(admin, { id }), /Motif/);
+  await prk.parkingSupprimer(admin, { id, motif: 'ligne creee en double' });
+  assert.equal(db.store['parking_camions'].length, 0);
+  assert.equal(db.store['parking_pointages'].length, 0, 'les pointages partent avec la ligne');
+
+  const permis = (role: string, action: string) => {
+    try { verifierPermission(role, action); return true; } catch { return false; }
+  };
+  assert.equal(permis('ADMIN', 'parking.delete'), true);
+  for (const r of ['CFS', 'PP', 'T1', 'CHEF_BRIGADE']) {
+    assert.equal(permis(r, 'parking.delete'), false, r + ' ne supprime pas');
+    assert.equal(permis(r, 'parking.edit'), true, r + ' peut corriger');
+  }
+});
+
+test('parking : duree du sejour en minutes, et filtre de periode', async () => {
+  const db = new FakeDB();
+  const agent = ctxRole(db, 'CFS', 'Agent CFS');
+  const ilYa = (h: number) => new Date(Date.now() - h * 3600000).toISOString();
+  db.store['parking_camions'] = [
+    { id: 'PK-A', numero_camion: 'TG4444DD/RM04', numero_camion_norm: 'TG4444DDRM04', statut: 'Présent', date_entree: ilYa(5) },
+    { id: 'PK-B', numero_camion: 'TG5555EE/RM05', numero_camion_norm: 'TG5555EERM05', statut: 'Présent', date_entree: ilYa(50) },
+    { id: 'PK-C', numero_camion: 'TG6666FF/RM06', numero_camion_norm: 'TG6666FFRM06', statut: 'Sorti', date_entree: '2026-01-10T08:00:00.000Z', date_sortie: '2026-01-12T08:00:00.000Z' },
+  ];
+  const liste = (await prk.parkingList(agent, { statut: 'tous' })) as { lignes: Record<string, unknown>[] };
+  const par = (id: string) => liste.lignes.find((l) => l['id'] === id)!;
+  assert.equal(Math.round(Number(par('PK-A')['dureeMinutes']) / 60), 5, 'moins d\'un jour : lisible en heures');
+  assert.equal(Math.round(Number(par('PK-B')['dureeMinutes']) / 60), 50, 'plus d\'un jour : lisible en jours');
+  // Camion sorti : la duree s'arrete a la sortie, elle ne court plus.
+  assert.equal(Number(par('PK-C')['dureeMinutes']), 2 * 24 * 60);
+
+  // Periode : seules les entrees de janvier 2026.
+  const janvier = (await prk.parkingList(agent, { statut: 'tous', du: '2026-01-01', au: '2026-01-31' })) as { lignes: Record<string, unknown>[]; du: string };
+  assert.deepEqual(janvier.lignes.map((l) => l['id']), ['PK-C']);
+  assert.equal(janvier.du, '2026-01-01');
+});

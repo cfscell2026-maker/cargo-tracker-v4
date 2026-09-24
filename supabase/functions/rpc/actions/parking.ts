@@ -39,6 +39,19 @@ function estTableAbsente(message: string): boolean {
   return /parking_(camions|pointages)/.test(message) && /does not exist|relation/i.test(message);
 }
 
+/**
+ * Durée du séjour au parking, EN MINUTES : de l'entrée à la sortie pour un
+ * camion sorti, jusqu'à maintenant pour un camion encore présent. L'écran la
+ * lit ensuite en heures ou en jours selon sa longueur (`dureeLisible`).
+ */
+function dureeSejour(l: Record<string, unknown>): number | null {
+  const debut = Date.parse(String(l['dateEntree'] ?? ''));
+  if (isNaN(debut)) return null;
+  const finBrute = l['statut'] === SORTI ? Date.parse(String(l['dateSortie'] ?? '')) : Date.now();
+  const fin = isNaN(finBrute) ? Date.now() : finBrute;
+  return Math.max(0, Math.round((fin - debut) / 60000));
+}
+
 /* --------------------------------- lecture -------------------------------- */
 
 interface LigneParking extends Record<string, unknown> {
@@ -56,10 +69,17 @@ interface LigneParking extends Record<string, unknown> {
 export async function parkingList(ctx: Ctx, p: Record<string, unknown>) {
   const recherche = normAlphaNum(p['recherche']);
   const statut = String(p['statut'] ?? 'presents');
+  /* PÉRIODE (2026-09-24, demande utilisateur) : jour, mois, année ou plage.
+     L'écran envoie deux bornes ; on les applique à la DATE D'ENTRÉE au parking,
+     qui est la date qui situe le séjour. */
+  const du = String(p['du'] ?? '').slice(0, 10);
+  const au = String(p['au'] ?? '').slice(0, 10);
 
   let q = ctx.db.from('parking_camions').select('*').order('date_entree', { ascending: false });
   if (statut === 'presents') q = q.eq('statut', PRESENT);
   else if (statut === 'sortis') q = q.eq('statut', SORTI);
+  if (du) q = q.gte('date_entree', du + 'T00:00:00');
+  if (au) q = q.lte('date_entree', au + 'T23:59:59.999');
   const { data, error } = await q;
   if (error) {
     if (estTableAbsente(error.message)) return { lignes: [], compte: { presents: 0, pointes: 0, restants: 0 }, active: false };
@@ -86,13 +106,14 @@ export async function parkingList(ctx: Ctx, p: Record<string, unknown>) {
   for (const l of lignes) {
     l.pointeAujourdhui = pointesAujourdhui.has(l.id);
     l['dernierPointage'] = dernier.get(l.id) ?? '';
+    l['dureeMinutes'] = dureeSejour(l);
     if (l['statut'] === PRESENT) {
       compte.presents++;
       if (l.pointeAujourdhui) compte.pointes++;
       else compte.restants++;
     }
   }
-  return { lignes, compte, active: true, jour: aujourdhui };
+  return { lignes, compte, active: true, jour: aujourdhui, du, au };
 }
 
 /** `parking.detail` — une ligne et TOUS ses pointages (l'historique du séjour). */
@@ -108,6 +129,7 @@ export async function parkingDetail(ctx: Ctx, p: Record<string, unknown>) {
   const ligne = versCamel(data as Record<string, unknown>) as LigneParking;
   const pointages = (pts ?? []).map((r) => versCamel(r as Record<string, unknown>));
   ligne.pointeAujourdhui = pointages.some((x) => String(x['jour'] ?? '').slice(0, 10) === jour());
+  ligne['dureeMinutes'] = dureeSejour(ligne);
   return { ligne, pointages };
 }
 
@@ -238,6 +260,86 @@ export async function fermerParkingPourCamion(ctx: Ctx, numeroCamion: unknown, c
   } catch {
     return 0; // parking non activé : la sortie du dossier reste prioritaire
   }
+}
+
+/**
+ * `parking.edit` — corriger une ligne du parking (TOUS les rôles).
+ *
+ * La plaque elle-même est modifiable : une erreur de saisie doit pouvoir être
+ * réparée par celui qui la constate. Deux camions PRÉSENTS ne peuvent pas
+ * porter la même plaque — c'est ce que vérifie le contrôle ci-dessous. Chaque
+ * correction est inscrite au journal, avec l'avant et l'après.
+ */
+export async function parkingEdit(ctx: Ctx, p: Record<string, unknown>) {
+  const id = String(p['id'] ?? '').trim();
+  if (!id) throw new ErreurMetier('Identifiant requis.');
+  const { data, error } = await ctx.db.from('parking_camions').select('*').eq('id', id).maybeSingle();
+  if (error) throw new Error(estTableAbsente(error.message) ? TABLES_ABSENTES : error.message);
+  if (!data) throw new ErreurMetier('Camion introuvable au parking.');
+
+  const patch: Record<string, unknown> = { derniere_maj: new Date().toISOString() };
+  const traces: string[] = [];
+
+  if (p['numeroCamion'] !== undefined) {
+    const numeroCamion = alphaNumMaj(p['numeroCamion']);
+    if (!numeroCamion) throw new ErreurMetier('N° camion requis.');
+    if (!camionValide(numeroCamion)) throw new ErreurMetier(messageCamionFormat(p['numeroCamion']));
+    const norm = normAlphaNum(numeroCamion);
+    if (norm !== String(data['numero_camion_norm'])) {
+      const autre = await lirePresent(ctx, norm);
+      if (autre && String(autre['id']) !== id)
+        throw new ErreurMetier('Le camion ' + numeroCamion + ' est deja au parking sous une autre ligne.');
+      traces.push('camion ' + String(data['numero_camion']) + ' -> ' + numeroCamion);
+      patch['numero_camion'] = numeroCamion;
+      patch['numero_camion_norm'] = norm;
+    }
+  }
+  if (p['numeroConteneur'] !== undefined) {
+    const ct = alphaNumMaj(p['numeroConteneur']);
+    if (ct !== String(data['numero_conteneur'] ?? '')) {
+      traces.push('conteneur ' + (String(data['numero_conteneur'] ?? '') || '(vide)') + ' -> ' + (ct || '(vide)'));
+      patch['numero_conteneur'] = ct;
+    }
+  }
+  if (p['plomb'] !== undefined) {
+    const pl = maj(p['plomb'], 60);
+    if (pl !== String(data['plomb'] ?? '')) {
+      traces.push('plomb ' + (String(data['plomb'] ?? '') || '(vide)') + ' -> ' + (pl || '(vide)'));
+      patch['plomb'] = pl;
+    }
+  }
+  if (!traces.length) return { id, inchange: true };
+
+  const { error: e2 } = await ctx.db.from('parking_camions').update(patch).eq('id', id);
+  if (e2) throw new Error(e2.message);
+  await ctx.log('Correction parking', id, traces.join(' · '));
+  return { id, modifie: traces.length };
+}
+
+/**
+ * `parking.delete` — supprime la ligne ET ses pointages (ADMINISTRATEUR).
+ *
+ * SUPPRESSION RÉELLE, réservée à la ligne créée par erreur. Un camion qui a bel
+ * et bien stationné se SORT (`parking.sortie`) : son séjour appartient à
+ * l'historique. Le motif est obligatoire et reste au journal.
+ */
+export async function parkingSupprimer(ctx: Ctx, p: Record<string, unknown>) {
+  const id = String(p['id'] ?? '').trim();
+  const motif = maj(p['motif'], 200);
+  if (!id) throw new ErreurMetier('Identifiant requis.');
+  if (!motif) throw new ErreurMetier('Motif de la suppression requis.');
+  const { data, error } = await ctx.db.from('parking_camions').select('*').eq('id', id).maybeSingle();
+  if (error) throw new Error(estTableAbsente(error.message) ? TABLES_ABSENTES : error.message);
+  if (!data) throw new ErreurMetier('Camion introuvable au parking.');
+
+  // Les pointages d'abord : la base les efface en cascade, mais l'ordre ne doit
+  // pas dépendre de cette garantie.
+  const { error: e1 } = await ctx.db.from('parking_pointages').delete().eq('parking_id', id);
+  if (e1) throw new Error(e1.message);
+  const { error: e2 } = await ctx.db.from('parking_camions').delete().eq('id', id);
+  if (e2) throw new Error(e2.message);
+  await ctx.log('Suppression parking', id, String(data['numero_camion']) + ' · ' + motif);
+  return { id, numeroCamion: data['numero_camion'] };
 }
 
 /**

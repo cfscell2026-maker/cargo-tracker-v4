@@ -1701,6 +1701,12 @@ tr.clk{cursor:pointer} tr.clk:hover{background:var(--accent-soft)}
 .park-ligne td{vertical-align:middle}
 /* La liste des camions signalés par l'alerte de saisie. */
 .park-alerte{margin:6px 0 10px;padding-left:18px;font-size:13px;line-height:1.7;color:#42505c}
+/* La ligne de période, au-dessus de la liste : discrète tant qu'elle n'est
+   pas cochée — la question courante est « qui est là aujourd'hui ? ». */
+.park-periode{padding:10px 14px}
+.park-periode .row{margin-top:8px}
+/* « Supprimer » porte la couleur de l'irréversible, comme sur les dossiers. */
+.park-ligne .acts-suppr{color:var(--err);border-color:currentColor}
 
 @media (prefers-reduced-motion:reduce){
   .park-places,.park-orbite,.park-camion{animation:none}
@@ -2813,7 +2819,11 @@ tr:hover .avatar-u{
 /* Modifier / Supprimer en bout de ligne (2026-09-12). */
 .acts-dossier{display:flex;gap:6px;flex-wrap:nowrap;white-space:nowrap}
 .acts-dossier .acts-suppr{color:var(--err);border-color:currentColor}
-button.acts-suppr-plein{background:var(--err);color:#fff}
+/* !important (2026-09-24) : la regle generale des boutons (chaine de :not())
+   pose un degrade bleu plus specifique. Le bouton d'une action IRREVERSIBLE
+   s'affichait donc en bleu, comme un bouton ordinaire — « Retirer
+   l'engagement » comme « Supprimer » au parking. Il doit porter sa couleur. */
+button.acts-suppr-plein{background-color:var(--err) !important;background-image:none !important;color:#fff !important}
 
 /* Croix de fermeture des fenetres (2026-09-12). */
 .modal-fermer-rail{position:sticky;top:0;height:0;z-index:5;display:flex;justify-content:flex-end}

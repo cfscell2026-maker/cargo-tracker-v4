@@ -14,13 +14,14 @@
  * ============================================================================
  */
 import { useState } from 'react';
+import * as XLSX from 'xlsx';
 import { call } from './lib/rpc.ts';
 import { useAsync } from './lib/hooks.ts';
 import { Icone } from './lib/icones.tsx';
 import { Spinner, StatCard, Modal, masks, toast, fmtDate, fmtJour, ChampCamion } from './lib/ui.tsx';
-import { BandeauModule } from './screens.tsx';
+import { BandeauModule, PeriodPicker, useReportRange } from './screens.tsx';
 import type { Nav } from './App.tsx';
-import { ROLES, alphaNumMaj, camionValide } from '../../../supabase/functions/_shared/domaine/src/index.ts';
+import { ROLES, alphaNumMaj, camionValide, dureeLisible } from '../../../supabase/functions/_shared/domaine/src/index.ts';
 
 type O = Record<string, unknown>;
 const s = (v: unknown) => String(v ?? '');
@@ -33,12 +34,22 @@ export function EcranParking({ user }: Nav) {
   const [ajout, setAjout] = useState(false);
   const [detail, setDetail] = useState<string | null>(null);
   const [sortie, setSortie] = useState<O | null>(null);
+  const [edite, setEdite] = useState<O | null>(null);
+  const [supprime, setSupprime] = useState<O | null>(null);
   const [busy, setBusy] = useState('');
   const admin = user.role === ROLES.ADMIN;
+  /* PÉRIODE (demande utilisateur) : jour, mois, année ou plage. Elle porte sur
+     la DATE D'ENTRÉE au parking. « Toute la période » la neutralise — c'est le
+     défaut, car la question courante est « qui est là aujourd'hui ? ». */
+  const periode = useReportRange('mois');
+  const [limiterPeriode, setLimiterPeriode] = useState(false);
+  const du = limiterPeriode ? periode.du : '';
+  const au = limiterPeriode ? periode.au : '';
 
   /* La recherche se fait sur les lignes DÉJÀ REÇUES : filtrer à chaque
      caractère ne doit pas appeler le serveur à chaque frappe. */
-  const { data, loading, error, reload } = useAsync<O>(() => call('parking.list', { statut }), [statut]);
+  const { data, loading, error, reload } = useAsync<O>(
+    () => call('parking.list', { statut, du, au }), [statut, du, au]);
   const recues = (data?.['lignes'] as O[]) ?? [];
   const q = alphaNumMaj(recherche).replace(/[^A-Z0-9]/g, '');
   const lignes = q ? recues.filter((l) => s(l['numeroCamionNorm']).indexOf(q) > -1) : recues;
@@ -68,8 +79,28 @@ export function EcranParking({ user }: Nav) {
           <option value="sortis">Sortis</option>
           <option value="tous">Tous</option>
         </select>
+        <button className="btn-export" onClick={() => exporterExcel(lignes, statut)}
+          disabled={!lignes.length} title="Extraire la liste affichée au format Excel">
+          <Icone nom="telecharger" taille={15} />Excel
+        </button>
         <button onClick={() => setAjout(true)}><Icone nom="camionPlus" />Ajouter un camion</button>
       </div>} />
+
+    {/* La période, sur sa propre ligne : elle sert à relire un mois ou une
+        année passés, pas à la consultation du jour — qui est le défaut. */}
+    <div className="card park-periode">
+      <label className="help" style={{ display: 'flex', alignItems: 'center', gap: 8, margin: 0, textTransform: 'none', fontSize: 13.5 }}>
+        <input type="checkbox" style={{ width: 'auto' }} checked={limiterPeriode}
+          onChange={(e) => setLimiterPeriode(e.target.checked)} />
+        Filtrer par période d'entrée au parking
+      </label>
+      {limiterPeriode
+        ? <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center', marginTop: 8 }}>
+          <PeriodPicker p={periode} />
+          <span className="help">du {fmtJour(periode.du)} au {fmtJour(periode.au)}</span>
+        </div>
+        : <p className="help" style={{ margin: '6px 0 0' }}>Toute la période — cochez pour restreindre.</p>}
+    </div>
 
     {!active && <div className="card" style={{ borderLeft: '4px solid var(--warn)' }}>
       <b style={{ color: 'var(--warn)' }}>Le parking n'est pas encore activé</b>
@@ -98,7 +129,7 @@ export function EcranParking({ user }: Nav) {
         </div> : <div className="tbl"><table>
           <thead><tr>
             <th>Camion</th><th>Conteneur</th><th>Plomb</th><th>Au parking depuis</th>
-            <th>Dernier pointage</th><th>Aujourd'hui</th><th></th>
+            <th>Durée au parking</th><th>Dernier pointage</th><th>Aujourd'hui</th><th></th>
           </tr></thead>
           <tbody>
             {lignes.map((l) => {
@@ -112,6 +143,9 @@ export function EcranParking({ user }: Nav) {
                 <td className="mono">{s(l['numeroConteneur']) || '—'}</td>
                 <td className="mono">{s(l['plomb']) || '—'}</td>
                 <td>{fmtJour(l['dateEntree'])}</td>
+                {/* Heures tant que le séjour est court, jours ensuite : la même
+                    lecture que partout ailleurs dans l'application. */}
+                <td title={dureeTitre(l)}>{dureeLisible(l['dureeMinutes'] as number)}</td>
                 <td>{l['dernierPointage'] ? fmtJour(l['dernierPointage']) : '—'}</td>
                 <td>{sorti ? <span className="help">Sorti le {fmtJour(l['dateSortie'])}</span>
                   : pointe ? <span className="park-ok"><Icone nom="valider" taille={14} />Pointé</span>
@@ -121,7 +155,9 @@ export function EcranParking({ user }: Nav) {
                   {!sorti && !pointe && <button className="xs" disabled={busy === id} onClick={() => pointer(id)}>
                     {busy === id ? 'Pointage…' : 'Pointer'}
                   </button>}
+                  <button className="ghost xs" onClick={() => setEdite(l)}>Modifier</button>
                   {admin && !sorti && <button className="ghost xs" onClick={() => setSortie(l)}>Sortie</button>}
+                  {admin && <button className="ghost xs acts-suppr" onClick={() => setSupprime(l)}>Supprimer</button>}
                 </td>
               </tr>;
             })}
@@ -134,7 +170,50 @@ export function EcranParking({ user }: Nav) {
     {detail && <ModaleDetailParking id={detail} onClose={() => setDetail(null)} onFait={reload} />}
     {sortie && <ModaleSortieParking ligne={sortie} onClose={() => setSortie(null)}
       onFait={() => { setSortie(null); reload(); }} />}
+    {edite && <ModaleModifierParking ligne={edite} onClose={() => setEdite(null)}
+      onFait={() => { setEdite(null); reload(); }} />}
+    {supprime && <ModaleSupprimerParking ligne={supprime} onClose={() => setSupprime(null)}
+      onFait={() => { setSupprime(null); reload(); }} />}
   </>;
+}
+
+/** Le détail au survol : la durée exacte, en heures ET en jours. */
+function dureeTitre(l: O): string {
+  const min = Number(l['dureeMinutes'] ?? NaN);
+  if (!isFinite(min)) return '';
+  const heures = Math.round((min / 60) * 10) / 10;
+  const jours = Math.round((min / 1440) * 10) / 10;
+  return `${heures} heure(s) · ${jours} jour(s)`;
+}
+
+/**
+ * EXPORT EXCEL (demande utilisateur) — la liste AFFICHÉE, telle quelle :
+ * la recherche et la période en cours sont déjà appliquées aux lignes reçues,
+ * donc on n'exporte jamais autre chose que ce qu'on a sous les yeux.
+ */
+function exporterExcel(lignes: O[], statut: string) {
+  if (!lignes.length) { toast('Rien à extraire.', 'err'); return; }
+  const rows = lignes.map((l) => ({
+    'N° camion': s(l['numeroCamion']),
+    'N° conteneur': s(l['numeroConteneur']),
+    'N° plomb': s(l['plomb']),
+    'Statut': s(l['statut']),
+    'Entré le': fmtDate(l['dateEntree']),
+    'Durée au parking': dureeLisible(l['dureeMinutes'] as number),
+    'Durée (heures)': isFinite(Number(l['dureeMinutes'])) ? Math.round((Number(l['dureeMinutes']) / 60) * 10) / 10 : '',
+    'Durée (jours)': isFinite(Number(l['dureeMinutes'])) ? Math.round((Number(l['dureeMinutes']) / 1440) * 10) / 10 : '',
+    'Dernier pointage': l['dernierPointage'] ? fmtJour(l['dernierPointage']) : '',
+    'Pointé aujourd\'hui': l['pointeAujourdhui'] === true ? 'Oui' : 'Non',
+    'Sorti le': l['dateSortie'] ? fmtDate(l['dateSortie']) : '',
+    'Dossier de sortie': s(l['sortieCargaison']),
+    'Ajouté par': s(l['creePar']),
+  }));
+  const feuille = XLSX.utils.json_to_sheet(rows);
+  const classeur = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(classeur, feuille, 'Parking');
+  const jour = new Date().toISOString().slice(0, 10);
+  XLSX.writeFile(classeur, `parking-${statut}-${jour}.xlsx`);
+  toast(`${rows.length} ligne(s) extraite(s).`, 'ok');
 }
 
 /* --------------------------------------------------- ajout d'un camion */
@@ -234,6 +313,9 @@ function ModaleDetailParking({ id, onClose, onFait }: { id: string; onClose: () 
       <div className="grid2">
         <div><label className="help">N° conteneur</label><div className="mono">{s(l['numeroConteneur']) || '—'}</div></div>
         <div><label className="help">N° plomb</label><div className="mono">{s(l['plomb']) || '—'}</div></div>
+        <div><label className="help">Durée au parking</label>
+          <div><b>{dureeLisible(l['dureeMinutes'] as number)}</b> <span className="help">({dureeTitre(l)})</span></div>
+        </div>
       </div>
       <div className="section-title" style={{ marginTop: 12 }}>Pointages ({pointages.length})</div>
       {!pointages.length ? <div className="empty">Ce camion n'a pas encore été pointé.</div>
@@ -281,6 +363,96 @@ function ModaleSortieParking({ ligne, onClose, onFait }: { ligne: O; onClose: ()
     <div className="row" style={{ marginTop: 12, justifyContent: 'flex-end' }}>
       <button className="ghost" onClick={onClose}>Annuler</button>
       <button disabled={busy || !motif.trim()} onClick={sortir}>{busy ? 'Sortie…' : 'Sortir du parking'}</button>
+    </div>
+  </Modal>;
+}
+
+/* ------------------------------------------------ modifier une ligne */
+
+/**
+ * Correction ouverte à TOUS (décision utilisateur) : celui qui constate une
+ * erreur de saisie doit pouvoir la réparer. La plaque comprise — le serveur
+ * refuse seulement qu'elle double celle d'un autre camion présent.
+ */
+function ModaleModifierParking({ ligne, onClose, onFait }: { ligne: O; onClose: () => void; onFait: () => void }) {
+  const [num, setNum] = useState(s(ligne['numeroCamion']));
+  const [conteneur, setConteneur] = useState(s(ligne['numeroConteneur']));
+  const [plomb, setPlomb] = useState(s(ligne['plomb']));
+  const [busy, setBusy] = useState(false);
+  const pret = num.trim() !== '' && camionValide(num);
+  const change = num !== s(ligne['numeroCamion'])
+    || conteneur !== s(ligne['numeroConteneur'])
+    || plomb !== s(ligne['plomb']);
+
+  async function enregistrer() {
+    setBusy(true);
+    try {
+      const r = await call<O>('parking.edit', {
+        id: s(ligne['id']), numeroCamion: num, numeroConteneur: conteneur, plomb,
+      });
+      toast(r['inchange'] ? 'Aucune modification.' : 'Camion modifié.', 'ok');
+      onFait();
+    } catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(false); }
+  }
+
+  return <Modal onClose={onClose}>
+    <h2>Modifier ce camion</h2>
+    <p className="help">
+      Entré au parking le <b>{fmtDate(ligne['dateEntree'])}</b>. La correction est inscrite au
+      journal, avec l'ancienne et la nouvelle valeur.
+    </p>
+    <ChampCamion value={num} onChange={setNum} label="N° camion *" placeholder="" autoFocus />
+    <div className="grid2" style={{ marginTop: 8 }}>
+      <div>
+        <label className="help">N° conteneur</label>
+        <input className="mono" value={conteneur} onChange={(e) => setConteneur(masks.upper(e.target.value))} />
+      </div>
+      <div>
+        <label className="help">N° plomb</label>
+        <input className="mono" value={plomb} onChange={(e) => setPlomb(masks.upper(e.target.value))} />
+      </div>
+    </div>
+    <div className="row" style={{ marginTop: 12, justifyContent: 'flex-end' }}>
+      <button className="ghost" onClick={onClose}>Annuler</button>
+      <button disabled={busy || !pret || !change} onClick={enregistrer}>
+        {busy ? 'Enregistrement…' : 'Enregistrer'}
+      </button>
+    </div>
+  </Modal>;
+}
+
+/* ----------------------------------------------- supprimer (ADMIN) */
+
+function ModaleSupprimerParking({ ligne, onClose, onFait }: { ligne: O; onClose: () => void; onFait: () => void }) {
+  const [motif, setMotif] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  async function supprimer() {
+    setBusy(true);
+    try {
+      await call('parking.delete', { id: s(ligne['id']), motif });
+      toast('Ligne supprimée.', 'ok');
+      onFait();
+    } catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(false); }
+  }
+
+  return <Modal onClose={onClose}>
+    <h2>Supprimer cette ligne ?</h2>
+    <p className="help">
+      Camion <b className="mono">{s(ligne['numeroCamion'])}</b>, entré le <b>{fmtDate(ligne['dateEntree'])}</b>.
+      La ligne <b>et tous ses pointages</b> sont effacés, définitivement.
+    </p>
+    <p className="help">
+      À réserver à une ligne créée par erreur. Un camion qui a réellement stationné se
+      <b> sort</b> du parking : son séjour fait partie de l'historique.
+    </p>
+    <label className="help">Motif de la suppression (obligatoire)</label>
+    <input value={motif} onChange={(e) => setMotif(e.target.value)} placeholder="ex. ligne créée en double" autoFocus />
+    <div className="row" style={{ marginTop: 12, justifyContent: 'flex-end' }}>
+      <button className="ghost" onClick={onClose}>Annuler</button>
+      <button className="acts-suppr-plein" disabled={busy || !motif.trim()} onClick={supprimer}>
+        {busy ? 'Suppression…' : 'Supprimer'}
+      </button>
     </div>
   </Modal>;
 }

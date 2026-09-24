@@ -3352,7 +3352,7 @@ function LigneValidation({ r, go, pesee, onPesee }: { r: O; go: Nav['go']; pesee
  * cheval sur deux mois). Un seul hook pour tous les rapports et le tableau de
  * bord, afin que la période se choisisse partout de la même façon.
  */
-function useReportRange(initial: ModePeriode = 'semaine') {
+export function useReportRange(initial: ModePeriode = 'semaine') {
   const [m, setM] = useState<ModePeriode>(initial);
   // Plage personnalisée amorcée sur le mois en cours : basculer en
   // « Personnalisée » part de ce que l'agent a sous les yeux au lieu de vider
@@ -3364,9 +3364,9 @@ function useReportRange(initial: ModePeriode = 'semaine') {
   return { m, setM, du, au, duP, setDuP, auP, setAuP, inversee };
 }
 
-type Periode = ReturnType<typeof useReportRange>;
+export type Periode = ReturnType<typeof useReportRange>;
 
-function PeriodPicker({ p }: { p: Periode }) {
+export function PeriodPicker({ p }: { p: Periode }) {
   return <>
     <select value={p.m} onChange={(e) => p.setM(e.target.value as ModePeriode)} style={{ maxWidth: 170 }}>
       <option value="jour">Journalier</option>
