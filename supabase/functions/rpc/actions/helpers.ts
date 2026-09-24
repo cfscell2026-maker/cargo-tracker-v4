@@ -198,11 +198,42 @@ export async function lierStock(ctx: Ctx, tc: string, cargaisonId: string): Prom
 export async function delierStock(ctx: Ctx, tc: string, cargaisonId: string, statutRestore: string): Promise<void> {
   const num = String(tc || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
   if (!num) return;
-  await ctx.db
+  /* FUITE DES FANTÔMES DU PARC — 2026-09-24 (rapprochement PIA).
+   *
+   * Un conteneur PARTAGÉ est sur plusieurs camions, mais sa fiche ne pointe que
+   * le premier. Annuler ou corriger ce premier camion remettait la fiche « En
+   * stock » alors que le conteneur restait chargé sur un autre : il
+   * réapparaissait au parc, pour toujours. S'il est encore sur un camion vivant,
+   * la fiche passe à ce camion et reste « Dépotée ». */
+  const autre = await autreCamionDuConteneur(ctx, num, cargaisonId);
+  const patch = autre
+    ? { cargaison_id: autre }
+    : { statut: statutRestore, date_depote: null, cargaison_id: null };
+  const { error } = await ctx.db
     .from('stock')
-    .update({ statut: statutRestore, date_depote: null, cargaison_id: null })
+    .update(patch)
     .eq('numero_tc', num)
     .eq('cargaison_id', cargaisonId);
+  if (error) throw new Error(error.message);
+}
+
+/**
+ * Cargaison VIVANTE (ni annulée, ni archivée), autre que `sauf`, qui porte
+ * encore ce conteneur — la plus récente — ou `null`.
+ */
+export async function autreCamionDuConteneur(ctx: Ctx, num: string, sauf: string): Promise<string | null> {
+  const { data: lignes, error } = await ctx.db
+    .from('conteneurs').select('cargaison_id').eq('conteneur', num).neq('cargaison_id', sauf);
+  if (error) throw new Error(error.message);
+  const ids = [...new Set((lignes ?? []).map((r) => String((r as { cargaison_id?: unknown }).cargaison_id ?? '')))].filter(Boolean);
+  if (!ids.length) return null;
+  const { data: cargos, error: e2 } = await ctx.db
+    .from('cargaisons').select('id, date_creation, annule, archive').in('id', ids);
+  if (e2) throw new Error(e2.message);
+  const vivants = (cargos ?? [])
+    .filter((c) => c['annule'] !== true && c['archive'] !== true)
+    .sort((a, b) => String(b['date_creation'] ?? '').localeCompare(String(a['date_creation'] ?? '')));
+  return vivants.length ? String(vivants[0]!['id']) : null;
 }
 
 /** Conteneur du stock UTILISABLE (présent, pas encore dépoté) → objet ou null. */
