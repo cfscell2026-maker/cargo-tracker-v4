@@ -4332,6 +4332,29 @@ SCREENS.dwell = ({ go }) => {
 const TC_PAR_PAGE = 50;
 
 /**
+ * EXPORT EXCEL DU SÉJOUR (2026-09-24, demande utilisateur).
+ *
+ * Il sort la VUE AFFICHÉE en entier — le filtre du chiffre cliqué et la
+ * recherche comprises — et non la seule page à l'écran : on exporte ce qu'on a
+ * sous les yeux, pas cinquante lignes sur quatre mille.
+ */
+function exporterSejour(lignes: O[], vue: string) {
+  if (!lignes.length) { toast('Rien à extraire.', 'err'); return; }
+  const rows = lignes.map((r) => ({
+    'N° conteneur': String(r['numeroTC'] ?? ''),
+    'Taille': String(r['taille'] ?? ''),
+    'Statut': String(r['statut'] ?? ''),
+    'Provenance': String(r['provenance'] ?? ''),
+    'Séjour (jours)': Number(r['joursSejour'] ?? 0),
+  }));
+  const feuille = XLSX.utils.json_to_sheet(rows);
+  const classeur = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(classeur, feuille, 'Séjour conteneurs');
+  XLSX.writeFile(classeur, `sejour-conteneurs-${vue}-${new Date().toISOString().slice(0, 10)}.xlsx`);
+  toast(`${rows.length} ligne(s) extraite(s).`, 'ok');
+}
+
+/**
  * SÉJOUR & INSTANCES CONTENEURS, revu le 2026-09-24 (demande utilisateur).
  *
  * L'écran posait quatre chiffres muets, puis déroulait les DOUZE MILLE lignes
@@ -4400,6 +4423,10 @@ SCREENS.stockdwell = () => {
             placeholder="N° de conteneur" title="Cherche un conteneur dans la vue affichée" />
         </span>
         {(cherche || vue !== 'tous') && <button className="ghost xs" onClick={() => { setQ(''); setVue('tous'); setPage(1); }}>Tout afficher</button>}
+        <button className="btn-export" disabled={!lignes.length} onClick={() => exporterSejour(lignes, vue)}
+          title="Extraire en Excel la vue affichée, dans son entier">
+          <Icone nom="telecharger" taille={15} />Excel
+        </button>
       </div>
 
       <div className="help" style={{ margin: '8px 0' }}>
