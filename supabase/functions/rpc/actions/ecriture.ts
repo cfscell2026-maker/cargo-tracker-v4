@@ -866,9 +866,6 @@ export async function t1(ctx: Ctx, p: Record<string, unknown>) {
 
   const cargo = await getCargo(ctx, id);
   const c = cargo.o;
-  const e = etatCellules(c as never);
-  if (ctx.session.role !== ROLES.ADMIN && !e.valide)
-    throw new ErreurMetier("Cellule T1 impossible : la validation du chef de brigade est obligatoire avant la saisie du T1.");
   if (ctx.session.role !== ROLES.ADMIN && etapesEnAttente(c as never).indexOf('T1') < 0)
     throw new Error('Cellule T1 impossible : étape non attendue (statut « ' + c['statut'] + ' »).');
   if (c['typeOperation'] === OPERATIONS.ENLEVEMENT) {
@@ -945,9 +942,6 @@ export async function gps(ctx: Ctx, p: Record<string, unknown>) {
       );
   }
   if (c['estVehicule'] === true || c['estVehicule'] === 'Oui') throw new Error('Les véhicules ne passent pas par la cellule Balise.');
-  const e = etatCellules(c as never);
-  if (ctx.session.role !== ROLES.ADMIN && !e.t1)
-    throw new ErreurMetier("Étape Balise impossible : la saisie du T1 est obligatoire avant la pose de la balise.");
   if (ctx.session.role !== ROLES.ADMIN && etapesEnAttente(c as never).indexOf('BALISE') < 0)
     throw new Error('Étape Balise impossible : chargement non terminé ou déjà balisée (statut « ' + c['statut'] + ' »).');
   const avancer = etapesEnAttente(c as never).indexOf('BALISE') >= 0;
@@ -1009,9 +1003,6 @@ export async function bonsortie(ctx: Ctx, p: Record<string, unknown>) {
   }
   const cargo = await getCargo(ctx, id);
   const c = cargo.o;
-  const e = etatCellules(c as never);
-  if (ctx.session.role !== ROLES.ADMIN && !e.t1)
-    throw new ErreurMetier("Bon de sortie impossible : la saisie du T1 doit être effectuée d'abord.");
   if (ctx.session.role !== ROLES.ADMIN && etapesEnAttente(c as never).indexOf('BS') < 0)
     throw new Error('Bon de sortie impossible : chargement non terminé ou bon déjà émis (statut « ' + c['statut'] + ' »).');
   const avancer = etapesEnAttente(c as never).indexOf('BS') >= 0;
@@ -1034,7 +1025,7 @@ export async function sortie(ctx: Ctx, p: Record<string, unknown>) {
   const c = cargo.o;
   const estVeh = c['estVehicule'] === true || c['estVehicule'] === 'Oui';
   if (ctx.session.role !== ROLES.ADMIN && etapesEnAttente(c as never).indexOf('PP') < 0)
-    throw new ErreurMetier('Sortie impossible : toutes les étapes préalables doivent être effectuées d\'abord (statut « ' + c['statut'] + ' »).');
+    throw new Error('Sortie impossible : le T1 et la Balise doivent être faits d\'abord (statut « ' + c['statut'] + ' »).');
   let checklist: Record<string, unknown> = {};
   let derogation = '';
   let ecart = '';
@@ -1066,17 +1057,10 @@ export async function sortie(ctx: Ctx, p: Record<string, unknown>) {
      * « RAS » cinq mille fois, soit exactement le formalisme creux qu'on retire.
      * Le blocage s'active le jour où la cellule existe réellement, par la
      * variable d'environnement SORTIE_EXIGE_PIECES=true (voir EXPLOITATION.md).
-     *
-     * ⚠ 2026-09-24 — CIRCUIT SÉQUENTIEL : `etapesEnAttente` n'ouvre plus la PP
-     * qu'une fois validation, T1, Balise ET bon de sortie faits. Le refus plus
-     * haut bloque donc déjà tout profil hors ADMIN ; ce contrôle-ci ne joue plus
-     * que pour l'ADMIN, dont la sortie « hors circuit » reste consignée à l'état
-     * réel et journalisée comme écart.
      */
     const reel = etatCellules(c as never);
     const manquants: string[] = [];
     if (!reel.cfs) manquants.push('fin de chargement CFS');
-    if (!reel.valide) manquants.push('validation chef de brigade');
     if (!reel.t1) manquants.push('T1');
     if (!reel.balise) manquants.push('balise');
     if (!reel.bs) manquants.push('bon de sortie');

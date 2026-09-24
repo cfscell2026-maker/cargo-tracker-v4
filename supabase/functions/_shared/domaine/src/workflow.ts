@@ -116,7 +116,7 @@ export function etatCellules(c: SourceEtapes): EtatCellules {
   };
 }
 
-/** Étapes ENCORE EN ATTENTE. */
+/** Étapes ENCORE EN ATTENTE (parallèle Balise/Bon de Sortie). */
 export function etapesEnAttente(c: SourceEtapes): Etape[] {
   const e = etatCellules(c);
   if (e.sorti) return [];
@@ -127,15 +127,11 @@ export function etapesEnAttente(c: SourceEtapes): Etape[] {
   // Balise faits (ou sautés par nature : type C/A/E pour le T1, dispense/véhicule
   // pour la Balise). Le Bon de sortie reste, lui, non bloquant.
   const p: Etape[] = [];
-  // 1. Validation chef de brigade obligatoire avant T1
   if (!e.valide) p.push('VALIDATION');
-  // 2. T1 obligatoire avant Balise et Bon de sortie
-  if (e.valide && !e.t1) p.push('T1');
-  // 3. Balise et Bon de sortie en parallèle dès que T1 est fait
-  if (e.t1 && !e.balise) p.push('BALISE');
-  if (e.t1 && !e.bs) p.push('BS');
-  // 4. Sortie Porte Principale (PP) débloquée uniquement si toutes les opérations préalables sont faites
-  if (e.cfs && e.valide && e.t1 && e.balise && e.bs) p.push('PP');
+  if (!e.t1) p.push('T1');
+  if (!e.balise) p.push('BALISE');
+  if (!e.bs) p.push('BS');
+  if (e.t1 && e.balise) p.push('PP');
   return p;
 }
 
