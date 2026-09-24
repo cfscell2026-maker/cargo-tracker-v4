@@ -166,7 +166,7 @@ export function EcranParking({ user }: Nav) {
                 <td>{fmtJour(l['dateEntree'])}</td>
                 {/* Heures tant que le séjour est court, jours ensuite : la même
                     lecture que partout ailleurs dans l'application. */}
-                <td title={dureeTitre(l)}>{dureeLisible(l['dureeMinutes'] as number)}</td>
+                <td title={dureeTitre(l)}>{dureeLisible(dureeMinutesDe(l))}</td>
                 <td>{l['dernierPointage'] ? fmtJour(l['dernierPointage']) : '—'}</td>
                 <td>{sorti ? <span className="help">Sorti le {fmtJour(l['dateSortie'])}</span>
                   : pointe ? <span className="park-ok"><Icone nom="valider" taille={14} />Pointé</span>
@@ -198,9 +198,27 @@ export function EcranParking({ user }: Nav) {
   </>;
 }
 
+/**
+ * Durée du séjour EN MINUTES.
+ *
+ * Le serveur la calcule et l'envoie (`dureeMinutes`). L'écran sait pourtant la
+ * refaire à partir des dates de la ligne, et c'est volontaire : un serveur plus
+ * ancien que l'écran ne renvoie pas ce champ, et la colonne se vidait alors
+ * sans rien expliquer. Les deux dates, elles, ont toujours été là.
+ */
+function dureeMinutesDe(l: O): number | null {
+  const envoyee = Number(l['dureeMinutes']);
+  if (isFinite(envoyee)) return envoyee;
+  const debut = Date.parse(s(l['dateEntree']));
+  if (isNaN(debut)) return null;
+  const finBrute = l['statut'] === 'Sorti' ? Date.parse(s(l['dateSortie'])) : Date.now();
+  const fin = isNaN(finBrute) ? Date.now() : finBrute;
+  return Math.max(0, Math.round((fin - debut) / 60000));
+}
+
 /** Le détail au survol : la durée exacte, en heures ET en jours. */
 function dureeTitre(l: O): string {
-  const min = Number(l['dureeMinutes'] ?? NaN);
+  const min = Number(dureeMinutesDe(l) ?? NaN);
   if (!isFinite(min)) return '';
   const heures = Math.round((min / 60) * 10) / 10;
   const jours = Math.round((min / 1440) * 10) / 10;
@@ -220,9 +238,9 @@ function exporterExcel(lignes: O[], statut: string) {
     'N° plomb': s(l['plomb']),
     'Statut': s(l['statut']),
     'Entré le': fmtDate(l['dateEntree']),
-    'Durée au parking': dureeLisible(l['dureeMinutes'] as number),
-    'Durée (heures)': isFinite(Number(l['dureeMinutes'])) ? Math.round((Number(l['dureeMinutes']) / 60) * 10) / 10 : '',
-    'Durée (jours)': isFinite(Number(l['dureeMinutes'])) ? Math.round((Number(l['dureeMinutes']) / 1440) * 10) / 10 : '',
+    'Durée au parking': dureeLisible(dureeMinutesDe(l)),
+    'Durée (heures)': dureeMinutesDe(l) === null ? '' : Math.round((dureeMinutesDe(l)! / 60) * 10) / 10,
+    'Durée (jours)': dureeMinutesDe(l) === null ? '' : Math.round((dureeMinutesDe(l)! / 1440) * 10) / 10,
     'Dernier pointage': l['dernierPointage'] ? fmtJour(l['dernierPointage']) : '',
     'Pointé aujourd\'hui': l['pointeAujourdhui'] === true ? 'Oui' : 'Non',
     'Sorti le': l['dateSortie'] ? fmtDate(l['dateSortie']) : '',
@@ -346,7 +364,7 @@ function ModaleDetailParking({ id, onClose, onFait }: { id: string; onClose: () 
         <div><label className="help">N° conteneur</label><div className="mono">{s(l['numeroConteneur']) || '—'}</div></div>
         <div><label className="help">N° plomb</label><div className="mono">{s(l['plomb']) || '—'}</div></div>
         <div><label className="help">Durée au parking</label>
-          <div><b>{dureeLisible(l['dureeMinutes'] as number)}</b> <span className="help">({dureeTitre(l)})</span></div>
+          <div><b>{dureeLisible(dureeMinutesDe(l))}</b> <span className="help">({dureeTitre(l)})</span></div>
         </div>
       </div>
       <div className="section-title" style={{ marginTop: 12 }}>Pointages ({pointages.length})</div>
