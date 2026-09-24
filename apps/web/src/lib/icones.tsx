@@ -154,6 +154,65 @@ const TRACES: Record<string, string | string[]> = {
   reglages: 'M4 6h9M17 6h3M15 4v4M4 12h3M11 12h9M9 10v4M4 18h11M19 18h1M17 16v4',
   sablier: 'M7 3h10M7 21h10M8 3v3.5c0 2.2 4 3.5 4 5.5s-4 3.3-4 5.5V21M16 3v3.5c0 2.2-4 3.5-4 5.5s4 3.3 4 5.5V21',
   attente: 'M12 4a8 8 0 100 16 8 8 0 000-16zM12 8v4h3.5',
+
+  /* LES QUATRE FILES D'ATTENTE (2026-09-24, demande utilisateur). Elles
+     partageaient une seule horloge : on ne distinguait pas « En attente T1 »
+     de « En attente sortie » dans le menu. Chacune reprend maintenant le
+     dessin de SA cellule, reduit en haut a gauche, avec la meme petite
+     horloge posee en bas a droite — la famille se lit, le volet aussi. */
+  attenteT1: [
+    'M4.5 3h6l3 3v7.5h-9z',
+    'M10.5 3v3h3',
+    'M6.6 9.2h4.4M6.6 11.4h2.6',
+    'M17.6 13.4a4.2 4.2 0 100 8.4 4.2 4.2 0 000-8.4z',
+    'M17.6 15.6v2.2l1.6 1',
+  ],
+  attenteBalise: [
+    'M8.4 8.2a1.6 1.6 0 100 3.2 1.6 1.6 0 000-3.2z',
+    'M5.7 7a4.6 4.6 0 000 5.6M11.1 7a4.6 4.6 0 010 5.6',
+    'M3.4 4.8a8.2 8.2 0 000 10',
+    'M17.6 13.4a4.2 4.2 0 100 8.4 4.2 4.2 0 000-8.4z',
+    'M17.6 15.6v2.2l1.6 1',
+  ],
+  /* Le bon de sortie EN ATTENTE prend la forme d'un laissez-passer couche, et
+     non d'un document debout : a 18 px, deux documents ne se distinguaient pas
+     par leur seul contenu (des traits contre une coche). */
+  attenteBonSortie: [
+    'M3.4 5h9.8a1 1 0 011 1v6.6a1 1 0 01-1 1H3.4a1 1 0 01-1-1V6a1 1 0 011-1z',
+    'M5.4 9.4l1.7 1.7 3.5-3.5',
+    'M17.6 13.4a4.2 4.2 0 100 8.4 4.2 4.2 0 000-8.4z',
+    'M17.6 15.6v2.2l1.6 1',
+  ],
+  attenteSortie: [
+    'M10.6 3.2h2.8a1 1 0 011 1v8.4a1 1 0 01-1 1h-2.8',
+    'M7.2 6l-3 3.4 3 3.4M4.2 9.4h6.4',
+    'M17.6 13.4a4.2 4.2 0 100 8.4 4.2 4.2 0 000-8.4z',
+    'M17.6 15.6v2.2l1.6 1',
+  ],
+
+  /* DELAI & INSTANCE : une minuterie, bouton sur le dessus. L'horloge simple
+     reste a « Heures d'activite », qui dit l'heure et non une duree. */
+  minuterie: [
+    'M12 7.6a7 7 0 100 14 7 7 0 000-14z',
+    'M12 11.2v3.6l2.4 1.4',
+    'M9.6 3.4h4.8M12 3.4v4.2',
+    'M18.4 6.2l1.6 1.6',
+  ],
+  /* SEJOUR CONTENEURS : le conteneur, et le temps qui court dessous. */
+  conteneurHorloge: [
+    'M3 8.2l6.4-3.2 6.4 3.2v6.4l-6.4 3.2L3 14.6z',
+    'M3 8.2l6.4 3.2 6.4-3.2M9.4 11.4v6.4',
+    'M18 13.6a4.1 4.1 0 100 8.2 4.1 4.1 0 000-8.2z',
+    'M18 15.7v2.1l1.5 1',
+  ],
+  /* ENGAGEMENTS : une echeance, c'est une DATE tenue, pas du sable qui coule.
+     Le sablier revient a « Temps de passage », qui mesure une duree. */
+  echeance: [
+    'M4.4 6h15.2a1 1 0 011 1v12.6a1 1 0 01-1 1H4.4a1 1 0 01-1-1V7a1 1 0 011-1z',
+    'M8 3.2v4.4M16 3.2v4.4',
+    'M3.4 10.6h17.2',
+    'M8.8 15.2l2.2 2.2 4.2-4.2',
+  ],
   drapeau: 'M5 21V4M5 5h10l-1.5 3L15 11H5',
 
   // Flux d'entrée
