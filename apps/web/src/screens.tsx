@@ -4042,16 +4042,25 @@ SCREENS.temps = ({ go }) => {
 
   return <>
     <div className="card">
+      {/* Extraction DANS LE BANDEAU (2026-09-24, demande utilisateur), à côté
+          du choix de période qu'elle reprend. */}
       <BandeauModule icone="sablier" titre="Temps de passage par poste" sous={<PeriodeLue p={p} />}
-        action={<div className="bm-outils"><PeriodPicker p={p} /></div>} />
+        action={<div className="bm-outils">
+          <PeriodPicker p={p} />
+          <button className="btn-export" disabled={busy} onClick={() => exporter('xlsx')}
+            title="Extraire la période affichée en Excel">
+            <Icone nom="telecharger" taille={15} />Excel
+          </button>
+          <button className="btn-export" disabled={busy} onClick={() => exporter('pdf')}
+            title="Imprimer la période affichée">
+            <Icone nom="telecharger" taille={15} />PDF
+          </button>
+        </div>} />
       <div className="row" style={{ alignItems: 'center', flexWrap: 'wrap', gap: 8, marginTop: 6 }}>
         <label className="help" style={{ display: 'flex', gap: 6, alignItems: 'center', margin: 0 }}>
           <input type="checkbox" style={{ width: 'auto' }} checked={avecVeh} onChange={(e) => setAvecVeh(e.target.checked)} />
           <span>Inclure les véhicules</span>
         </label>
-        <span style={{ flex: 1 }} />
-        <button className="ghost xs" disabled={busy} onClick={() => exporter('xlsx')}>⤓ Excel</button>
-        <button className="ghost xs" disabled={busy} onClick={() => exporter('pdf')}>⤓ PDF</button>
       </div>
       <PeriodeLue p={p} />
       <p className="help" style={{ marginBottom: 0 }}>
@@ -4397,9 +4406,21 @@ SCREENS.stockdwell = () => {
     alerte: `En alerte (≥ ${seuil} jours)`,
   };
 
-  return <div className="card"><h2>Séjour &amp; instances conteneurs</h2>
+  return <>
+    {/* L'écran pose SON bandeau (2026-09-24, demande utilisateur) : le bouton
+        d'extraction y prend place, à droite, comme sur les autres volets. Sans
+        cela, App.tsx posait un bandeau automatique, muet, et le titre se
+        répétait juste en dessous. */}
+    <BandeauModule icone="horloge" titre="Séjour &amp; instances conteneurs"
+      sous={<>Le parc conteneur par conteneur. <b>Cliquez un chiffre</b> pour ne voir que ce qu'il compte.</>}
+      action={<div className="bm-outils">
+        <button className="btn-export" disabled={!lignes.length} onClick={() => exporterSejour(lignes, vue)}
+          title="Extraire en Excel la vue affichée, dans son entier">
+          <Icone nom="telecharger" taille={15} />Excel
+        </button>
+      </div>} />
+    <div className="card">
     {loading ? <Spinner /> : <>
-      <p className="help" style={{ marginTop: 0 }}>Cliquez un chiffre pour ne voir que les conteneurs qu'il compte.</p>
       <div className="stats compacts">
         <StatCard n={Number(cpt['total'] ?? 0)} l="Total" icone="conteneur" onClick={() => choisir('tous')} />
         <StatCard n={Number(cpt['stock'] ?? 0)} l="En stock" icone="boites" onClick={() => choisir('stock')} />
@@ -4423,10 +4444,6 @@ SCREENS.stockdwell = () => {
             placeholder="N° de conteneur" title="Cherche un conteneur dans la vue affichée" />
         </span>
         {(cherche || vue !== 'tous') && <button className="ghost xs" onClick={() => { setQ(''); setVue('tous'); setPage(1); }}>Tout afficher</button>}
-        <button className="btn-export" disabled={!lignes.length} onClick={() => exporterSejour(lignes, vue)}
-          title="Extraire en Excel la vue affichée, dans son entier">
-          <Icone nom="telecharger" taille={15} />Excel
-        </button>
       </div>
 
       <div className="help" style={{ margin: '8px 0' }}>
@@ -4443,7 +4460,8 @@ SCREENS.stockdwell = () => {
         </div>}
       </>}
     </>}
-  </div>;
+    </div>
+  </>;
 };
 
 /* ---------------------------- Utilisateurs ----------------------------- */
