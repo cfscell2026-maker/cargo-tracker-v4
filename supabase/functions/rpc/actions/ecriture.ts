@@ -8,6 +8,7 @@
  */
 import { ErreurMetier, type Ctx } from '../ctx.ts';
 import { chargerParametres } from './parametres.ts';
+import { fermerParkingPourCamion } from './parking.ts';
 import { versCamel } from '../ctx.ts';
 import {
   ROLES, STATUTS, STOCK_STATUTS, OPERATIONS, ETATS_SORTIE, exigeControlePoids,
@@ -1090,7 +1091,11 @@ export async function sortie(ctx: Ctx, p: Record<string, unknown>) {
     id,
     ecart ? 'manquant : ' + ecart + (derogation ? ' · dérogation : ' + derogation : '') : '',
   );
-  return { id, ...(ecart ? { ecart: ecart.split(', ') } : {}) };
+  /* PARKING (2026-09-24) : le camion signalé à la Porte Principale a quitté le
+     parking — c'est la règle retenue pour l'en sortir. Sans effet si le camion
+     n'y était pas, et sans jamais faire échouer la sortie du dossier. */
+  const sortisDuParking = await fermerParkingPourCamion(ctx, c['numeroCamion'], id);
+  return { id, ...(sortisDuParking ? { parkingFerme: sortisDuParking } : {}), ...(ecart ? { ecart: ecart.split(', ') } : {}) };
 }
 
 /* ------------------------------- etatcfs ------------------------------- */

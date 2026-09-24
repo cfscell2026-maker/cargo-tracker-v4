@@ -1643,6 +1643,69 @@ tr.clk{cursor:pointer} tr.clk:hover{background:var(--accent-soft)}
 }
 
 
+/* ================= PARKING — 2026-09-24, demande utilisateur =============
+ *
+ * L'en-tête de la fenêtre d'ajout : le logo au centre, et un camion qui TOURNE
+ * AUTOUR pour venir se ranger. Même langage que l'écran « Créer un camion »
+ * (anneau en pointillés, pastille bleue, ombre courte) — c'est la même maison.
+ */
+.park-entete{
+  display:flex;flex-direction:column;align-items:center;text-align:center;
+  gap:10px;margin-bottom:6px;
+}
+.park-entete h2{margin:0;font-size:18px}
+.park-scene{position:relative;width:104px;height:104px;flex:0 0 auto;display:grid;place-items:center}
+.park-logo{position:relative;z-index:1;width:74px;height:74px;border-radius:50%}
+
+/* L'anneau : la voie de circulation du parking. */
+.park-piste{
+  position:absolute;inset:2px;border-radius:50%;
+  border:2px dashed rgba(14,90,138,.34);
+}
+/* Les places de stationnement : quatre marques régulières sur l'anneau. */
+.park-places{
+  position:absolute;inset:-2px;border-radius:50%;
+  border:2px dotted rgba(31,122,92,.35);
+  animation:park-places 12s linear infinite;
+}
+@keyframes park-places{to{transform:rotate(-360deg)}}
+
+/* LE CAMION FAIT LE TOUR PUIS SE RANGE : il tourne, marque un temps d'arrêt
+   sur une place, puis repart — c'est l'entrée au parking, en boucle. */
+.park-orbite{
+  position:absolute;inset:2px;
+  animation:park-tour 7s cubic-bezier(.45,0,.2,1) infinite;
+}
+@keyframes park-tour{
+  0%{transform:rotate(0deg)}
+  55%,75%{transform:rotate(270deg)}   /* la place : le camion s'y arrête */
+  100%{transform:rotate(360deg)}
+}
+.park-camion{
+  position:absolute;top:-13px;left:50%;margin-left:-13px;
+  width:26px;height:26px;border-radius:50%;
+  background:var(--accent);color:#fff;
+  display:grid;place-items:center;
+  box-shadow:0 2px 7px rgba(0,0,0,.25);
+  /* Contre-rotation : le camion tourne autour du logo sans se coucher. */
+  animation:park-droit 7s cubic-bezier(.45,0,.2,1) infinite;
+}
+@keyframes park-droit{
+  0%{transform:rotate(0deg)}
+  55%,75%{transform:rotate(-270deg)}
+  100%{transform:rotate(-360deg)}
+}
+
+/* « Pointé » dans la liste : la couleur du fait acquis, comme ailleurs. */
+.park-ok{display:inline-flex;align-items:center;gap:5px;color:var(--ok);font-weight:600}
+.park-ligne td{vertical-align:middle}
+/* La liste des camions signalés par l'alerte de saisie. */
+.park-alerte{margin:6px 0 10px;padding-left:18px;font-size:13px;line-height:1.7;color:#42505c}
+
+@media (prefers-reduced-motion:reduce){
+  .park-places,.park-orbite,.park-camion{animation:none}
+}
+
 /* ============ FINITIONS GÉNÉRALES — 2026-09-11 ==========================
  *
  * Le traitement mis au point sur le tableau de bord, étendu à TOUS les écrans

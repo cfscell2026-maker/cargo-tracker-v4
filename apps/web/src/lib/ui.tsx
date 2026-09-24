@@ -26,6 +26,7 @@ export const TITLES: Record<string, string> = {
   gps: 'Cellule Balise', wait_gps: 'En attente Balise', bonsortie: 'Cellule Bon de Sortie', wait_bs: 'En attente Bon de Sortie',
   sortie: 'Sortie (checklist PP)', wait_sortie: 'En attente de sortie', history: 'Historique', users: 'Utilisateurs',
   engagements: 'Engagements — suivi et régularisation',
+  parking: 'Parking — camions présents, pointés chaque jour',
   parametres: 'Paramètres de l\'application',
   account: 'Mon compte', detail: 'Détail cargaison', cfsreport: 'Rapport CFS', vehreport: 'Rapport véhicules',
   baliserep: 'Rapport Balise', pprep: 'Rapport PP', flux: 'Analyse des flux', dwell: 'Délai & camions en instance',
@@ -892,7 +893,7 @@ export { isoDate } from './periode.ts';
  * Le serveur reste l'autorité — cet écran ne fait que dire la même chose plus
  * tôt et à l'endroit où l'on peut corriger.
  */
-export function ChampCamion({ value, onChange, label = 'N° de camion', style, autoFocus, onBlur, onEnter, excludeId }: {
+export function ChampCamion({ value, onChange, label = 'N° de camion', style, autoFocus, onBlur, onEnter, excludeId, placeholder = 'TG2489BK ou TG2489BK/2725BP' }: {
   value: string;
   onChange: (v: string) => void;
   label?: string;
@@ -904,6 +905,8 @@ export function ChampCamion({ value, onChange, label = 'N° de camion', style, a
   onEnter?: () => void;
   /** Dossier en cours, à écarter des « passages antérieurs » (sinon il s'y annoncerait lui-même). */
   excludeId?: string;
+  /** Texte grisé du champ. Chaîne vide pour n'en afficher aucun (volet Parking). */
+  placeholder?: string;
 }) {
   // On n'alerte pas sur un champ encore vide : l'agent n'a pas fini de taper.
   const invalide = value.trim() !== '' && !camionValide(value);
@@ -922,7 +925,7 @@ export function ChampCamion({ value, onChange, label = 'N° de camion', style, a
       // Entrée dans un champ de plaque : on déclenche le contrôle plutôt que de
       // laisser le formulaire s'envoyer à moitié rempli.
       onKeyDown={(e) => { if (e.key === 'Enter' && onEnter) { e.preventDefault(); onEnter(); } }}
-      placeholder="TG2489BK ou TG2489BK/2725BP"
+      placeholder={placeholder}
       style={{ ...style, borderColor: invalide ? 'var(--err)' : undefined }}
     />
     {/* 2026-09-12 — la barre oblique n'est PLUS exigée (décision utilisateur).

@@ -1,0 +1,346 @@
+/**
+ * ============================================================================
+ *  VOLET PARKING — 2026-09-24, demande utilisateur
+ *
+ *  Les camions stationnés au parking sont comptés CHAQUE JOUR. Le premier jour
+ *  on AJOUTE le camion (plaque obligatoire, conteneur et plomb facultatifs) et
+ *  on peut le pointer dans la foulée. Les jours suivants il est déjà là : on
+ *  tape sa plaque, la liste se réduit à chaque caractère, et un bouton le
+ *  pointe. Ce bouton DISPARAÎT une fois le camion pointé — un camion ne se
+ *  pointe pas deux fois dans la même journée (règle tenue par le serveur, pas
+ *  seulement par l'écran : voir actions/parking.ts).
+ *
+ *  Le camion quitte le parking quand il est signalé à la Porte Principale.
+ * ============================================================================
+ */
+import { useState } from 'react';
+import { call } from './lib/rpc.ts';
+import { useAsync } from './lib/hooks.ts';
+import { Icone } from './lib/icones.tsx';
+import { Spinner, StatCard, Modal, masks, toast, fmtDate, fmtJour, ChampCamion } from './lib/ui.tsx';
+import { BandeauModule } from './screens.tsx';
+import type { Nav } from './App.tsx';
+import { ROLES, alphaNumMaj, camionValide } from '../../../supabase/functions/_shared/domaine/src/index.ts';
+
+type O = Record<string, unknown>;
+const s = (v: unknown) => String(v ?? '');
+
+/* ---------------------------------------------------------------- l'écran */
+
+export function EcranParking({ user }: Nav) {
+  const [recherche, setRecherche] = useState('');
+  const [statut, setStatut] = useState('presents');
+  const [ajout, setAjout] = useState(false);
+  const [detail, setDetail] = useState<string | null>(null);
+  const [sortie, setSortie] = useState<O | null>(null);
+  const [busy, setBusy] = useState('');
+  const admin = user.role === ROLES.ADMIN;
+
+  /* La recherche se fait sur les lignes DÉJÀ REÇUES : filtrer à chaque
+     caractère ne doit pas appeler le serveur à chaque frappe. */
+  const { data, loading, error, reload } = useAsync<O>(() => call('parking.list', { statut }), [statut]);
+  const recues = (data?.['lignes'] as O[]) ?? [];
+  const q = alphaNumMaj(recherche).replace(/[^A-Z0-9]/g, '');
+  const lignes = q ? recues.filter((l) => s(l['numeroCamionNorm']).indexOf(q) > -1) : recues;
+  const cpt = (data?.['compte'] as O) ?? {};
+  const active = data?.['active'] !== false;
+
+  async function pointer(id: string) {
+    setBusy(id);
+    try {
+      await call('parking.point', { id });
+      toast('Camion pointé.', 'ok');
+      reload();
+    } catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(''); }
+  }
+
+  return <>
+    <BandeauModule icone="parking" titre="Parking"
+      sous={<>Les camions présents au parking, pointés une fois par jour.
+        Un camion sort de la liste dès qu'il est signalé à la <b>Porte Principale</b>.</>}
+      action={<div className="bm-outils">
+        <input className="mono" value={recherche} onChange={(e) => setRecherche(e.target.value)}
+          placeholder="N° camion" title="Tapez la plaque : la liste se réduit à chaque caractère"
+          style={{ width: 160 }} />
+        {recherche && <button className="ghost xs" onClick={() => setRecherche('')}>Tout afficher</button>}
+        <select value={statut} onChange={(e) => setStatut(e.target.value)} style={{ maxWidth: 150 }}>
+          <option value="presents">Présents</option>
+          <option value="sortis">Sortis</option>
+          <option value="tous">Tous</option>
+        </select>
+        <button onClick={() => setAjout(true)}><Icone nom="camionPlus" />Ajouter un camion</button>
+      </div>} />
+
+    {!active && <div className="card" style={{ borderLeft: '4px solid var(--warn)' }}>
+      <b style={{ color: 'var(--warn)' }}>Le parking n'est pas encore activé</b>
+      <p className="help" style={{ marginBottom: 0 }}>
+        Les tables du parking (migration 00201) n'existent pas encore en base. L'écran fonctionnera
+        dès qu'elles seront créées ; rien d'autre dans l'application n'est affecté.
+      </p>
+    </div>}
+
+    <div className="stats" style={{ marginTop: 10 }}>
+      <StatCard n={Number(cpt['presents'] ?? 0)} l="Camions présents" icone="parking" />
+      <StatCard n={Number(cpt['pointes'] ?? 0)} l="Pointés aujourd'hui" icone="valider" tone="ok" />
+      <StatCard n={Number(cpt['restants'] ?? 0)} l="Restent à pointer" icone="sablier" tone="warn" />
+    </div>
+
+    <div className="card">
+      {loading ? <Spinner /> : error ? <div className="err-msg">{error}</div> : <>
+        <div className="help" style={{ marginBottom: 8 }}>
+          {q ? `${lignes.length} camion(s) sur ${recues.length}` : `${lignes.length} camion(s)`}
+          {data?.['jour'] ? ` · pointage du ${fmtJour(data['jour'])}` : ''}
+        </div>
+        {!lignes.length ? <div className="empty">
+          {q ? 'Aucun camion ne correspond à cette recherche.'
+            : statut === 'presents' ? 'Aucun camion au parking. Utilisez « Ajouter un camion ».'
+              : 'Aucun camion dans cette vue.'}
+        </div> : <div className="tbl"><table>
+          <thead><tr>
+            <th>Camion</th><th>Conteneur</th><th>Plomb</th><th>Au parking depuis</th>
+            <th>Dernier pointage</th><th>Aujourd'hui</th><th></th>
+          </tr></thead>
+          <tbody>
+            {lignes.map((l) => {
+              const id = s(l['id']);
+              const pointe = l['pointeAujourdhui'] === true;
+              const sorti = l['statut'] === 'Sorti';
+              return <tr key={id} className="park-ligne">
+                {/* La plaque ouvre le détail : le geste naturel sur une ligne. */}
+                <td><button className="ghost xs mono" onClick={() => setDetail(id)}
+                  title="Voir le détail de ce camion">{s(l['numeroCamion'])}</button></td>
+                <td className="mono">{s(l['numeroConteneur']) || '—'}</td>
+                <td className="mono">{s(l['plomb']) || '—'}</td>
+                <td>{fmtJour(l['dateEntree'])}</td>
+                <td>{l['dernierPointage'] ? fmtJour(l['dernierPointage']) : '—'}</td>
+                <td>{sorti ? <span className="help">Sorti le {fmtJour(l['dateSortie'])}</span>
+                  : pointe ? <span className="park-ok"><Icone nom="valider" taille={14} />Pointé</span>
+                    : <span className="help">Pas encore</span>}</td>
+                <td className="acts">
+                  {/* Le bouton DISPARAÎT une fois le camion pointé. */}
+                  {!sorti && !pointe && <button className="xs" disabled={busy === id} onClick={() => pointer(id)}>
+                    {busy === id ? 'Pointage…' : 'Pointer'}
+                  </button>}
+                  {admin && !sorti && <button className="ghost xs" onClick={() => setSortie(l)}>Sortie</button>}
+                </td>
+              </tr>;
+            })}
+          </tbody>
+        </table></div>}
+      </>}
+    </div>
+
+    {ajout && <ModaleAjoutParking onClose={() => setAjout(false)} onFait={() => { setAjout(false); reload(); }} />}
+    {detail && <ModaleDetailParking id={detail} onClose={() => setDetail(null)} onFait={reload} />}
+    {sortie && <ModaleSortieParking ligne={sortie} onClose={() => setSortie(null)}
+      onFait={() => { setSortie(null); reload(); }} />}
+  </>;
+}
+
+/* --------------------------------------------------- ajout d'un camion */
+
+/**
+ * EN-TÊTE ANIMÉ (demande utilisateur) : le logo au centre, et un camion qui
+ * tourne autour pour entrer au parking. L'animation dit ce que fait la fenêtre
+ * avant qu'on ait lu le titre. Décorative, donc masquée aux lecteurs d'écran.
+ */
+function EnteteParkingAnime() {
+  return <div className="park-entete">
+    <div className="park-scene" aria-hidden="true">
+      <span className="park-piste" />
+      <span className="park-places" />
+      <span className="park-orbite"><span className="park-camion"><Icone nom="camion" taille={16} /></span></span>
+      <img className="park-logo" src="/logo.png" alt=""
+        onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />
+    </div>
+    <h2 style={{ marginBottom: 2 }}>Ajouter un camion au parking</h2>
+  </div>;
+}
+
+export function ModaleAjoutParking({ onClose, onFait }: { onClose: () => void; onFait: () => void }) {
+  const [num, setNum] = useState('');
+  const [conteneur, setConteneur] = useState('');
+  const [plomb, setPlomb] = useState('');
+  // Pointer en même temps que l'ajout : l'agent qui saisit un camion l'a sous
+  // les yeux. Il peut décocher (camion signalé pour plus tard).
+  const [pointer, setPointer] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const pret = num.trim() !== '' && camionValide(num);
+
+  async function ajouter() {
+    setBusy(true);
+    try {
+      const r = await call<O>('parking.add', { numeroCamion: num, numeroConteneur: conteneur, plomb, pointer });
+      toast(r['pointe'] ? 'Camion ajouté et pointé.' : 'Camion ajouté au parking.', 'ok');
+      onFait();
+    } catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(false); }
+  }
+
+  return <Modal onClose={onClose}>
+    <EnteteParkingAnime />
+    <p className="help">
+      Le <b>N° du camion</b> est obligatoire. Le conteneur et le plomb sont facultatifs :
+      ils se complètent plus tard si l'information manque à l'entrée.
+    </p>
+    <ChampCamion value={num} onChange={setNum} label="N° camion *" placeholder="" autoFocus onEnter={() => { if (pret && !busy) void ajouter(); }} />
+    <div className="grid2" style={{ marginTop: 8 }}>
+      <div>
+        <label className="help">N° conteneur</label>
+        <input className="mono" value={conteneur} onChange={(e) => setConteneur(masks.upper(e.target.value))} />
+      </div>
+      <div>
+        <label className="help">N° plomb</label>
+        <input className="mono" value={plomb} onChange={(e) => setPlomb(masks.upper(e.target.value))} />
+      </div>
+    </div>
+    <label className="help" style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 10 }}>
+      <input type="checkbox" style={{ width: 'auto' }} checked={pointer} onChange={(e) => setPointer(e.target.checked)} />
+      <span>Pointer ce camion maintenant (présence du jour)</span>
+    </label>
+    <div className="row" style={{ marginTop: 12, justifyContent: 'flex-end' }}>
+      <button className="ghost" onClick={onClose}>Annuler</button>
+      <button disabled={busy || !pret} onClick={ajouter}>{busy ? 'Ajout…' : 'Ajouter au parking'}</button>
+    </div>
+  </Modal>;
+}
+
+/* ------------------------------------------------------------ le détail */
+
+function ModaleDetailParking({ id, onClose, onFait }: { id: string; onClose: () => void; onFait: () => void }) {
+  const { data, loading, error, reload } = useAsync<O>(() => call('parking.detail', { id }), [id]);
+  const [busy, setBusy] = useState(false);
+  const l = (data?.['ligne'] as O) ?? {};
+  const pointages = (data?.['pointages'] as O[]) ?? [];
+  const sorti = l['statut'] === 'Sorti';
+
+  async function pointer() {
+    setBusy(true);
+    try {
+      await call('parking.point', { id });
+      toast('Camion pointé.', 'ok');
+      reload(); onFait();
+    } catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(false); }
+  }
+
+  return <Modal onClose={onClose}>
+    <h2>Camion au parking</h2>
+    {loading ? <Spinner /> : error ? <div className="err-msg">{error}</div> : <>
+      <p className="help">
+        <b className="mono">{s(l['numeroCamion'])}</b> · entré le <b>{fmtDate(l['dateEntree'])}</b>
+        {s(l['creePar']) ? <> par <b>{s(l['creePar'])}</b></> : null}
+        {sorti ? <> · <b>sorti</b> le {fmtDate(l['dateSortie'])}
+          {s(l['sortieCargaison']) ? <> (dossier <span className="mono">{s(l['sortieCargaison'])}</span>)</> : null}</> : null}
+      </p>
+      <div className="grid2">
+        <div><label className="help">N° conteneur</label><div className="mono">{s(l['numeroConteneur']) || '—'}</div></div>
+        <div><label className="help">N° plomb</label><div className="mono">{s(l['plomb']) || '—'}</div></div>
+      </div>
+      <div className="section-title" style={{ marginTop: 12 }}>Pointages ({pointages.length})</div>
+      {!pointages.length ? <div className="empty">Ce camion n'a pas encore été pointé.</div>
+        : <div className="tbl"><table>
+          <thead><tr><th>Jour</th><th>Heure</th><th>Pointé par</th></tr></thead>
+          <tbody>{pointages.map((p) => <tr key={s(p['jour'])}>
+            <td>{fmtJour(p['jour'])}</td>
+            <td>{fmtDate(p['pointeLe']).slice(-5)}</td>
+            <td>{s(p['pointePar']) || '—'}</td>
+          </tr>)}</tbody>
+        </table></div>}
+      <div className="row" style={{ marginTop: 12, justifyContent: 'flex-end' }}>
+        <button className="ghost" onClick={onClose}>Fermer</button>
+        {!sorti && l['pointeAujourdhui'] !== true &&
+          <button disabled={busy} onClick={pointer}>{busy ? 'Pointage…' : 'Pointer aujourd\'hui'}</button>}
+      </div>
+    </>}
+  </Modal>;
+}
+
+/* ------------------------------------------------------ sortie manuelle */
+
+function ModaleSortieParking({ ligne, onClose, onFait }: { ligne: O; onClose: () => void; onFait: () => void }) {
+  const [motif, setMotif] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  async function sortir() {
+    setBusy(true);
+    try {
+      await call('parking.sortie', { id: s(ligne['id']), motif });
+      toast('Camion sorti du parking.', 'ok');
+      onFait();
+    } catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(false); }
+  }
+
+  return <Modal onClose={onClose}>
+    <h2>Sortir ce camion du parking ?</h2>
+    <p className="help">
+      Camion <b className="mono">{s(ligne['numeroCamion'])}</b>. Normalement un camion sort tout seul
+      quand il est signalé à la Porte Principale. Cette sortie manuelle est là pour le camion
+      qui quitte le parc <b>sans dossier</b> — sans elle il resterait compté comme présent.
+    </p>
+    <label className="help">Motif de la sortie (obligatoire)</label>
+    <input value={motif} onChange={(e) => setMotif(e.target.value)} placeholder="ex. reparti à vide" autoFocus />
+    <div className="row" style={{ marginTop: 12, justifyContent: 'flex-end' }}>
+      <button className="ghost" onClick={onClose}>Annuler</button>
+      <button disabled={busy || !motif.trim()} onClick={sortir}>{busy ? 'Sortie…' : 'Sortir du parking'}</button>
+    </div>
+  </Modal>;
+}
+
+/* ============================================================================
+ *  ALERTE « DÉJÀ AU PARKING » — posée sur les écrans de saisie.
+ *
+ *  Avant d'enregistrer une cargaison, on demande au serveur si ce camion est au
+ *  parking. S'il y est, l'agent voit une question, pas un refus : il répond OUI
+ *  pour continuer, NON pour annuler. Répondre OUI ne change rien au parking —
+ *  le camion en sortira à la Porte Principale, comme les autres.
+ * ========================================================================== */
+
+export function useAlerteParking() {
+  const [demande, setDemande] = useState<{ lignes: O[]; suite: (ok: boolean) => void } | null>(null);
+
+  /**
+   * À appeler AVANT d'enregistrer, avec une plaque ou plusieurs (saisie en lot).
+   * Rend `true` si l'enregistrement peut se poursuivre : soit aucun de ces
+   * camions n'est au parking, soit l'agent a répondu oui.
+   */
+  async function confirmer(numeros: string | string[]): Promise<boolean> {
+    const plaques = (Array.isArray(numeros) ? numeros : [numeros]).filter((n) => String(n ?? '').trim());
+    if (!plaques.length) return true;
+    const lignes: O[] = [];
+    for (const numeroCamion of plaques) {
+      try {
+        const r = await call<O>('parking.check', { numeroCamion });
+        if (r['present'] === true) lignes.push((r['ligne'] as O) ?? { numeroCamion });
+      } catch {
+        return true; // le parking ne doit JAMAIS bloquer une saisie
+      }
+    }
+    if (!lignes.length) return true;
+    return await new Promise<boolean>((resoudre) => setDemande({ lignes, suite: resoudre }));
+  }
+
+  const repondre = (ok: boolean) => {
+    demande?.suite(ok);
+    setDemande(null);
+  };
+
+  const plusieurs = (demande?.lignes.length ?? 0) > 1;
+  const fenetre = demande ? <Modal onClose={() => repondre(false)}>
+    <h2>{plusieurs ? 'Ces camions sont déjà au parking' : 'Ce camion est déjà au parking'}</h2>
+    <ul className="park-alerte">
+      {demande.lignes.map((l, i) => <li key={s(l['id']) || i}>
+        <b className="mono">{s(l['numeroCamion'])}</b> — au parking depuis le <b>{fmtJour(l['dateEntree'])}</b>
+        {s(l['numeroConteneur']) ? <> · conteneur <span className="mono">{s(l['numeroConteneur'])}</span></> : null}
+      </li>)}
+    </ul>
+    <p className="help">
+      Voulez-vous continuer l'enregistrement ? {plusieurs ? 'Ces camions restent' : 'Le camion reste'} au
+      parking : {plusieurs ? 'ils en sortiront' : 'il en sortira'} au passage à la <b>Porte Principale</b>.
+    </p>
+    <div className="row" style={{ marginTop: 12, justifyContent: 'flex-end' }}>
+      <button className="ghost" onClick={() => repondre(false)}>Non, annuler</button>
+      <button onClick={() => repondre(true)}>Oui, continuer</button>
+    </div>
+  </Modal> : null;
+
+  return { confirmer, fenetre };
+}

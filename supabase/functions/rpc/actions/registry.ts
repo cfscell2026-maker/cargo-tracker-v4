@@ -14,6 +14,7 @@ import * as usr from './utilisateurs.ts';
 import * as rap from './rapports.ts';
 import * as entrepot from './entrepots.ts';
 import * as prm from './parametres.ts';
+import * as prk from './parking.ts';
 
 type H = (ctx: Ctx, data: never) => Promise<unknown>;
 const d = <T>(fn: (ctx: Ctx, data: T) => Promise<unknown>): H => fn as H;
@@ -150,6 +151,13 @@ export const ACTIONS: Record<string, H> = {
   'user.delete': d(usr.userSupprimer),
 
   /* ----- Paramètres (2026-09-21) ----- */
+  // PARKING (2026-09-24) : camions stationnés, pointés une fois par jour.
+  'parking.list': d(prk.parkingList),
+  'parking.detail': d(prk.parkingDetail),
+  'parking.check': d(prk.parkingCheck),
+  'parking.add': d(prk.parkingAdd),
+  'parking.point': d(prk.parkingPointer),
+  'parking.sortie': d(prk.parkingSortie),
   'params.get': d(prm.paramsGet),
   'params.set': d(prm.paramsSet),
 

@@ -11,6 +11,7 @@ import { Spinner, StatCard, Tag, Modal, masks, toast, fmtDate, fmtJour, ChampDes
 import { bornesDe, isoDate, normaliserPlage, type ModePeriode, repartition } from './lib/periode.ts';
 import { trierEngagements, filtrerEngagements, type TriEngagement, type SensTri } from './lib/tri-engagements.ts';
 import { Detail, TitrePanneau } from './detail.tsx';
+import { EcranParking, useAlerteParking } from './parking.tsx';
 import type { ReactNode } from 'react';
 import type { Nav } from './App.tsx';
 import { useNav } from './lib/contexte-nav.ts';
@@ -1610,6 +1611,11 @@ function ModaleRetirerEngagement({ ligne, onClose, onFait }: { ligne: O; onClose
   </Modal>;
 }
 
+/* VOLET PARKING (2026-09-24) — l'écran vit dans parking.tsx : il a ses propres
+   fenêtres (ajout animé, détail, sortie) et n'a rien à partager avec ce fichier
+   déjà long. Ici, seulement son inscription au menu des écrans. */
+SCREENS.parking = EcranParking;
+
 /* ======================= VOLET PARAMÈTRES — 2026-09-21 =====================
  *
  * Demande utilisateur : régler depuis l'application ce qui était écrit dans le
@@ -1874,6 +1880,9 @@ SCREENS.creercamion = ({ go }) => {
   const verrou = useRef(false); // double clic : cf. useEnvoiUnique
   const [match, setMatch] = useState<O | null>(null);
   const [simil, setSimil] = useState<O[] | null>(null);
+  // PARKING (2026-09-24) : si ce camion est au parking, l'agent est prévenu et
+  // décide lui-même de continuer. Cela n'interdit rien.
+  const parking = useAlerteParking();
   async function faireCreer() {
     if (verrou.current) return;
     verrou.current = true;
@@ -1885,6 +1894,7 @@ SCREENS.creercamion = ({ go }) => {
   }
   async function creer() {
     if (!num) { toast('N° camion requis.', 'err'); return; }
+    if (!await parking.confirmer(num)) return;
     setBusy(true);
     const { mixte, similaires } = await analyserDoublons(num);
     setBusy(false);
@@ -1927,6 +1937,7 @@ SCREENS.creercamion = ({ go }) => {
         s'effacent de part et d'autre. L'écran de saisie du CFS est le premier
         geste de la journée ; il n'y a pas de raison qu'il soit sec. */}
     <p className="mot-accueil creer-mot">Bienvenue, et bonne saisie</p>
+    {parking.fenetre}
   </div>
   <SceneEntreePIA />
   </div>;
@@ -1950,6 +1961,7 @@ SCREENS.lotcamions = ({ go }) => {
   const [lignes, setLignes] = useState<LigneCam[]>([ligneVide(), ligneVide()]);
   const [busy, setBusy] = useState(false);
   const [res, setRes] = useState<{ crees: O[]; erreurs: O[] } | null>(null);
+  const parking = useAlerteParking(); // prévient si l'un des camions est au parking
   const set = (k: string, v: unknown) => setD((o) => ({ ...o, [k]: v }));
   const estEnl = op === OPERATIONS.ENLEVEMENT;
 
@@ -1974,6 +1986,7 @@ SCREENS.lotcamions = ({ go }) => {
       numeroCamion: l.numeroCamion, conteneurs: l.conteneurs.filter((ct) => String(ct['num'] ?? '').trim()),
     }));
     if (!camions.length) { toast('Indiquez au moins un camion.', 'err'); return; }
+    if (!await parking.confirmer(camions.map((cm) => cm.numeroCamion))) return;
     setBusy(true);
     try {
       const r = await call<{ crees: O[]; erreurs: O[] }>('cargo.lotcamions', {
@@ -2038,6 +2051,7 @@ SCREENS.lotcamions = ({ go }) => {
         {res.erreurs.map((e, i) => <div key={i} className="err-msg"><b className="mono">{String(e['numeroCamion'])}</b> — {String(e['message'])}</div>)}
       </>}
     </div>}
+    {parking.fenetre}
   </div>;
 };
 
@@ -2141,6 +2155,7 @@ function FormVehicule({ go }: { go: Nav['go'] }) {
   const majCam = (i: number, patch: Partial<CamEffets>) => setCams((a) => a.map((c, j) => (j === i ? { ...c, ...patch } : c)));
   const [match, setMatch] = useState<O | null>(null); // v4.1 : véhicule déjà présent → mixte ?
   const [simil, setSimil] = useState<O[] | null>(null); // 2026-08-19 : châssis ressemblant → avertir
+  const parking = useAlerteParking(); // 2026-09-24 : camion d'effets déjà au parking ?
   // 2026-09-12 — le bouton n'avait AUCUNE garde : 732382 créé trois fois à 12:23.
   const { busy, envoyer } = useEnvoiUnique();
 
@@ -2155,6 +2170,7 @@ function FormVehicule({ go }: { go: Nav['go'] }) {
   }
   async function creer() {
     if (!origine) { toast("Le N° de conteneur d'origine (TC) est obligatoire.", 'err'); return; }
+    if (!await parking.confirmer(cams.map((cm) => cm.numeroCamion))) return;
     if (manuelOrigine && !tcValide(origine)) { toast('N° conteneur d\'origine invalide (4 lettres + 7 chiffres).', 'err'); return; }
     // v4.1 — si le 1er châssis existe déjà à un statut modifiable : proposer le mixte.
     // 2026-08-19 — sinon, avertir si un châssis actif ressemble fortement (frappe).
@@ -2237,6 +2253,7 @@ function FormVehicule({ go }: { go: Nav['go'] }) {
       onOuvrir={(id) => { setSimil(null); go('detail', id); }}
       onCreer={() => { setSimil(null); envoyer(faireCreer); }}
       onAnnuler={() => setSimil(null)} />}
+    {parking.fenetre}
   </div>;
 }
 
@@ -2271,6 +2288,7 @@ function FormMagasin({ go }: { go: Nav['go'] }) {
   // finalise depuis la fiche.
   const [chargementTermine, setChargementTermine] = useState(true);
   const [scelles, setScelles] = useState(['', '', '']);
+  const parking = useAlerteParking(); // 2026-09-24 : ce camion est-il au parking ?
   const set = (k: string, val: unknown) => setD((o) => ({ ...o, [k]: val }));
 
   /* ANTI-DOUBLON À LA SAISIE (2026-09-10).
@@ -2302,6 +2320,7 @@ function FormMagasin({ go }: { go: Nav['go'] }) {
   async function creer() {
     if (!num) { toast('N° camion requis.', 'err'); return; }
     if (chargementTermine && scelles.filter(Boolean).length < 2) { toast('Au moins 2 scellés camion (ou décochez « chargement terminé »).', 'err'); return; }
+    if (!await parking.confirmer(num)) return;
     try {
       const r = await call<{ camions: { id: string }[] }>('cargo.create', {
         typeOperation: OPERATIONS.MAGASIN, numeroCamion: num, consoMode: mode, declaration: d,
@@ -2345,18 +2364,21 @@ function FormMagasin({ go }: { go: Nav['go'] }) {
         <input value={scelles[k] ?? ''} onChange={(e) => setScelles((a) => a.map((x, j) => j === k ? masks.upper(e.target.value) : x))} /></div>)}
     </div>}
     <div style={{ marginTop: 12 }}><button disabled={busy} onClick={() => envoyer(creer)}>{busy ? 'Enregistrement…' : 'Créer'}</button></div>
+    {parking.fenetre}
   </div>;
 }
 
 function FormConso({ go }: { go: Nav['go'] }) {
   const [d, setD] = useState<O>({});
   const [num, setNum] = useState('');
+  const parking = useAlerteParking(); // 2026-09-24 : ce camion est-il au parking ?
   const [mode, setMode] = useState('balise');
   const [ct, setCt] = useState<O>({ num: '', taille: '', type: '', plomb: '' });
   const set = (k: string, val: unknown) => setD((o) => ({ ...o, [k]: val }));
   const setC = (k: string, val: unknown) => setCt((o) => ({ ...o, [k]: val }));
   async function creer() {
     if (!tcValide(String(ct['num']))) { toast('N° conteneur invalide.', 'err'); return; }
+    if (!await parking.confirmer(num)) return;
     try {
       const r = await call<{ camions: { id: string }[] }>('cargo.create', {
         typeOperation: OPERATIONS.CONSO, consoMode: mode, declaration: d,
@@ -2379,6 +2401,7 @@ function FormConso({ go }: { go: Nav['go'] }) {
       <div><label className="help">Scellé</label><input value={String(ct['plomb'])} onChange={(e) => setC('plomb', masks.upper(e.target.value))} /></div>
     </div>
     <div style={{ marginTop: 12 }}><button disabled={busy} onClick={() => envoyer(creer)}>{busy ? 'Enregistrement…' : 'Créer'}</button></div>
+    {parking.fenetre}
   </div>;
 }
 

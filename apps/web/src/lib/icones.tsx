@@ -118,6 +118,8 @@ const TRACES: Record<string, string | string[]> = {
   balise: 'M12 10a2 2 0 100 4 2 2 0 000-4zM8.5 8.5a5 5 0 000 7M15.5 8.5a5 5 0 010 7M5.5 5.5a9 9 0 000 13M18.5 5.5a9 9 0 010 13',
   bonSortie: 'M6 3h8l4 4v14H6zM14 3v4h4M9 14l2 2 4-4',
   sortie: 'M14 4h4a1 1 0 011 1v14a1 1 0 01-1 1h-4M10 8l-4 4 4 4M6 12h9',
+  // Le « P » du parking, dans le cadre d'un panneau.
+  parking: 'M4 4h16v16H4zM10 16V8h3a2.5 2.5 0 010 5h-3',
   // Flèche qui tourne : recharger l'application (mise à jour).
   miseAJour: 'M20 12a8 8 0 11-2.34-5.66M20 4v4h-4',
 

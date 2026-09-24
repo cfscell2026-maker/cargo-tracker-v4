@@ -35,6 +35,16 @@ export const PERMISSIONS: Record<string, Role[]> = {
   'cargo.list': TOUS_ROLES,
   'vehicule.list': TOUS_ROLES, // v4.1 : recherche véhicule (châssis + marque)
   'cargo.checkdup': TOUS_ROLES,
+  /* PARKING (2026-09-24, décision utilisateur) : TOUS les agents et TOUS les
+     chefs pointent les camions au parking — c'est un comptage de présence, pas
+     une étape du parcours. La sortie manuelle reste à l'ADMIN : la sortie
+     normale se fait toute seule au passage à la Porte Principale. */
+  'parking.list': TOUS_ROLES,
+  'parking.detail': TOUS_ROLES,
+  'parking.check': TOUS_ROLES,
+  'parking.add': TOUS_ROLES,
+  'parking.point': TOUS_ROLES,
+  'parking.sortie': [ROLES.ADMIN],
   // Écriture par étape (1 cellule = 1 rôle ; CFS = cellule unifiée entrée + chargement)
   'cargo.createcamion': [ROLES.CFS, ROLES.ADMIN],
   'cargo.cfs': [ROLES.CFS, ROLES.ADMIN],

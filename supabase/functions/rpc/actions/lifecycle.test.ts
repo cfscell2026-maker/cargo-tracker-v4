@@ -16,6 +16,7 @@ import * as stk from './stock.ts';
 import * as rap from './rapports.ts';
 import * as lec from './lecture.ts';
 import * as prm from './parametres.ts';
+import * as prk from './parking.ts';
 
 function ctxAvec(db: FakeDB): Ctx {
   return {
@@ -3081,4 +3082,108 @@ test('paramètres — plafond de conteneurs aussi à la création groupée et à
   await assert.rejects(() => ecr.update(ctxRole(db, 'ADMIN', 'Admin'), {
     id: 'X', typeOperation: 'Enlèvement', declaration: DECL_OK, numeroCamion: 'MAX002/RM01', conteneurs: conts, scellesCamion: [],
   }), /max 1/);
+});
+
+/* ------------------------------- PARKING -------------------------------- */
+
+test('parking : ajout + pointage du jour, un seul par jour', async () => {
+  const db = new FakeDB();
+  const agent = ctxRole(db, 'BALISE', 'Agent Balise');
+  const r = (await prk.parkingAdd(agent, { numeroCamion: 'TG1234AB/RM01', numeroConteneur: 'MSKU1234567', plomb: 'PL-77' })) as { id: string; pointe: boolean };
+  assert.equal(r.pointe, true, "l'ajout pointe le camion dans la foulée");
+  assert.equal(db.store['parking_pointages'].length, 1);
+  // Deuxième pointage le même jour : refusé.
+  await assert.rejects(() => prk.parkingPointer(agent, { id: r.id }), /DÉJÀ POINTÉ/);
+  assert.equal(db.store['parking_pointages'].length, 1);
+  // Et le même camion ne peut pas être ajouté deux fois tant qu'il est présent.
+  await assert.rejects(() => prk.parkingAdd(agent, { numeroCamion: 'tg1234ab/rm01' }), /DÉJÀ au parking/);
+});
+
+test('parking : ajout sans pointer, puis pointage le lendemain', async () => {
+  const db = new FakeDB();
+  const agent = ctxRole(db, 'T1', 'Agent T1');
+  const r = (await prk.parkingAdd(agent, { numeroCamion: 'TG2222CD/RM02', pointer: false })) as { id: string; pointe: boolean };
+  assert.equal(r.pointe, false);
+  const l1 = (await prk.parkingList(agent, {})) as { lignes: { pointeAujourdhui: boolean }[]; compte: { presents: number; pointes: number; restants: number } };
+  assert.deepEqual(l1.compte, { presents: 1, pointes: 0, restants: 1 });
+  assert.equal(l1.lignes[0]?.pointeAujourdhui, false);
+  await prk.parkingPointer(agent, { id: r.id });
+  const l2 = (await prk.parkingList(agent, {})) as { lignes: { pointeAujourdhui: boolean }[]; compte: { pointes: number; restants: number } };
+  assert.equal(l2.lignes[0]?.pointeAujourdhui, true, 'le bouton « Pointer » disparaît ensuite');
+  assert.deepEqual(l2.compte.pointes, 1);
+  assert.deepEqual(l2.compte.restants, 0);
+  // Un pointage de la veille ne bloque pas celui du jour : la ligne existe par jour.
+  db.store['parking_pointages'].push({ id: r.id + '#2026-09-23', parking_id: r.id, jour: '2026-09-23', pointe_par: 'Hier' });
+  const d = (await prk.parkingDetail(agent, { id: r.id })) as { pointages: unknown[] };
+  assert.equal(d.pointages.length, 2, "l'historique garde chaque jour pointé");
+});
+
+test('parking : recherche au fil de la frappe sur la plaque', async () => {
+  const db = new FakeDB();
+  const agent = ctxRole(db, 'CFS', 'Agent CFS');
+  await prk.parkingAdd(agent, { numeroCamion: 'TG2489BK/2725BP' });
+  await prk.parkingAdd(agent, { numeroCamion: 'TG7777ZZ/RM09' });
+  const plaques = async (q: string) =>
+    ((await prk.parkingList(agent, { recherche: q })) as { lignes: { numeroCamion: string }[] }).lignes.map((l) => l.numeroCamion);
+  assert.deepEqual(await plaques('2'), ['TG7777ZZ/RM09', 'TG2489BK/2725BP'].filter((p) => p.replace(/[^A-Z0-9]/g, '').includes('2')));
+  assert.deepEqual(await plaques('248'), ['TG2489BK/2725BP']);
+  assert.deepEqual(await plaques('tg 2489 bk'), ['TG2489BK/2725BP'], 'espaces et minuscules ignorés');
+  assert.deepEqual(await plaques('9999'), []);
+});
+
+test('parking : plaque obligatoire et format contrôlé', async () => {
+  const db = new FakeDB();
+  const agent = ctxRole(db, 'PP', 'Agent PP');
+  await assert.rejects(() => prk.parkingAdd(agent, { numeroCamion: '' }), /N° camion requis/);
+  await assert.rejects(() => prk.parkingAdd(agent, { numeroCamion: 'AB' }), /camion/i);
+});
+
+test('parking : le camion signalé à la Porte Principale sort du parking', async () => {
+  const db = new FakeDB();
+  db.store['stock'].push({ numero_tc: 'MSKU7000001', taille: "20'", statut: 'En stock' });
+  const cfs = ctxAvec(db);
+  const agent = ctxRole(db, 'PP', 'Agent PP');
+  const plaque = 'TG5555EE/RM05';
+  await prk.parkingAdd(agent, { numeroCamion: plaque });
+  const avant = (await prk.parkingCheck(cfs, { numeroCamion: 'tg5555ee/rm05' })) as { present: boolean };
+  assert.equal(avant.present, true, 'la saisie CFS est prévenue que le camion est au parking');
+
+  // Un dossier complet pour ce camion, jusqu'à la sortie PP.
+  const r = (await spe.create(cfs, {
+    typeOperation: 'Enlèvement', declaration: DECL_OK,
+    camions: [{ numeroCamion: plaque, conteneurs: [{ num: 'MSKU7000001', taille: "20'", type: 'DRY', plomb: 'S1' }] }],
+  })) as { camions: { id: string }[] };
+  const id = r.camions[0]!.id;
+  await ecr.t1(ctxRole(db, 'T1', 'Agent T1'), {
+    id, bureauDestination: 'TG120', t1Numeros: [{ conteneur: 'MSKU7000001', numero: 'T1-A' }],
+  });
+  await ecr.gps(ctxRole(db, 'BALISE', 'Agent Balise'), { id, baliseRequise: 'Oui', t1Correct: 'Oui', numeroGPS: 'GPS-1' });
+  await ecr.bonsortie(ctxRole(db, 'BON_SORTIE', 'Agent BS'), {
+    id, bonSortieNumero: [{ conteneur: 'MSKU7000001', t1: 'T1-A', numero: 'BS-1' }],
+  });
+  await ecr.sortie(agent, { id, ckCfs: true, ckT1: true, ckBalise: true, ckBs: true });
+
+  const apres = (await prk.parkingCheck(cfs, { numeroCamion: plaque })) as { present: boolean };
+  assert.equal(apres.present, false, 'sorti du parking une fois signalé à la PP');
+  const ligne = db.store['parking_camions'][0]!;
+  assert.equal(ligne['statut'], 'Sorti');
+  assert.equal(ligne['sortie_cargaison'], id);
+  // Et il ne se pointe plus.
+  await assert.rejects(() => prk.parkingPointer(agent, { id: String(ligne['id']) }), /sorti du parking/);
+});
+
+test("parking : sortie manuelle réservée à l'ADMIN, motif obligatoire", async () => {
+  const db = new FakeDB();
+  const admin = ctxRole(db, 'ADMIN', 'Admin');
+  const { id } = (await prk.parkingAdd(admin, { numeroCamion: 'TG9999YY/RM07' })) as { id: string };
+  await assert.rejects(() => prk.parkingSortie(admin, { id }), /Motif/);
+  await prk.parkingSortie(admin, { id, motif: 'Reparti à vide' });
+  assert.equal(db.store['parking_camions'][0]?.['statut'], 'Sorti');
+  const permis = (role: string, action: string) => {
+    try { verifierPermission(role, action); return true; } catch { return false; }
+  };
+  assert.equal(permis('CFS', 'parking.sortie'), false, 'un agent ne sort pas un camion à la main');
+  assert.equal(permis('CFS', 'parking.point'), true, 'mais tout agent pointe');
+  assert.equal(permis('BALISE', 'parking.add'), true);
+  assert.equal(permis('PP', 'parking.list'), true);
 });

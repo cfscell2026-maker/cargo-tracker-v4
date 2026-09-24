@@ -35,7 +35,7 @@ export const MENUS: Record<string, MenuItem[]> = {
     ['etatcfs', 'Pointage camions (sortie)', 'presse'], ['chargement', 'Bon de chargement', 'document'],
     ['cfsreport', 'Rapport CFS', 'rapport'], ['vehreport', 'Rapport véhicules', 'rapport'], ['destinations', 'Par destination', 'carte'],
     ['dwell', 'Camions en instance', 'horloge'], ['stockdwell', 'Séjour conteneurs', 'horloge'], ['temps', 'Temps de passage', 'sablier'],
-    ['horodatage', 'Heures d\'activité', 'horloge'], ['account', 'Mon compte', 'compte'],
+    ['horodatage', 'Heures d\'activité', 'horloge'], ['parking', 'Parking', 'parking'], ['account', 'Mon compte', 'compte'],
   ],
   // v4 — le chef brigade lit TOUS les rapports de TOUTES les cellules (lecture seule).
   CHEF_BRIGADE: [
@@ -50,13 +50,13 @@ export const MENUS: Record<string, MenuItem[]> = {
     ['dispenses', 'Dispenses', 'drapeau'],
     ['flux', 'Analyse des flux', 'flux'], ['destinations', 'Par destination', 'carte'], ['controles', 'Contrôles (gabarit/surcharge)', 'balance'],
     ['dwell', 'Délai & instance', 'horloge'], ['stockdwell', 'Séjour conteneurs', 'horloge'], ['temps', 'Temps de passage', 'sablier'],
-    ['horodatage', 'Heures d\'activité', 'horloge'], ['account', 'Mon compte', 'compte'],
+    ['horodatage', 'Heures d\'activité', 'horloge'], ['parking', 'Parking', 'parking'], ['account', 'Mon compte', 'compte'],
   ],
   CHEF_BRIGADE_ADJOINT: [
     ['engagements', 'Engagements', 'sablier'],
     ['search', 'Recherche (en cours)', 'loupe'], ['list', 'Cargaisons', 'liste'], ['vehicules', 'Véhicules', 'voiture'],
     ['controles', 'Contrôles (gabarit/surcharge)', 'balance'], ['temps', 'Temps de passage', 'sablier'],
-    ['horodatage', 'Heures d\'activité', 'horloge'], ['account', 'Mon compte', 'compte'],
+    ['horodatage', 'Heures d\'activité', 'horloge'], ['parking', 'Parking', 'parking'], ['account', 'Mon compte', 'compte'],
   ],
   // CBPI — chef brigade par intérim : UNIQUEMENT la file « À valider » (+ son
   // compte). Aucun autre écran : c'est une délégation de signature, rien d'autre.
@@ -65,34 +65,34 @@ export const MENUS: Record<string, MenuItem[]> = {
     ['dash', 'Tableau de bord', 'tableau'], ['engagements', 'Engagements', 'sablier'],
     ['search', 'Recherche (en cours)', 'loupe'], ['list', 'Cargaisons', 'liste'],
     ['vehicules', 'Véhicules', 'voiture'], ['controles', 'Contrôles (gabarit/surcharge)', 'balance'],
-    ['temps', 'Temps de passage', 'sablier'], ['horodatage', 'Heures d\'activité', 'horloge'], ['account', 'Mon compte', 'compte'],
+    ['temps', 'Temps de passage', 'sablier'], ['horodatage', 'Heures d\'activité', 'horloge'], ['parking', 'Parking', 'parking'], ['account', 'Mon compte', 'compte'],
   ],
   CHEF_DIVISION: [
     ['dash', 'Tableau de bord', 'tableau'], ['engagements', 'Engagements', 'sablier'],
     ['search', 'Recherche (en cours)', 'loupe'], ['list', 'Cargaisons', 'liste'],
     ['vehicules', 'Véhicules', 'voiture'], ['controles', 'Contrôles (gabarit/surcharge)', 'balance'],
-    ['temps', 'Temps de passage', 'sablier'], ['horodatage', 'Heures d\'activité', 'horloge'], ['account', 'Mon compte', 'compte'],
+    ['temps', 'Temps de passage', 'sablier'], ['horodatage', 'Heures d\'activité', 'horloge'], ['parking', 'Parking', 'parking'], ['account', 'Mon compte', 'compte'],
   ],
   T1: [
     ['t1', 'Cellule T1', 't1'], ['wait_t1', 'En attente T1', 'attente'], ['search', 'Recherche (en cours)', 'loupe'],
     ['list', 'Cargaisons', 'liste'], ['t1report', 'Rapport T1', 'rapport'],
-    ['horodatage', 'Heures d\'activité', 'horloge'], ['account', 'Mon compte', 'compte'],
+    ['horodatage', 'Heures d\'activité', 'horloge'], ['parking', 'Parking', 'parking'], ['account', 'Mon compte', 'compte'],
   ],
   BALISE: [
     ['gps', 'Cellule Balise', 'balise'], ['wait_gps', 'En attente Balise', 'attente'], ['dispenses', 'Dispenses', 'drapeau'],
     ['search', 'Recherche (en cours)', 'loupe'], ['list', 'Cargaisons', 'liste'], ['baliserep', 'Rapport Balise', 'rapport'],
-    ['horodatage', 'Heures d\'activité', 'horloge'], ['account', 'Mon compte', 'compte'],
+    ['horodatage', 'Heures d\'activité', 'horloge'], ['parking', 'Parking', 'parking'], ['account', 'Mon compte', 'compte'],
   ],
   BON_SORTIE: [
     ['bonsortie', 'Cellule Bon de Sortie', 'bonSortie'], ['wait_bs', 'En attente Bon de Sortie', 'attente'],
     ['search', 'Recherche (en cours)', 'loupe'], ['list', 'Cargaisons', 'liste'], ['bonsortiereport', 'Rapport Bon de sortie', 'rapport'],
-    ['horodatage', 'Heures d\'activité', 'horloge'], ['account', 'Mon compte', 'compte'],
+    ['horodatage', 'Heures d\'activité', 'horloge'], ['parking', 'Parking', 'parking'], ['account', 'Mon compte', 'compte'],
   ],
   PP: [
     ['sortie', 'Sortie (checklist)', 'sortie'], ['wait_sortie', 'En attente sortie', 'attente'],
     ['conteneurs', 'Opérations sur conteneurs', 'conteneur'], ['search', 'Recherche (en cours)', 'loupe'],
     ['vehicules', 'Véhicules', 'voiture'], ['list', 'Cargaisons', 'liste'], ['pprep', 'Rapport PP', 'rapport'],
-    ['destinations', 'Par destination', 'carte'], ['horodatage', 'Heures d\'activité', 'horloge'], ['account', 'Mon compte', 'compte'],
+    ['destinations', 'Par destination', 'carte'], ['horodatage', 'Heures d\'activité', 'horloge'], ['parking', 'Parking', 'parking'], ['account', 'Mon compte', 'compte'],
   ],
   ADMIN: [
     ['dash', 'Tableau de bord', 'tableau'], ['creercamion', 'Créer un camion', 'camionPlus'],
@@ -110,7 +110,7 @@ export const MENUS: Record<string, MenuItem[]> = {
     ['stockdwell', 'Séjour conteneurs', 'horloge'], ['temps', 'Temps de passage', 'sablier'],
     ['horodatage', 'Heures d\'activité', 'horloge'], ['goulots', 'Nettoyage (goulots)', 'nettoyage'], ['parametres', 'Paramètres', 'reglages'],
     ['archive', 'Archive (+1 an)', 'archive'], ['history', 'Historique', 'historique'],
-    ['users', 'Utilisateurs', 'utilisateurs'], ['account', 'Mon compte', 'compte'],
+    ['users', 'Utilisateurs', 'utilisateurs'], ['parking', 'Parking', 'parking'], ['account', 'Mon compte', 'compte'],
   ],
 };
 
@@ -180,7 +180,7 @@ export function iconeDeLEcran(role: string, ecran: string): string {
  */
 const LIBELLES_COURTS: Record<string, string> = {
   dash: 'Bord', creercamion: 'Créer', completer: 'Saisir', wait_valid: 'Valider',
-  search: 'Chercher', list: 'Dossiers', engagements: 'Engage.', parametres: 'Réglages', conteneurs: 'Parc', mad: 'Magasin',
+  search: 'Chercher', list: 'Dossiers', engagements: 'Engage.', parking: 'Parking', parametres: 'Réglages', conteneurs: 'Parc', mad: 'Magasin',
   entrepindus: 'Usine', vehicules: 'Véhicules', etatcfs: 'Pointage',
   t1: 'Cellule T1', gps: 'Balise', bonsortie: 'Bon sortie', sortie: 'Sortie',
   stock: 'Stock', pointage: 'Pointage', account: 'Compte',
