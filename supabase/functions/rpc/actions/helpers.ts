@@ -52,21 +52,79 @@ export async function fetchAll(
   // deno-lint-ignore no-explicit-any
   affiner?: (q: any) => any,
 ): Promise<Record<string, unknown>[]> {
+  /* LENTEUR — 2026-09-24. Les blocs partaient UN PAR UN : quinze allers-retours
+   * enchaînés pour 14 000 dossiers, soit l'essentiel des ~3,7 s mesurées sur
+   * chaque liste. Le premier bloc rapporte le nombre total de lignes ; les
+   * suivants partent alors EN PARALLÈLE, par vagues de EN_PARALLELE.
+   *
+   * ORDRE STABLE — condition de justesse, pas de confort. Sans `order by`,
+   * PostgreSQL ne garantit pas le même ordre d'un bloc à l'autre : une ligne
+   * modifiée par un agent PENDANT la pagination peut changer de place, et être
+   * comptée deux fois ou pas du tout. On trie donc toujours, en dernier ressort,
+   * sur la clé primaire. Paralléliser sans cela aggraverait le risque. */
   const BLOC = 1000;
-  const out: Record<string, unknown>[] = [];
-  for (let debut = 0; ; debut += BLOC) {
+  const EN_PARALLELE = 5;
+  const cle = CLE_PRIMAIRE[table];
+  const bloc = async (debut: number, avecCompte: boolean): Promise<{ lot: Record<string, unknown>[]; total: number | null }> => {
     // deno-lint-ignore no-explicit-any
-    let q: any = ctx.db.from(table).select(select);
+    let q: any = ctx.db.from(table).select(select, avecCompte ? { count: 'exact' } : undefined);
     if (affiner) q = affiner(q);
     if (order) q = q.order(order.colonne, { ascending: order.ascendant !== false });
-    const { data, error } = await q.range(debut, debut + BLOC - 1);
+    if (cle && cle !== order?.colonne) q = q.order(cle, { ascending: true });
+    const { data, error, count } = await q.range(debut, debut + BLOC - 1);
     if (error) throw new Error(error.message);
-    const lot = (data ?? []) as Record<string, unknown>[];
+    return { lot: (data ?? []) as Record<string, unknown>[], total: typeof count === 'number' ? count : null };
+  };
+
+  const premier = await bloc(0, true);
+  const out = [...premier.lot];
+  if (premier.lot.length < BLOC) return out;
+
+  let suivant = BLOC;
+  if (premier.total !== null) {
+    const debuts: number[] = [];
+    for (let d = BLOC; d < premier.total; d += BLOC) debuts.push(d);
+    for (let i = 0; i < debuts.length; i += EN_PARALLELE) {
+      const vague = await Promise.all(debuts.slice(i, i + EN_PARALLELE).map((d) => bloc(d, false)));
+      for (const v of vague) out.push(...v.lot);
+    }
+    suivant = BLOC * (debuts.length + 1);
+    // Le dernier bloc n'était pas plein : tout est lu.
+    if (out.length < suivant) return out;
+  }
+  // Total inconnu, ou lignes ajoutées depuis le comptage : on finit un par un.
+  for (let debut = suivant; ; debut += BLOC) {
+    const { lot } = await bloc(debut, false);
     out.push(...lot);
     if (lot.length < BLOC) break;
   }
   return out;
 }
+
+/**
+ * Nombre de lignes d'une table, compté PAR LA BASE (`count` sans rapatrier une
+ * seule ligne). À préférer à `fetchAll(...).length` dès qu'on ne veut qu'un total.
+ */
+export async function compter(
+  ctx: Ctx,
+  table: string,
+  // deno-lint-ignore no-explicit-any
+  affiner?: (q: any) => any,
+): Promise<number> {
+  // deno-lint-ignore no-explicit-any
+  let q: any = ctx.db.from(table).select('*', { count: 'exact', head: true });
+  if (affiner) q = affiner(q);
+  const { count, error } = await q;
+  if (error) throw new Error(error.message);
+  return Number(count ?? 0);
+}
+
+/** Clé primaire des tables lues par `fetchAll` : dernier critère de tri, pour un ordre stable. */
+const CLE_PRIMAIRE: Record<string, string> = {
+  cargaisons: 'id', v_cargaisons_resume: 'id', conteneurs: 'id', declarations: 'cle',
+  stock: 'numero_tc', stock_annonce: 'numero_tc',
+  entrepots: 'code', entrepot_entrees: 'id', entrepot_sorties: 'id',
+};
 
 /**
  * Lecture d'une cargaison ; lève « Cargaison introuvable : id » (v3.6).

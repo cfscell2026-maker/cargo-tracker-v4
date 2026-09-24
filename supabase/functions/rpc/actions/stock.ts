@@ -14,7 +14,7 @@ import {
 
 /** Cargaison sortie de l'enceinte : ne rend plus un conteneur indisponible. */
 const STATUTS_SORTIE = STATUTS.SORTIE;
-import { lookupDeclaration, fetchAll } from './helpers.ts';
+import { lookupDeclaration, fetchAll, compter } from './helpers.ts';
 
 const normTC = (v: unknown) => String(v ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 // v4, N° de déclaration réduit aux CHIFFRES (décision utilisateur 2026-07-17).
@@ -318,8 +318,35 @@ export async function stockPointage(ctx: Ctx, p: Record<string, unknown>) {
     .neq('statut', STOCK_STATUTS.DEPOTE); // on ne re-pointe jamais un conteneur déjà dépoté
   if (e2) throw new Error(e2.message);
   await ctx.log(repointage ? 'Re-pointage (reste)' : 'Pointage matinal', tc, '');
-  const s = (await stockList(ctx, { statut: 'tous' })).compte;
+  const s = await compteurPointage(ctx);
   return { numeroTC: tc, repointage, positionne: s.positionne, positionneJour: s.positionneJour, restes: s.restes, depote: s.depote };
+}
+
+/**
+ * Compteurs rendus après chaque pointage — mêmes valeurs que `stockList().compte`,
+ * mais COMPTÉES PAR LA BASE (2026-09-24, lenteur) : chaque clic rechargeait les
+ * ~12 500 fiches du stock pour quatre nombres. « Du jour » = pointé depuis
+ * minuit UTC, soit le découpage de `stockList` (Togo = UTC+0).
+ */
+async function compteurPointage(ctx: Ctx) {
+  const minuit = new Date().toISOString().slice(0, 10) + 'T00:00:00.000Z';
+  const [positionne, positionneJour, depote] = await Promise.all([
+    compter(ctx, 'stock', (q) => q.eq('statut', STOCK_STATUTS.POSITIONNE)),
+    compter(ctx, 'stock', (q) => q.eq('statut', STOCK_STATUTS.POSITIONNE).gte('date_pointage', minuit)),
+    compter(ctx, 'stock', (q) => q.eq('statut', STOCK_STATUTS.DEPOTE)),
+  ]);
+  return { positionne, positionneJour, restes: positionne - positionneJour, depote };
+}
+
+/** Compteurs du stock annoncé — mêmes valeurs que `annonceList().compte`, comptées par la base. */
+async function compteurAnnonces(ctx: Ctx) {
+  const [total, annonces, aConfirmer, confirmes] = await Promise.all([
+    compter(ctx, 'stock_annonce'),
+    compter(ctx, 'stock_annonce', (q) => q.eq('statut', ANNONCE_STATUTS.ANNONCE)),
+    compter(ctx, 'stock_annonce', (q) => q.eq('statut', ANNONCE_STATUTS.POINTE)),
+    compter(ctx, 'stock_annonce', (q) => q.eq('statut', ANNONCE_STATUTS.CONFIRME)),
+  ]);
+  return { annonces, aConfirmer, confirmes, tauxTransfert: total ? Math.round((confirmes / total) * 100) : 0 };
 }
 
 export async function stockEntreeMagasin(ctx: Ctx, p: Record<string, unknown>) {
@@ -439,7 +466,7 @@ export async function annoncePointage(ctx: Ctx, p: Record<string, unknown>) {
     statut: ANNONCE_STATUTS.POINTE, date_pointage: new Date().toISOString(), pointe_par: ctx.session.nomComplet,
   }).eq('numero_tc', tc).eq('statut', ANNONCE_STATUTS.ANNONCE);
   await ctx.log('Pointage entrée (stock annoncé)', tc, '');
-  const s = (await annonceList(ctx, { statut: 'tous' })).compte;
+  const s = await compteurAnnonces(ctx);
   return { numeroTC: tc, annonces: s.annonces, aConfirmer: s.aConfirmer, confirmes: s.confirmes, tauxTransfert: s.tauxTransfert };
 }
 
@@ -471,7 +498,7 @@ export async function annonceConfirmer(ctx: Ctx, p: Record<string, unknown>) {
   }).eq('numero_tc', tc).eq('statut', ANNONCE_STATUTS.POINTE);
   await entrerStockPortSec(ctx, tc, o as Record<string, unknown>, now);
   await ctx.log('Confirmation entrée stock (annoncé)', tc, '');
-  const s = (await annonceList(ctx, { statut: 'tous' })).compte;
+  const s = await compteurAnnonces(ctx);
   return { numeroTC: tc, aConfirmer: s.aConfirmer, confirmes: s.confirmes, tauxTransfert: s.tauxTransfert };
 }
 
@@ -502,7 +529,7 @@ export async function annonceConfirmerLot(ctx: Ctx, p: Record<string, unknown>) 
     await entrerStockPortSec(ctx, tc, o as Record<string, unknown>, now);
     confirmes.push(tc);
   }
-  if (confirmes.length) await ctx.log('Confirmation entrée stock (annoncé), lot', '', confirmes.length + ' conteneur(s) : ' + confirmes.join(', '));
+  if (confirmes.length) await ctx.log('Confirmation entrée stock (annoncé) — lot', '', confirmes.length + ' conteneur(s) : ' + confirmes.join(', '));
   const s = (await annonceList(ctx, { statut: 'tous' })).compte;
   return { confirmes, ignores, aConfirmer: s.aConfirmer, confirmesTotal: s.confirmes, tauxTransfert: s.tauxTransfert };
 }
