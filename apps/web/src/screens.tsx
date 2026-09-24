@@ -3828,6 +3828,11 @@ SCREENS.kpi = () => {
 SCREENS.dispenses = () => {
   const { data, loading } = useAsync<{ compte: O; rows: O[] }>(() => call('report.dispenses', {}), []);
   return <div className="card"><h2>Suivi des dispenses</h2>
+    <p className="help" style={{ marginTop: 0 }}>
+      Une dispense est une exemption accordée à la cellule Balise sur une déclaration qui
+      <b> exigeait une balise</b> (transit, exportation). Une conso, une admission ou une entrée
+      en entrepôt n'en prend pas par nature : elles ne figurent pas ici.
+    </p>
     {loading ? <Spinner /> : <>
       <div className="stats"><StatCard n={Number(data?.compte['total'] ?? 0)} l="Total" /><StatCard n={Number(data?.compte['enCours'] ?? 0)} l="En cours" tone="warn" /><StatCard n={Number(data?.compte['terminees'] ?? 0)} l="Terminées" tone="ok" /></div>
       <Table cols={[['id', 'ID'], ['numeroCamion', 'Camion'], ['numeroDispense', 'N° dispense'], ['statut', 'Statut']]} rows={data?.rows ?? []} />

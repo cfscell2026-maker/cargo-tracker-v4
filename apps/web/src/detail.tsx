@@ -934,7 +934,22 @@ function PanneauBalise({ c, action }: { c: O; action: ActionFn }) {
       onChange={(v) => setPose(v as '' | 'pose' | 'dispense')} />
     {pose === '' ? <p className="help">Choisissez <b>Baliser</b> ou <b>Dispense</b> pour continuer.</p>
       : requise ? <Champ label="N° balise GPS" value={gps} onChange={(e) => setGps(e.target.value)} />
-        : <Champ label="N° autorisation de dispense" value={disp} onChange={(e) => setDisp(masks.upper(e.target.value))} />}
+        : <>
+          <Champ label="N° autorisation de dispense" value={disp} onChange={(e) => setDisp(masks.upper(e.target.value))} />
+          {/* CE QUI COMPTE COMME DISPENSE (2026-09-24, décision utilisateur) :
+              seule une déclaration qui EXIGE une balise peut en être dispensée.
+              L'agent doit le savoir avant de taper un numéro de complaisance. */}
+          {estTypeSansT1(c['typeDeclaration'])
+            ? <p className="help">
+              {libelleTypeSansT1(c['typeDeclaration'])} : cette déclaration <b>n'exige pas de balise</b>.
+              Le camion pourra continuer, mais <b>ce ne sera pas compté comme une dispense</b> dans le
+              volet « Dispenses », qui ne suit que les transits réellement exemptés.
+            </p>
+            : <p className="help">
+              Le numéro d'autorisation part au volet « Dispenses » : indiquez la <b>référence réelle</b>
+              de l'exemption, pas « 0 » ni « sauté ».
+            </p>}
+        </>}
     <div style={{ marginTop: 12 }}><button disabled={pose === ''}
       onClick={() => action(() => call('cargo.gps', { id, baliseRequise: requise ? 'Oui' : 'Non', t1Correct: t1ok ? 'Oui' : 'Non', numeroGPS: gps, numeroDispense: disp }), requise ? 'Balise posée.' : 'Dispense enregistrée.')}>Valider la balise</button></div>
   </div>;

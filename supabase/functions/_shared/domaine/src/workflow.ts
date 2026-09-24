@@ -220,16 +220,22 @@ export function fileAttente(c: SourceEtapes): Etape | null {
  * décision PRISE À LA BALISE : la cellule exempte de balise une cargaison qui en
  * aurait normalement eu besoin, et enregistre un NUMÉRO D'AUTORISATION obligatoire.
  *
- * ⚠ Ce n'est PAS la même chose qu'un « saute-balise » : les déclarations de type
- * C/A/E (mise à la consommation non balisée…) n'ont pas de balise PAR NATURE et
- * ne passent jamais par la cellule Balise. Les compter comme dispenses gonflait
- * le tableau de bord (59 affichées pour quelques-unes réelles). De même, les
- * véhicules sautent la balise par nature → jamais des dispenses.
+ * ⚠ Ce n'est PAS la même chose qu'un « saute-balise » : un véhicule saute la
+ * balise par nature, il n'est donc jamais dispensé.
+ *
+ * ⚠ SEUL CE QUI EXIGE UNE BALISE PEUT EN ÊTRE DISPENSÉ (2026-09-24, décision
+ * utilisateur). Le commentaire d'origine disait déjà que les types hors transit
+ * n'ont pas de balise par nature, mais le CODE ne vérifiait pas le type : le
+ * volet « Dispenses » affichait 80 camions, dont 48 consos et admissions. Le
+ * champ « N° d'autorisation » étant obligatoire dès qu'on choisit Dispense, les
+ * agents y tapaient « 0 » (43 fois) ou « SAUTÉ » (21 fois) pour passer. Une
+ * conso non balisée n'est pas dispensée : elle n'avait pas de balise à prendre.
  */
 export function estDispenseBalise(c: {
-  baliseRequise?: unknown; numeroDispense?: unknown; estVehicule?: unknown;
+  baliseRequise?: unknown; numeroDispense?: unknown; estVehicule?: unknown; typeDeclaration?: unknown;
 }): boolean {
   if (estOui(c.estVehicule)) return false;
+  if (estTypeSansT1(c.typeDeclaration)) return false; // conso, admission, entrepôt
   const pasRequise = c.baliseRequise === false || String(c.baliseRequise) === 'Non';
   return pasRequise && String(c.numeroDispense ?? '').trim() !== '';
 }

@@ -532,3 +532,21 @@ test("type de déclaration : la lettre reste la valeur, le sens s'affiche", () =
   assert.equal(estTypeSansT1('S'), true);
   assert.equal(estTypeSansT1('T'), false);
 });
+
+test('dispense : seul ce qui EXIGE une balise peut en etre dispense', () => {
+  const avecNumero = { baliseRequise: false, numeroDispense: 'D-42034' };
+  // Transit : la balise est exigee, la dispense est reelle.
+  assert.equal(estDispenseBalise({ ...avecNumero, typeDeclaration: 'T' }), true);
+  assert.equal(estDispenseBalise({ ...avecNumero, typeDeclaration: 'E' }), true);
+  // Conso, admission, entrepot : pas de balise a prendre, donc jamais de dispense,
+  // meme avec un numero (decision utilisateur 2026-09-24).
+  assert.equal(estDispenseBalise({ ...avecNumero, typeDeclaration: 'C' }), false);
+  assert.equal(estDispenseBalise({ ...avecNumero, typeDeclaration: 'A' }), false);
+  assert.equal(estDispenseBalise({ ...avecNumero, typeDeclaration: 'S' }), false);
+  // Un vehicule saute la balise par nature.
+  assert.equal(estDispenseBalise({ ...avecNumero, typeDeclaration: 'T', estVehicule: true }), false);
+  // Sans numero d'autorisation, il n'y a pas de dispense.
+  assert.equal(estDispenseBalise({ baliseRequise: false, numeroDispense: '', typeDeclaration: 'T' }), false);
+  // Balise posee normalement : rien a signaler.
+  assert.equal(estDispenseBalise({ baliseRequise: true, numeroDispense: '', typeDeclaration: 'T' }), false);
+});
