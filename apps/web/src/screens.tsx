@@ -3825,20 +3825,110 @@ SCREENS.kpi = () => {
   </div>;
 };
 
+/**
+ * DISPENSES ET ESCORTES (2026-09-24, demande utilisateur).
+ *
+ * Deux faits différents, longtemps mélangés : la dispense repose sur une
+ * AUTORISATION, l'escorte sur un ACCOMPAGNEMENT. La cellule Balise les distingue
+ * désormais à la saisie ; ce volet les compte séparément, mois par mois et par
+ * type de déclaration, et laisse filtrer la liste.
+ */
 SCREENS.dispenses = () => {
-  const { data, loading } = useAsync<{ compte: O; rows: O[] }>(() => call('report.dispenses', {}), []);
-  return <div className="card"><h2>Suivi des dispenses</h2>
-    <p className="help" style={{ marginTop: 0 }}>
-      Une dispense est une exemption <b>marquée « Dispense » à la cellule Balise</b>, avec sa
-      référence d'autorisation. Les camions passés par ce choix sans référence réelle
-      (« 0 », « sauté ») n'y figurent pas : ils n'ont jamais été dispensés.
-    </p>
-    {loading ? <Spinner /> : <>
-      <div className="stats"><StatCard n={Number(data?.compte['total'] ?? 0)} l="Total" /><StatCard n={Number(data?.compte['enCours'] ?? 0)} l="En cours" tone="warn" /><StatCard n={Number(data?.compte['terminees'] ?? 0)} l="Terminées" tone="ok" /></div>
-      <Table cols={[['id', 'ID'], ['numeroCamion', 'Camion'], ['numeroDispense', 'N° dispense'], ['statut', 'Statut']]} rows={data?.rows ?? []} />
+  const { data, loading } = useAsync<{ compte: O; rows: O[]; mois: O[]; types: O[] }>(() => call('report.dispenses', {}), []);
+  const [vue, setVue] = useState('toutes');
+  const cpt = (data?.compte ?? {}) as O;
+  const toutes = (data?.rows ?? []) as O[];
+  const lignes = vue === 'toutes' ? toutes : toutes.filter((r) => String(r['exemption']) === vue);
+  const mois = (data?.mois ?? []) as O[];
+  const types = (data?.types ?? []) as O[];
+  const maxMois = Math.max(1, ...mois.map((m) => Number(m['dispenses'] ?? 0) + Number(m['escortes'] ?? 0)));
+
+  return <>
+    <BandeauModule icone="drapeau" titre="Dispenses et escortes"
+      sous={<>Camions sortis <b>sans balise</b> : sur autorisation (dispense) ou sous accompagnement (escorte).</>}
+      action={<div className="bm-outils">
+        <button className="btn-export" disabled={!lignes.length} onClick={() => exporterExemptions(lignes, vue)}
+          title="Extraire la vue affichée en Excel">
+          <Icone nom="telecharger" taille={15} />Excel
+        </button>
+      </div>} />
+
+    <div className="stats compacts">
+      <StatCard n={Number(cpt['total'] ?? 0)} l="Exemptions" icone="drapeau" onClick={() => setVue('toutes')} />
+      <StatCard n={Number(cpt['dispenses'] ?? 0)} l="Dispenses" icone="drapeau" onClick={() => setVue('dispense')} />
+      <StatCard n={Number(cpt['escortes'] ?? 0)} l="Escortes" icone="escorte" onClick={() => setVue('escorte')} />
+      <StatCard n={Number(cpt['enCours'] ?? 0)} l="En cours" icone="sablier" tone="warn" />
+      <StatCard n={Number(cpt['terminees'] ?? 0)} l="Arrivées bureau" icone="valider" tone="ok" />
+    </div>
+
+    {loading ? <div className="card"><Spinner /></div> : <>
+      <div className="card">
+        <h2>Par mois</h2>
+        {mois.length === 0 ? <div className="empty">Aucune exemption enregistrée.</div>
+          : <div className="exem-mois">
+            {mois.map((m) => {
+              const d = Number(m['dispenses'] ?? 0);
+              const e = Number(m['escortes'] ?? 0);
+              return <div key={String(m['mois'])} className="exem-ligne">
+                <span className="exem-cle mono">{String(m['mois'])}</span>
+                <span className="exem-barres">
+                  <span className="exem-part dispense" style={{ width: `${(d / maxMois) * 100}%` }} title={`${d} dispense(s)`} />
+                  <span className="exem-part escorte" style={{ width: `${(e / maxMois) * 100}%` }} title={`${e} escorte(s)`} />
+                </span>
+                <span className="help exem-chiffres">{d} disp. · {e} esc.</span>
+              </div>;
+            })}
+            <div className="exem-legende help">
+              <span><i className="pastille dispense" /> Dispense</span>
+              <span><i className="pastille escorte" /> Escorte</span>
+            </div>
+          </div>}
+      </div>
+
+      {types.length > 0 && <div className="card">
+        <h2>Par type de déclaration</h2>
+        <Table cols={[['type', 'Type'], ['dispenses', 'Dispenses'], ['escortes', 'Escortes']]} rows={types} />
+      </div>}
+
+      <div className="card">
+        <div className="park-presence">
+          <ChoixSegmente libelle="Exemptions affichées" valeur={vue}
+            onChange={(v) => setVue(v || vue)}
+            options={[
+              { valeur: 'toutes', libelle: 'Toutes', icone: 'liste' },
+              { valeur: 'dispense', libelle: 'Dispenses', icone: 'drapeau' },
+              { valeur: 'escorte', libelle: 'Escortes', icone: 'escorte' },
+            ]} />
+          <span className="help">{lignes.length} ligne(s)</span>
+        </div>
+        {lignes.length === 0 ? <div className="empty">Aucune exemption dans cette vue.</div>
+          : <Table
+            cols={[['id', 'ID'], ['numeroCamion', 'Camion'], ['nature', 'Nature'], ['numeroDispense', 'Référence'],
+              ['typeDeclaration', 'Type décl.'], ['statut', 'Statut']]}
+            rows={lignes.map((r) => ({ ...r, nature: String(r['exemption']) === 'escorte' ? 'Escorte' : 'Dispense' }))} />}
+      </div>
     </>}
-  </div>;
+  </>;
 };
+
+/** L'extraction suit la vue affichée, comme partout ailleurs. */
+function exporterExemptions(lignes: O[], vue: string) {
+  if (!lignes.length) { toast('Rien à extraire.', 'err'); return; }
+  const rows = lignes.map((r) => ({
+    'ID': String(r['id'] ?? ''),
+    'Camion': String(r['numeroCamion'] ?? ''),
+    'Nature': String(r['exemption']) === 'escorte' ? 'Escorte' : 'Dispense',
+    'Référence': String(r['numeroDispense'] ?? ''),
+    'Type déclaration': String(r['typeDeclaration'] ?? ''),
+    'Statut': String(r['statut'] ?? ''),
+    'Arrivée bureau': r['arriveeBureau'] === true || r['arriveeBureau'] === 'Oui' ? 'Oui' : 'Non',
+  }));
+  const feuille = XLSX.utils.json_to_sheet(rows);
+  const classeur = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(classeur, feuille, 'Exemptions');
+  XLSX.writeFile(classeur, `exemptions-${vue}-${new Date().toISOString().slice(0, 10)}.xlsx`);
+  toast(`${rows.length} ligne(s) extraite(s).`, 'ok');
+}
 
 const MOIS_COURT = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.'];
 

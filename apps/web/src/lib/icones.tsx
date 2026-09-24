@@ -214,6 +214,14 @@ const TRACES: Record<string, string | string[]> = {
     'M8.8 15.2l2.2 2.2 4.2-4.2',
   ],
   drapeau: 'M5 21V4M5 5h10l-1.5 3L15 11H5',
+  /* ESCORTE (2026-09-24) : l'ECUSSON de celui qui accompagne — un bouclier
+     portant une étoile. Premier essai abandonné : un camion entre deux traits
+     se lisait comme un graphique à 17 px. Le bouclier de `valider` porte une
+     coche, celui-ci une étoile : deux dessins voisins, jamais confondus. */
+  escorte: [
+    'M12 3.2l6.6 2.8v5.2c0 3.9-2.7 7.2-6.6 8.1-3.9-.9-6.6-4.2-6.6-8.1V6z',
+    'M12 8.4l1.15 2.3 2.55.37-1.85 1.8.44 2.53L12 14.2l-2.29 1.2.44-2.53-1.85-1.8 2.55-.37z',
+  ],
 
   // Flux d'entrée
   televerser: 'M12 15V4M8.5 7.5L12 4l3.5 3.5M4 15v3a2 2 0 002 2h12a2 2 0 002-2v-3',

@@ -917,7 +917,7 @@ function PanneauBalise({ c, action }: { c: O; action: ActionFn }) {
      actif annule le choix, il faut donc pouvoir n'avoir RIEN de choisi. Le
      bouton de validation reste bloque tant que c'est le cas - sans quoi on
      enregistrerait une pose de balise par defaut, jamais decidee. */
-  const [pose, setPose] = useState<'' | 'pose' | 'dispense'>('pose');
+  const [pose, setPose] = useState<'' | 'pose' | 'dispense' | 'escorte'>('pose');
   const requise = pose === 'pose';
   const [t1ok, setT1ok] = useState(false);
   const [gps, setGps] = useState('');
@@ -929,21 +929,27 @@ function PanneauBalise({ c, action }: { c: O; action: ActionFn }) {
     <div className="segmente">
       <BoutonBascule actif={t1ok} onChange={setT1ok} libelle="Numéro T1 correct" icone="document" />
     </div>
-    <ChoixSegmente libelle="Baliser ou dispenser" valeur={pose}
+    {/* TROIS ISSUES, PAS DEUX (2026-09-24, demande utilisateur). Le camion qui
+        part sous escorte n'est pas dispensé : il est accompagné. Les agents
+        l'écrivaient déjà à la main dans la référence (« ESCORTE MILITAIRE »),
+        faute d'un endroit pour le dire. */}
+    <ChoixSegmente libelle="Baliser, dispenser ou escorter" valeur={pose}
       options={[{ valeur: 'pose', libelle: 'Baliser', icone: 'balise' },
-        { valeur: 'dispense', libelle: 'Dispense', icone: 'drapeau' }]}
-      onChange={(v) => setPose(v as '' | 'pose' | 'dispense')} />
-    {pose === '' ? <p className="help">Choisissez <b>Baliser</b> ou <b>Dispense</b> pour continuer.</p>
+        { valeur: 'dispense', libelle: 'Dispense', icone: 'drapeau' },
+        { valeur: 'escorte', libelle: 'Escorter', icone: 'escorte' }]}
+      onChange={(v) => setPose(v as '' | 'pose' | 'dispense' | 'escorte')} />
+    {pose === '' ? <p className="help">Choisissez <b>Baliser</b>, <b>Dispense</b> ou <b>Escorter</b> pour continuer.</p>
       : requise ? <Champ label="N° balise GPS" value={gps} onChange={(e) => setGps(e.target.value)} />
         : <>
-          <Champ label="N° autorisation de dispense" value={disp} onChange={(e) => setDisp(masks.upper(e.target.value))} />
+          <Champ label={pose === 'escorte' ? "Référence de l'escorte (unité, ordre de mission…)" : 'N° autorisation de dispense'}
+            value={disp} onChange={(e) => setDisp(masks.upper(e.target.value))} />
           {/* CE QUI COMPTE COMME DISPENSE (2026-09-24, décision utilisateur) :
               le marquage ici, ET une vraie référence. Le serveur refuse « 0 »
               et « sauté » ; autant le dire avant la frappe. */}
           <p className="help">
-            Le numéro part au volet « Dispenses » : indiquez la <b>référence réelle</b> de
-            l'exemption (numéro, escorte…). « 0 » et « sauté » sont refusés — sans autorisation,
-            posez la balise.
+            La référence part au volet « Dispenses », qui distingue les <b>dispenses</b> des
+            <b> escortes</b>. Indiquez la <b>référence réelle</b> : « 0 » et « sauté » sont refusés,
+            et sans référence, posez la balise.
           </p>
           {disp.trim() !== '' && !numeroDispenseValide(disp) &&
             <div className="help" style={{ color: 'var(--err)' }}>
@@ -951,7 +957,11 @@ function PanneauBalise({ c, action }: { c: O; action: ActionFn }) {
             </div>}
         </>}
     <div style={{ marginTop: 12 }}><button disabled={pose === ''}
-      onClick={() => action(() => call('cargo.gps', { id, baliseRequise: requise ? 'Oui' : 'Non', t1Correct: t1ok ? 'Oui' : 'Non', numeroGPS: gps, numeroDispense: disp }), requise ? 'Balise posée.' : 'Dispense enregistrée.')}>Valider la balise</button></div>
+      onClick={() => action(() => call('cargo.gps', {
+        id, baliseRequise: requise ? 'Oui' : 'Non', t1Correct: t1ok ? 'Oui' : 'Non',
+        numeroGPS: gps, numeroDispense: disp, exemption: pose === 'escorte' ? 'escorte' : 'dispense',
+      }), requise ? 'Balise posée.' : pose === 'escorte' ? 'Escorte enregistrée.' : 'Dispense enregistrée.')}>
+      Valider la balise</button></div>
   </div>;
 }
 

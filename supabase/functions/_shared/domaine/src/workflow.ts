@@ -253,6 +253,29 @@ const MENTIONS_SANS_VALEUR = [
   'AUCUN', 'AUCUNE', 'NON', 'NULL', 'NUL', 'X', 'XX', 'XXX', 'VIDE', 'PASDEBALISE',
 ];
 
+/**
+ * NATURE DE L'EXEMPTION : dispense, escorte, ou rien (2026-09-24, demande
+ * utilisateur).
+ *
+ * La colonne `type_exemption` (migration 00202) porte le choix fait à la
+ * cellule Balise. Les lignes ANTÉRIEURES ne l'ont pas : faute de mieux, on la
+ * DÉDUIT de la référence saisie, où les agents écrivaient déjà « ESCORTE
+ * MILITAIRE » ou « ESCORTE SANVEE CONDJI ». On ne réécrit pas l'historique, on
+ * le lit mieux — et toute ligne exemptée sans indice reste une dispense.
+ */
+export type NatureExemption = 'dispense' | 'escorte' | null;
+
+export function natureExemption(c: {
+  baliseRequise?: unknown; numeroDispense?: unknown; estVehicule?: unknown; typeExemption?: unknown;
+}): NatureExemption {
+  if (!estDispenseBalise(c)) return null;
+  const declare = String(c.typeExemption ?? '').trim().toLowerCase();
+  if (declare === 'escorte' || declare === 'dispense') return declare;
+  const ref = String(c.numeroDispense ?? '')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
+  return ref.indexOf('ESCORT') >= 0 ? 'escorte' : 'dispense';
+}
+
 export function numeroDispenseValide(v: unknown): boolean {
   const brut = String(v ?? '')
     .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // accents : SAUTÉ = SAUTE

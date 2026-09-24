@@ -904,17 +904,26 @@ export async function gps(ctx: Ctx, p: Record<string, unknown>) {
   const t1Correct = p['t1Correct'] === true || String(p['t1Correct']).toLowerCase() === 'oui';
   const numeroGPS = txt(p['numeroGPS']);
   const numeroDispense = maj(p['numeroDispense'], 60);
+  /* DISPENSE OU ESCORTE (2026-09-24, demande utilisateur). Les deux exemptent
+     de balise, mais ce ne sont pas les mêmes faits : l'une repose sur une
+     autorisation, l'autre sur un accompagnement. La cellule le dit maintenant,
+     au lieu de l'écrire à la main dans la référence. */
+  const exemption = String(p['exemption'] ?? '').trim().toLowerCase() === 'escorte' ? 'escorte' : 'dispense';
   if (!t1Correct) throw new Error('Cochez « Numéro T1 correct » avant de valider la balise.');
   if (requise && !numeroGPS) throw new Error('Numéro de balise requis.');
-  if (!requise && !numeroDispense) throw new Error("Numéro d'autorisation de dispense requis.");
+  if (!requise && !numeroDispense)
+    throw new Error(exemption === 'escorte'
+      ? "Référence de l'escorte requise."
+      : "Numéro d'autorisation de dispense requis.");
   /* PAS DE NUMÉRO DE COMPLAISANCE (2026-09-24, décision utilisateur). « 0 » ou
      « sauté » passaient le champ obligatoire et peuplaient le volet Dispenses
      de camions jamais dispensés. Si l'exemption n'a pas de référence, c'est
      qu'il faut poser la balise. */
   if (!requise && !numeroDispenseValide(numeroDispense))
     throw new ErreurMetier(
-      "« " + numeroDispense + " » n'est pas une autorisation : indiquez la RÉFÉRENCE RÉELLE de la "
-      + "dispense (numéro, escorte…). Sans autorisation, posez la balise.",
+      "« " + numeroDispense + " » n'est pas une référence : indiquez la RÉFÉRENCE RÉELLE de "
+      + (exemption === 'escorte' ? "l'escorte (unité, ordre de mission…)" : 'la dispense (numéro, autorisation…)')
+      + '. Sans référence, posez la balise.',
     );
 
   const cargo = await getCargo(ctx, id);
@@ -965,10 +974,12 @@ export async function gps(ctx: Ctx, p: Record<string, unknown>) {
     agent_balise: ctx.session.nomComplet, agent_balise_id: ctx.session.userId,
     observations_balise: txt(p['observations'], 1000), balise_requise: requise, t1_correct: true,
     numero_dispense: requise ? '' : numeroDispense,
+    type_exemption: requise ? null : exemption,
   };
   if (avancer) patch['statut'] = STATUTS.GPS;
   await patchCargo(ctx, cargo, patch);
   if (requise) await ctx.log('Pose balise', id, 'Balise ' + numeroGPS);
+  else if (exemption === 'escorte') await ctx.log('Escorte (sans balise)', id, 'Escorte ' + numeroDispense);
   else await ctx.log('Dispense de balise', id, 'Dispense ' + numeroDispense);
   return { id, baliseRequise: requise ? 'Oui' : 'Non' };
 }

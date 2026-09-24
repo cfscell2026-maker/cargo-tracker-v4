@@ -1732,6 +1732,21 @@ tr.clk{cursor:pointer} tr.clk:hover{background:var(--accent-soft)}
 .pagination-tc{justify-content:center;align-items:center;gap:12px;margin-top:10px}
 .pagination-tc .help{margin:0}
 
+/* ---- Dispenses et escortes (2026-09-24) -------------------------------
+   Une barre par mois, coupee en deux : ce qui releve d'une autorisation et ce
+   qui releve d'un accompagnement. La longueur compare les mois entre eux. */
+.exem-ligne{display:flex;align-items:center;gap:10px;margin-bottom:7px}
+.exem-cle{flex:0 0 66px;font-size:12px;color:var(--muted)}
+.exem-barres{flex:1;display:flex;gap:3px;min-width:0;height:16px;align-items:center}
+.exem-part{height:14px;border-radius:4px;min-width:2px}
+.exem-part.dispense{background:var(--accent)}
+.exem-part.escorte{background:var(--warn)}
+.exem-chiffres{flex:0 0 auto;margin:0;font-size:12px}
+.exem-legende{display:flex;gap:16px;margin-top:10px}
+.exem-legende .pastille{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px}
+.exem-legende .pastille.dispense{background:var(--accent)}
+.exem-legende .pastille.escorte{background:var(--warn)}
+
 /* ---- Etape precedente manquante (2026-09-24) --------------------------
    L'encadre remplace le panneau de saisie : il doit se lire comme un ARRET,
    sans crier a l'erreur — l'agent n'a rien fait de mal, il est simplement
