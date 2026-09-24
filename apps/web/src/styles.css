@@ -1708,6 +1708,23 @@ tr.clk{cursor:pointer} tr.clk:hover{background:var(--accent-soft)}
   margin-bottom:10px;
 }
 .park-presence .help{margin:0}
+
+/* KPI COMPACTS (demande utilisateur, 2026-09-24). Les tuiles empilaient
+   pastille, chiffre et libelle sur trois etages : 115 px de haut pour trois
+   nombres, et sur telephone elles repoussaient la liste hors de l'ecran. La
+   pastille passe A COTE du chiffre, et la carte tombe a une soixantaine de
+   pixels sans rien perdre de ce qu'elle dit. */
+.stats.compacts{grid-template-columns:repeat(auto-fill,minmax(138px,1fr));gap:10px}
+.stats.compacts .stat{
+  display:grid;
+  grid-template-columns:auto 1fr;
+  grid-template-areas:"pastille nombre" "pastille libelle";
+  align-items:center;column-gap:10px;
+  min-height:0;padding:8px 12px;border-radius:12px;
+}
+.stats.compacts .stat .stat-icone{grid-area:pastille;width:32px;height:32px;border-radius:10px}
+.stats.compacts .stat .n{grid-area:nombre;font-size:19px;line-height:1.15}
+.stats.compacts .stat .l{grid-area:libelle;font-size:11.5px;line-height:1.2}
 /* « Supprimer » porte la couleur de l'irréversible, comme sur les dossiers. */
 .park-ligne .acts-suppr{color:var(--err);border-color:currentColor}
 
@@ -2161,16 +2178,24 @@ label.help.lbl-icone svg{color:var(--accent);flex:0 0 auto}
   border-color:transparent;
   box-shadow:0 6px 18px rgba(14,90,138,.3),inset 0 1px 0 rgba(255,255,255,.35);
 }
+/* VOYANT BLANC (demande utilisateur, 2026-09-24). Le bleu pale se lisait mal
+   sur le fond bleu du choix actif ; le blanc tranche, et c'est la couleur
+   attendue d'un voyant allume. */
 .seg-choix.actif .seg-voyant{
-  background:#8fe3ff;
-  box-shadow:0 0 0 3px rgba(143,227,255,.3),0 0 10px 2px rgba(143,227,255,.9);
+  background:#fff;
+  box-shadow:0 0 0 3px rgba(255,255,255,.32),0 0 10px 2px rgba(255,255,255,.8);
 }
+/* AU SURVOL, LE CHOIX ACTIF NE S'INVERSE PLUS. Il passait au blanc avec un
+   texte bleu : sur telephone, ou le survol reste colle apres la frappe, le
+   libelle du choix retenu devenait le moins lisible des trois. Il garde donc
+   son fond fonce et son texte blanc, et ne fait que s'eclaircir un peu. */
 .seg-choix.actif:hover{
-  background:#fff;color:var(--accent);border-color:var(--accent);
+  background:linear-gradient(160deg,#1272ab,var(--accent));
+  color:#fff;border-color:transparent;
 }
 .seg-choix.actif:hover .seg-voyant{
-  background:var(--accent);
-  box-shadow:0 0 0 3px rgba(14,90,138,.18),0 0 10px 2px rgba(14,90,138,.6);
+  background:#fff;
+  box-shadow:0 0 0 3px rgba(255,255,255,.4),0 0 12px 3px rgba(255,255,255,.95);
 }
 @media (prefers-reduced-motion:reduce){
   .seg-choix,.seg-voyant{transition:none}

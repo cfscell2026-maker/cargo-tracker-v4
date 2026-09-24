@@ -114,10 +114,12 @@ export function EcranParking({ user }: Nav) {
       </p>
     </div>}
 
-    <div className="stats" style={{ marginTop: 10 }}>
-      <StatCard n={Number(cpt['presents'] ?? 0)} l="Camions présents" icone="parking" />
-      <StatCard n={Number(cpt['pointes'] ?? 0)} l="Pointés aujourd'hui" icone="valider" tone="ok" />
-      <StatCard n={Number(cpt['restants'] ?? 0)} l="Restent à pointer" icone="sablier" tone="warn" />
+    {/* Trois chiffres, en tuiles COMPACTES : cet écran sert à pointer, la
+        liste doit rester à portée de pouce sur un téléphone. */}
+    <div className="stats compacts" style={{ marginTop: 10 }}>
+      <StatCard n={Number(cpt['presents'] ?? 0)} l="Présents" icone="parking" />
+      <StatCard n={Number(cpt['pointes'] ?? 0)} l="Pointés ce jour" icone="valider" tone="ok" />
+      <StatCard n={Number(cpt['restants'] ?? 0)} l="À pointer" icone="sablier" tone="warn" />
     </div>
 
     <div className="card">
