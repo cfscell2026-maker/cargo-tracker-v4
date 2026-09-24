@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- *  Registre des actions RPC — équivalent du switch de Code.gs rpc() (v3.6).
+ *  Registre des actions RPC, équivalent du switch de Code.gs rpc() (v3.6).
  *  Chaque action est enregistrée sous SON NOM v3.6 ; le routeur (index.ts)
  *  vérifie la permission AVANT d'appeler le handler.
  * ============================================================================
@@ -46,7 +46,7 @@ export const ACTIONS: Record<string, H> = {
   'cargo.historique': d(rap.historiqueCargaison), // 2026-09-10 : parcours complet d'un camion
   'report.archive': d(lecture.archiveAncienne), // 2026-09-10 : cargaisons de plus d'un an (ADMIN)
   'cargo.passages': d(lecture.passagesCamion), // 2026-09-10 : passages antérieurs d'une plaque
-  // Corrections de cellules remplies (2026-09-10) — pendant de `cargo.gpsedit`.
+  // Corrections de cellules remplies (2026-09-10), pendant de `cargo.gpsedit`.
   'cargo.t1edit': d(ecr.t1edit),
   'cargo.bsedit': d(ecr.bsedit),
   'decl.apurementedit': d(stk.apurementEdit), // CFS + ADMIN : rattrapage d'un compteur
@@ -73,7 +73,7 @@ export const ACTIONS: Record<string, H> = {
   /* ----- Entrepôts : MAD & Entrepôt industriel (v4.1) ----- */
   'entrepot.list': d(entrepot.entrepotList),
   'entrepot.create': d(entrepot.entrepotCreate),
-  // 2026-09-11 — un magasin créé devait pouvoir être corrigé et retiré.
+  // 2026-09-11 : un magasin créé devait pouvoir être corrigé et retiré.
   'entrepot.edit': d(entrepot.entrepotEdit), // renommer / type / (dés)activer
   'entrepot.delete': d(entrepot.entrepotSupprimer), // ADMIN, et seulement s'il est vierge
   'entrepot.entree': d(entrepot.entrepotEntree),
@@ -115,7 +115,7 @@ export const ACTIONS: Record<string, H> = {
   'report.balisedetail': d((ctx, data: Record<string, unknown>) => rap.rapportActiviteDetail(ctx, { ...data, kind: 'balise' })),
   'report.pp': d((ctx, data: Record<string, unknown>) => rap.rapportActivite(ctx, { ...data, kind: 'pp' })),
   'report.ppdetail': d((ctx, data: Record<string, unknown>) => rap.rapportActiviteDetail(ctx, { ...data, kind: 'pp' })),
-  // v4.3 — rapports des cellules T1 et Bon de sortie (datés à leur propre cellule).
+  // v4.3, rapports des cellules T1 et Bon de sortie (datés à leur propre cellule).
   'report.t1': d((ctx, data: Record<string, unknown>) => rap.rapportActivite(ctx, { ...data, kind: 't1' })),
   'report.t1detail': d((ctx, data: Record<string, unknown>) => rap.rapportActiviteDetail(ctx, { ...data, kind: 't1' })),
   'report.bonsortie': d((ctx, data: Record<string, unknown>) => rap.rapportActivite(ctx, { ...data, kind: 'bonsortie' })),
@@ -147,7 +147,7 @@ export const ACTIONS: Record<string, H> = {
   'user.toggle': d(usr.userToggle),
   'user.resetpwd': d(usr.userResetpwd),
   'user.resetmfa': d(usr.userResetmfa),
-  // 2026-09-11 — suppression d'un compte JAMAIS UTILISÉ (voir `userSupprimer`).
+  // 2026-09-11 : suppression d'un compte JAMAIS UTILISÉ (voir `userSupprimer`).
   'user.delete': d(usr.userSupprimer),
 
   /* ----- Paramètres (2026-09-21) ----- */

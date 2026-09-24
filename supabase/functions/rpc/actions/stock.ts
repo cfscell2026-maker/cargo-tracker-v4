@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- *  Actions STOCK, STOCK ANNONCÉ, DÉCLARATIONS — transcription fidèle (v3.6).
+ *  Actions STOCK, STOCK ANNONCÉ, DÉCLARATIONS, transcription fidèle (v3.6).
  *  Correction I-5 appliquée (décision utilisateur) : au ré-import de l'annonce,
  *  une ligne « Pointé » OU « Confirmé » n'est plus écrasée.
  * ============================================================================
@@ -17,7 +17,7 @@ const STATUTS_SORTIE = STATUTS.SORTIE;
 import { lookupDeclaration, fetchAll } from './helpers.ts';
 
 const normTC = (v: unknown) => String(v ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-// v4 — N° de déclaration réduit aux CHIFFRES (décision utilisateur 2026-07-17).
+// v4, N° de déclaration réduit aux CHIFFRES (décision utilisateur 2026-07-17).
 const chiffres = (v: unknown) => String(v ?? '').replace(/[^0-9]/g, '');
 const iso = (v: unknown) => (v ? new Date(String(v)).toISOString() : null);
 const jours = (a: Date, b: Date) => Math.max(0, Math.floor((b.getTime() - a.getTime()) / 86400000));
@@ -30,13 +30,13 @@ export async function declLookup(ctx: Ctx, p: Record<string, unknown>) {
 /* -------------------------------- stock -------------------------------- */
 
 /**
- * v4.2 — RECHERCHE D'UN CONTENEUR DANS TOUT LE PARC, quel que soit son statut.
+ * v4.2, RECHERCHE D'UN CONTENEUR DANS TOUT LE PARC, quel que soit son statut.
  *
  * Le problème auquel cela répond : le pointage matinal fige la liste des
  * conteneurs « Positionné » du jour. Or des conteneurs continuent d'être
  * positionnés dans la journée, après le passage de l'agent. Au moment de les
- * dépoter, ils n'apparaissent nulle part — ni dans la liste du jour, ni ailleurs
- * — et les agents se rabattent sur « saisie manuelle ». Résultat : le conteneur
+ * dépoter, ils n'apparaissent nulle part, ni dans la liste du jour, ni ailleurs
+ * · et les agents se rabattent sur « saisie manuelle ». Résultat : le conteneur
  * n'est jamais rattaché à sa fiche stock, il reste « En stock » indéfiniment, et
  * le parc affiche des conteneurs présents qui sont partis depuis longtemps.
  *
@@ -82,7 +82,7 @@ export async function stockList(ctx: Ctx, opts: { statut?: string }) {
   const data = await fetchAll(ctx, 'stock', '*');
   const now = new Date();
   const rows: unknown[] = [];
-  // v4.1 — positionneJour = positionnés AUJOURD'HUI ; restes = positionnés un
+  // v4.1, positionneJour = positionnés AUJOURD'HUI ; restes = positionnés un
   // jour précédent, pas encore dépotés (la vue journalière les sépare).
   const compte = { total: 0, stock: 0, positionne: 0, positionneJour: 0, restes: 0, depote: 0, pointes: 0, evp: 0, t20: 0, t40: 0, t45: 0, autres: 0, sejourMoyen: 0, tranches: [] as { tranche: string; n: number }[] };
   const dist: Record<string, number> = {};
@@ -115,7 +115,7 @@ export async function stockList(ctx: Ctx, opts: { statut?: string }) {
 }
 
 /**
- * v4.1 — IMPORT DU STOCK EN DEUX TEMPS (décision utilisateur 2026-07-22).
+ * v4.1, IMPORT DU STOCK EN DEUX TEMPS (décision utilisateur 2026-07-22).
  *
  * Le cas réel : des conteneurs manquants au premier import ont été SAISIS À LA
  * MAIN et sont déjà engagés dans un process (positionnés, dépotés, rattachés à
@@ -142,12 +142,12 @@ export async function stockImport(
 
   // ⚠ fetchAll et NON .select() : PostgREST plafonne une requête nue à 1000
   // lignes. Avec ~6000 conteneurs en stock, les suivants passaient pour des
-  // nouveautés — insert en collision de clé primaire, import entièrement perdu.
+  // nouveautés, insert en collision de clé primaire, import entièrement perdu.
   const existants = await fetchAll(ctx, 'stock', 'numero_tc, statut, taille, date_entree, cargaison_id, annee_declaration, type_declaration, numero_declaration');
   const parTC = new Map(existants.map((r) => [normTC(r['numero_tc']), r]));
 
   // ⚠ DEUXIÈME SOURCE, INDISPENSABLE : la SAISIE MANUELLE (case « conteneur hors
-  // stock ») n'écrit JAMAIS dans la table `stock` — `cfs()` saute `lierStock`.
+  // stock ») n'écrit JAMAIS dans la table `stock` : `cfs()` saute `lierStock`.
   // Le conteneur n'existe alors que sur son camion (table `conteneurs`).
   // Comparer le fichier au seul stock laisserait donc passer exactement les
   // conteneurs que l'agent a saisis à la main, et l'import les recréerait
@@ -184,7 +184,7 @@ export async function stockImport(
     const taille = maj(it['taille'], 10);
     const nbSej = Number(it['nbSejours'] || it['nbSejoursImport'] || 0) || 0;
     const dEnt = iso(parseDateImport(it['dateEntree'])) || now;
-    // v4 — déclaration importée avec le stock (même format que l'annonce SANS le
+    // v4, déclaration importée avec le stock (même format que l'annonce SANS le
     // bureau). N° de déclaration réduit aux chiffres. Année/type en majuscules.
     const anneeDecl = maj(it['anneeDeclaration'], 6);
     const typeDecl = maj(it['typeDeclaration'], 6);
@@ -216,7 +216,7 @@ export async function stockImport(
       const sorti = String(surCam['statut']) === STATUTS_SORTIE;
       doublons.push({
         numeroTC: tc, source: 'manuel', engage: true,
-        statut: 'Saisie manuelle — sur camion ' + String(surCam['numero_camion'] ?? '?') + (sorti ? ' (déjà sorti)' : ' (en cours)'),
+        statut: 'Saisie manuelle, sur camion ' + String(surCam['numero_camion'] ?? '?') + (sorti ? ' (déjà sorti)' : ' (en cours)'),
         cargaisonId: surCam['id'] ?? '',
         tailleExistante: '', tailleFichier: taille,
         dateEntreeExistante: '', dateEntreeFichier: dEnt,
@@ -270,7 +270,7 @@ export async function stockImport(
       majN++;
     }
     // Régularisation des saisies manuelles : on crée leur fiche stock manquante,
-    // marquée « Dépoté » et liée au camion — jamais « En stock ».
+    // marquée « Dépoté » et liée au camion, jamais « En stock ».
     if (aRegulariser.length) {
       const { error: e } = await ctx.db.from('stock').insert(aRegulariser);
       if (e) throw new Error(e.message);
@@ -288,10 +288,10 @@ export async function stockImport(
 const jourDe = (v: unknown) => (v ? new Date(String(v)).toISOString().slice(0, 10) : '');
 
 /**
- * v4.1 — POINTAGE JOURNALIER (décision client 2026-07-31). La règle de blocage
+ * v4.1, POINTAGE JOURNALIER (décision client 2026-07-31). La règle de blocage
  * devient JOURNALIÈRE : bloqué seulement si le conteneur a DÉJÀ été pointé
  * AUJOURD'HUI. Un reste pointé un jour précédent, non dépoté, reste dépotable
- * ET peut être RE-POINTÉ aujourd'hui — ce qui rafraîchit sa date au jour courant
+ * ET peut être RE-POINTÉ aujourd'hui, ce qui rafraîchit sa date au jour courant
  * et le fait entrer dans la liste du jour. Rien n'est jamais « nettoyé » : le
  * conteneur reste « Positionné » en base tant qu'il n'est pas dépoté, donc la
  * saisie du dépotage n'est jamais refusée. Seule la VUE du jour se remet à zéro
@@ -338,7 +338,7 @@ export async function stockEntreeMagasin(ctx: Ctx, p: Record<string, unknown>) {
   } else {
     await ctx.db.from('stock').update({ statut: STOCK_STATUTS.DEPOTE, date_depote: now, observations: 'Entrée magasin/MAD' }).eq('numero_tc', tc);
   }
-  await ctx.log('Entrée Magasin/MAD — conteneur dépoté', tc, '');
+  await ctx.log('Entrée Magasin/MAD, conteneur dépoté', tc, '');
   return { numeroTC: tc };
 }
 
@@ -348,7 +348,7 @@ export async function annonceImport(ctx: Ctx, p: { items?: Record<string, unknow
   const items = Array.isArray(p.items) ? p.items : [];
   if (!items.length) throw new Error('Aucune ligne à importer.');
   const now = new Date().toISOString();
-  // fetchAll : même plafond de 1000 lignes que pour le stock — au-delà, les
+  // fetchAll : même plafond de 1000 lignes que pour le stock, au-delà, les
   // lignes existantes passaient inaperçues et l'insert cassait sur la clé.
   const existants = await fetchAll(ctx, 'stock_annonce', 'numero_tc, statut');
   const statutParTC = new Map(existants.map((r) => [normTC(r['numero_tc']), r['statut'] as string]));
@@ -476,9 +476,9 @@ export async function annonceConfirmer(ctx: Ctx, p: Record<string, unknown>) {
 }
 
 /**
- * v4 — Confirmation EN LOT (décision capitaine 2026-07-17). Au lieu de saisir un
+ * v4, Confirmation EN LOT (décision capitaine 2026-07-17). Au lieu de saisir un
  * conteneur à la fois, l'agent au gate coche dans la liste des conteneurs déjà
- * pointés par la Porte Principale et valide tout d'un coup — zéro saisie, moins
+ * pointés par la Porte Principale et valide tout d'un coup, zéro saisie, moins
  * d'erreurs. Les conteneurs non éligibles (introuvables / déjà confirmés / pas
  * encore pointés) sont IGNORÉS sans faire échouer le lot, et listés en retour.
  */
@@ -502,7 +502,7 @@ export async function annonceConfirmerLot(ctx: Ctx, p: Record<string, unknown>) 
     await entrerStockPortSec(ctx, tc, o as Record<string, unknown>, now);
     confirmes.push(tc);
   }
-  if (confirmes.length) await ctx.log('Confirmation entrée stock (annoncé) — lot', '', confirmes.length + ' conteneur(s) : ' + confirmes.join(', '));
+  if (confirmes.length) await ctx.log('Confirmation entrée stock (annoncé), lot', '', confirmes.length + ' conteneur(s) : ' + confirmes.join(', '));
   const s = (await annonceList(ctx, { statut: 'tous' })).compte;
   return { confirmes, ignores, aConfirmer: s.aConfirmer, confirmesTotal: s.confirmes, tauxTransfert: s.tauxTransfert };
 }
@@ -543,7 +543,7 @@ export async function rapportStock(ctx: Ctx) {
 /* ------------------------ Statistiques de dépotage --------------------- */
 
 /**
- * v4.2 — STATISTIQUES DE DÉPOTAGE, jour par jour.
+ * v4.2, STATISTIQUES DE DÉPOTAGE, jour par jour.
  *
  * Trois chiffres par journée de travail :
  *   · positionnés = conteneurs pointés ce jour-là (pointage matinal + les
@@ -555,7 +555,7 @@ export async function rapportStock(ctx: Ctx) {
  *
  * ⚠ SÉMANTIQUE DU POINTAGE, à connaître pour lire le tableau : `date_pointage`
  * porte le DERNIER pointage d'un conteneur. Un reste pointé lundi puis re-pointé
- * mercredi compte au mercredi, pas au lundi — c'est déjà la règle de l'écran
+ * mercredi compte au mercredi, pas au lundi, c'est déjà la règle de l'écran
  * « Stock CFS journalier » (v4.1). La colonne « positionnés » est donc une photo
  * par journée, pas un cumul d'arrivées.
  */
@@ -595,7 +595,7 @@ export async function rapportDepotage(ctx: Ctx, p: Record<string, unknown>) {
     }
   }
 
-  // Restant en fin de journée — calculé sur TOUT le parc, pas seulement sur la
+  // Restant en fin de journée, calculé sur TOUT le parc, pas seulement sur la
   // période affichée : sinon le report des jours antérieurs disparaîtrait.
   for (const l of parJour.values()) {
     l.restant = parc.filter((x) => x.jp && x.jp <= l.jour && (!x.jd || x.jd > l.jour)).length;
@@ -606,17 +606,17 @@ export async function rapportDepotage(ctx: Ctx, p: Record<string, unknown>) {
 }
 
 /**
- * CORRECTION MANUELLE DE L'APUREMENT (2026-09-10) — ADMIN uniquement.
+ * CORRECTION MANUELLE DE L'APUREMENT (2026-09-10), ADMIN uniquement.
  *
  * ⚠ C'EST UN COMPTEUR DOUANIER. Le modifier à la main, c'est déclarer qu'un
- * nombre de conteneurs a été dédouané — l'écriture la plus sensible du système.
+ * nombre de conteneurs a été dédouané, l'écriture la plus sensible du système.
  * D'où trois garde-fous, tous délibérés :
  *
  *  1. MOTIF OBLIGATOIRE. Sans lui, le journal dirait qu'un apurement a bougé
  *     sans dire pourquoi : sans valeur lors d'un contrôle.
  *  2. VALEURS BORNÉES. Ni négatif, ni au-delà du nombre déclaré quand celui-ci
  *     est connu. Un apurement supérieur au déclaré est ce que le diagnostic du
- *     2026-09-09 a trouvé sur 34 déclarations — on ne rouvre pas la porte.
+ *     2026-09-09 a trouvé sur 34 déclarations, on ne rouvre pas la porte.
  *  3. AVANT / APRÈS AU JOURNAL. La valeur remplacée est inscrite, sinon la
  *     correction efface ce qu'elle corrige.
  *
@@ -664,18 +664,18 @@ export async function apurementEdit(ctx: Ctx, p: Record<string, unknown>) {
 }
 
 /**
- * SUPPRESSION d'une ligne de déclaration — ADMIN uniquement (2026-09-10).
+ * SUPPRESSION d'une ligne de déclaration, ADMIN uniquement (2026-09-10).
  *
  * Ce qu'on supprime ici n'est PAS une déclaration en douane : c'est la ligne de
  * SUIVI D'APUREMENT que l'application tient en face d'elle. Elle se crée toute
- * seule à la première saisie d'un conteneur portant cette référence — une faute
+ * seule à la première saisie d'un conteneur portant cette référence, une faute
  * de frappe sur le numéro engendre donc une ligne fantôme, qui traîne ensuite
  * dans les recherches et les rapports sans jamais rien apurer.
  *
  * LE GARDE-FOU. On refuse la suppression dès que `conteneurs_apures > 0` : des
  * conteneurs ont alors été dédouanés en face de cette référence, et effacer le
  * compteur ferait disparaître la trace de ce qui a été apuré. Ne partent donc
- * que les lignes à ZÉRO — les coquilles vides, précisément celles qu'on veut
+ * que les lignes à ZÉRO, les coquilles vides, précisément celles qu'on veut
  * retirer. Une ligne réellement en service se corrige (`decl.apurementedit`),
  * elle ne se supprime pas.
  */

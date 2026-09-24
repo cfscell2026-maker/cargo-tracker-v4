@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- *  Edge Function « rpc » — POINT D'ENTRÉE UNIQUE de la logique métier.
+ *  Edge Function « rpc », POINT D'ENTRÉE UNIQUE de la logique métier.
  *  Équivalent fidèle de Code.gs rpc(action, token, data) :
  *    1) contrôle l'origine (CORS liste blanche) et le débit,
  *    2) valide la session (JWT Supabase, niveau aal2 = 2FA vérifié),
@@ -17,7 +17,7 @@ import { dbAdmin, exigerSession, fabriquerLog, requeteDe } from './supa.ts';
 import { ACTIONS } from './actions/registry.ts';
 
 /* -------------------------------------------------------------------------- */
-/* SEC-07 — CORS : liste blanche d'origines                                    */
+/* SEC-07 · CORS : liste blanche d'origines                                    */
 /*                                                                            */
 /* L'en-tête était `Access-Control-Allow-Origin: *`, accompagné du commentaire */
 /* « à restreindre en production ». Le jeton étant porté par un en-tête (et    */
@@ -47,7 +47,7 @@ function enTetesCors(origine: string | null): Record<string, string> {
 }
 
 /* -------------------------------------------------------------------------- */
-/* SEC-05 — Limitation de débit                                                */
+/* SEC-05 : Limitation de débit                                                */
 /*                                                                            */
 /* Il n'y en avait aucune, et la fonction est déployée avec --no-verify-jwt :  */
 /* elle est donc joignable sans clé. Un compteur en mémoire suffit à casser    */
@@ -55,7 +55,7 @@ function enTetesCors(origine: string | null): Record<string, string> {
 /*                                                                            */
 /* ⚠ LIMITE ASSUMÉE : la mémoire est propre à chaque isolat Deno. Un attaquant */
 /* réparti sur plusieurs isolats obtient un plafond effectif plus élevé. C'est */
-/* un garde-fou, pas une protection anti-DDoS — celle-ci relève de la          */
+/* un garde-fou, pas une protection anti-DDoS, celle-ci relève de la          */
 /* passerelle Supabase et des protections anti-force-brute de Supabase Auth,   */
 /* à activer côté console (voir EXPLOITATION.md).                              */
 /* -------------------------------------------------------------------------- */
@@ -90,7 +90,7 @@ function depasse(cle: string, plafond: number): boolean {
 }
 
 /* -------------------------------------------------------------------------- */
-/* SEC-03 — Tant que le mot de passe attribué n'a pas été changé, l'agent ne   */
+/* SEC-03 : Tant que le mot de passe attribué n'a pas été changé, l'agent ne   */
 /* peut rien faire d'autre que le changer.                                     */
 /* -------------------------------------------------------------------------- */
 const ACTIONS_AVANT_CHANGEMENT = new Set(['account.me', 'account.changepwd']);
@@ -110,7 +110,7 @@ Deno.serve(async (req) => {
   let action = '';
 
   try {
-    // Débit par IP — avant tout travail, y compris la lecture du corps.
+    // Débit par IP, avant tout travail, y compris la lecture du corps.
     if (requete.ip && depasse('ip:' + requete.ip, PLAFOND_IP))
       return json({ ok: false, error: 'Trop de requêtes. Réessayez dans une minute.' }, 429);
 
@@ -131,7 +131,7 @@ Deno.serve(async (req) => {
     if (ACTIONS_SENSIBLES.has(action) && depasse('s:' + session.userId, PLAFOND_SENSIBLE))
       return json({ ok: false, error: 'Trop de tentatives sur cette opération. Réessayez dans une minute.' }, 429);
 
-    // SEC-03 — mot de passe attribué non encore changé.
+    // SEC-03 : mot de passe attribué non encore changé.
     if (session.doitChangerMdp && !ACTIONS_AVANT_CHANGEMENT.has(action))
       return json({
         ok: false,
@@ -151,7 +151,7 @@ Deno.serve(async (req) => {
     const err = e as Error & { isAuth?: boolean };
     const auth = !!(err instanceof AuthError || err.isAuth);
 
-    // SEC-08 — Ne jamais renvoyer une erreur technique telle quelle : les
+    // SEC-08 · Ne jamais renvoyer une erreur technique telle quelle : les
     // messages PostgreSQL/PostgREST livrent les noms de tables, de colonnes et
     // de contraintes. Les messages MÉTIER, eux, sont écrits pour l'agent et
     // sortent inchangés (comportement v3.6 conservé).

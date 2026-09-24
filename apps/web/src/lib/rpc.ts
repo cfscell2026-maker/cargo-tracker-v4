@@ -1,9 +1,9 @@
 /**
- * Client RPC — équivalent du helper call(action, data) de Client.html (v3.6).
+ * Client RPC, équivalent du helper call(action, data) de Client.html (v3.6).
  * Toutes les actions passent par l'Edge Function « rpc » avec le JWT courant ;
  * une erreur `auth` renvoie au login (session expirée / 2FA requis).
  *
- * 2026-09-11 — REPRISE DES PANNES DE PLATEFORME. Le chemin normal (enveloppe
+ * 2026-09-11 : REPRISE DES PANNES DE PLATEFORME. Le chemin normal (enveloppe
  * `{ ok, data | error }`) est inchangé. S'y ajoute le traitement des réponses
  * qui ne viennent PAS de notre fonction : voir `reprise.ts` pour le diagnostic
  * complet et la règle de rejeu.
@@ -16,7 +16,7 @@ export interface RpcErreur extends Error {
   auth?: boolean;
   /** Référence de corrélation d'une erreur technique, à citer à l'administrateur. */
   ref?: string;
-  /** 2026-09-11 — statut HTTP d'une panne de plateforme (0 = échec réseau). */
+  /** 2026-09-11 : statut HTTP d'une panne de plateforme (0 = échec réseau). */
   statut?: number;
 }
 
@@ -26,9 +26,9 @@ interface Enveloppe<T> {
   data?: T;
   error?: string;
   auth?: boolean;
-  /** SEC-03 — le serveur exige le changement du mot de passe attribué. */
+  /** SEC-03 : le serveur exige le changement du mot de passe attribué. */
   motDePasseAChanger?: boolean;
-  /** SEC-08 — référence de corrélation d'une erreur technique. */
+  /** SEC-08 : référence de corrélation d'une erreur technique. */
   ref?: string;
 }
 
@@ -57,7 +57,7 @@ async function unAppel(action: string, data: Record<string, unknown>): Promise<{
       body: JSON.stringify({ action, data }),
     });
   } catch {
-    // `fetch` ne rejette que si la requête n'a pas abouti du tout — réseau
+    // `fetch` ne rejette que si la requête n'a pas abouti du tout, réseau
     // coupé, serveur injoignable. Statut 0, par convention interne.
     return { statut: 0, corps: null };
   }
@@ -131,7 +131,7 @@ async function appelComplet<T>(action: string, data: Record<string, unknown>, sa
 
     if (estEnveloppe<T>(corps)) {
       // Réponse de notre fonction : comportement d'origine, inchangé. Une
-      // erreur MÉTIER n'est jamais rejouée — elle se reproduirait à l'identique.
+      // erreur MÉTIER n'est jamais rejouée, elle se reproduirait à l'identique.
       if (corps.ok) return corps.data as T;
 
       const err = new Error(corps.error || 'Erreur inconnue.') as RpcErreur;

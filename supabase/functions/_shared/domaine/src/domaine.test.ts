@@ -283,7 +283,7 @@ test('matrice PERMISSIONS complète (72 actions + resetmfa)', () => {
   assert.ok(Object.keys(PERMISSIONS).length >= 72);
   assert.ok(PERMISSIONS['user.resetmfa']);
   // La validation en lot est réservée au chef brigade : si elle s'ouvrait au CFS,
-  // le même agent chargerait ET signerait — la règle « 1 cellule = 1 rôle » tombe.
+  // le même agent chargerait ET signerait, la règle « 1 cellule = 1 rôle » tombe.
   assert.deepEqual(PERMISSIONS['cargo.validerlot'], PERMISSIONS['cargo.valider']);
   assert.ok(!PERMISSIONS['cargo.validerlot']!.includes(ROLES.CFS));
 });
@@ -412,7 +412,7 @@ test('verrou PP : la sortie attend T1 ET Balise (transit)', () => {
   assert.equal(etapesEnAttente({ ...base, sauteT1: true, datePoseGps: '2026-07-27' }).includes('PP'), true);
 });
 
-test('engagements — le délai en jours devient une date, à compter du jour de saisie', () => {
+test('engagements, le délai en jours devient une date, à compter du jour de saisie', () => {
   const ref = new Date(2026, 8, 10); // 10 septembre 2026, heure locale
   assert.equal(dateDansNJours(1, ref), '2026-09-11');
   assert.equal(dateDansNJours(5, ref), '2026-09-15');
@@ -426,7 +426,7 @@ test('engagements — le délai en jours devient une date, à compter du jour de
   assert.equal(dateDansNJours(2.5, ref), '');
 });
 
-test('engagements — état et libellé selon l’échéance', () => {
+test('engagements, état et libellé selon l’échéance', () => {
   const ref = new Date(2026, 8, 10);
   assert.equal(etatEngagement('2026-09-11', null, ref).etat, 'demain');
   assert.equal(etatEngagement('2026-09-10', null, ref).etat, 'aujourdhui');
@@ -446,12 +446,12 @@ test('engagements — état et libellé selon l’échéance', () => {
   assert.equal(engagementAlerte('2026-09-01', '2026-09-02T10:00:00Z', ref), false);
 });
 
-test("format camion — la barre oblique n'est PLUS obligatoire (2026-09-12)", () => {
+test("format camion, la barre oblique n'est PLUS obligatoire (2026-09-12)", () => {
   // L'ensemble reste accepté, sous toutes ses graphies.
   assert.equal(camionValide('TG2489BK/2725BP'), true);
   assert.equal(camionValide('tg2489bk / 2725bp'), true); // espaces et minuscules normalisés
 
-  // NOUVEAU : une plaque seule passe — tout ce qui se présente au port n'est
+  // NOUVEAU : une plaque seule passe, tout ce qui se présente au port n'est
   // pas un ensemble tracteur + remorque, et un agent bloqué devant un porteur
   // unique ne pouvait plus rien enregistrer.
   assert.equal(camionValide('TG2489BK'), true);
@@ -474,9 +474,9 @@ test("format camion — la barre oblique n'est PLUS obligatoire (2026-09-12)", (
   assert.match(m, /N° de camion/); // le champ à corriger
   assert.match(messageCamionFormat('X', 'Nouveau n° de camion'), /Nouveau n° de camion/);
 });
-test('engagements — corriger : tout l\'encadrement ; RETIRER : administrateur seul (2026-09-17)', () => {
+test('engagements, corriger : tout l\'encadrement ; RETIRER : administrateur seul (2026-09-17)', () => {
   // Décision utilisateur : le retrait efface l'engagement, son échéance et son
-  // solde — plus lourd que la correction, donc plus étroit.
+  // solde, plus lourd que la correction, donc plus étroit.
   for (const r of [ROLES.CHEF_BRIGADE, ROLES.CHEF_BRIGADE_ADJOINT, ROLES.CHEF_VISITE, ROLES.CHEF_DIVISION, ROLES.ADMIN]) {
     assert.doesNotThrow(() => verifierPermission(r, 'cargo.engagementedit'));
     assert.doesNotThrow(() => verifierPermission(r, 'cargo.engagementfait'));

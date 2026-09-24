@@ -1,12 +1,12 @@
 /**
- * REPRISE DES PANNES DE PLATEFORME — 2026-09-11.
+ * REPRISE DES PANNES DE PLATEFORME : 2026-09-11.
  *
  * ── Le problème observé ────────────────────────────────────────────────────
  * L'écran « À valider » affichait « Erreur inconnue. » par intermittence ; en
  * recliquant plusieurs fois, l'appel finissait par passer. La capture réseau a
  * donné la réponse exacte :
  *
- *     HTTP 546 — {"code":"WORKER_RESOURCE_LIMIT",
+ *     HTTP 546 · {"code":"WORKER_RESOURCE_LIMIT",
  *                 "message":"Function failed due to not having enough
  *                            compute resources (please check logs)"}
  *
@@ -25,7 +25,7 @@
  * ── Pourquoi on ne rejoue pas tout ─────────────────────────────────────────
  * Un worker tué faute de ressources a pu l'être AVANT ou APRÈS avoir écrit en
  * base : rien dans la réponse ne permet de trancher. Rejouer une écriture,
- * c'est risquer une double validation ou un doublon — sur un outil douanier,
+ * c'est risquer une double validation ou un doublon, sur un outil douanier,
  * c'est inacceptable.
  *
  * On ne rejoue donc QUE les actions sans effet (lectures), énumérées ici une à
@@ -39,7 +39,7 @@
  *
  * ⚠ N'ajouter ici qu'une action dont on a VÉRIFIÉ qu'elle n'écrit rien. Deux
  * pièges déjà rencontrés dans le registre : `cargo.lotcamions` vit dans
- * `ecriture.ts` malgré son nom, et `cargo.ouillagedecl` dans `speciaux.ts` —
+ * `ecriture.ts` malgré son nom, et `cargo.ouillagedecl` dans `speciaux.ts`,
  * les deux sont volontairement absentes de cette liste.
  */
 const SANS_EFFET: ReadonlySet<string> = new Set([
@@ -109,14 +109,14 @@ function texteDuCorps(corps: CorpsTechnique): string {
  * important : après une lecture ratée, on peut relancer sans réfléchir ; après
  * une ÉCRITURE ratée, l'opération a peut-être abouti quand même, et recommencer
  * à l'aveugle créerait un doublon. Le message doit dire lequel des deux cas
- * s'applique — sans quoi l'agent recommence toujours, et se trompe une fois sur
+ * s'applique, sans quoi l'agent recommence toujours, et se trompe une fois sur
  * deux.
  */
 /**
  * EXTRACTION SANS AUCUN CRITERE - 2026-09-12.
  *
  * MESURÉ en production le jour du déploiement : `report.cargaisons` repond en
- * 1,1 s avec un statut, 1,3 s avec une étape, 3,3 s sur une période — et échoue
+ * 1,1 s avec un statut, 1,3 s avec une étape, 3,3 s sur une période, et échoue
  * en 546 quand on lui demande TOUTE la base. Ce n'est pas une saturation
  * passagère : sortir 14 450 dossiers avec le détail de leurs conteneurs dépasse
  * la mémoire du worker, et réessayer échouera toujours.
@@ -139,7 +139,7 @@ export function messageTechnique(
   statut: number,
   corps: CorpsTechnique,
   sansEffet: boolean,
-  /** L'appel qui a échoué — sert à distinguer une saturation d'une demande trop vaste. */
+  /** L'appel qui a échoué, sert à distinguer une saturation d'une demande trop vaste. */
   origine?: { action: string; data: Record<string, unknown> },
 ): string {
   if (statut === 0) {
@@ -155,8 +155,8 @@ export function messageTechnique(
     if (origine && extractionSansCritere(origine.action, origine.data)) {
       return "Extraction trop volumineuse pour le serveur : vous avez demandé TOUTE "
         + "la base en une fois. Réessayer ne changera rien. Restreignez l'extraction "
-        + "— cochez « Limiter à une période », ou choisissez un statut ou une étape "
-        + "— puis relancez.";
+        + ": cochez « Limiter à une période », ou choisissez un statut ou une étape, "
+        + "puis relancez.";
     }
     return sansEffet
       ? 'Le serveur est momentanément saturé (erreur 546). Les tentatives automatiques '

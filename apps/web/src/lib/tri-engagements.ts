@@ -1,5 +1,5 @@
 /**
- * TRI DU VOLET « ENGAGEMENTS » — 2026-09-17 (demande utilisateur).
+ * TRI DU VOLET « ENGAGEMENTS » : 2026-09-17 (demande utilisateur).
  *
  * Deux tris demandés : par CAMION (retrouver un dossier précis) et par DÉLAI
  * (traiter d'abord ce qui presse). Le tri se fait ici, sur les lignes déjà
@@ -7,7 +7,7 @@
  * par clic n'apporterait rien.
  *
  * Fonction PURE et à part, pour être testée sans écran : c'est là que se logent
- * les erreurs de tri — une échéance vide qui remonte en tête, ou des numéros de
+ * les erreurs de tri, une échéance vide qui remonte en tête, ou des numéros de
  * camion comparés sans tenir compte des accents et de la casse.
  */
 export type TriEngagement = 'camion' | 'delai';
@@ -39,12 +39,12 @@ export function trierEngagements(lignes: Ligne[], tri: TriEngagement, sens: Sens
   return copie;
 }
 
-/* ============ RECHERCHE ET DÉLAI — 2026-09-17 (demande utilisateur) ========
+/* ============ RECHERCHE ET DÉLAI : 2026-09-17 (demande utilisateur) ========
  *
  * Deux questions que le chef pose au volet :
- *   · « quels camions sont à échéance dans N jours ? » — pour préparer sa
+ *   · « quels camions sont à échéance dans N jours ? », pour préparer sa
  *     semaine ; les DÉPASSÉS en font partie, ils sont déjà dans le délai ;
- *   · « où en est ce camion-là ? » — la recherche par numéro, qui doit
+ *   · « où en est ce camion-là ? », la recherche par numéro, qui doit
  *     retrouver « TG 1234 BK » quand on tape « tg1234bk ».
  *
  * Fonction pure, à côté du tri : ce sont les mêmes lignes déjà reçues.

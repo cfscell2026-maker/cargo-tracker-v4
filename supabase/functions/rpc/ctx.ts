@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- *  Edge Function « rpc » — types & helpers PURS (aucun import runtime Supabase).
+ *  Edge Function « rpc », types & helpers PURS (aucun import runtime Supabase).
  *  Isolé de supa.ts pour rester importable/testable sous Node (les `import type`
  *  du client Supabase sont effacés à l'exécution).
  * ============================================================================
@@ -15,7 +15,7 @@ export interface Session {
   nomComplet: string;
   role: Role;
   /**
-   * SEC-03 — true tant que l'agent n'a pas changé le mot de passe qui lui a été
+   * SEC-03 : true tant que l'agent n'a pas changé le mot de passe qui lui a été
    * attribué (création de compte ou réinitialisation par un ADMIN). Le routeur
    * ne laisse alors passer que `account.me` et `account.changepwd`.
    * Optionnel dans le type pour que les harnais de test restent compilables ;
@@ -24,7 +24,7 @@ export interface Session {
   doitChangerMdp?: boolean;
 }
 
-/** Métadonnées de la requête HTTP — tracées dans le journal (SEC-05). */
+/** Métadonnées de la requête HTTP, tracées dans le journal (SEC-05). */
 export interface Requete {
   ip: string;
   agent: string;
@@ -33,7 +33,7 @@ export interface Requete {
 export interface Ctx {
   db: SupabaseClient;
   session: Session;
-  /** Journal d'audit best-effort — ne bloque JAMAIS l'opération métier (_log_). */
+  /** Journal d'audit best-effort, ne bloque JAMAIS l'opération métier (_log_). */
   log: (action: string, cargaisonId?: string, details?: string) => Promise<void>;
   /** Renseigné par le routeur ; absent dans les tests unitaires. */
   requete?: Requete;
@@ -45,7 +45,7 @@ export class AuthError extends Error {
 }
 
 /**
- * SEC-08 — Erreur MÉTIER, dont le message est destiné à l'agent et peut sortir
+ * SEC-08 : Erreur MÉTIER, dont le message est destiné à l'agent et peut sortir
  * tel quel. Tout ce qui n'est PAS une ErreurMetier (ni une AuthError) est une
  * erreur technique : son message reste côté serveur et le client ne reçoit
  * qu'un libellé générique + un identifiant de corrélation.
@@ -78,7 +78,7 @@ const MOTIFS_TECHNIQUES = [
 // (23505, 22P02, 42703…). Les numéros de déclaration en douane font eux aussi
 // cinq chiffres et commencent souvent par 22, 23 ou 42 : un message parfaitement
 // légitime comme « Déclaration 23456 introuvable » serait pris pour une erreur
-// technique et remplacé par un libellé générique — l'agent perdrait
+// technique et remplacé par un libellé générique, l'agent perdrait
 // l'information dont il a besoin. Les motifs textuels ci-dessus suffisent.
 
 /** true si le message peut être montré à l'agent sans rien divulguer. */

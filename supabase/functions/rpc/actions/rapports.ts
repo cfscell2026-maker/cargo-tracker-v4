@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- *  RAPPORTS — transcription fidèle de Reports.gs (v3.6).
+ *  RAPPORTS : transcription fidèle de Reports.gs (v3.6).
  *  Chaque rapport renvoie des AGRÉGATS (format 'view') identiques à l'ancien,
  *  avec cartes cliquables → détail. Exports XLSX via SheetJS (base64) ; le bon
  *  de chargement + les PDF sont renvoyés en HTML (impression → PDF côté client).
@@ -16,7 +16,7 @@ import {
   ROLES, STATUTS, OPERATIONS, DEFAUTS, DESTINATION_CODES, codeDestination, TRANCHES_SEJOUR, tailleBucket, evpDeTaille, trancheAge, parseConteneursDetails, estOui, aFait, normAlphaNum,
   groupesDeclaration, estChargementMixte, libelleDeclaration,
   etapesEnAttente, fileAttente, etatCellules, estDispenseBalise,
-  // v4.2 — temps de passage par poste
+  // v4.2, temps de passage par poste
   delaisDe, agreger, dureeLisible, enHeures, POSTES, LIBELLE_POSTE,
 } from '../../_shared/domaine/src/index.ts';
 import { fetchAll, lookupDeclaration } from './helpers.ts';
@@ -25,7 +25,7 @@ import { filtrerConfidentiel } from './lecture.ts';
 /* ------------------------------- Helpers ------------------------------- */
 
 /**
- * RGPD-01 — Le N° de balise n'est servi qu'aux profils qui le voient déjà sur la
+ * RGPD-01 : Le N° de balise n'est servi qu'aux profils qui le voient déjà sur la
  * fiche (cf. `filtrerConfidentiel`). Sans ce garde-fou, le filtrage de
  * `cargo.get` serait contourné par un export Excel ouvert à tous les rôles.
  */
@@ -39,14 +39,14 @@ const voitBalise = (ctx: Ctx) => ROLES_VOIENT_BALISE.indexOf(ctx.session.role) >
 async function loadCargos(ctx: Ctx, affiner?: (q: any) => any): Promise<Record<string, unknown>[]> {
   // fetchAll : pagine (5000+ cargaisons migrées) sinon les rapports sous-comptent.
   const data = await fetchAll(ctx, 'cargaisons', '*', undefined, affiner);
-  // SEC-12 — une cargaison annulée (doublon écarté) reste en base pour l'audit
+  // SEC-12 : une cargaison annulée (doublon écarté) reste en base pour l'audit
   // mais ne doit compter dans AUCUN rapport, sinon elle fausse tous les totaux.
-  // 2026-08-19 — de même pour les dossiers ARCHIVÉS (vieux goulots clôturés) :
+  // 2026-08-19 · de même pour les dossiers ARCHIVÉS (vieux goulots clôturés) :
   // conservés en base, exclus de tous les rapports et de tous les compteurs.
   return data.filter((r) => r['annule'] !== true && r['archive'] !== true).map((r) => versCamel(r));
 }
 
-/* ===== PRÉ-FILTRES SQL DES ÉCRANS DE VALIDATION — 2026-09-11 ==============
+/* ===== PRÉ-FILTRES SQL DES ÉCRANS DE VALIDATION, 2026-09-11 ==============
  *
  * Mesuré sur la base réelle : `report.validationdecl` tenait 5,4 s en moyenne et
  * échouait 3 fois sur 8 en HTTP 546 (worker tué faute de ressources), là où une
@@ -57,13 +57,13 @@ async function loadCargos(ctx: Ctx, affiner?: (q: any) => any): Promise<Record<s
  * Ces deux filtres traduisent en SQL ce que le JS refaisait ensuite, à
  * l'identique. L'équivalence tient à deux propriétés du schéma, vérifiées :
  *   · `date_validation`, `date_t1`, `date_sortie` sont des `timestamptz` : NULL
- *     ou une vraie date, jamais la chaîne vide — `aFait()` et `is null` disent
+ *     ou une vraie date, jamais la chaîne vide, `aFait()` et `is null` disent
  *     donc exactement la même chose ;
  *   · `statut` est `not null` (type `statut_cargaison`), donc `neq` ne peut pas
  *     écarter une ligne à NULL par surprise.
  *
  * Le tri JS reste en place derrière : si l'un de ces filtres était un jour trop
- * large, le résultat resterait juste — seulement moins rapide.
+ * large, le résultat resterait juste, seulement moins rapide.
  */
 
 /** Dossiers ayant DÉPASSÉ le CFS et pas encore sortis (`etatCellules.cfs && !SORTIE`). */
@@ -132,7 +132,7 @@ function detsDeRow(c: Record<string, unknown>) {
   return parseConteneursDetails(c['conteneursDetails']).conteneurs;
 }
 /**
- * v4.1 — Filtre agent d'un rapport de cellule (décision utilisateur 2026-07-27).
+ * v4.1, Filtre agent d'un rapport de cellule (décision utilisateur 2026-07-27).
  * PLUS de restriction « chaque agent ne voit que la sienne » : les agents d'une
  * cellule travaillent à plusieurs et doivent voir le rapport COMPLET de leur
  * cellule, sans passer par le compte admin. On applique donc seulement le filtre
@@ -207,7 +207,7 @@ async function xlsxBase64(feuilles: { nom: string; aoa: unknown[][] }[]): Promis
     const nbCol = Math.max(...f.aoa.map((l) => l.length), 1);
     // Deux lignes d'identite au-dessus du tableau, puis une ligne vide.
     const entete: unknown[][] = [
-      ['PIA Dry Port — Adétikopé · Suivi des cargaisons'],
+      ['PIA Dry Port, Adétikopé · Suivi des cargaisons'],
       [f.nom],
       [],
     ];
@@ -284,7 +284,7 @@ const libTaille: Record<string, string> = { t20: "20'", t40: "40'", t45: "45'", 
 const fmtJ = (v: unknown) => { if (!v) return ''; const d = new Date(String(v)); return isNaN(d.getTime()) ? String(v) : d.toLocaleDateString('fr-FR'); };
 
 /**
- * v4.1 — Tableau IMPRIMABLE (PDF côté client via imprimerHtml). Trame sobre A4
+ * v4.1, Tableau IMPRIMABLE (PDF côté client via imprimerHtml). Trame sobre A4
  * paysage ; le client ouvre le HTML et lance l'impression → PDF.
  */
 function htmlTableau(titre: string, sousTitre: string, entetes: string[], lignes: unknown[][]): { html: string } {
@@ -329,11 +329,11 @@ function htmlTableau(titre: string, sousTitre: string, entetes: string[], lignes
     `</style></head><body>` +
     `<div class="entete">` +
     // Nouveau logo (2026-09-14). Repli sur l'ancien fichier le temps que le site
-    // publie le nouveau — le serveur et le site ne se déploient pas au même instant —,
+    // publie le nouveau (le serveur et le site ne se déploient pas au même instant),
     // puis retrait de l'image si aucun des deux n'est disponible.
     `<img src="/logo.png" alt="" onerror="if(this.dataset.r){this.remove()}else{this.dataset.r='1';this.src='/logo_PIA.jpg'}">` +
     `<div class="ent-textes">` +
-    `<div class="plateforme">PIA Dry Port — Adétikopé · Suivi des cargaisons</div>` +
+    `<div class="plateforme">PIA Dry Port, Adétikopé · Suivi des cargaisons</div>` +
     `<h1>${esc(titre)}</h1><div class="sub">${esc(sousTitre)}</div></div>` +
     `<div class="compte"><b>${lignes.length}</b>ligne(s)</div>` +
     `</div>` +
@@ -355,7 +355,7 @@ function collecteCFS(cargos: Record<string, unknown>[], du?: string, au?: string
   const conteneurs: Record<string, unknown>[] = [];
   // Conteneurs PARTAGÉS (saisie manuelle sur plusieurs camions) : comptés UNE
   // fois par n° (décision client 2026-07-30). Les N° normaux étant uniques, seuls
-  // les partagés se regroupent — camions comptés normalement, conteneurs dédupés.
+  // les partagés se regroupent, camions comptés normalement, conteneurs dédupés.
   const vus = new Set<string>();
   for (const c of cargos) {
     if (estOui(c['estVehicule'])) continue;
@@ -439,11 +439,11 @@ const VEH_BUCKETS = ['Transit', 'Conso', 'MAD', 'Véhicule abandonné'];
 function destBucket(d: unknown) { const s = String(d ?? ''); return VEH_BUCKETS.indexOf(s) >= 0 ? s : 'Autres'; }
 
 /**
- * v4.2 — correctif 2026-08-19 (demande utilisateur). Un véhicule est compté à LA
+ * v4.2, correctif 2026-08-19 (demande utilisateur). Un véhicule est compté à LA
  * DATE DE SON PASSAGE, pas à sa seule date de création : un véhicule SORTI dans
  * la période mais entré avant compte bien dans « Sortis » de la période. On
- * retient donc un véhicule dès qu'il a un événement dans la période — entrée
- * (dateCreation) OU sortie (dateSortie) — et on le classe par cet événement :
+ * retient donc un véhicule dès qu'il a un événement dans la période, entrée
+ * (dateCreation) OU sortie (dateSortie), et on le classe par cet événement :
  *   · SORTIS  = sortie effective dans la période ;
  *   · ATTENTE = entré dans la période et pas (encore) sorti dans la période.
  * L'ancienne version filtrait tout sur la date de création : une sortie du jour
@@ -494,14 +494,14 @@ export async function rapportVehiculesDetail(ctx: Ctx, p: Record<string, unknown
 /* ========================= Activité Balise / PP ======================= */
 
 function cfgActivite(kind: string) {
-  // v4.3 (2026-08-19) — chaque cellule a son rapport, DATÉ À SA PROPRE CELLULE :
+  // v4.3 (2026-08-19), chaque cellule a son rapport, DATÉ À SA PROPRE CELLULE :
   // T1 aux T1 saisis (dateT1), Bon de sortie aux bons émis (dateBonSortie), en
   // plus de la Balise (pose) et de la PP (sortie). « 30 balises aujourd'hui » =
   // 30 poses datées aujourd'hui, quelle que soit la date de création du camion.
   switch (kind) {
     // `colSql` : LA MEME date, en nom de colonne SQL. Elle sert au pre-filtre par
     // periode. Sans elle, `SQL_PERIODE` filtrait sur une colonne `undefined` et
-    // les rapports rendaient ZERO — un test l'a rattrape avant la production.
+    // les rapports rendaient ZERO, un test l'a rattrape avant la production.
     case 'pp': return { dateCol: 'dateSortie', colSql: 'date_sortie', agentCol: 'agentPp', role: ROLES.PP };
     case 't1': return { dateCol: 'dateT1', colSql: 'date_t1', agentCol: 'agentT1', role: ROLES.T1 };
     case 'bonsortie': return { dateCol: 'dateBonSortie', colSql: 'date_bon_sortie', agentCol: 'agentBonSortie', role: ROLES.BON_SORTIE };
@@ -532,10 +532,10 @@ function collecteActivite(cargos: Record<string, unknown>[], dateCol: string, ag
     if (String(c['baliseRequise']) === 'Non' || c['baliseRequise'] === false) { a.sansBalise++; total.sansBalise++; }
     camions.push({ id: c['id'], numeroCamion: c['numeroCamion'], typeOperation: op, statut: c['statut'], date: c[dateCol], numeroGps: c['numeroGps'], nbConteneurs: dets.length, twins: c['twins'] });
     for (const ct of dets) {
-      /* CONTENEUR PARTAGÉ : COMPTÉ UNE SEULE FOIS — 2026-09-12, règle dictée
+      /* CONTENEUR PARTAGÉ : COMPTÉ UNE SEULE FOIS · 2026-09-12, règle dictée
        * par le douanier. Un conteneur dont la marchandise se répartit sur
        * plusieurs camions apparaît sur chacun d'eux. Le compter à chaque fois
-       * gonflerait les totaux et les EVP — on facturerait, ou on déclarerait,
+       * gonflerait les totaux et les EVP, on facturerait, ou on déclarerait,
        * plusieurs fois la même boîte.
        *
        * `collecteCFS` dédoublonnait déjà ; ces rapports-ci (Balise, PP, T1, Bon
@@ -546,7 +546,7 @@ function collecteActivite(cargos: Record<string, unknown>[], dateCol: string, ag
        * quel camion a emporté quoi, et masquer le second passage y serait une
        * perte d'information. Seuls les COMPTEURS sont dédoublonnés. */
       // 2026-09-14 : une ligne marquée « partage » n'est jamais comptée, et n'entre
-      // pas dans `vus` — sinon elle masquerait le dépotage d'origine de la période.
+      // pas dans `vus`, sinon elle masquerait le dépotage d'origine de la période.
       const dejaCompte = ct.partage === true || (!!ct.num && vus.has(ct.num));
       if (ct.num && !ct.partage) vus.add(ct.num);
       const bk = tailleBucket(ct.taille); const ev = evpDeTaille(bk);
@@ -571,7 +571,7 @@ export async function rapportActivite(ctx: Ctx, p: Record<string, unknown>) {
   const r = collecteActivite(await loadCargos(ctx, SQL_PERIODE(cfg.colSql, p['du'], p['au'])),
     cfg.dateCol, cfg.agentCol, p['du'] as string, p['au'] as string, agentLc || undefined);
   if (p['format'] === 'xlsx' || p['format'] === 'pdf') {
-    // v4.1 — détail par taille ajouté à l'export (comme le rapport CFS).
+    // v4.1, détail par taille ajouté à l'export (comme le rapport CFS).
     const recap: unknown[][] = [['Opération', 'Camions', 'Twins', 'Sans balise', "20'", "40'", "45'", 'Autres', 'Conteneurs', 'EVP']];
     for (const op of [OPERATIONS.ENLEVEMENT, OPERATIONS.DEPOTAGE]) {
       const a = r.parOp[op]!; recap.push([op, a.camions, a.twins, a.sansBalise, a.t20, a.t40, a.t45, a.autres, a.conteneurs, a.evp]);
@@ -608,7 +608,7 @@ export async function rapportActiviteDetail(ctx: Ctx, p: Record<string, unknown>
 
 /* ============= Horodatage / plage d'activité par cellule =============== */
 /**
- * HORODATAGE PAR CELLULE — demande utilisateur 2026-08-19.
+ * HORODATAGE PAR CELLULE : demande utilisateur 2026-08-19.
  *
  * Pour chaque cellule (CFS → PP) et chaque agent, PAR JOUR&nbsp;:
  *   · heure de DÉBUT   = 1re action de l'agent ce jour-là sur cette cellule ;
@@ -654,7 +654,7 @@ export async function rapportHorodatage(ctx: Ctx, p: Record<string, unknown>) {
       if (isNaN(d.getTime())) continue;
       let agent = '';
       for (const k of cell.agentCols) { if (String(c[k] ?? '').trim()) { agent = String(c[k]).trim(); break; } }
-      if (!agent) agent = '— (agent non renseigné)';
+      if (!agent) agent = '(agent non renseigné)';
       const jour = jourUTC(d);
       const key = cell.cle + '|' + agent.toLowerCase() + '|' + jour;
       let g = map.get(key);
@@ -686,11 +686,11 @@ export async function rapportHorodatage(ctx: Ctx, p: Record<string, unknown>) {
 
 /* ================= Goulots / vieux dossiers (archivage) =============== */
 /**
- * ANALYSE DES GOULOTS — demande utilisateur 2026-08-19. Dossiers ENCORE en cours
+ * ANALYSE DES GOULOTS : demande utilisateur 2026-08-19. Dossiers ENCORE en cours
  * (non sortis, non annulés, non archivés) qui bloquent les files, ventilés par
  * statut, par poste d'attente (fileAttente) et par tranche d'âge. Sert à repérer
  * les vieux dossiers migrés jamais menés à la sortie, avant archivage.
- * LECTURE SEULE — ne modifie rien.
+ * LECTURE SEULE : ne modifie rien.
  */
 const LIB_ETAPE_GOULOT: Record<string, string> = {
   CFS: 'CFS (chargement)', VALIDATION: 'Validation', T1: 'T1', BALISE: 'Balise', BS: 'Bon de sortie', PP: 'Sortie (PP)',
@@ -745,12 +745,12 @@ export async function rapportArchives(ctx: Ctx, _p: Record<string, unknown>) {
 
 /* ==================== Fiche « tableau de bord » ======================== */
 /**
- * v4.1 — FICHE DE SYNTHÈSE reprenant, bloc par bloc, la fiche papier du chef
- * (« TABLEAU DE BORD — SEMAINE EN COURS ») : CFS, T1, BALISE, BON DE SORTIE,
+ * v4.1, FICHE DE SYNTHÈSE reprenant, bloc par bloc, la fiche papier du chef
+ * (« TABLEAU DE BORD · SEMAINE EN COURS ») : CFS, T1, BALISE, BON DE SORTIE,
  * PP. Elle se replie sous le tableau de bord de l'appli (décision utilisateur
  * 2026-07-22), de sorte que le chef retrouve EXACTEMENT sa mise en page.
  *
- * Chaque bloc est compté à LA DATE DE SA PROPRE CELLULE — le CFS à la création
+ * Chaque bloc est compté à LA DATE DE SA PROPRE CELLULE, le CFS à la création
  * du camion, le T1 à la saisie du T1, la Balise à la pose, le bon de sortie à
  * son émission, la PP à la sortie. Compter tout à la date de création ferait
  * mentir la fiche dès qu'un camion chevauche deux semaines.
@@ -803,7 +803,7 @@ export async function ficheBord(ctx: Ctx, p: Record<string, unknown>) {
     const conts = detsDeRow(c);
     // CONSO = déclaration de TYPE C (mise à la consommation), quel que soit le
     // type d'opération (correctif 2026-07-22). Un enlèvement ou un dépotage sous
-    // déclaration C EST une conso — c'est le type C qui décide, pas l'opération.
+    // déclaration C EST une conso, c'est le type C qui décide, pas l'opération.
     // On garde l'opération dédiée « Conso (type C) » comme second déclencheur.
     const estConso = String(c['typeDeclaration'] ?? '').toUpperCase() === 'C' || op === OPERATIONS.CONSO;
 
@@ -851,7 +851,7 @@ export async function ficheBord(ctx: Ctx, p: Record<string, unknown>) {
     // « Camions au parking » = PHYSIQUEMENT au parc en attente de pose de balise :
     // tout camion à qui il reste la BALISE à faire (qu'il soit ou non déjà validé
     // / passé au T1). On garde donc la MEMBRESHIP parallèle (etapesEnAttente), et
-    // NON la file unique (fileAttente) — ici on compte une présence au parc, pas
+    // NON la file unique (fileAttente), ici on compte une présence au parc, pas
     // une place dans la file séquentielle du tableau de bord.
     if (etapesEnAttente(c as never).indexOf('BALISE') >= 0) balise.parking++;
 
@@ -940,7 +940,7 @@ export async function rapportKPI(ctx: Ctx, p: Record<string, unknown>) {
 
 /* ===================== Contrôles (hors gabarit / surcharge / transit) === */
 /**
- * v4.1 — Statistiques de contrôle (décision utilisateur 2026-07-27) : nombre de
+ * v4.1, Statistiques de contrôle (décision utilisateur 2026-07-27) : nombre de
  * CAMIONS et de CONTENEURS hors gabarit, en surcharge, et en transit national
  * (destination TG), sur la période (date de création). Chiffres croisés avec
  * le détail par taille pour rester cohérents avec les autres rapports.
@@ -964,7 +964,7 @@ export async function rapportControles(ctx: Ctx, p: Record<string, unknown>) {
 
 /* ==================== Export CARGAISONS (statut/période) ============== */
 /**
- * v4.1 — Onglet « Cargaisons » de l'Apps Script rétabli en EXPORT : choisir un
+ * v4.1, Onglet « Cargaisons » de l'Apps Script rétabli en EXPORT : choisir un
  * statut (ou une étape en attente) + une période, extraire en Excel ou PDF.
  * Répond au capitaine qui « n'a pas la main » pour sortir ces listes.
  */
@@ -995,7 +995,7 @@ export async function rapportCargaisons(ctx: Ctx, p: Record<string, unknown>) {
     affinages.length ? (q) => affinages.reduce((acc, f) => f(acc), q) : undefined,
   );
   const sansVeh = p['vehicules'] === false;
-  // v4.2 — 2026-08-19 : l'extraction reçoit désormais AUSSI le texte recherché
+  // v4.2, 2026-08-19 : l'extraction reçoit désormais AUSSI le texte recherché
   // dans la liste, pour que « extraire » sorte EXACTEMENT ce qui est affiché
   // (même recherche tolérante que cargo.list : brut alphanumérique en plus).
   const search = String(p['search'] ?? '').trim().toLowerCase();
@@ -1020,7 +1020,7 @@ export async function rapportCargaisons(ctx: Ctx, p: Record<string, unknown>) {
   }).map((c) => ({
     id: c['id'], numeroCamion: c['numeroCamion'], typeOperation: c['typeOperation'], statut: c['statut'],
     dateCreation: c['dateCreation'], declarant: c['declarant'], numeroDeclaration: c['numeroDeclaration'],
-    // RGPD-01 — cet export est ouvert à TOUS_ROLES. Le N° de balise n'y figure
+    // RGPD-01 : cet export est ouvert à TOUS_ROLES. Le N° de balise n'y figure
     // que pour les profils qui le voient déjà sur la fiche : sans quoi le
     // filtrage de `cargo.get` serait contourné par un simple export Excel.
     numeroGps: voitBalise(ctx) ? c['numeroGps'] : '',
@@ -1032,7 +1032,7 @@ export async function rapportCargaisons(ctx: Ctx, p: Record<string, unknown>) {
   const entetes = ['ID', 'Camion / Châssis', 'Opération', 'Statut', 'Créé le', 'Déclarant', 'N° décl.', 'N° GPS', 'Sorti le', 'Agent CFS'];
   const ligne = (r: Record<string, unknown>) => [r['id'], r['numeroCamion'], r['typeOperation'], r['statut'], fmtJ(r['dateCreation']), r['declarant'], r['numeroDeclaration'], r['numeroGps'], fmtJ(r['dateSortie']), r['agentCfs']];
   if (p['format'] === 'xlsx' || p['format'] === 'pdf') {
-    // RGPD-01 — un export nominatif quitte l'application : il est tracé.
+    // RGPD-01 · un export nominatif quitte l'application : il est tracé.
     await ctx.log('Export cargaisons', '', `${rows.length} ligne(s) · ${filtreTxt} · ${p['format']}`);
   }
   if (p['format'] === 'xlsx') {
@@ -1045,7 +1045,7 @@ export async function rapportCargaisons(ctx: Ctx, p: Record<string, unknown>) {
 
 /* ==================== Export CONTENEURS (stock/période) =============== */
 /**
- * v4.1 — Extraction de la LISTE DES CONTENEURS du stock (positionnés non
+ * v4.1, Extraction de la LISTE DES CONTENEURS du stock (positionnés non
  * dépotés, etc.), par statut + période, en Excel ou PDF. La période porte sur
  * la date de pointage (positionné) ou, à défaut, la date d'entrée.
  */
@@ -1087,7 +1087,7 @@ export async function rapportDispenses(ctx: Ctx, p: Record<string, unknown>) {
   const rows: Record<string, unknown>[] = [];
   let total = 0, enCours = 0, terminees = 0;
   for (const c of cargos) {
-    // v4.1 — une dispense = exemption prise à la Balise + numéro d'autorisation ;
+    // v4.1, une dispense = exemption prise à la Balise + numéro d'autorisation ;
     // les type C/A/E « saute-balise » ne sont PAS des dispenses.
     if (!estDispenseBalise(c as never)) continue;
     total++;
@@ -1122,7 +1122,7 @@ function fluxVide(k: string): FluxLigne { return { periode: k, enlevesC: 0, depo
 
 export async function rapportFlux(ctx: Ctx, p: Record<string, unknown>) {
   const gran = String(p['granularite'] || 'mois');
-  // v4 — bornes de période FACULTATIVES (absentes = toute la base). Chaque
+  // v4, bornes de période FACULTATIVES (absentes = toute la base). Chaque
   // passage est daté SÉPARÉMENT : un camion entré en juin et sorti en juillet
   // compte à l'enlèvement/dépotage de juin et à la sortie de juillet.
   const du = String(p['du'] ?? '') || undefined;
@@ -1178,7 +1178,7 @@ export async function rapportFlux(ctx: Ctx, p: Record<string, unknown>) {
 
 /* ===================== Répartition par destination =================== */
 /**
- * v4.1 — Camions SORTIS par DESTINATION (décision utilisateur 2026-07-27), avec
+ * v4.1, Camions SORTIS par DESTINATION (décision utilisateur 2026-07-27), avec
  * évolution périodique pour le graphique. `parDest` = totaux sur la période ;
  * `series` = un point par bucket de période, une valeur par destination.
  */
@@ -1277,20 +1277,20 @@ export async function rapportSejourDetail(ctx: Ctx, p: Record<string, unknown>) 
 /* ================= Temps de passage par poste (v4.2) ================== */
 
 /**
- * TEMPS DE PASSAGE — demande utilisateur du 2026-08-10.
+ * TEMPS DE PASSAGE : demande utilisateur du 2026-08-10.
  *
  * Trois lectures d'une même donnée :
- *   · GLOBAL   — entrée du camion → sortie à la Porte Principale. La performance
+ *   · GLOBAL   : entrée du camion → sortie à la Porte Principale. La performance
  *     de bout en bout, la seule qui se compare d'un mois sur l'autre.
- *   · PAR POSTE — combien de temps le dossier a attendu à chaque cellule.
- *   · PAR JOUR  — la moyenne de chaque poste, jour par jour, pour le graphique.
+ *   · PAR POSTE : combien de temps le dossier a attendu à chaque cellule.
+ *   · PAR JOUR  : la moyenne de chaque poste, jour par jour, pour le graphique.
  *
  * COHORTE PAR JOUR D'ENTRÉE. Un dossier est rattaché au jour où le camion est
  * entré, pas au jour où il est sorti. C'est la lecture que demande l'exploitant
  * (« les déclarations de la journée ») et la seule qui permette de dire « les
  * camions entrés mardi ont mis en moyenne tant ». Conséquence assumée et
  * affichée : pour la journée en cours, la moyenne ne porte que sur les dossiers
- * DÉJÀ sortis — d'où l'effectif `n` publié à côté de chaque moyenne.
+ * DÉJÀ sortis, d'où l'effectif `n` publié à côté de chaque moyenne.
  *
  * Les durées non mesurables restent `null` et sont exclues des moyennes ; elles
  * ne sont jamais comptées zéro (voir delais.ts).
@@ -1363,7 +1363,7 @@ export async function rapportTemps(ctx: Ctx, p: Record<string, unknown>) {
     const entetesPoste = ['Poste', 'Dossiers mesurés', 'Moyenne', 'Médiane', '90e centile', 'Mini', 'Maxi'];
     const lignesPoste = [
       ...postes.map((x) => [x.libelle, x.n, dureeLisible(x.moyenne), dureeLisible(x.mediane), dureeLisible(x.p90), dureeLisible(x.min), dureeLisible(x.max)]),
-      ['GLOBAL — entrée du camion → sortie PP', global.n, dureeLisible(global.moyenne), dureeLisible(global.mediane), dureeLisible(global.p90), dureeLisible(global.min), dureeLisible(global.max)],
+      ['GLOBAL : entrée du camion → sortie PP', global.n, dureeLisible(global.moyenne), dureeLisible(global.mediane), dureeLisible(global.p90), dureeLisible(global.min), dureeLisible(global.max)],
     ];
     await ctx.log('Export temps de passage', '', `${lignes.length} dossier(s) · ${periode} · ${p['format']}`);
 
@@ -1423,13 +1423,13 @@ export async function rapportChargement(ctx: Ctx, id: string) {
     }).join('')}</tbody></table>`;
 
   const corpsConteneurs = !conts.length
-    ? `<div class="l">Aucun conteneur — ${val(c['descriptionMarchandise'])}</div>`
+    ? `<div class="l">Aucun conteneur, ${val(c['descriptionMarchandise'])}</div>`
     : mixte
-      ? groupes.map((g) => `<div class="grp"><div class="grp-t">Déclaration ${esc(libelleDeclaration(g))}${g.declarant ? ' — ' + esc(g.declarant) : ''}</div>${tableau(g.conteneurs)}</div>`).join('')
+      ? groupes.map((g) => `<div class="grp"><div class="grp-t">Déclaration ${esc(libelleDeclaration(g))}${g.declarant ? ' · ' + esc(g.declarant) : ''}</div>${tableau(g.conteneurs)}</div>`).join('')
       : tableau(conts);
 
   const html = `<!doctype html><html lang="fr"><meta charset="utf-8">
-<title>Bon de chargement — ${esc(c['numeroCamion'])}</title>
+<title>Bon de chargement, ${esc(c['numeroCamion'])}</title>
 <style>
   /* Même trame typographique que l'ordre d'exécution : ce bon est présenté au
      poste de contrôle, il doit être lisible d'un coup d'œil et tenir sur une page. */
@@ -1460,9 +1460,9 @@ export async function rapportChargement(ctx: Ctx, id: string) {
   .signatures div { flex: 1; text-align: center; }
   .signatures .rule { border-top: .6pt solid #000; margin-top: 20mm; padding-top: 1.5mm; font-size: 9.5pt; }
 </style>
-<div class="head"><div class="g">République Togolaise — Commissariat des Douanes et Droits Indirects<br>Division des Opérations Douanières Lomé-Port 4 — Section Brigade PIA</div></div>
+<div class="head"><div class="g">République Togolaise (Commissariat des Douanes et Droits Indirects<br>Division des Opérations Douanières Lomé-Port 4) Section Brigade PIA</div></div>
 <h1>BON DE CHARGEMENT</h1>
-<div class="ref">N° ${val(c['rapportId'] ?? c['id'])} — établi le ${dateFr}</div>
+<div class="ref">N° ${val(c['rapportId'] ?? c['id'])}, établi le ${dateFr}</div>
 
 <div class="fiche">
   <div><b>N° camion</b>${val(c['numeroCamion'])}</div>
@@ -1476,7 +1476,7 @@ export async function rapportChargement(ctx: Ctx, id: string) {
 </div>
 
 ${estDep ? `<div class="l"><b>Scellés du camion :</b> ${val(pd.scellesCamion.join(' · '))}</div>` : ''}
-${mixte ? '<div class="avert"><b>CHARGEMENT MIXTE</b> — ce camion emporte des conteneurs relevant de plusieurs déclarations. Les conteneurs sont présentés ci-dessous groupés par déclaration.</div>' : ''}
+${mixte ? '<div class="avert"><b>CHARGEMENT MIXTE</b>, ce camion emporte des conteneurs relevant de plusieurs déclarations. Les conteneurs sont présentés ci-dessous groupés par déclaration.</div>' : ''}
 
 ${corpsConteneurs}
 
@@ -1491,7 +1491,7 @@ ${corpsConteneurs}
 }
 
 /**
- * v4 — BON DE CHARGEMENT PAR DÉCLARATION (décision utilisateur 2026-07-16).
+ * v4, BON DE CHARGEMENT PAR DÉCLARATION (décision utilisateur 2026-07-16).
  * Recherche par N° de déclaration → remonte TOUS les camions ET véhicules ayant
  * chargé des conteneurs de cette déclaration, au statut « Créée » (= fin de
  * chargement). Filtres facultatifs année/bureau/type pour lever une ambiguïté
@@ -1517,13 +1517,13 @@ export async function rapportChargementDecl(ctx: Ctx, p: Record<string, unknown>
  * Le bon de chargement et la VALIDATION du chef brigade posent la même question
  * (« que contient cette déclaration ? ») mais ne retiennent pas les mêmes
  * cargaisons : le bon veut la fin de chargement, la validation veut ce qui
- * attend encore une signature — d'où le prédicat `garder`.
+ * attend encore une signature, d'où le prédicat `garder`.
  */
 async function collecterParDeclaration(
   ctx: Ctx,
   p: Record<string, unknown>,
   garder: (c: Record<string, unknown>) => boolean,
-  // 2026-09-11 — pré-filtre SQL facultatif, à fournir SEULEMENT s'il traduit
+  // 2026-09-11 : pré-filtre SQL facultatif, à fournir SEULEMENT s'il traduit
   // fidèlement `garder`. Absent (le cas de la plupart des appelants) : rien ne
   // change, la table entière est parcourue comme avant.
   // deno-lint-ignore no-explicit-any
@@ -1628,7 +1628,7 @@ async function collecterParDeclaration(
 /* ==================== Validation du chef brigade ====================== */
 
 /**
- * v4 — VALIDATION PAR DÉCLARATION (décision utilisateur 2026-07-19).
+ * v4, VALIDATION PAR DÉCLARATION (décision utilisateur 2026-07-19).
  *
  * Le chef brigade ne valide plus camion par camion : il ouvre une déclaration,
  * voit TOUT ce qu'elle contient (camions, véhicules, conteneurs, scellés, colis,
@@ -1645,7 +1645,7 @@ export async function validationParDeclaration(ctx: Ctx, p: Record<string, unkno
 
   if (!String(p['numeroDeclaration'] ?? '').trim()) return await declarationsAValider(ctx);
 
-  // Tout ce qui relève de la déclaration ET a fini le chargement — y compris ce
+  // Tout ce qui relève de la déclaration ET a fini le chargement, y compris ce
   // qui est DÉJÀ validé, pour que le chef voie l'ensemble et non un reliquat.
   // `SQL_APRES_CFS` dit en SQL exactement ce que le tri JS qui suit redemande :
   // `etatCellules(c).cfs` (statut ni « Camion créé », ni « En cours de
@@ -1701,7 +1701,7 @@ async function declarationsAValider(ctx: Ctx) {
 }
 
 /**
- * v4 — ORDRE D'EXÉCUTION (imprimable) — trame officielle OTR / Section Brigade PIA,
+ * v4 (ORDRE D'EXÉCUTION (imprimable)) trame officielle OTR / Section Brigade PIA,
  * reproduite d'après le formulaire papier fourni (2026-07-16).
  *
  * UN ordre PAR DÉCLARATION (décision utilisateur), listant tous les camions et
@@ -1711,7 +1711,7 @@ async function declarationsAValider(ctx: Ctx) {
  *
  * Pré-remplissage (décision utilisateur) : agents CFS, date/heure d'opération et
  * observations CFS. Les SIGNATURES et les mentions manuscrites (« Il est ordonné
- * aux agents », heures d'exécution) restent VIERGES — elles se remplissent à la main.
+ * aux agents », heures d'exécution) restent VIERGES, elles se remplissent à la main.
  *
  * ⚠ Colonne « Type » du tableau papier = la TAILLE du conteneur (40, 20…), pas le
  * type ISO (DRY/RF). C'est bien `taille` qui y est imprimée.
@@ -1756,7 +1756,7 @@ export async function ordreExecution(ctx: Ctx, p: Record<string, unknown>) {
   const desig = [...new Set(lignes.map((l) => String(l['descriptionMarchandise'] ?? '').trim()).filter(Boolean))];
   const denombre = [colis.join(' + '), desig.join(' / ')].filter(Boolean).join(' ');
 
-  // CHARGEMENT MIXTE — l'agent qui contrôle le camion sur le terrain y trouvera
+  // CHARGEMENT MIXTE : l'agent qui contrôle le camion sur le terrain y trouvera
   // des conteneurs ABSENTS de ce tableau (ils relèvent d'une autre déclaration).
   // Le signaler sur l'acte évite de faire constater un écart qui n'en est pas un.
   const mixtes = lignes
@@ -1764,7 +1764,7 @@ export async function ordreExecution(ctx: Ctx, p: Record<string, unknown>) {
     .map((l) => {
       const a = (l['autresDeclarations'] as Record<string, unknown>[]).map(
         (x) => `${String(x['libelle'])} (${String(x['nbConteneurs'])} TC)`).join(', ');
-      return `${String(l['numeroCamion'])} — ${a}`;
+      return `${String(l['numeroCamion'])}, ${a}`;
     });
 
   const rapports = [...new Set(lignes.map((l) => String(l['rapportId'] ?? '')).filter(Boolean))].join(' / ');
@@ -1775,7 +1775,7 @@ export async function ordreExecution(ctx: Ctx, p: Record<string, unknown>) {
   const rows = lignes.flatMap((l) => {
     const conts = (l['conteneurs'] as Record<string, unknown>[]) ?? [];
     const scam = (l['scellesCamion'] as string[]) ?? [];
-    // v4 — camion d'EFFETS DIVERS : pas de conteneur propre → une ligne avec la
+    // v4, camion d'EFFETS DIVERS : pas de conteneur propre → une ligne avec la
     // désignation à la place du n° de TC (les véhicules sans TC restent hors tableau).
     if (!conts.length && !l['vehicule'] && (String(l['descriptionMarchandise'] ?? '').trim() || scam.length))
       return [`<tr><td>${esc(String(l['descriptionMarchandise'] ?? '').trim() || 'EFFETS DIVERS')}</td><td>—</td><td>${esc(l['numeroCamion'])}</td><td>${esc(scam.join(' · '))}</td></tr>`];
@@ -1789,7 +1789,7 @@ export async function ordreExecution(ctx: Ctx, p: Record<string, unknown>) {
   }).join('');
 
   const html = `<!doctype html><html lang="fr"><meta charset="utf-8">
-<title>Ordre d'exécution — déclaration ${esc(d['numeroDeclaration'])}</title>
+<title>Ordre d'exécution, déclaration ${esc(d['numeroDeclaration'])}</title>
 <style>
   /* ------------------------------------------------------------------
      Mise en page d'un ACTE ADMINISTRATIF : pas de couleur, un seul corps
@@ -1801,7 +1801,7 @@ export async function ordreExecution(ctx: Ctx, p: Record<string, unknown>) {
   /* Mesuré : le gabarit tient sur UNE page jusqu'à ~7 conteneurs (~5 quand la
      mention de chargement mixte s'ajoute). Au-delà, le tableau déborde
      proprement sur la page suivante, entêtes répétées. Les valeurs de corps et
-     d'interligne sont calées là-dessus — les réduire nuirait à la lisibilité
+     d'interligne sont calées là-dessus, les réduire nuirait à la lisibilité
      d'un acte administratif, les augmenter ferait déborder un ordre ordinaire. */
   @page { size: A4; margin: 13mm 18mm 12mm; }
   html { -webkit-print-color-adjust: exact; }
@@ -1821,7 +1821,7 @@ export async function ordreExecution(ctx: Ctx, p: Record<string, unknown>) {
   .head .d b { font-size: 11pt; letter-spacing: .06em; display: block; }
   .head .d i { font-size: 9pt; }
 
-  /* Intitulé de l'acte : centré, espacé, souligné — jamais coupé d'une page. */
+  /* Intitulé de l'acte : centré, espacé, souligné, jamais coupé d'une page. */
   h1 { text-align: center; font-size: 13.5pt; font-weight: bold; letter-spacing: .2em;
        margin: 3mm 0 1mm; text-decoration: underline; text-underline-offset: 4pt;
        page-break-after: avoid; }
@@ -1835,7 +1835,7 @@ export async function ordreExecution(ctx: Ctx, p: Record<string, unknown>) {
   .sig { display: flex; justify-content: space-between; gap: 10mm; margin: 3.5mm 0 1.5mm; }
 
   /* Observations & signature du chef brigade : espace LIBRE, sans cadre
-     (décision utilisateur) — la mention manuscrite et le cachet se posent à
+     (décision utilisateur), la mention manuscrite et le cachet se posent à
      main levée, un cadre imprimé les contraignait. */
   .zone { min-height: 16mm; padding: 1.6mm 0; margin-bottom: 3mm; }
 
@@ -1864,7 +1864,7 @@ export async function ordreExecution(ctx: Ctx, p: Record<string, unknown>) {
     Division des Opérations<br>Douanières Lomé-Port 4<hr>
     Section Brigade PIA
   </div>
-  <div class="d"><b>REPUBLIQUE TOGOLAISE</b><i>Travail — Liberté — Patrie</i></div>
+  <div class="d"><b>REPUBLIQUE TOGOLAISE</b><i>Travail (Liberté) Patrie</i></div>
 </div>
 
 <h1>ORDRE D'EXÉCUTION</h1>
@@ -1890,7 +1890,7 @@ export async function ordreExecution(ctx: Ctx, p: Record<string, unknown>) {
   <tbody>${rows}</tbody>
 </table>
 
-${mixtes.length ? `<div class="l"><b>Chargement mixte</b> — les camions suivants portent également des conteneurs relevant d'une autre déclaration, non repris au tableau ci-dessus : ${esc(mixtes.join(' ; '))}.</div>` : ''}
+${mixtes.length ? `<div class="l"><b>Chargement mixte</b>, les camions suivants portent également des conteneurs relevant d'une autre déclaration, non repris au tableau ci-dessus : ${esc(mixtes.join(' ; '))}.</div>` : ''}
 <div class="l">Autres mentions : <span class="blank" style="min-width:66%"></span></div>
 
 <div class="sec" style="display:block; text-align:center; margin-top:7mm">Noms et signatures des agents</div>
@@ -1926,7 +1926,7 @@ export async function listerHistorique(ctx: Ctx, opts: Record<string, unknown>) 
   const page = Math.max(1, Number(opts['page'] || 1));
   const pageSize = Math.min(200, Number(opts['pageSize'] || 50));
   let q = ctx.db.from('audit_log').select('*', { count: 'exact' });
-  // SEC-05 — Les connexions étaient TOUJOURS exclues (« bruit »), ce qui rendait
+  // SEC-05 : Les connexions étaient TOUJOURS exclues (« bruit »), ce qui rendait
   // impossible de répondre à « qui s'est connecté cette nuit, depuis quelle
   // adresse ». Elles restent masquées PAR DÉFAUT pour ne pas noyer la lecture
   // métier, mais l'administrateur peut désormais les afficher.
@@ -1953,7 +1953,7 @@ export async function listerHistorique(ctx: Ctx, opts: Record<string, unknown>) 
  *
  * ⚠ Corrigé le 2026-08-10 : l'appel demandait `pageSize: 100000`, mais
  * `listerHistorique` plafonne à 200 (`Math.min(200, …)`). L'export ne contenait
- * donc QUE LES 200 DERNIÈRES LIGNES, en silence — pour un journal d'audit dont
+ * donc QUE LES 200 DERNIÈRES LIGNES, en silence, pour un journal d'audit dont
  * l'archivage hors base est justement la parade au risque de réécriture
  * (SEC-04), c'était le pire endroit où tronquer. On pagine désormais réellement.
  */
@@ -1972,18 +1972,18 @@ export async function rapportHistorique(ctx: Ctx, p: Record<string, unknown>) {
 }
 
 /**
- * HISTORIQUE D'UNE CARGAISON (2026-09-10) — tout ce qui lui est arrivé.
+ * HISTORIQUE D'UNE CARGAISON (2026-09-10) : tout ce qui lui est arrivé.
  *
  * La fiche dit l'ÉTAT ; ceci dit le PARCOURS : qui a saisi, qui a corrigé, qui a
  * validé, ce qui a été modifié après coup et pourquoi. C'est la moitié de
- * l'information qui manquait — un champ corrigé ne laisse sur la fiche que sa
+ * l'information qui manquait, un champ corrigé ne laisse sur la fiche que sa
  * valeur finale, jamais la trace de ce qu'il valait avant.
  *
  * DISTINCT de `report.history` (ADMIN, journal complet, filtré par agent et par
  * date) : ici on lit UNE cargaison, dans l'ordre chronologique, et l'action est
  * ouverte à ceux qui suivent le dossier.
  *
- * PORTÉE VOLONTAIREMENT RESTREINTE — RGPD-03. Le journal d'audit est aussi un
+ * PORTÉE VOLONTAIREMENT RESTREINTE : RGPD-03. Le journal d'audit est aussi un
  * fichier de surveillance des agents : « qui a travaillé, quand, à quelle
  * cadence ». On l'ouvre donc au CFS et à l'encadrement (VOIENT_HORSGABARIT),
  * pas à toutes les cellules. Chaque cellule voit déjà son propre passage sur la

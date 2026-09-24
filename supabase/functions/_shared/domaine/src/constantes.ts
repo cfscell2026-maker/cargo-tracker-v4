@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- *  @cargo/domaine — Constantes métier
+ *  @cargo/domaine, Constantes métier
  *  Transcription FIDÈLE de apps-script/Config.gs (v3.6).
  *  Toute divergence par rapport à Config.gs est un bug, sauf mention contraire.
  * ============================================================================
@@ -23,7 +23,7 @@ export const DEFAUTS = {
 } as const;
 
 // Types de déclaration douanière au CFS (liste déroulante). NB : « D » (déclaration
-// de transit) n'apparaît PAS ici — il est saisi à l'étape T1, pas au CFS.
+// de transit) n'apparaît PAS ici, il est saisi à l'étape T1, pas au CFS.
 export const TYPES_DECLARATION = ['T', 'C', 'S', 'A', 'E'] as const;
 
 /** Conteneurs : nombre LIBRE par camion. Garde-fou anti-abus + taille d'aperçu. */
@@ -35,7 +35,7 @@ export const ROLES = {
   CFS: 'CFS',
   CHEF_BRIGADE: 'CHEF_BRIGADE',
   CHEF_BRIGADE_ADJOINT: 'CHEF_BRIGADE_ADJOINT',
-  // CBPI — Chef brigade PAR INTÉRIM (2026-08-19). Délégation de la SEULE
+  // CBPI : Chef brigade PAR INTÉRIM (2026-08-19). Délégation de la SEULE
   // validation/signature quand le chef brigade titulaire n'est pas là. Ce profil
   // ne voit QUE la file « À valider » et ne peut QUE valider (aucun autre écran,
   // aucune autre action). La traçabilité distingue ses signatures de celles du
@@ -57,13 +57,13 @@ export const TOUS_ROLES: Role[] = [
   ROLES.CHEF_DIVISION, ROLES.T1, ROLES.BALISE, ROLES.BON_SORTIE, ROLES.PP, ROLES.ADMIN,
 ];
 
-/** v3.0 — Profils « chefs » habilités à saisir le champ confidentiel « Hors gabarit ». */
+/** v3.0, Profils « chefs » habilités à saisir le champ confidentiel « Hors gabarit ». */
 export const CHEFS_HORSGABARIT: Role[] = [
   ROLES.CHEF_BRIGADE, ROLES.CHEF_BRIGADE_ADJOINT, ROLES.CHEF_VISITE, ROLES.CHEF_DIVISION, ROLES.ADMIN,
 ];
 
 /**
- * v3.2 — « Hors gabarit » (DÉPOTAGE uniquement) : automatique dès que la hauteur
+ * v3.2, « Hors gabarit » (DÉPOTAGE uniquement) : automatique dès que la hauteur
  * saisie par le CFS dépasse 4,5 m. Le CFS + les chefs voient le champ ; les cellules
  * en aval (T1/Balise/Bon de sortie/PP) ne le voient JAMAIS.
  */
@@ -96,16 +96,16 @@ export const OPERATIONS = {
 export type Operation = (typeof OPERATIONS)[keyof typeof OPERATIONS];
 
 /**
- * v4 — Types de déclaration qui NE SONT PAS un transit : ils SAUTENT le T1 et
+ * v4, Types de déclaration qui NE SONT PAS un transit : ils SAUTENT le T1 et
  * laissent à l'agent le choix de baliser ou non.
  *   C = mise à la consommation ;
  *   A = admission (décision utilisateur 2026-07-22 : « le type A se comporte
- *       comme la conso — on donne le choix de baliser ou pas ») ;
+ *       comme la conso, on donne le choix de baliser ou pas ») ;
  *   S = ne prend pas le T1 non plus (décision utilisateur 2026-08-19 : « seules
  *       les déclarations de type T et E prennent les T1 »).
  * SEULS les types T (transit) et E restent sur le parcours T1 → Balise. Tout
  * autre type explicitement saisi saute le T1 ; un type ENCORE VIDE (camion tout
- * juste créé, déclaration pas renseignée) n'est PAS considéré comme sauté — il
+ * juste créé, déclaration pas renseignée) n'est PAS considéré comme sauté, il
  * reste dans la file T1 jusqu'à ce que le type soit connu (voir estTypeSansT1).
  */
 export const TYPES_SANS_T1 = ['C', 'A', 'S'] as const;
@@ -117,7 +117,7 @@ export function estTypeSansT1(typeDeclaration: unknown): boolean {
 /**
  * Règle de parcours d'une déclaration hors transit : elle SAUTE toujours le T1.
  * L'agent choisit ensuite si elle est balisée (`consoMode` par défaut) ou non
- * balisée (`consoMode === 'sansbalise'`, dispense) — dans ce dernier cas elle
+ * balisée (`consoMode === 'sansbalise'`, dispense), dans ce dernier cas elle
  * saute aussi la Balise. Source unique utilisée par le CFS itératif et les
  * flux spéciaux (Conso/Magasin), pour éviter la double maintenance.
  * NB : le nom `sautsTypeC` est conservé (appelé partout) bien que la règle
@@ -138,7 +138,7 @@ export function libelleTypeSansT1(typeDeclaration: unknown): string {
 }
 
 /**
- * v4.3 — HORS GABARIT & SURCHARGE : DÉPOTAGE UNIQUEMENT (décision utilisateur
+ * v4.3, HORS GABARIT & SURCHARGE : DÉPOTAGE UNIQUEMENT (décision utilisateur
  * 2026-08-19). Seul un dépotage (déchargement de conteneurs, marchandise pesée
  * et mesurée à l'entrée) peut être hors gabarit ou en surcharge. Un enlèvement
  * (conteneur plombé qui ressort), un véhicule, une conso ou une sortie magasin ne
@@ -154,7 +154,7 @@ export function exigeControlePoids(typeOperation: unknown): boolean {
 export const VEHICULE_DESTINATIONS = ['Transit', 'Conso', 'MAD', 'Véhicule abandonné'] as const;
 
 /**
- * v4.1 — DESTINATIONS de la marchandise (décision utilisateur 2026-07-27).
+ * v4.1, DESTINATIONS de la marchandise (décision utilisateur 2026-07-27).
  * Liste déroulante partout où la destination se saisit, au lieu du texte libre.
  * TG = transit national ; les autres = pays de destination du transit.
  */
@@ -182,7 +182,7 @@ export function codeDestination(v: unknown): string {
 }
 
 /**
- * v4.1 — ENTREPÔTS (décision utilisateur 2026-07-27). Deux types au
+ * v4.1, ENTREPÔTS (décision utilisateur 2026-07-27). Deux types au
  * fonctionnement identique ; seule l'UNITÉ D'APUREMENT change : MAD apure des
  * QUANTITÉS (nombre de colis), INDUSTRIEL apure des POIDS (kg).
  */
@@ -194,13 +194,13 @@ export const ARTICLES_MAX = 11;
 export function uniteApurement(type: unknown): 'poids' | 'colis' {
   return String(type) === ENTREPOT_TYPES.INDUSTRIEL ? 'poids' : 'colis';
 }
-/** Clé d'une déclaration (année|bureau|type|numéro) — pour regrouper l'apurement. */
+/** Clé d'une déclaration (année|bureau|type|numéro), pour regrouper l'apurement. */
 export function cleDecl(d: { anneeDeclaration?: unknown; bureauDeclaration?: unknown; typeDeclaration?: unknown; numeroDeclaration?: unknown }): string {
   return [d.anneeDeclaration, d.bureauDeclaration, d.typeDeclaration, d.numeroDeclaration]
     .map((x) => String(x ?? '').toUpperCase().replace(/\s+/g, '')).join('|');
 }
 
-/** v3.3 — Le CFS crée le camion et choisit le type ; le routage = le type. */
+/** v3.3, Le CFS crée le camion et choisit le type ; le routage = le type. */
 export const ROUTAGES = {
   ENLEVEMENT: OPERATIONS.ENLEVEMENT,
   DEPOTAGE: OPERATIONS.DEPOTAGE,
@@ -209,17 +209,17 @@ export function typeDeRoutage(routage: string): Operation {
   return routage === OPERATIONS.DEPOTAGE ? OPERATIONS.DEPOTAGE : OPERATIONS.ENLEVEMENT;
 }
 
-/** v2.9/v3.5 — État du camion à la sortie de la zone CFS (traçabilité site, saisi par le CFS). */
+/** v2.9/v3.5, État du camion à la sortie de la zone CFS (traçabilité site, saisi par le CFS). */
 export const ETATS_SORTIE = ['En cours de chargement', 'Fin de chargement', 'Vide'] as const;
 export type EtatSortie = (typeof ETATS_SORTIE)[number];
 
 /**
- * SUIVI DES ENGAGEMENTS (2026-09-10) — renseigné par le chef de brigade au
+ * SUIVI DES ENGAGEMENTS (2026-09-10) : renseigné par le chef de brigade au
  * moment de la validation, sur TOUTES les opérations.
  *
  * Ces libellés sont des PROPOSITIONS, pas une liste fermée : le chef peut
  * toujours saisir autre chose. Le champ stocké est donc du texte libre, et
- * cette liste ne sert qu'à éviter de retaper les trois cas courants — ce qui
+ * cette liste ne sert qu'à éviter de retaper les trois cas courants, ce qui
  * limite au passage les variantes d'orthographe dans les rapports.
  */
 export const ENGAGEMENTS = ['Transit national', 'Transit côtier', 'BFE 03 Sinkase'] as const;
@@ -231,7 +231,7 @@ export type Engagement = (typeof ENGAGEMENTS)[number];
  *
  * C'est le chef de brigade qui prend l'engagement en signant ; c'est donc lui,
  * et son encadrement, qui en répondent. Les cellules d'exécution (T1, Balise,
- * Bon de sortie, PP) n'ont pas à porter cette relance — elle n'est pas de leur
+ * Bon de sortie, PP) n'ont pas à porter cette relance, elle n'est pas de leur
  * ressort et n'apparaît pas sur leur tableau de bord.
  *
  * Volontairement DISTINCT de `CHEFS_HORSGABARIT`, qui a aujourd'hui la même
@@ -254,7 +254,7 @@ export const SUIVENT_ENGAGEMENTS: Role[] = [
  * changement d'heure. `setDate` gère aussi les fins de mois et les années
  * bissextiles sans qu'on ait à y penser.
  *
- * Renvoie '' si `n` n'est pas un entier strictement positif — un délai de zéro
+ * Renvoie '' si `n` n'est pas un entier strictement positif, un délai de zéro
  * jour n'a pas de sens pour un envoi de pièces.
  */
 export function dateDansNJours(n: unknown, depuis: Date = new Date()): string {
@@ -277,7 +277,7 @@ export type EtatEngagement = 'aucun' | 'solde' | 'a_venir' | 'demain' | 'aujourd
  * normalisées à minuit, ce qui rend la fonction stable dans la journée et
  * testable sans dépendre de l'heure d'exécution.
  *
- * `joursRestants` est négatif en cas de retard — c'est ce qui permet d'afficher
+ * `joursRestants` est négatif en cas de retard, c'est ce qui permet d'afficher
  * « en retard de 3 jours » sans recalculer quoi que ce soit côté écran.
  */
 export function etatEngagement(
@@ -329,7 +329,7 @@ export function libelleEngagement(delai: unknown, effectueLe: unknown, aujourdhu
 export const STOCK_STATUTS = { STOCK: 'En stock', POSITIONNE: 'Positionné', DEPOTE: 'Dépoté' } as const;
 export type StatutStock = (typeof STOCK_STATUTS)[keyof typeof STOCK_STATUTS];
 
-/** v3.1 — Statuts du stock annoncé : Annoncé (import admin) → Pointé (PP) → Confirmé (CFS). */
+/** v3.1, Statuts du stock annoncé : Annoncé (import admin) → Pointé (PP) → Confirmé (CFS). */
 export const ANNONCE_STATUTS = { ANNONCE: 'Annoncé', POINTE: 'Pointé', CONFIRME: 'Confirmé' } as const;
 export type StatutAnnonce = (typeof ANNONCE_STATUTS)[keyof typeof ANNONCE_STATUTS];
 
@@ -376,7 +376,7 @@ export const ROLE_LABELS: Record<string, string> = {
   ADMIN: 'Administrateur',
 };
 
-/** Clés du résumé de liste (RESUME_KEYS v3.6) — champs exposés par les listes/files. */
+/** Clés du résumé de liste (RESUME_KEYS v3.6), champs exposés par les listes/files. */
 export const RESUME_KEYS = [
   'id', 'reference', 'dateCreation', 'numeroCamion', 'typeOperation',
   'conteneur1', 'conteneur2', 'conteneur3', 'conteneur4', 'statut', 'numeroGps',

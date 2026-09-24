@@ -35,7 +35,7 @@ type Phase = 'loading' | 'login' | 'enroll' | 'verify' | 'motdepasse' | 'app';
 const emailDe = (u: string) => (u.includes('@') ? u : `${u.toLowerCase()}@agents.cargo-pia.local`);
 
 /**
- * SEC-02 — INTERRUPTEUR 2FA.
+ * SEC-02 : INTERRUPTEUR 2FA.
  *
  * C'était une constante EN DUR à `false` : la double authentification ne pouvait
  * pas être réactivée sans reconstruire et redéployer le front, et rien ne le
@@ -43,7 +43,7 @@ const emailDe = (u: string) => (u.includes('@') ? u : `${u.toLowerCase()}@agents
  * build, ACTIVE par défaut, et doit rester cohérente avec `MFA_REQUISE` côté
  * Edge Function (supabase/functions/rpc/supa.ts) : les deux se déploient
  * ensemble. Mettre `VITE_MFA_REQUISE=false` est une décision explicite, écrite
- * dans la configuration Netlify — donc visible et réversible.
+ * dans la configuration Netlify, donc visible et réversible.
  */
 const MFA_REQUISE = String(import.meta.env.VITE_MFA_REQUISE ?? 'true').toLowerCase() !== 'false';
 
@@ -102,15 +102,15 @@ export function App() {
 
   const entrerApp = useCallback(async () => {
     const u = await call<User & { motDePasseAChanger?: boolean }>('account.me');
-    // SEC-03 — Tant que l'agent n'a pas remplacé le mot de passe qui lui a été
+    // SEC-03 : Tant que l'agent n'a pas remplacé le mot de passe qui lui a été
     // ATTRIBUÉ (création de compte ou réinitialisation par un ADMIN), il n'entre
     // pas dans l'application : ce mot de passe est connu de l'administrateur,
     // il n'engage pas encore son porteur. Le serveur applique la même règle et
-    // refuse toute autre action (voir index.ts) — l'écran n'est pas contournable
+    // refuse toute autre action (voir index.ts), l'écran n'est pas contournable
     // en appelant l'API directement.
     if (u.motDePasseAChanger) { setUser(u); setPhase('motdepasse'); return; }
 
-    // SEC-05 — Trace de connexion : la v4 n'en enregistrait plus aucune.
+    // SEC-05 · Trace de connexion : la v4 n'en enregistrait plus aucune.
     // Best-effort, une trace manquante ne doit pas empêcher de travailler.
     call('account.signin').catch(() => {});
 
@@ -138,7 +138,7 @@ export function App() {
   useEffect(() => {
     evaluerSession();
     const retour = () => { setPhase('login'); setUser(null); };
-    // SEC-03 — une session ouverte AVANT une réinitialisation par l'ADMIN se
+    // SEC-03 : une session ouverte AVANT une réinitialisation par l'ADMIN se
     // heurte au refus du serveur en cours de route : on la ramène sur l'écran
     // de changement au lieu de laisser défiler des erreurs.
     const mdp = () => setPhase('motdepasse');
@@ -161,7 +161,7 @@ export function App() {
   return (
     <div className="shell">
       <aside className={`side ${sideOpen ? 'open' : ''}`}>
-        {/* Bloc de marque — carte arrondie, logo rond entier (cf. .logo-rond).
+        {/* Bloc de marque, carte arrondie, logo rond entier (cf. .logo-rond).
             `onError` masque l'image si le fichier manque : le nom reste lisible
             plutôt qu'une icône cassée. */}
         <div className="brand">
@@ -182,8 +182,8 @@ export function App() {
         {/* Le menu occupe l'espace restant et défile seul : avec 33 entrées
             (ADMIN), la carte du compte doit rester visible en bas.
 
-            DEUX BLOCS (2026-09-10) : le général — vue d'ensemble, administration,
-            compte — puis les écrans métier. `menuSections` se contente de
+            DEUX BLOCS (2026-09-10) : le général, vue d'ensemble, administration,
+            compte, puis les écrans métier. `menuSections` se contente de
             RÉPARTIR ce que le rôle possède déjà : un rôle sans « Utilisateurs »
             ne le voit pas apparaître pour autant. */}
         <nav className="nav">
@@ -224,14 +224,14 @@ export function App() {
         </div>
       </aside>
       <div className="main">
-        {/* BARRE SUPÉRIEURE — refonte 2026-09-11.
+        {/* BARRE SUPÉRIEURE : refonte 2026-09-11.
             L'icône du volet ouvert précède le nom de la plateforme ; le nom du
             volet passe en dessous, en graisse légère. L'icône vient de la MÊME
             table que le menu (`iconeDeLEcran`) : celle de la barre ne peut donc
             pas diverger de celle de la pilule qu'on vient de cliquer. */}
         <div className="top">
           {/* Trois traits nus (2026-09-11) : plus de cadre autour, et plus le
-              caractère « ☰ » dont le dessin changeait d'un poste à l'autre —
+              caractère « ☰ » dont le dessin changeait d'un poste à l'autre,
               c'est une icône de la même famille que les autres. */}
           <button className="burger" onClick={() => setSideOpen((v) => !v)} aria-label="Ouvrir le menu">
             <Icone nom="menu" taille={22} />
@@ -418,11 +418,11 @@ function SceneQuai() {
 
 
 /**
- * CARTE DE L'AGENT, posée à droite de la barre — 2026-09-11.
+ * CARTE DE L'AGENT, posée à droite de la barre, 2026-09-11.
  *
  * Son avatar, son nom, puis un mot d'accueil suivi de l'heure. Le mot dépend de
  * l'heure : « Bonjour » le matin, « Bonsoir » dès la fin d'après-midi, « Bonne
- * nuit » avant 5 h — le port travaille de nuit, souhaiter « bonjour » à la
+ * nuit » avant 5 h, le port travaille de nuit, souhaiter « bonjour » à la
  * relève de 3 h sonnerait faux.
  *
  * L'horloge se rafraîchit toutes les 30 s. Pas chaque seconde : l'affichage est
@@ -474,10 +474,10 @@ function AuthGate({ phase, setPhase, onReady, onApp }: { phase: Phase; setPhase:
    * Enrôlement TOTP.
    *
    * `issuer` est FIXÉ ICI, explicitement. Sans lui, Supabase reprend l'URL du
-   * site configurée sur le projet — constatée à `localhost:3000` le 2026-09-10,
+   * site configurée sur le projet, constatée à `localhost:3000` le 2026-09-10,
    * un reliquat de développement. Conséquence : l'application d'authentification
    * de chaque agent affichait « localhost:3000 » au lieu du nom du service.
-   * Sur un téléphone qui porte plusieurs comptes TOTP, c'est illisible — et rien
+   * Sur un téléphone qui porte plusieurs comptes TOTP, c'est illisible, et rien
    * n'indique à l'agent qu'il s'agit de l'outil douanier.
    *
    * Le fixer dans le code plutôt que dans la console Supabase rend le libellé
@@ -486,22 +486,22 @@ function AuthGate({ phase, setPhase, onReady, onApp }: { phase: Phase; setPhase:
    */
   async function demarrerEnrol() {
     setErr('');
-    /* BLOCAGE DÉFINITIF DE L'ENRÔLEMENT — corrigé le 2026-09-10.
+    /* BLOCAGE DÉFINITIF DE L'ENRÔLEMENT : corrigé le 2026-09-10.
      *
      * L'appel ne fournissait aucun `friendlyName` : Supabase enregistrait donc
-     * le facteur sous le nom vide `""`, puis REFUSAIT tout enrôlement suivant —
+     * le facteur sous le nom vide `""`, puis REFUSAIT tout enrôlement suivant,
      * `422 mfa_factor_name_conflict`, « A factor with the friendly name "" for
      * this user already exists ».
      *
      * Conséquence : un agent qui ouvrait l'écran d'enrôlement sans le terminer
      * (onglet fermé, page rechargée, téléphone pas sous la main) ne pouvait
      * PLUS JAMAIS enrôler sa 2FA. Et comme MFA_REQUISE est actif, il ne pouvait
-     * plus entrer dans l'application du tout — sur un message qui ne disait pas
+     * plus entrer dans l'application du tout, sur un message qui ne disait pas
      * pourquoi. Seul un ADMIN pouvait le débloquer.
      *
      * On repart donc d'une table rase : tout facteur TOTP resté NON VÉRIFIÉ est
      * une tentative abandonnée, sans valeur, et on la retire avant d'en créer
-     * un neuf. Les facteurs vérifiés ne sont jamais touchés — de toute façon on
+     * un neuf. Les facteurs vérifiés ne sont jamais touchés, de toute façon on
      * n'arrive ici que s'il n'y en a aucun (cf. evaluerSession).
      */
     const { data: liste } = await supabase.auth.mfa.listFactors();
@@ -515,11 +515,11 @@ function AuthGate({ phase, setPhase, onReady, onApp }: { phase: Phase; setPhase:
       factorType: 'totp',
       // Nom EXPLICITE : c'est lui qui provoquait le conflit quand il était vide.
       friendlyName: 'Cargo Tracker',
-      // Sans `issuer`, Supabase reprend l'URL du site du projet — constatée à
+      // Sans `issuer`, Supabase reprend l'URL du site du projet, constatée à
       // `localhost:3000` le 2026-09-10, reliquat de développement. Chaque agent
       // voyait donc « localhost:3000 » dans son application d'authentification,
       // sans rien qui désigne l'outil douanier.
-      issuer: 'Cargo Tracker — PIA Dry Port',
+      issuer: 'Cargo Tracker, PIA Dry Port',
     });
     if (error || !data) {
       setErr("Impossible de démarrer l'enrôlement 2FA : " + (error?.message ?? 'erreur inconnue'));
@@ -527,7 +527,7 @@ function AuthGate({ phase, setPhase, onReady, onApp }: { phase: Phase; setPhase:
     }
     setFactorId(data.id); setQr(data.totp.qr_code);
   }
-  /* UN SEUL enrôlement, quoi qu'il arrive — corrigé le 2026-09-10.
+  /* UN SEUL enrôlement, quoi qu'il arrive, corrigé le 2026-09-10.
    *
    * `React.StrictMode` (voir main.tsx) invoque VOLONTAIREMENT les effets deux
    * fois au montage en développement. La garde `!qr` ne suffisait pas : `qr` est
@@ -536,7 +536,7 @@ function AuthGate({ phase, setPhase, onReady, onApp }: { phase: Phase; setPhase:
    *
    * Le symptôme a changé de forme au fil des correctifs, mais la cause était la
    * même : d'abord un `422 mfa_factor_name_conflict` (le second appel butait sur
-   * le nom du premier), puis — le nettoyage des facteurs non vérifiés ajouté —
+   * le nom du premier), puis, le nettoyage des facteurs non vérifiés ajouté,
    * une COURSE : le second appel supprimait le facteur du premier et en créait
    * un autre, pendant que l'écran pouvait continuer d'afficher le QR du premier.
    * L'agent scannait alors un secret déjà supprimé, et son code était rejeté
@@ -555,7 +555,7 @@ function AuthGate({ phase, setPhase, onReady, onApp }: { phase: Phase; setPhase:
   }, [phase]);
 
   /**
-   * SEC-03 — Changement imposé du mot de passe attribué.
+   * SEC-03 : Changement imposé du mot de passe attribué.
    * L'ancien mot de passe est redemandé : c'est ce qui distingue « l'agent
    * change son mot de passe » de « quelqu'un qui a récupéré une session ouverte
    * s'en approprie le compte ».
@@ -591,7 +591,7 @@ function AuthGate({ phase, setPhase, onReady, onApp }: { phase: Phase; setPhase:
 
   return (
     /* `ecran-connexion` (2026-09-11) : porte le fond travaillé et l'effet de
-       verre. Il est posé sur le conteneur, pas sur le bouton — voir styles.css,
+       verre. Il est posé sur le conteneur, pas sur le bouton, voir styles.css,
        un verre dépoli ne montre rien s'il n'a rien à flouter derrière lui. */
     <main className="ecran-connexion" style={{ maxWidth: 400, margin: '5vh auto 130px', padding: 24 }}>
       <SceneQuai />
@@ -599,7 +599,7 @@ function AuthGate({ phase, setPhase, onReady, onApp }: { phase: Phase; setPhase:
           est souvent, et doit pouvoir se mettre à jour avant d'entrer. */}
       <BandeauMiseAJour />
       <div className="brand-login">
-        {/* SUIVI EN MOUVEMENT — 2026-09-11.
+        {/* SUIVI EN MOUVEMENT : 2026-09-11.
             Le logo n'est plus posé seul : il est entouré de ce que fait la
             plateforme. Une ROUTE en pointillés (l'itinéraire), un CAMION qui la
             parcourt, et une ONDE qui se propage (le relevé de position). Trois
@@ -620,7 +620,7 @@ function AuthGate({ phase, setPhase, onReady, onApp }: { phase: Phase; setPhase:
       {/* Mot d'accueil (2026-09-11). Une seule ligne, discrète : l'écran de
           connexion est un seuil, pas une page d'information. La version longue
           qui détaillait la démarche de création de compte encombrait plus
-          qu'elle n'aidait — elle s'adressait à une minorité au détriment de
+          qu'elle n'aidait, elle s'adressait à une minorité au détriment de
           tous ceux qui viennent simplement travailler.
           Affiché à la seule phase de connexion : pendant la 2FA, l'agent est
           déjà accueilli. */}
@@ -658,7 +658,7 @@ function AuthGate({ phase, setPhase, onReady, onApp }: { phase: Phase; setPhase:
             </p>
             <div><label className="help">Mot de passe actuel (celui qui vous a été remis)</label>
               <input type="password" value={pwd} onChange={(e) => setPwd(e.target.value)} autoComplete="current-password" required /></div>
-            <div><label className="help">Nouveau mot de passe — 12 caractères minimum</label>
+            <div><label className="help">Nouveau mot de passe, 12 caractères minimum</label>
               <input type="password" value={nouveau} onChange={(e) => setNouveau(e.target.value)} autoComplete="new-password" minLength={12} required /></div>
             <div><label className="help">Confirmez le nouveau mot de passe</label>
               <input type="password" value={confirmation} onChange={(e) => setConfirmation(e.target.value)} autoComplete="new-password" minLength={12} required /></div>

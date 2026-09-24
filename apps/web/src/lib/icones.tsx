@@ -1,5 +1,5 @@
 /**
- * JEU D'ICÔNES — 2026-09-10, révisé le même jour.
+ * JEU D'ICÔNES : 2026-09-10, révisé le même jour.
  *
  * Remplace les caractères typographiques qui servaient d'icônes (▦ ＋ ✎ ◑ ◵ ◔…)
  * mêlés à quelques émojis. Deux défauts rédhibitoires :
@@ -13,13 +13,13 @@
  *
  * DES SVG EN TRAIT, DÉFINIS ICI. Grille de 24, trait de 1,8 et bouts arrondis
  * pour toutes : elles forment une famille. `stroke="currentColor"` les fait
- * hériter de la couleur du menu — blanches sur la pilule active, grises sinon,
+ * hériter de la couleur du menu, blanches sur la pilule active, grises sinon,
  * sans une ligne de CSS supplémentaire.
  *
  * PLUSIEURS TRACÉS PAR ICÔNE (révision). La première version n'en admettait
  * qu'un seul, et cela se voyait : le camion n'avait pas de roues, la voiture se
  * lisait comme un lit, le balai comme un marteau. Une silhouette juste réclame
- * des sous-parties détachées — roues, cabine, plateaux de balance —, d'où le
+ * des sous-parties détachées (roues, cabine, plateaux de balance), d'où le
  * tableau de chaînes plutôt qu'une chaîne unique.
  *
  * ⚠ AUCUNE BIBLIOTHÈQUE EXTERNE, et ce n'est pas un choix esthétique : la CSP de
@@ -55,7 +55,7 @@ const TRACES: Record<string, string | string[]> = {
   // Vue d'ensemble
   tableau: 'M3 3h7v7H3zM14 3h7v5h-7zM14 12h7v9h-7zM3 14h7v7H3z',
 
-  // Camions et véhicules — caisse, cabine et DEUX ROUES : sans elles, la
+  // Camions et véhicules, caisse, cabine et DEUX ROUES : sans elles, la
   // silhouette se lisait comme une simple boîte.
   camion: [
     'M13 19V7a2 2 0 00-2-2H4a2 2 0 00-2 2v10a2 2 0 002 2h.5',
@@ -64,8 +64,8 @@ const TRACES: Record<string, string | string[]> = {
     'M8.5 19a2 2 0 1 0-4 0 2 2 0 1 0 4 0z',
     'M18.5 19a2 2 0 1 0-4 0 2 2 0 1 0 4 0z',
   ],
-  // Le « + » est POSÉ AU-DESSUS de la cabine, ni dans la caisse — la silhouette
-  // se lisait alors comme une ambulance — ni dans une pastille cerclée, qui à
+  // Le « + » est POSÉ AU-DESSUS de la cabine, ni dans la caisse, la silhouette
+  // se lisait alors comme une ambulance, ni dans une pastille cerclée, qui à
   // 18 px se referme en tache.
   camionPlus: [
     'M13 19V7a2 2 0 00-2-2H4a2 2 0 00-2 2v10a2 2 0 002 2h.5',
@@ -95,7 +95,7 @@ const TRACES: Record<string, string | string[]> = {
   crayon: 'M4 20h4L19 9a2.1 2.1 0 00-3-3L5 17v3zM14.5 6.5l3 3',
   // Un bouclier, et non le sceau dentelé de la première version : à 18 px, ses
   // dents se refermaient en une tache. Le bouclier dit mieux ce dont il s'agit
-  // — une validation par l'autorité, pas un label de qualité.
+  // : une validation par l'autorité, pas un label de qualité.
   valider: [
     'M12 3l7 3v5.6c0 4.2-2.9 7.7-7 8.6-4.1-.9-7-4.4-7-8.6V6z',
     'M9.2 12.1l2.1 2.1 3.9-4.3',
@@ -103,7 +103,7 @@ const TRACES: Record<string, string | string[]> = {
   presse: 'M9 4h6v3H9zM7 5H5v15h14V5h-2M9 12l2 2 4-4',
   loupe: 'M11 4a7 7 0 100 14 7 7 0 000-14zM20 20l-4.2-4.2',
   // Un tableau à LIGNES (en-tête + rangées) plutôt qu'une liste à puces :
-  // « Cargaisons » est un LISTING. Les rangées comptent — avec la seule colonne
+  // « Cargaisons » est un LISTING. Les rangées comptent, avec la seule colonne
   // de la première version, l'icône imitait celle du tableau de bord.
   liste: [
     'M4 4h16a1 1 0 011 1v14a1 1 0 01-1 1H4a1 1 0 01-1-1V5a1 1 0 011-1z',
@@ -118,12 +118,18 @@ const TRACES: Record<string, string | string[]> = {
   balise: 'M12 10a2 2 0 100 4 2 2 0 000-4zM8.5 8.5a5 5 0 000 7M15.5 8.5a5 5 0 010 7M5.5 5.5a9 9 0 000 13M18.5 5.5a9 9 0 010 13',
   bonSortie: 'M6 3h8l4 4v14H6zM14 3v4h4M9 14l2 2 4-4',
   sortie: 'M14 4h4a1 1 0 011 1v14a1 1 0 01-1 1h-4M10 8l-4 4 4 4M6 12h9',
-  /* PARKING — le panneau normalisé : cadre aux angles adoucis et « P » à la
-     contre-forme ouverte. Deux tracés (cadre + lettre) plutôt qu'un seul : la
-     lettre garde ainsi son épaisseur propre et reste lisible à 18 px. */
+  /* PARKING (choix utilisateur, 2026-09-24) : LE CAMION GARÉ, de la même
+     famille que `camion` et `camionPlus`, avec un « P » dans la caisse. Le
+     panneau seul, essayé d'abord, ne disait pas le camion ; le camion seul se
+     confondait à 18 px avec celui de « Créer un camion ». La lettre les
+     sépare d'un coup d'œil, sans changer de silhouette. */
   parking: [
-    'M6 3h12a3 3 0 013 3v12a3 3 0 01-3 3H6a3 3 0 01-3-3V6a3 3 0 013-3z',
-    'M9.9 17.2V6.8h3.3a3.1 3.1 0 010 6.2H9.9',
+    'M13 18.5V9a1.6 1.6 0 00-1.6-1.6H4.6A1.6 1.6 0 003 9v8a1.6 1.6 0 001.6 1.6h.4',
+    'M17.6 18.5H19a1.6 1.6 0 001.6-1.6v-2.2a1.6 1.6 0 00-.36-1l-2-2.4a1.6 1.6 0 00-1.24-.6H13',
+    'M8.4 18.5h5.2',
+    'M8.4 18.5a1.7 1.7 0 1 0-3.4 0 1.7 1.7 0 1 0 3.4 0z',
+    'M17.6 18.5a1.7 1.7 0 1 0-3.4 0 1.7 1.7 0 1 0 3.4 0z',
+    'M6.4 14.6V9.8h2.1a1.5 1.5 0 010 3H6.4',
   ],
   // Flèche qui tourne : recharger l'application (mise à jour).
   miseAJour: 'M20 12a8 8 0 11-2.34-5.66M20 4v4h-4',
@@ -144,7 +150,7 @@ const TRACES: Record<string, string | string[]> = {
     'M19 9l-2.5 5a2.5 2.5 0 005 0z',
   ],
   horloge: 'M12 4a8 8 0 100 16 8 8 0 000-16zM12 8v4.5l3 1.8',
-  // 2026-09-21 : volet Paramètres — des curseurs de réglage.
+  // 2026-09-21 : volet Paramètres, des curseurs de réglage.
   reglages: 'M4 6h9M17 6h3M15 4v4M4 12h3M11 12h9M9 10v4M4 18h11M19 18h1M17 16v4',
   sablier: 'M7 3h10M7 21h10M8 3v3.5c0 2.2 4 3.5 4 5.5s-4 3.3-4 5.5V21M16 3v3.5c0 2.2-4 3.5-4 5.5s4 3.3 4 5.5V21',
   attente: 'M12 4a8 8 0 100 16 8 8 0 000-16zM12 8v4h3.5',

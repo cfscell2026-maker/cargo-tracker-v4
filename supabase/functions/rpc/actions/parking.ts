@@ -1,11 +1,11 @@
 /**
  * ============================================================================
- *  PARKING — camions stationnés, pointés chaque jour (2026-09-24, demande user)
+ *  PARKING : camions stationnés, pointés chaque jour (2026-09-24, demande user)
  *
  *  Le premier jour, l'agent AJOUTE le camion (plaque obligatoire, conteneur et
  *  plomb facultatifs) et peut le pointer dans la foulée. Les jours suivants le
  *  camion est déjà en base : l'agent le retrouve en tapant sa plaque et le
- *  pointe d'un bouton, qui disparaît ensuite — un camion ne se pointe qu'UNE
+ *  pointe d'un bouton, qui disparaît ensuite, un camion ne se pointe qu'UNE
  *  FOIS par jour (même règle que le pointage des conteneurs, voir stock.ts).
  *
  *  SORTIE DU PARKING : automatique, quand le camion est signalé à la Porte
@@ -27,7 +27,7 @@ import { nextRef } from './helpers.ts';
 const PRESENT = 'Présent';
 const SORTI = 'Sorti';
 
-/** Le jour civil, en date ISO — l'unité du pointage. */
+/** Le jour civil, en date ISO, l'unité du pointage. */
 const jour = (v?: unknown) => (v ? new Date(String(v)) : new Date()).toISOString().slice(0, 10);
 
 /** Message unique quand les tables manquent : l'agent doit savoir quoi demander. */
@@ -61,7 +61,7 @@ interface LigneParking extends Record<string, unknown> {
 }
 
 /**
- * `parking.list` — les camions du parking.
+ * `parking.list`, les camions du parking.
  *
  * `recherche` filtre sur la plaque NORMALISÉE : l'agent tape « 2489 » et ne
  * garde que les camions qui portent ces chiffres, à chaque caractère saisi.
@@ -116,7 +116,7 @@ export async function parkingList(ctx: Ctx, p: Record<string, unknown>) {
   return { lignes, compte, active: true, jour: aujourdhui, du, au };
 }
 
-/** `parking.detail` — une ligne et TOUS ses pointages (l'historique du séjour). */
+/** `parking.detail`, une ligne et TOUS ses pointages (l'historique du séjour). */
 export async function parkingDetail(ctx: Ctx, p: Record<string, unknown>) {
   const id = String(p['id'] ?? '').trim();
   if (!id) throw new ErreurMetier('Identifiant requis.');
@@ -134,10 +134,10 @@ export async function parkingDetail(ctx: Ctx, p: Record<string, unknown>) {
 }
 
 /**
- * `parking.check` — ce camion est-il AU PARKING en ce moment ?
+ * `parking.check`, ce camion est-il AU PARKING en ce moment ?
  *
  * Appelée par les écrans de saisie avant d'enregistrer une cargaison : l'agent
- * est prévenu, et décide lui-même de continuer ou non. Elle n'interdit RIEN —
+ * est prévenu, et décide lui-même de continuer ou non. Elle n'interdit RIEN,
  * un camion au parking a parfaitement le droit d'être enregistré.
  */
 export async function parkingCheck(ctx: Ctx, p: Record<string, unknown>) {
@@ -181,7 +181,7 @@ async function poserPointage(ctx: Ctx, parkingId: string): Promise<boolean> {
 }
 
 /**
- * `parking.add` — ajoute un camion au parking.
+ * `parking.add`, ajoute un camion au parking.
  *
  * `pointer` (vrai par défaut) pose le pointage du jour dans la foulée : l'agent
  * qui saisit un camion qu'il a sous les yeux n'a pas à le pointer ensuite.
@@ -213,7 +213,7 @@ export async function parkingAdd(ctx: Ctx, p: Record<string, unknown>) {
   return { id, numeroCamion, pointe };
 }
 
-/** `parking.point` — pointage du jour. Refusé deux fois le même jour. */
+/** `parking.point`, pointage du jour. Refusé deux fois le même jour. */
 export async function parkingPointer(ctx: Ctx, p: Record<string, unknown>) {
   const id = String(p['id'] ?? '').trim();
   if (!id) throw new ErreurMetier('Identifiant requis.');
@@ -235,7 +235,7 @@ export async function parkingPointer(ctx: Ctx, p: Record<string, unknown>) {
  * Ferme le séjour de tout camion présent portant cette plaque.
  *
  * Appelée par `cargo.sortie` : le camion signalé à la Porte Principale a quitté
- * le parking, c'est la règle retenue. Silencieuse par construction — si les
+ * le parking, c'est la règle retenue. Silencieuse par construction, si les
  * tables n'existent pas ou qu'aucun camion ne correspond, la sortie du dossier
  * n'a aucune raison d'échouer pour autant.
  */
@@ -263,11 +263,11 @@ export async function fermerParkingPourCamion(ctx: Ctx, numeroCamion: unknown, c
 }
 
 /**
- * `parking.edit` — corriger une ligne du parking (TOUS les rôles).
+ * `parking.edit`, corriger une ligne du parking (TOUS les rôles).
  *
  * La plaque elle-même est modifiable : une erreur de saisie doit pouvoir être
  * réparée par celui qui la constate. Deux camions PRÉSENTS ne peuvent pas
- * porter la même plaque — c'est ce que vérifie le contrôle ci-dessous. Chaque
+ * porter la même plaque, c'est ce que vérifie le contrôle ci-dessous. Chaque
  * correction est inscrite au journal, avec l'avant et l'après.
  */
 export async function parkingEdit(ctx: Ctx, p: Record<string, unknown>) {
@@ -317,7 +317,7 @@ export async function parkingEdit(ctx: Ctx, p: Record<string, unknown>) {
 }
 
 /**
- * `parking.delete` — supprime la ligne ET ses pointages (ADMINISTRATEUR).
+ * `parking.delete`, supprime la ligne ET ses pointages (ADMINISTRATEUR).
  *
  * SUPPRESSION RÉELLE, réservée à la ligne créée par erreur. Un camion qui a bel
  * et bien stationné se SORT (`parking.sortie`) : son séjour appartient à
@@ -343,7 +343,7 @@ export async function parkingSupprimer(ctx: Ctx, p: Record<string, unknown>) {
 }
 
 /**
- * `parking.sortie` — sortie déclarée à la main (chefs et administrateur).
+ * `parking.sortie`, sortie déclarée à la main (chefs et administrateur).
  *
  * La sortie normale est automatique à la Porte Principale. Celle-ci existe pour
  * le camion qui quitte le parc SANS dossier : sans elle il resterait « présent »

@@ -1,6 +1,6 @@
 /**
  * Vérifie que CHAQUE action de la matrice PERMISSIONS possède un handler dans le
- * routeur (registry.ts), et inversement — garantit qu'aucune action n'est
+ * routeur (registry.ts), et inversement, garantit qu'aucune action n'est
  * exposée sans implémentation, ni implémentée sans contrôle de permission.
  * (Lit registry.ts comme TEXTE pour éviter d'importer le runtime Deno.)
  */

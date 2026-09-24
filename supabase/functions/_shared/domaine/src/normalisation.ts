@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- *  @cargo/domaine — Normalisation & validation des saisies
+ *  @cargo/domaine, Normalisation & validation des saisies
  *  Transcription FIDÈLE des helpers de Data.gs (v3.6) :
  *  _txt_, _maj_, _alphaNumMaj_, _tcValide_, _normaliserConteneur_,
  *  _normaliserDeclaration_, _declKey_, _parseDateImport_.
@@ -24,7 +24,7 @@ export function maj(v: unknown, max?: number): string {
 
 /** _alphaNumMaj_ : alphanumérique MAJUSCULES (tolère / et -). */
 /**
- * Normalisation d'un N° DE CAMION — élargie le 2026-09-12.
+ * Normalisation d'un N° DE CAMION, élargie le 2026-09-12.
  *
  * Ne servait qu'aux plaques, et n'en gardait que `A-Z 0-9 / -`. Tout le reste
  * était silencieusement effacé : un agent qui tapait « TG.2489 » ou
@@ -35,7 +35,7 @@ export function maj(v: unknown, max?: number): string {
  *
  * LES ESPACES RESTENT SUPPRIMÉS, et c'est délibéré : « TG2489BK » et
  * « TG 2489 BK » désignent le MÊME camion. Les conserver créerait deux dossiers
- * distincts pour un seul véhicule — exactement le genre de doublon qu'on passe
+ * distincts pour un seul véhicule, exactement le genre de doublon qu'on passe
  * ensuite des semaines à démêler. L'agent peut donc les taper : ils sont
  * absorbés, pas refusés.
  */
@@ -43,15 +43,15 @@ export function alphaNumMaj(v: unknown): string {
   return txt(v).toUpperCase().replace(/[^A-Z0-9/\\._-]/g, '');
 }
 
-/* ============ FORMAT DU N° DE CAMION — imposé le 2026-09-10 ==============
+/* ============ FORMAT DU N° DE CAMION : imposé le 2026-09-10 ==============
  *
  * Au port sec, un « camion » est un ENSEMBLE : un tracteur et sa remorque, qui
  * portent chacun leur plaque. Le numéro les associe, séparés par une barre
- * oblique — « TG2489BK/2725BP ».
+ * oblique, « TG2489BK/2725BP ».
  *
  * Ce n'était jusqu'ici qu'un usage : rien n'empêchait de n'entrer qu'une seule
- * plaque. Or les deux servent à des choses différentes — la remorque porte la
- * marchandise, le tracteur change en cours de route — et une saisie incomplète
+ * plaque. Or les deux servent à des choses différentes, la remorque porte la
+ * marchandise, le tracteur change en cours de route, et une saisie incomplète
  * rend le camion introuvable pour qui cherche l'autre moitié.
  *
  * La règle vaut pour la SAISIE. Elle ne juge pas l'historique : les cargaisons
@@ -65,7 +65,7 @@ export const CAMION_SEPARATEUR = '/';
 /**
  * true si le numéro de camion est exploitable.
  *
- * LA BARRE OBLIQUE N'EST PLUS OBLIGATOIRE — 2026-09-12, décision utilisateur.
+ * LA BARRE OBLIQUE N'EST PLUS OBLIGATOIRE : 2026-09-12, décision utilisateur.
  *
  * Le format « TRACTEUR/REMORQUE » avait été imposé le 2026-09-10 pour que la
  * remorque, qui porte la marchandise, ne se perde pas quand le tracteur change
@@ -75,8 +75,8 @@ export const CAMION_SEPARATEUR = '/';
  *
  * On accepte donc les DEUX formes, et on continue d'écarter ce qui n'est
  * manifestement pas une plaque :
- *   · « TG2489BK/2725BP » — l'ensemble, deux parties d'au moins 2 caractères ;
- *   · « TG2489BK »        — une plaque seule, au moins 4 caractères.
+ *   · « TG2489BK/2725BP » : l'ensemble, deux parties d'au moins 2 caractères ;
+ *   · « TG2489BK »        : une plaque seule, au moins 4 caractères.
  *
  * Le seuil de 4 n'est pas décoratif : il refuse les saisies avortées (« AB »,
  * « 12 ») sans rien préjuger de la longueur réelle des plaques de la région.
@@ -121,7 +121,7 @@ export interface ChampLibre {
 
 export interface Conteneur {
   /**
-   * 2026-09-14 — Conteneur PARTAGÉ : déjà dépoté sur un autre camion, rattaché à
+   * 2026-09-14 · Conteneur PARTAGÉ : déjà dépoté sur un autre camion, rattaché à
    * celui-ci en plus. Posé par le serveur seul ; exclu de tous les comptes de
    * conteneurs, la boîte ayant été comptée au premier dépotage.
    */
@@ -132,7 +132,7 @@ export interface Conteneur {
   type: string;
   poids: string;
   extra: ChampLibre[];
-  // LOT D — déclaration par conteneur (remplie par le flux d'entrée)
+  // LOT D : déclaration par conteneur (remplie par le flux d'entrée)
   numeroDeclaration?: string;
   anneeDeclaration?: string;
   bureauDeclaration?: string;
@@ -170,7 +170,7 @@ export interface Declaration {
   anneeDeclaration: string;
   descriptionMarchandise: string;
   /**
-   * v4 — DATE de la déclaration en douane (ISO 'yyyy-MM-dd'), imprimée sur
+   * v4, DATE de la déclaration en douane (ISO 'yyyy-MM-dd'), imprimée sur
    * l'ORDRE D'EXÉCUTION (« Déclaration : Type … N° … du 24/06/26 »). Distincte
    * de la date de saisie dans l'appli. FACULTATIVE au niveau du domaine :
    * exigée seulement à la CRÉATION d'une déclaration (comme nombreConteneurs),
@@ -180,11 +180,11 @@ export interface Declaration {
 }
 
 /**
- * _normaliserDeclaration_ : MAJUSCULES, défauts, longueurs — TOUS les champs
+ * _normaliserDeclaration_ : MAJUSCULES, défauts, longueurs, TOUS les champs
  * obligatoires (sauf description pour un VÉHICULE, portée par les effets divers).
  */
 /**
- * v4.1 — Options de normalisation.
+ * v4.1, Options de normalisation.
  *
  * `correction` : on CORRIGE une déclaration déjà enregistrée, on n'en crée pas
  * une. Seule l'IDENTITÉ de la déclaration (déclarant + année/bureau/type/numéro)
@@ -193,7 +193,7 @@ export interface Declaration {
  * MIGRÉES est impossible : leur export d'origine n'avait ni contact, ni
  * destination, ni désignation, et la saisie était refusée sur des champs que
  * l'agent n'a jamais eus à l'écran (« Champ obligatoire : Contact déclarant »).
- * Le téléphone reste validé s'il est renseigné — on n'accepte pas un faux.
+ * Le téléphone reste validé s'il est renseigné, on n'accepte pas un faux.
  */
 export interface OptionsDeclaration { correction?: boolean }
 
@@ -210,7 +210,7 @@ export function normaliserDeclaration(
     .replace(/[^\d+ ]/g, '')
     .replace(/(?!^)\+/g, '')
     .trim();
-  // v4 — date de la déclaration en douane : acceptée en jj/mm/aaaa, aaaa-mm-jj,
+  // v4, date de la déclaration en douane : acceptée en jj/mm/aaaa, aaaa-mm-jj,
   // Date ou sérial Excel ; normalisée en ISO 'yyyy-MM-dd'. Refusée si saisie mais
   // illisible (évite d'imprimer une date fausse sur l'ordre d'exécution).
   const dDecl = parseDateImport(src.dateDeclaration);
@@ -228,7 +228,7 @@ export function normaliserDeclaration(
     dateDeclaration: dDecl ? dDecl.toISOString().slice(0, 10) : '',
   };
   // Identité de la déclaration : exigée dans TOUS les cas, création comme
-  // correction — sans elle la ligne ne désigne plus rien.
+  // correction, sans elle la ligne ne désigne plus rien.
   const requis: Array<[keyof Declaration, string]> = [
     ['declarant', 'Déclarant'],
     ['bureauDeclaration', 'Bureau de déclaration'],
@@ -239,7 +239,7 @@ export function normaliserDeclaration(
   if (!opts?.correction) {
     requis.push(['contactDeclarant', 'Contact déclarant']);
     requis.push(['destinationMarchandise', 'Destination marchandise']);
-    // v3.6 — VÉHICULE : description non requise (portée par les effets divers).
+    // v3.6, VÉHICULE : description non requise (portée par les effets divers).
     if (type !== OPERATIONS.VEHICULE) requis.push(['descriptionMarchandise', 'Description marchandise']);
   }
   for (const [k, label] of requis) {
@@ -311,7 +311,7 @@ export function parseConteneursDetails(raw: unknown): ConteneursDetails {
 /* ------------------------ Chargement mixte (v4) ------------------------ */
 
 /**
- * CHARGEMENT MIXTE — un camion qui emporte des conteneurs relevant de
+ * CHARGEMENT MIXTE : un camion qui emporte des conteneurs relevant de
  * PLUSIEURS déclarations. L'Apps Script (v3.x) le marquait par un drapeau
  * `chargementMixte` posé à l'ajout du conteneur ; en v4 chaque conteneur porte
  * SA déclaration (LOT D), donc le mixte se DÉDUIT des données au lieu d'être
@@ -390,7 +390,7 @@ export function estChargementMixte(
 
 /* --------------------- Similitude de N° (anti-doublons) ---------------- */
 /**
- * DÉTECTION DE QUASI-DOUBLONS — demande utilisateur 2026-08-19. À la frappe d'un
+ * DÉTECTION DE QUASI-DOUBLONS : demande utilisateur 2026-08-19. À la frappe d'un
  * N° de camion, une petite erreur (un caractère de trop / de moins / faux, ou
  * deux caractères intervertis) crée un doublon quasi identique. On mesure ici la
  * ressemblance entre deux N° pour AVERTIR (jamais bloquer) : « ce camion
@@ -399,7 +399,7 @@ export function estChargementMixte(
  *
  * `distanceOSA` : distance d'édition « Optimal String Alignment » (Damerau-
  * Levenshtein restreinte). Comme la distance de Levenshtein classique, mais une
- * INTERVERSION de deux caractères ADJACENTS coûte 1 et non 2 — c'est la faute de
+ * INTERVERSION de deux caractères ADJACENTS coûte 1 et non 2, c'est la faute de
  * frappe la plus courante (AB…→BA…), qu'on veut donc rattraper.
  */
 export function distanceOSA(a: string, b: string): number {
@@ -446,7 +446,7 @@ export function similariteNum(a: unknown, b: unknown): number {
  * comme un vrai doublon). Sensibilité MOYENNE (décision utilisateur 2026-08-19,
  * « à 10-20 % près ») : on alerte au-delà de ~82 % de ressemblance, et on
  * rattrape aussi toute faute d'un seul caractère (distance 1) sur les N° d'au
- * moins 4 caractères — le cas le plus courant, qui pourrait sinon passer sous le
+ * moins 4 caractères, le cas le plus courant, qui pourrait sinon passer sous le
  * seuil sur un N° court.
  */
 export function numeroQuasiDoublon(a: unknown, b: unknown): boolean {

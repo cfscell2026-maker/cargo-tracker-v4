@@ -1,11 +1,11 @@
 /**
- * ÉQUIVALENCE DES PRÉ-FILTRES SQL DES LISTES — 2026-09-12.
+ * ÉQUIVALENCE DES PRÉ-FILTRES SQL DES LISTES : 2026-09-12.
  *
  * `cargoList` ne rapatrie plus toute la table : une partie du tri est passée en
  * SQL pour tenir le temps de réponse (mesuré : 3,7 s quel que soit le nombre de
  * lignes rendues, parce que tout était chargé avant d'être trié).
  *
- * Ce qui est vérifié ici n'est PAS que c'est plus rapide — une base en mémoire
+ * Ce qui est vérifié ici n'est PAS que c'est plus rapide, une base en mémoire
  * ne dirait rien de la vitesse. C'est qu'AUCUN DOSSIER NE DISPARAÎT. Un filtre
  * trop étroit sortirait un camion de sa file d'attente sans que personne s'en
  * aperçoive, et un camion qu'on ne voit plus est un camion qu'on ne traite pas.
@@ -38,7 +38,7 @@ function baseDeTest(): FakeDB {
     // Sorti par la PP, statut terminal : dans AUCUNE file.
     { id: 'B-SORTI', statut: STATUTS.SORTIE, date_creation: '2026-09-02T08:00:00Z',
       numero_camion: 'BB2222BB/R2', date_sortie: '2026-09-03T10:00:00Z' },
-    /* LE CAS PIÈGE. Réellement sorti — `date_sortie` renseignée — mais son
+    /* LE CAS PIÈGE. Réellement sorti (`date_sortie` renseignée) mais son
        statut est resté à une valeur intermédiaire. `etatCellules` le tient pour
        sorti ; il ne doit donc figurer dans aucune file. Un pré-filtre qui
        n'aurait regardé QUE le statut l'aurait laissé passer. */
@@ -51,7 +51,7 @@ function baseDeTest(): FakeDB {
   return db;
 }
 
-/** Ce que le DOMAINE dit de la file d'un dossier — la référence. */
+/** Ce que le DOMAINE dit de la file d'un dossier, la référence. */
 function filesAttendues(db: FakeDB, etape: string): string[] {
   return db.store['cargaisons']
     .map((c) => versCamel(c))
@@ -116,7 +116,7 @@ test('un statut exact rend ce statut, et rien d\'autre', async () => {
   assert.deepEqual(ids, ['D-CFS']);
 });
 
-test('sans filtre, la liste rend TOUT — le pré-filtre ne s\'applique pas', async () => {
+test('sans filtre, la liste rend TOUT, le pré-filtre ne s\'applique pas', async () => {
   const db = baseDeTest();
   const res = await lec.cargoList(ctx(db), { categorie: 'tous' });
   assert.equal((res as { total: number }).total, 4);
@@ -127,7 +127,7 @@ test('sans filtre, la liste rend TOUT — le pré-filtre ne s\'applique pas', as
  *
  * Les sept précédents passeraient encore si le pré-filtre SQL ne filtrait
  * RIEN : le tri JS qui suit rendrait le même résultat, simplement après avoir
- * tout téléchargé — c'est-à-dire sans rien corriger au problème qu'on cherche
+ * tout téléchargé, c'est-à-dire sans rien corriger au problème qu'on cherche
  * à résoudre. Celui-ci observe ce que la base a réellement RENVOYÉ.
  */
 test('le pré-filtre agit : la base ne renvoie plus que les lignes utiles', async () => {
@@ -157,12 +157,12 @@ test('le pré-filtre agit : la base ne renvoie plus que les lignes utiles', asyn
 
   assert.equal(sansFiltre, 4, 'sans critère, la vue rend les 4 dossiers');
   assert.equal(avecFiltre, 2,
-    'avec le filtre, la base n\'envoie que les 2 dossiers non sortis — '
+    'avec le filtre, la base n\'envoie que les 2 dossiers non sortis, '
     + 'les 2 sortis ne franchissent plus le fil');
   assert.ok(avecFiltre < sansFiltre, 'le filtre doit réduire ce qui transite');
 });
 
-/* ===== FILTRE « SUIVI DES ENGAGEMENTS » — 2026-09-12 =====================
+/* ===== FILTRE « SUIVI DES ENGAGEMENTS » : 2026-09-12 =====================
  *
  * Demandé pour qu'un chef puisse ne demander que les camions engagés. Le point
  * délicat n'est pas le tri lui-même : c'est qu'il doit RESTER SANS EFFET tant
@@ -192,7 +192,7 @@ test('sans filtre, les dossiers engagés restent dans la liste', async () => {
 });
 
 test('COLONNE ABSENTE : la liste ne casse pas, elle rend tout', async () => {
-  // Aucune cargaison ne porte `suivi_engagement` — l'état exact de la base
+  // Aucune cargaison ne porte `suivi_engagement`, l'état exact de la base
   // tant que la 00190 n'est pas appliquée.
   const db = baseDeTest();
   const sans = idsDe(await lec.cargoList(ctx(db), { categorie: 'tous', engagement: 'sans' }));
@@ -201,11 +201,11 @@ test('COLONNE ABSENTE : la liste ne casse pas, elle rend tout', async () => {
   assert.deepEqual(avec, [], 'et « avec » rend une liste vide, pas une erreur');
 });
 
-/* ===== UN CONTENEUR PARTAGÉ NE COMPTE QU'UNE FOIS — 2026-09-12 ===========
+/* ===== UN CONTENEUR PARTAGÉ NE COMPTE QU'UNE FOIS, 2026-09-12 ===========
  *
  * Règle dictée par le douanier. Un conteneur dont la marchandise se répartit
  * sur plusieurs camions apparaît sur chacun d'eux ; le compter à chaque fois
- * gonflerait les totaux et les EVP — on déclarerait plusieurs fois la même
+ * gonflerait les totaux et les EVP, on déclarerait plusieurs fois la même
  * boîte. Le CAMION, lui, reste compté à chaque passage : ce sont bien deux
  * passages distincts au poste.
  */
@@ -227,12 +227,12 @@ function deuxCamionsUnConteneur(): FakeDB {
   return db;
 }
 
-test('rapport Balise — le conteneur partagé compte UNE fois, les camions DEUX', async () => {
+test('rapport Balise, le conteneur partagé compte UNE fois, les camions DEUX', async () => {
   const db = deuxCamionsUnConteneur();
   const r = await rap.rapportActivite(ctx(db), {
     kind: 'balise', du: '2026-09-01', au: '2026-09-30',
   }) as { total: { camions: number; conteneurs: number; evp: number } };
   assert.equal(r.total.camions, 2, 'deux passages au poste Balise : deux camions');
   assert.equal(r.total.conteneurs, 1, 'une seule boîte physique');
-  assert.equal(r.total.evp, 1, "et un seul EVP — sinon on déclare deux fois le même conteneur");
+  assert.equal(r.total.evp, 1, "et un seul EVP, sinon on déclare deux fois le même conteneur");
 });

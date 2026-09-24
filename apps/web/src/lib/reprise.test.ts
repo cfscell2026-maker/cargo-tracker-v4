@@ -93,7 +93,7 @@ test('un corps sans message exploitable le dit, plutôt que de rester muet', () 
   assert.match(m, /sans message exploitable/);
 });
 
-/* ---- Le message d'une extraction trop vaste — 2026-09-12 ---------------
+/* ---- Le message d'une extraction trop vaste, 2026-09-12 ---------------
  *
  * Mesuré en production : `report.cargaisons` passe avec un critère et échoue
  * sans. Le message doit donc distinguer les deux, sans quoi il envoie l'agent

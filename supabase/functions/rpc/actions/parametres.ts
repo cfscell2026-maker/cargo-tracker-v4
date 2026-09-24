@@ -1,14 +1,14 @@
 /**
  * ============================================================================
- *  PARAMÈTRES — lecture et enregistrement (2026-09-21, demande utilisateur)
+ *  PARAMÈTRES : lecture et enregistrement (2026-09-21, demande utilisateur)
  *
  *  Stockage : table `parametres_app` (migration 00200), une ligne par réglage
  *  MODIFIÉ. Un réglage jamais touché n'a pas de ligne : il vaut son défaut.
  *
  *  ⚠ LA TABLE PEUT NE PAS EXISTER. Ce module est déployé AVANT que la migration
  *  soit appliquée (c'est une décision de l'exploitant, pas un effet de bord du
- *  déploiement). Tant qu'elle manque, la lecture rend les DÉFAUTS — c'est-à-dire
- *  exactement le comportement d'avant — et l'enregistrement explique pourquoi il
+ *  déploiement). Tant qu'elle manque, la lecture rend les DÉFAUTS, c'est-à-dire
+ *  exactement le comportement d'avant, et l'enregistrement explique pourquoi il
  *  est refusé. Rien ne tombe.
  * ============================================================================
  */
@@ -29,7 +29,7 @@ interface EtatParametres {
 
 /* Une lecture par requête, pas une par action : plusieurs rapports lisent le
    même réglage dans le même appel. Le cache vit avec le contexte de la requête
-   et disparaît avec lui — aucun risque de servir un réglage périmé à la suivante. */
+   et disparaît avec lui, aucun risque de servir un réglage périmé à la suivante. */
 const cache = new WeakMap<object, Promise<EtatParametres>>();
 
 export function chargerEtatParametres(ctx: Ctx): Promise<EtatParametres> {
@@ -56,19 +56,19 @@ export function chargerEtatParametres(ctx: Ctx): Promise<EtatParametres> {
   return p;
 }
 
-/** Les valeurs effectives — ce que les autres actions consultent. */
+/** Les valeurs effectives, ce que les autres actions consultent. */
 export async function chargerParametres(ctx: Ctx): Promise<ValeursParametres> {
   return (await chargerEtatParametres(ctx)).valeurs;
 }
 
-/** `params.get` — tous les rôles : l'écran de signature en a besoin (liste, délai). */
+/** `params.get`, tous les rôles : l'écran de signature en a besoin (liste, délai). */
 export async function paramsGet(ctx: Ctx) {
   const e = await chargerEtatParametres(ctx);
   return { valeurs: e.valeurs, defauts: PARAMETRES_DEFAUT, definitions: PARAMETRES, active: e.active, modifs: e.modifs };
 }
 
 /**
- * `params.set` — ADMINISTRATEUR. Reçoit `{ valeurs: { cle: valeur | null } }` ;
+ * `params.set`, ADMINISTRATEUR. Reçoit `{ valeurs: { cle: valeur | null } }` ;
  * `null` rétablit le défaut (la ligne est supprimée).
  *
  * TOUT est validé AVANT d'écrire quoi que ce soit : un lot contenant une seule

@@ -1,5 +1,5 @@
 /**
- * Client Supabase du navigateur — clé ANON uniquement (authentification).
+ * Client Supabase du navigateur, clé ANON uniquement (authentification).
  * Toute la donnée métier passe par l'Edge Function rpc (voir rpc.ts).
  */
 import { createClient } from '@supabase/supabase-js';

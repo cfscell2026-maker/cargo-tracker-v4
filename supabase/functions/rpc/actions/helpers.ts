@@ -29,10 +29,10 @@ export const nextId = (ctx: Ctx) => nextRef(ctx, 'SEQ', APP.ID_PREFIX);
 export const nextRapportId = (ctx: Ctx) => nextRef(ctx, 'SEQ_RPT', APP.RPT_PREFIX);
 
 /**
- * v4 — Récupère TOUTES les lignes d'une table/vue en paginant par blocs.
+ * v4, Récupère TOUTES les lignes d'une table/vue en paginant par blocs.
  * PostgREST plafonne une requête à ~1000 lignes ; au-delà (données migrées :
  * 5000+ cargaisons, 6000+ conteneurs) un simple `.select('*')` est SILENCIEUSEMENT
- * tronqué — et les listes, stats et rapports qui en dérivent aussi. On boucle
+ * tronqué, et les listes, stats et rapports qui en dérivent aussi. On boucle
  * donc sur `.range()` jusqu'à épuisement.
  */
 export async function fetchAll(
@@ -40,13 +40,13 @@ export async function fetchAll(
   table: string,
   select = '*',
   order?: { colonne: string; ascendant?: boolean },
-  // 2026-09-11 — FILTRE SQL OPTIONNEL. Certains rapports chargeaient la table
+  // 2026-09-11 : FILTRE SQL OPTIONNEL. Certains rapports chargeaient la table
   // ENTIÈRE pour n'en garder qu'une poignée de lignes, ce qui faisait tuer le
   // worker par l'hébergeur (HTTP 546, « WORKER_RESOURCE_LIMIT »). Quand le tri
   // se laisse traduire en SQL, autant ne pas rapatrier le reste.
   //
   // ⚠ Un filtre passé ici doit être ÉQUIVALENT au tri JS qu'il précède, jamais
-  // plus restrictif — sinon il fait disparaître des dossiers en silence, ce qui
+  // plus restrictif, sinon il fait disparaître des dossiers en silence, ce qui
   // est bien pire qu'une lenteur. Un filtre plus LARGE reste sans danger : le
   // tri JS qui suit tranche.
   // deno-lint-ignore no-explicit-any
@@ -71,7 +71,7 @@ export async function fetchAll(
 /**
  * Lecture d'une cargaison ; lève « Cargaison introuvable : id » (v3.6).
  *
- * SEC-12 — Une cargaison ANNULÉE (doublon de saisie retiré par un ADMIN) est
+ * SEC-12 : Une cargaison ANNULÉE (doublon de saisie retiré par un ADMIN) est
  * conservée en base pour ne pas détruire de pièce, mais elle n'est plus une
  * écriture vivante : toutes les actions d'écriture passant par ce point d'entrée
  * la refusent. La relecture pour consultation/audit passe par `cargoGet`.
@@ -119,7 +119,7 @@ export async function ajouterConteneurs(
 ): Promise<void> {
   if (!conteneurs.length) return;
 
-  /* ANTI-DOUBLON DE CONTENEUR — DAT-05, garde applicative posée le 2026-09-10.
+  /* ANTI-DOUBLON DE CONTENEUR : DAT-05, garde applicative posée le 2026-09-10.
    *
    * Le diagnostic du 2026-09-09 a compté 19 couples (cargaison, conteneur)
    * dupliqués en base : un même conteneur enregistré deux fois sur un camion
@@ -127,7 +127,7 @@ export async function ajouterConteneurs(
    *
    * La contrainte SQL `unique (cargaison_id, conteneur)` serait la vraie
    * réponse, mais un index unique NE PEUT PAS être créé tant que ces 19 lignes
-   * existent — et les arbitrer est une décision métier, pas un déploiement.
+   * existent, et les arbitrer est une décision métier, pas un déploiement.
    * Ce contrôle-ci ferme la porte AUX NOUVEAUX doublons sans toucher à
    * l'historique : la contrainte pourra être posée une fois la base nettoyée.
    *
@@ -188,7 +188,7 @@ export async function lierStock(ctx: Ctx, tc: string, cargaisonId: string): Prom
 }
 
 /**
- * v4 — DÉLIE un TC d'une cargaison et le remet à disposition dans le stock.
+ * v4, DÉLIE un TC d'une cargaison et le remet à disposition dans le stock.
  * Utilisé par la CORRECTION d'un conteneur mal saisi (cargo.editconteneur) :
  * le conteneur erroné doit redevenir sélectionnable, sinon la vraie saisie est
  * impossible. `statutRestore` = « Positionné » (dépotage, il était pointé du
@@ -207,12 +207,12 @@ export async function delierStock(ctx: Ctx, tc: string, cargaisonId: string, sta
 
 /** Conteneur du stock UTILISABLE (présent, pas encore dépoté) → objet ou null. */
 /**
- * La fiche de stock d'un conteneur, QUEL QUE SOIT son statut — 2026-09-12.
+ * La fiche de stock d'un conteneur, QUEL QUE SOIT son statut, 2026-09-12.
  *
  * `stockDisponible` masque volontairement les conteneurs déjà dépotés : ils ne
  * sont plus « disponibles ». Mais un conteneur dépoté au port sec alimente
  * souvent PLUSIEURS camions, et le deuxième doit pouvoir s'y rattacher. Il faut
- * donc pouvoir constater son existence sans le déclarer disponible — les deux
+ * donc pouvoir constater son existence sans le déclarer disponible, les deux
  * questions sont distinctes, elles méritent deux fonctions.
  */
 export async function stockFiche(ctx: Ctx, numeroTC: string): Promise<Record<string, unknown> | null> {
@@ -279,7 +279,7 @@ export async function majApurement(
       type_declaration: decl.typeDeclaration ?? '',
       numero_declaration: decl.numeroDeclaration ?? '',
       declarant: decl.declarant ?? '',
-      // v4 — date de la déclaration en douane (ordre d'exécution) ; NULL si inconnue.
+      // v4, date de la déclaration en douane (ordre d'exécution) ; NULL si inconnue.
       date_declaration: decl.dateDeclaration || null,
       nombre_conteneurs: nbDecl,
       conteneurs_apures: nbAjout,

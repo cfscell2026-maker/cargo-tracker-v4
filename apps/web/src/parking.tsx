@@ -1,12 +1,12 @@
 /**
  * ============================================================================
- *  VOLET PARKING — 2026-09-24, demande utilisateur
+ *  VOLET PARKING : 2026-09-24, demande utilisateur
  *
  *  Les camions stationnés au parking sont comptés CHAQUE JOUR. Le premier jour
  *  on AJOUTE le camion (plaque obligatoire, conteneur et plomb facultatifs) et
  *  on peut le pointer dans la foulée. Les jours suivants il est déjà là : on
  *  tape sa plaque, la liste se réduit à chaque caractère, et un bouton le
- *  pointe. Ce bouton DISPARAÎT une fois le camion pointé — un camion ne se
+ *  pointe. Ce bouton DISPARAÎT une fois le camion pointé, un camion ne se
  *  pointe pas deux fois dans la même journée (règle tenue par le serveur, pas
  *  seulement par l'écran : voir actions/parking.ts).
  *
@@ -39,7 +39,7 @@ export function EcranParking({ user }: Nav) {
   const [busy, setBusy] = useState('');
   const admin = user.role === ROLES.ADMIN;
   /* PÉRIODE (demande utilisateur) : jour, mois, année ou plage. Elle porte sur
-     la DATE D'ENTRÉE au parking. « Toute la période » la neutralise — c'est le
+     la DATE D'ENTRÉE au parking. « Toute la période » la neutralise, c'est le
      défaut, car la question courante est « qui est là aujourd'hui ? ». */
   const periode = useReportRange('mois');
   const [limiterPeriode, setLimiterPeriode] = useState(false);
@@ -87,7 +87,7 @@ export function EcranParking({ user }: Nav) {
       </div>} />
 
     {/* La période, sur sa propre ligne : elle sert à relire un mois ou une
-        année passés, pas à la consultation du jour — qui est le défaut. */}
+        année passés, pas à la consultation du jour, qui est le défaut. */}
     <div className="card park-periode">
       <label className="help" style={{ display: 'flex', alignItems: 'center', gap: 8, margin: 0, textTransform: 'none', fontSize: 13.5 }}>
         <input type="checkbox" style={{ width: 'auto' }} checked={limiterPeriode}
@@ -99,7 +99,7 @@ export function EcranParking({ user }: Nav) {
           <PeriodPicker p={periode} />
           <span className="help">du {fmtJour(periode.du)} au {fmtJour(periode.au)}</span>
         </div>
-        : <p className="help" style={{ margin: '6px 0 0' }}>Toute la période — cochez pour restreindre.</p>}
+        : <p className="help" style={{ margin: '6px 0 0' }}>Toute la période, cochez pour restreindre.</p>}
     </div>
 
     {!active && <div className="card" style={{ borderLeft: '4px solid var(--warn)' }}>
@@ -187,7 +187,7 @@ function dureeTitre(l: O): string {
 }
 
 /**
- * EXPORT EXCEL (demande utilisateur) — la liste AFFICHÉE, telle quelle :
+ * EXPORT EXCEL (demande utilisateur), la liste AFFICHÉE, telle quelle :
  * la recherche et la période en cours sont déjà appliquées aux lignes reçues,
  * donc on n'exporte jamais autre chose que ce qu'on a sous les yeux.
  */
@@ -356,7 +356,7 @@ function ModaleSortieParking({ ligne, onClose, onFait }: { ligne: O; onClose: ()
     <p className="help">
       Camion <b className="mono">{s(ligne['numeroCamion'])}</b>. Normalement un camion sort tout seul
       quand il est signalé à la Porte Principale. Cette sortie manuelle est là pour le camion
-      qui quitte le parc <b>sans dossier</b> — sans elle il resterait compté comme présent.
+      qui quitte le parc <b>sans dossier</b>, sans elle il resterait compté comme présent.
     </p>
     <label className="help">Motif de la sortie (obligatoire)</label>
     <input value={motif} onChange={(e) => setMotif(e.target.value)} placeholder="ex. reparti à vide" autoFocus />
@@ -371,7 +371,7 @@ function ModaleSortieParking({ ligne, onClose, onFait }: { ligne: O; onClose: ()
 
 /**
  * Correction ouverte à TOUS (décision utilisateur) : celui qui constate une
- * erreur de saisie doit pouvoir la réparer. La plaque comprise — le serveur
+ * erreur de saisie doit pouvoir la réparer. La plaque comprise, le serveur
  * refuse seulement qu'elle double celle d'un autre camion présent.
  */
 function ModaleModifierParking({ ligne, onClose, onFait }: { ligne: O; onClose: () => void; onFait: () => void }) {
@@ -458,11 +458,11 @@ function ModaleSupprimerParking({ ligne, onClose, onFait }: { ligne: O; onClose:
 }
 
 /* ============================================================================
- *  ALERTE « DÉJÀ AU PARKING » — posée sur les écrans de saisie.
+ *  ALERTE « DÉJÀ AU PARKING » : posée sur les écrans de saisie.
  *
  *  Avant d'enregistrer une cargaison, on demande au serveur si ce camion est au
  *  parking. S'il y est, l'agent voit une question, pas un refus : il répond OUI
- *  pour continuer, NON pour annuler. Répondre OUI ne change rien au parking —
+ *  pour continuer, NON pour annuler. Répondre OUI ne change rien au parking,
  *  le camion en sortira à la Porte Principale, comme les autres.
  * ========================================================================== */
 
@@ -500,7 +500,7 @@ export function useAlerteParking() {
     <h2>{plusieurs ? 'Ces camions sont déjà au parking' : 'Ce camion est déjà au parking'}</h2>
     <ul className="park-alerte">
       {demande.lignes.map((l, i) => <li key={s(l['id']) || i}>
-        <b className="mono">{s(l['numeroCamion'])}</b> — au parking depuis le <b>{fmtJour(l['dateEntree'])}</b>
+        <b className="mono">{s(l['numeroCamion'])}</b>, au parking depuis le <b>{fmtJour(l['dateEntree'])}</b>
         {s(l['numeroConteneur']) ? <> · conteneur <span className="mono">{s(l['numeroConteneur'])}</span></> : null}
       </li>)}
     </ul>

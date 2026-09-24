@@ -1,12 +1,12 @@
 /**
  * ============================================================================
- *  @cargo/domaine — TEMPS DE PASSAGE PAR POSTE (v4.2, demande du 2026-08-10)
+ *  @cargo/domaine, TEMPS DE PASSAGE PAR POSTE (v4.2, demande du 2026-08-10)
  *
  *  Combien de temps un dossier reste-t-il à chaque poste ? Et globalement,
  *  combien de temps s'écoule entre l'entrée du camion et sa sortie à la Porte
  *  Principale ?
  *
- *  MODÈLE DE MESURE — il découle du workflow réel, qui est PARALLÈLE :
+ *  MODÈLE DE MESURE · il découle du workflow réel, qui est PARALLÈLE :
  *
  *      entrée camion ──[CFS]──► fin de chargement ──┬─[VALIDATION]─► signature
  *                                                    ├─[T1]────────► T1 saisi
@@ -133,7 +133,7 @@ export function delaisDe(c: SourceDelais): Delais {
 
   /*
    * Éligibilité à la Porte Principale : le camion est sortable quand le T1 ET
-   * la Balise sont faits — ou sautés. On prend donc le PLUS TARDIF des jalons
+   * la Balise sont faits, ou sautés. On prend donc le PLUS TARDIF des jalons
    * réellement exigés. Sans aucun jalon exigé (type C/A non balisé), c'est la
    * fin de chargement qui fait foi.
    *
@@ -161,7 +161,7 @@ export function delaisDe(c: SourceDelais): Delais {
 }
 
 /* -------------------------------------------------------------------------- */
-/*  Agrégats — isolés ici pour être testables sans base                        */
+/*  Agrégats, isolés ici pour être testables sans base                        */
 /* -------------------------------------------------------------------------- */
 
 export interface Agregat {
@@ -210,7 +210,7 @@ export function dureeLisible(minutes: number | null | undefined): string {
   return hr ? `${j} j ${hr} h` : `${j} j`;
 }
 
-/** Heures décimales (1 décimale) — unité des graphiques. */
+/** Heures décimales (1 décimale), unité des graphiques. */
 export function enHeures(minutes: number | null | undefined): number | null {
   if (minutes === null || minutes === undefined || !isFinite(minutes)) return null;
   return Math.round((minutes / 60) * 10) / 10;

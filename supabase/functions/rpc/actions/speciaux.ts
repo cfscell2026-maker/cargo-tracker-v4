@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- *  Flux SPÉCIAUX — cargo.create (Dépotage/Enlèvement/Conso groupés, Véhicule,
+ *  Flux SPÉCIAUX, cargo.create (Dépotage/Enlèvement/Conso groupés, Véhicule,
  *  Magasin/MAD) + cargo.ouillagedecl. Transcription fidèle de Data.gs (v3.6).
  * ============================================================================
  */
@@ -48,7 +48,7 @@ export async function create(ctx: Ctx, p: Record<string, unknown>) {
   if (!camions.length) throw new Error('Au moins un camion est requis.');
 
   const decl = normaliserDeclaration(p['declaration'] as never, type);
-  // v4 — comme en DÉPOTAGE : le TYPE de la déclaration commande le parcours.
+  // v4, comme en DÉPOTAGE : le TYPE de la déclaration commande le parcours.
   // T = transit → T1 + Balise ; C = mise à la consommation → saute le T1 et
   // l'agent choisit balisée / non balisée (consoMode). Règle unique sautsTypeC.
   const { sauteT1, sauteBalise } = sautsTypeC(decl.typeDeclaration, p['consoMode']);
@@ -60,17 +60,17 @@ export async function create(ctx: Ctx, p: Record<string, unknown>) {
   const lignes = camions.map((cam) => construireCamion(cam as never, type, chargementTermine, maxConts));
   const nbTotal = lignes.reduce((n, cam) => n + cam.conteneurs.length, 0);
 
-  /* ANTI-DOUBLON — I-4 de l'audit, corrigé le 2026-09-10.
+  /* ANTI-DOUBLON : I-4 de l'audit, corrigé le 2026-09-10.
    *
    * `createcamion` (flux principal) refusait déjà un camion déjà présent et non
-   * sorti. Les flux SPÉCIAUX — Véhicule, Conso, Magasin/MAD, et la saisie en lot
-   * ci-dessous — ne faisaient AUCUN contrôle : seul un avertissement côté écran
+   * sorti. Les flux SPÉCIAUX, Véhicule, Conso, Magasin/MAD, et la saisie en lot
+   * ci-dessous, ne faisaient AUCUN contrôle : seul un avertissement côté écran
    * (`cargo.checkdup`) prévenait l'agent, et rien n'empêchait de passer outre ni
    * d'appeler l'API directement.
    *
    * Deux contrôles, dans cet ordre :
-   *  1. DANS LE LOT lui-même — deux fois la même plaque dans une seule saisie ;
-   *  2. CONTRE LA BASE — une plaque déjà active, donc déjà dans l'enceinte.
+   *  1. DANS LE LOT lui-même, deux fois la même plaque dans une seule saisie ;
+   *  2. CONTRE LA BASE : une plaque déjà active, donc déjà dans l'enceinte.
    *
    * On vérifie AVANT d'écrire quoi que ce soit : un lot refusé ne doit laisser
    * aucune ligne derrière lui.
@@ -79,7 +79,7 @@ export async function create(ctx: Ctx, p: Record<string, unknown>) {
   for (const cam of lignes) {
     const plaque = String(cam.numeroCamion ?? '').trim();
     if (!plaque) continue;
-    // Format tracteur/remorque (2026-09-10) — contrôlé aussi sur les flux
+    // Format tracteur/remorque (2026-09-10), contrôlé aussi sur les flux
     // spéciaux, qui échappaient jusqu'ici à tout contrôle de saisie.
     if (!camionValide(plaque)) throw new ErreurMetier(messageCamionFormat(plaque));
     const norm = plaque.toUpperCase().replace(/[^A-Z0-9]/g, '');
@@ -95,7 +95,7 @@ export async function create(ctx: Ctx, p: Record<string, unknown>) {
       );
   }
 
-  // v4 — nb de conteneurs déclarés et date en douane devenus facultatifs (décision user).
+  // v4, nb de conteneurs déclarés et date en douane devenus facultatifs (décision user).
 
   const rapportId = await nextRapportId(ctx);
   const now = new Date().toISOString();
@@ -114,7 +114,7 @@ export async function create(ctx: Ctx, p: Record<string, unknown>) {
 }
 
 /**
- * Un VÉHICULE déjà présent (non sorti, non annulé) portant ce châssis — 2026-09-12.
+ * Un VÉHICULE déjà présent (non sorti, non annulé) portant ce châssis, 2026-09-12.
  * Pendant de `camionActif`, restreint aux dossiers véhicule : un camion porteur
  * dont la plaque a servi de « châssis » n'est pas le même dossier.
  */
@@ -132,22 +132,22 @@ async function vehiculeActif(ctx: Ctx, chassisNorm: string): Promise<Record<stri
   return data && data[0] ? (data[0] as Record<string, unknown>) : null;
 }
 
-/** Magasin / MAD temps 2 — sortie de marchandise en VRAC (aucun conteneur). */
+/** Magasin / MAD temps 2, sortie de marchandise en VRAC (aucun conteneur). */
 async function creerRapportMagasin(ctx: Ctx, p: Record<string, unknown>) {
   const numeroCamion = alphaNumMaj(p['numeroCamion']);
   if (!numeroCamion) throw new Error('N° camion requis pour la sortie magasin.');
 
-  /* MAGASIN / MAD — format et anti-doublon (2026-09-10).
+  /* MAGASIN / MAD : format et anti-doublon (2026-09-10).
    *
    * Ce flux RETOURNE TÔT depuis `create` (dispatch par type d'opération) : ni le
    * contrôle de format ni l'anti-doublon posés plus bas ne le voyaient. Une
    * sortie magasin pouvait donc créer un SECOND dossier pour un camion déjà dans
-   * l'enceinte — deux fiches pour un seul camion physique, deux apurements, deux
+   * l'enceinte, deux fiches pour un seul camion physique, deux apurements, deux
    * passages à la Porte Principale.
    *
    * Le message ne se contente pas de refuser : il NOMME la cargaison existante
    * et indique la voie à suivre. Un même camion qui emporte de la marchandise
-   * relevant de plusieurs déclarations n'est pas un doublon — c'est un
+   * relevant de plusieurs déclarations n'est pas un doublon, c'est un
    * CHARGEMENT MIXTE, et il se saisit sur la fiche déjà ouverte. Sans cette
    * indication, l'agent bloqué invente une plaque pour passer outre.
    */
@@ -166,10 +166,10 @@ async function creerRapportMagasin(ctx: Ctx, p: Record<string, unknown>) {
 
   const decl = normaliserDeclaration(p['declaration'] as never, OPERATIONS.MAGASIN);
   const obsCFS = maj(p['observationsCFS'], 1000);
-  // v4 — comme en dépotage : type T → T1 + Balise ; type C → saute le T1,
+  // v4, comme en dépotage : type T → T1 + Balise ; type C → saute le T1,
   // balisée ou non balisée selon consoMode (règle unique sautsTypeC).
   const { sauteT1, sauteBalise } = sautsTypeC(decl.typeDeclaration, p['consoMode']);
-  // v4.1 — SCELLÉS DU CAMION « comme en dépotage » (décision utilisateur
+  // v4.1, SCELLÉS DU CAMION « comme en dépotage » (décision utilisateur
   // 2026-08-04) : le camion de sortie magasin porte 2-3 scellés, posés à la fin
   // de chargement. Tant qu'ils ne le sont pas, la sortie reste « En cours de
   // chargement » et se finalise depuis la fiche (cargo.sceller).
@@ -220,7 +220,7 @@ async function creerRapportVehicule(ctx: Ctx, p: Record<string, unknown>) {
   const declVide = { declarant: '', contactDeclarant: '', destinationMarchandise: '', bureauDeclaration: '', typeDeclaration: '', numeroDeclaration: '', anneeDeclaration: '', descriptionMarchandise: '' };
   const d = decl ?? declVide;
   const obsCFS = maj(p['observationsCFS'], 1000);
-  // v4 — le conteneur d'origine est OBLIGATOIRE (décision utilisateur 2026-07-16) :
+  // v4, le conteneur d'origine est OBLIGATOIRE (décision utilisateur 2026-07-16) :
   // il est choisi côté écran dans la liste des TC POSITIONNÉS au CFS.
   const conteneurOrigine = maj(p['conteneurOrigine'], 20).replace(/[^A-Z0-9]/g, '');
   if (!conteneurOrigine) throw new Error("Véhicule : le N° de conteneur d'origine (TC) est obligatoire.");
@@ -229,8 +229,8 @@ async function creerRapportVehicule(ctx: Ctx, p: Record<string, unknown>) {
 
   const vehicules = (Array.isArray(p['vehicules']) ? (p['vehicules'] as unknown[]) : []).map((v) => construireVehicule(v as never));
   if (!vehicules.length) throw new Error('Au moins un véhicule est requis.');
-  // v4 — camions d'EFFETS DIVERS : N° camion + DÉSIGNATION + scellés (plus de
-  // conteneurs propres — les effets proviennent du conteneur d'origine).
+  // v4, camions d'EFFETS DIVERS : N° camion + DÉSIGNATION + scellés (plus de
+  // conteneurs propres, les effets proviennent du conteneur d'origine).
   // « Chargement terminé (scellés posés) » reste porté PAR CAMION ; les scellés
   // (2-3, règle dépotage) ne sont exigés que s'il est terminé.
   const camions = estOuillage
@@ -243,20 +243,20 @@ async function creerRapportVehicule(ctx: Ctx, p: Record<string, unknown>) {
    * contrôle posé plus bas ne le voyait donc jamais. Ces camions portent pourtant
    * de vraies plaques et entrent dans le même parcours que les autres.
    *
-   * Le châssis du VÉHICULE, lui, n'est pas concerné — un VIN ne comporte pas de
+   * Le châssis du VÉHICULE, lui, n'est pas concerné, un VIN ne comporte pas de
    * barre oblique. Seules les plaques sont contrôlées. */
   for (const cam of camions) {
     const plaque = String(cam.numeroCamion ?? '').trim();
     if (plaque && !camionValide(plaque)) throw new ErreurMetier(messageCamionFormat(plaque));
   }
 
-  /* ANTI-DOUBLON DES VÉHICULES — 2026-09-12.
+  /* ANTI-DOUBLON DES VÉHICULES : 2026-09-12.
    *
    * Constaté en production : le châssis 732382 créé TROIS FOIS à 12:23, trois
    * dossiers « Créée » en attente du chef de brigade. Le flux véhicule était le
    * dernier à n'avoir AUCUN contrôle serveur : `create` refuse une plaque déjà
    * active, mais ce parcours retourne avant ce contrôle, et l'écran ne vérifiait
-   * que le premier châssis — sans empêcher un second clic sur « Créer ».
+   * que le premier châssis, sans empêcher un second clic sur « Créer ».
    *
    * Mêmes deux contrôles que les camions, AVANT toute écriture :
    *  1. dans la saisie elle-même (même châssis ou même plaque deux fois) ;
@@ -265,7 +265,7 @@ async function creerRapportVehicule(ctx: Ctx, p: Record<string, unknown>) {
    * UN VÉHICULE NE SE COMPARE QU'AUX VÉHICULES (mesure du 2026-09-12 sur 90 jours
    * de production). Contre TOUS les dossiers, le contrôle aurait refusé 17
    * créations : 15 vrais doublons (la même saisie renvoyée 2 à 9 s plus tard),
-   * mais 2 faux refus — un véhicule saisi avec, pour châssis, la plaque d'un
+   * mais 2 faux refus, un véhicule saisi avec, pour châssis, la plaque d'un
    * camion encore présent (TG2944BI, TG6866BS/5821BE). Ce n'est pas le même
    * dossier : un camion porteur n'est pas le véhicule qu'il transporte. Les
    * camions d'effets divers gardent le contrôle complet (0 refus en 90 jours). */
@@ -343,7 +343,7 @@ async function creerRapportVehicule(ctx: Ctx, p: Record<string, unknown>) {
   return { rapportId, vehicules: creeV, camions: creeC, ouillage: estOuillage };
 }
 
-/** v3.6 — OUILLAGE : compléter la déclaration d'un véhicule dépoté. */
+/** v3.6, OUILLAGE : compléter la déclaration d'un véhicule dépoté. */
 export async function ouillagedecl(ctx: Ctx, p: Record<string, unknown>) {
   const id = String(p['id'] ?? '').trim();
   const decl = normaliserDeclaration(p['declaration'] as never, OPERATIONS.VEHICULE);
@@ -361,6 +361,6 @@ export async function ouillagedecl(ctx: Ctx, p: Record<string, unknown>) {
   };
   if (decl.descriptionMarchandise) patch['description_marchandise'] = decl.descriptionMarchandise;
   await patchCargo(ctx, cargo, patch);
-  await ctx.log('Ouillage — déclaration véhicule', id, decl.numeroDeclaration + ' (' + decl.typeDeclaration + (estTransit ? ' → T1' : ' → PP') + ')');
+  await ctx.log('Ouillage, déclaration véhicule', id, decl.numeroDeclaration + ' (' + decl.typeDeclaration + (estTransit ? ' → T1' : ' → PP') + ')');
   return { id, transit: estTransit };
 }

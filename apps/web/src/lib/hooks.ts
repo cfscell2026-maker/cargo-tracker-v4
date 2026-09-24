@@ -4,10 +4,10 @@ import { viderCacheLecture } from './rpc.ts';
 /**
  * Charge une donnée asynchrone avec état {data, loading, error} + reload.
  *
- * 2026-09-12 — `reload()` VIDE LE CACHE DE LECTURE avant de relancer, tandis
+ * 2026-09-12 : `reload()` VIDE LE CACHE DE LECTURE avant de relancer, tandis
  * que le chargement automatique (montage, changement de dépendances) le laisse
  * servir. La distinction est le cœur du dispositif : demander « Actualiser »,
- * c'est dire qu'on ne fait plus confiance à ce qu'on a sous les yeux — le
+ * c'est dire qu'on ne fait plus confiance à ce qu'on a sous les yeux, le
  * cache doit alors s'effacer, pas répondre.
  */
 export function useAsync<T>(fn: () => Promise<T>, deps: unknown[] = []) {

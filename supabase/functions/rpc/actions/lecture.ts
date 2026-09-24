@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- *  Actions de LECTURE — transcription fidèle de Data.gs (v3.6) :
+ *  Actions de LECTURE, transcription fidèle de Data.gs (v3.6) :
  *  _rechercher_, _getCargo_/cargo.get (+_filtrerConfidentiel_), _listerCargaisons_,
  *  _verifierDoublons_, _statistiques_, _listerEtatCFS_.
  * ============================================================================
@@ -28,7 +28,7 @@ import {
   type Role,
 } from '../../_shared/domaine/src/index.ts';
 
-/** Résumé (v_cargaisons_resume) en camelCase — équivalent RESUME_KEYS. */
+/** Résumé (v_cargaisons_resume) en camelCase, équivalent RESUME_KEYS. */
 async function chargerResume(
   ctx: Ctx,
   // deno-lint-ignore no-explicit-any
@@ -39,20 +39,20 @@ async function chargerResume(
   return data.map((r) => versCamel(r));
 }
 
-/* ===== PRÉ-FILTRES SQL DES LISTES — 2026-09-12 ===========================
+/* ===== PRÉ-FILTRES SQL DES LISTES : 2026-09-12 ===========================
  *
  * MESURE, depuis le navigateur, sur la base réelle (14 417 dossiers) :
  *   cargo.list renvoyant 14 450 lignes ....... 3 851 ms
  *   cargo.list renvoyant    275 lignes ....... 3 687 ms
  *   cargo.list renvoyant      6 lignes ....... 3 732 ms
  * Le temps ne dépend PAS du résultat : `chargerResume` rapatriait la vue
- * ENTIÈRE — quinze allers-retours de 1 000 lignes — avant de trier en mémoire
+ * ENTIÈRE (quinze allers-retours de 1 000 lignes) avant de trier en mémoire
  * pour n'en afficher que cinquante. C'est aussi ce qui faisait tuer le worker
  * (HTTP 546).
  *
  * ⚠ RÈGLE ABSOLUE : un pré-filtre doit être ÉQUIVALENT au tri JS qu'il précède,
  * jamais plus restrictif. Un filtre trop étroit fait disparaître des dossiers
- * EN SILENCE d'une file d'attente — infiniment plus grave qu'une lenteur. Seuls
+ * EN SILENCE d'une file d'attente, infiniment plus grave qu'une lenteur. Seuls
  * les critères dont l'équivalence se DÉMONTRE sont traduits ; `search` (qui
  * compare aussi en alphanumérique pur) et `categorie` restent en JS.
  *
@@ -60,12 +60,12 @@ async function chargerResume(
  *   · `etatCellules` pose  `sorti = statut === SORTIE || aFait(dateSortie)` ;
  *   · `fileAttente`  rend  `null` dès que `sorti`.
  * Un dossier figurant dans une file vérifie donc EXACTEMENT
- * `statut <> SORTIE` ET `date_sortie IS NULL` — ni plus, ni moins.
+ * `statut <> SORTIE` ET `date_sortie IS NULL`, ni plus, ni moins.
  *
  * Deux propriétés du schéma, vérifiées, rendent la traduction sûre :
  *   · `statut` est `not null`, donc `neq` n'écarte aucune ligne à NULL ;
  *   · `date_sortie` est un `timestamptz` : NULL ou une vraie date, jamais la
- *     chaîne vide — `aFait()` et `IS NULL` disent donc la même chose.
+ *     chaîne vide, `aFait()` et `IS NULL` disent donc la même chose.
  */
 // deno-lint-ignore no-explicit-any
 const SQL_PAS_SORTI = (q: any) => q.neq('statut', STATUTS.SORTIE).is('date_sortie', null);
@@ -79,7 +79,7 @@ function ts(v: unknown): number {
 /* ------------------------------ cargo.get ------------------------------ */
 
 /**
- * RGPD-01 / v4.2 — Rôles autorisés à voir les COORDONNÉES du déclarant.
+ * RGPD-01 / v4.2, Rôles autorisés à voir les COORDONNÉES du déclarant.
  *
  * `contact_declarant` est renseigné sur la totalité du fichier (5 022/5 022 à
  * l'audit du 2026-08-10), dont 5 009 numéros de téléphone : c'est une donnée à
@@ -94,12 +94,12 @@ const VOIENT_CONTACT: Role[] = [
 ];
 
 /**
- * RGPD-01 / v4.2 — Rôles autorisés à voir le NUMÉRO DE BALISE.
+ * RGPD-01 / v4.2, Rôles autorisés à voir le NUMÉRO DE BALISE.
  *
  * Le numéro identifie le dispositif censé garantir le transit. Le diffuser à
  * l'ensemble des cellules est un risque opérationnel autant que de
  * confidentialité : il permet de désigner une balise précise à l'extérieur. Il
- * reste visible pour ceux qui en ont l'usage — la cellule qui la pose, celle
+ * reste visible pour ceux qui en ont l'usage, la cellule qui la pose, celle
  * qui contrôle la sortie, et l'encadrement.
  */
 const VOIENT_BALISE: Role[] = [
@@ -107,7 +107,7 @@ const VOIENT_BALISE: Role[] = [
   ROLES.CHEF_VISITE, ROLES.CHEF_DIVISION, ROLES.ADMIN,
 ];
 
-/** v3.0/v3.2 — retire les champs CONFIDENTIELS si la session n'y a pas droit. */
+/** v3.0/v3.2, retire les champs CONFIDENTIELS si la session n'y a pas droit. */
 export function filtrerConfidentiel<T extends Record<string, unknown>>(obj: T, role: Role): T {
   const o = obj as Record<string, unknown>;
   if (VOIENT_HORSGABARIT.indexOf(role) === -1) {
@@ -124,7 +124,7 @@ export async function cargoGet(ctx: Ctx, data: { id?: string }) {
   const { data: row, error } = await ctx.db.from('cargaisons').select('*').eq('id', id).maybeSingle();
   if (error) throw new Error(error.message);
   if (!row) throw new Error('Cargaison introuvable : ' + id);
-  // SEC-12 — une cargaison annulée n'est plus une écriture vivante : elle reste
+  // SEC-12 · une cargaison annulée n'est plus une écriture vivante : elle reste
   // en base (on ne détruit pas de pièce) mais n'est plus servie aux cellules.
   if (row['annule'] === true && ctx.session.role !== ROLES.ADMIN)
     throw new Error('Cargaison introuvable : ' + id);
@@ -170,7 +170,7 @@ export async function cargoList(
 
   /* Le pré-filtre est composé ICI, à partir des seuls critères traduisibles.
      Il est passé à SQL ; le tri JS qui suit reste en place, inchangé, et
-     tranche — de sorte qu'un filtre trop large ne peut rien fausser. */
+     tranche, de sorte qu'un filtre trop large ne peut rien fausser. */
   // deno-lint-ignore no-explicit-any
   const filtres: ((q: any) => any)[] = [];
   // Une file d'attente ne contient JAMAIS un dossier sorti (voir la note).
@@ -189,7 +189,7 @@ export async function cargoList(
     // File d'attente d'une cellule (modèle parallèle : un camion post-T1 figure
     // À LA FOIS dans la file Balise et Bon de Sortie).
     // FILE UNIQUE (2026-08-19) : la liste d'attente d'une cellule ne montre que
-    // les dossiers dont c'est LA prochaine étape — plus de camion présent dans
+    // les dossiers dont c'est LA prochaine étape, plus de camion présent dans
     // deux files à la fois (cf. fileAttente vs etapesEnAttente).
     all = all.filter((r) => fileAttente(r as never) === etape);
     if (etape === 'BALISE') all = all.filter((r) => !estOui(r['estVehicule']));
@@ -201,11 +201,11 @@ export async function cargoList(
   // ACTIFS = encore dans l'enceinte : tout ce qui n'est pas sorti par la PP.
   if (actifs) all = all.filter((r) => r['statut'] !== STATUTS.SORTIE);
 
-  /* SUIVI DES ENGAGEMENTS — filtre 2026-09-12.
+  /* SUIVI DES ENGAGEMENTS : filtre 2026-09-12.
    *
    * Trie en JAVASCRIPT, et non en SQL, DÉLIBÉRÉMENT : la colonne n'apparaît
    * dans la vue qu'avec la migration 00190. Un filtre SQL ferait ÉCHOUER toute
-   * la liste tant qu'elle n'est pas appliquée — un écran blanc parce qu'une
+   * la liste tant qu'elle n'est pas appliquée, un écran blanc parce qu'une
    * migration manque est le pire des deux maux. En JS, la colonne absente vaut
    * `undefined` : « avec engagement » ne rend alors rien, « sans » rend tout,
    * et la liste continue de fonctionner.
@@ -239,7 +239,7 @@ export async function cargoList(
 
 /* ---------------------------- vehicule.list ---------------------------- */
 /**
- * v4.1 — Recherche VÉHICULE par CHÂSSIS et/ou MARQUE (décision utilisateur
+ * v4.1, Recherche VÉHICULE par CHÂSSIS et/ou MARQUE (décision utilisateur
  * 2026-07-27). La liste des cargaisons ne cherchait que sur `numero_camion` (=
  * châssis) via la vue résumé, qui n'expose PAS la marque : impossible de
  * retrouver un véhicule par sa marque, et la liste véhicules n'avait pas de
@@ -294,11 +294,11 @@ export async function cargoCheckdup(
   const numCam = normAlphaNum(p.numeroCamion);
   const conts = (Array.isArray(p.conteneurs) ? p.conteneurs : []).map(normAlphaNum).filter(Boolean);
 
-  // `similaires` (2026-08-19) : quasi-doublons de N° de camion — un caractère de
+  // `similaires` (2026-08-19) : quasi-doublons de N° de camion, un caractère de
   // trop / de moins / faux, ou deux caractères intervertis. AVERTISSEMENT only :
   // on ne renvoie que des camions ACTIFS (encore dans l'enceinte), non identiques
   // (l'identique exact est déjà dans `camion`), triés du plus ressemblant au
-  // moins ressemblant et plafonnés — de quoi demander « n'est-ce pas celui-là ? ».
+  // moins ressemblant et plafonnés, de quoi demander « n'est-ce pas celui-là ? ».
   const res: {
     camion: unknown[];
     conteneurs: Record<string, unknown[]>;
@@ -365,11 +365,11 @@ function memeJourLocal(v: unknown, ref: Date): boolean {
 }
 
 /**
- * TABLEAU DE BORD — refonte 2026-08-19 (demande utilisateur).
+ * TABLEAU DE BORD : refonte 2026-08-19 (demande utilisateur).
  *
  * DEUX natures de chiffres, qu'il ne faut plus mélanger :
  *
- *   · ÉVÉNEMENTS DE LA PÉRIODE — « qu'est-ce qui s'est PASSÉ à chaque cellule
+ *   · ÉVÉNEMENTS DE LA PÉRIODE : « qu'est-ce qui s'est PASSÉ à chaque cellule
  *     dans la période choisie ? ». Chaque passage est compté à LA DATE DE SA
  *     PROPRE CELLULE, jamais à la date de création du camion : une sortie du
  *     jour est une sortie du jour, même si le camion est entré la semaine
@@ -377,7 +377,7 @@ function memeJourLocal(v: unknown, ref: Date): boolean {
  *     → creesPeriode (entrée CFS), t1Periode, balisesPeriode, bonsPeriode,
  *       sortiePeriode, vehiculesSortisPeriode.
  *
- *   · EN ATTENTE MAINTENANT — « où sont, à l'instant T, les dossiers en
+ *   · EN ATTENTE MAINTENANT : « où sont, à l'instant T, les dossiers en
  *     souffrance ? ». État instantané, INDÉPENDANT de la période : un camion
  *     entré il y a un mois et toujours bloqué au T1 doit apparaître dans la file
  *     T1 d'aujourd'hui. On ne filtre donc PAS ces compteurs par la période.
@@ -385,7 +385,7 @@ function memeJourLocal(v: unknown, ref: Date): boolean {
  *       vehiculesAttente.
  *
  * L'ancienne version filtrait TOUT par la date de création : la tuile « Sortis »
- * ne montrait que les camions créés ET sortis dans la période — un camion sorti
+ * ne montrait que les camions créés ET sortis dans la période, un camion sorti
  * aujourd'hui mais entré avant n'y figurait pas. C'est le défaut corrigé ici.
  */
 export async function dashboardStats(ctx: Ctx, opts: { du?: string; au?: string }) {
@@ -393,13 +393,13 @@ export async function dashboardStats(ctx: Ctx, opts: { du?: string; au?: string 
     // Événements datés sur la période (chaque cellule à sa propre date).
     creesPeriode: 0, t1Periode: 0, balisesPeriode: 0, bonsPeriode: 0, sortiePeriode: 0,
     vehiculesSortisPeriode: 0,
-    // En attente — état instantané, hors période.
+    // En attente, état instantané, hors période.
     attCFS: 0, attValidation: 0, attT1: 0, attBalise: 0, attBs: 0, attPP: 0,
     camion: 0, chargement: 0, vehiculesAttente: 0,
     // Entrées / sorties de chaque file SUR LA PÉRIODE (2026-09-13) : elles
     // orientent la flèche des tuiles d'étape. Clés : ORDRE_FILES + VEHICULES.
     flux: {} as Record<string, { entres: number; sortis: number }>,
-    /* ENGAGEMENTS EN COURS (2026-09-17, demande utilisateur) — état instantané.
+    /* ENGAGEMENTS EN COURS (2026-09-17, demande utilisateur), état instantané.
        Le compte BAISSE des qu'un engagement est marqué « Effectué » : c'est ce
        qui reste à transmettre, pas ce qui a été pris. */
     engagementsEnCours: 0,
@@ -422,7 +422,7 @@ export async function dashboardStats(ctx: Ctx, opts: { du?: string; au?: string 
   const dansPeriodeMs = (t: number | null): boolean =>
     t !== null && (!du || t >= du.getTime()) && (!auEx || t < auEx.getTime());
 
-  /* FIN DE CHARGEMENT — lue sur la table, pas sur la vue résumé qui ne la porte
+  /* FIN DE CHARGEMENT : lue sur la table, pas sur la vue résumé qui ne la porte
      pas : on évite ainsi une migration. Seules comptent celles posées à partir
      de la veille du début de période (index partiel 00110). Une fin plus
      ancienne tombe avant la période : l'ignorer ne change aucun compte, puisque
@@ -463,10 +463,10 @@ export async function dashboardStats(ctx: Ctx, opts: { du?: string; au?: string 
     stats.total++;
     if (r['suiviEngagement'] === true && !aFait(r['engagementEffectueLe'])) stats.engagementsEnCours++;
     /* ARRIVÉES / DÉPARTS DES ENGAGEMENTS sur la période (2026-09-21, demande
-       utilisateur) — mêmes indicateurs que les tuiles d'étape. Un engagement
+       utilisateur), mêmes indicateurs que les tuiles d'étape. Un engagement
        ARRIVE à la signature du chef de brigade, qui le pose ; il PART quand il
        est marqué « Effectué ». Un retrait efface ses dates : il ne compte ni
-       dans l'un ni dans l'autre, ce qui est juste — il n'a pas eu lieu. */
+       dans l'un ni dans l'autre, ce qui est juste, il n'a pas eu lieu. */
     if (r['suiviEngagement'] === true) {
       if (dansPeriode(r['dateValidation'])) stats.flux['ENGAGEMENTS']!.entres++;
       if (dansPeriode(r['engagementEffectueLe'])) stats.flux['ENGAGEMENTS']!.sortis++;
@@ -484,7 +484,7 @@ export async function dashboardStats(ctx: Ctx, opts: { du?: string; au?: string 
     // étape. Les files ne se chevauchent plus → la somme des tuiles « en attente »
     // égale le nombre de dossiers réellement en cours (fin des totaux gonflés).
     switch (fileAttente(r as never)) {
-      // 2026-09-12 — la file CFS n'était comptée nulle part : un camion encore
+      // 2026-09-12 · la file CFS n'était comptée nulle part : un camion encore
       // en chargement n'apparaissait dans AUCUNE tuile, et le passage CFS → validation
       // ne se voyait que d'un côté. Chaque dossier actif est maintenant dans une file.
       case 'CFS': stats.attCFS++; break;
@@ -502,7 +502,7 @@ export async function dashboardStats(ctx: Ctx, opts: { du?: string; au?: string 
 /* ----------------------------- etatcfs.list ---------------------------- */
 
 /**
- * v4 — POINTAGE DES CAMIONS À LA SORTIE (ex-« état des camions », v3.5).
+ * v4, POINTAGE DES CAMIONS À LA SORTIE (ex-« état des camions », v3.5).
  * Situation du PARKING : camions ET véhicules-châssis encore présents, en
  * DÉFALQUANT (décision utilisateur 2026-07-16) :
  *   - ceux qui ont déjà PRIS LA BALISE (datePoseGps renseignée) ;
@@ -517,7 +517,7 @@ export async function etatCfsList(ctx: Ctx) {
     compte: { total: 0, camions: 0, vehicules: 0, enCours: 0, fin: 0, vide: 0, np: 0 },
   };
   /* Première ligne de la boucle ci-dessous : « sorti à la PP → défalqué ». Le
-     filtre SQL dit exactement cela, un cran plus tôt — et évite de rapatrier
+     filtre SQL dit exactement cela, un cran plus tôt, et évite de rapatrier
      les 14 000 dossiers déjà sortis pour les jeter aussitôt. */
   const data = await chargerResume(ctx, (q) => q.neq('statut', STATUTS.SORTIE));
   for (const r of data) {
@@ -543,13 +543,13 @@ export async function etatCfsList(ctx: Ctx) {
 /* -------------------------- échéancier engagements --------------------------- */
 
 /**
- * ÉCHÉANCIER DES ENGAGEMENTS (2026-09-10) — ce qui reste dû, et pour quand.
+ * ÉCHÉANCIER DES ENGAGEMENTS (2026-09-10) : ce qui reste dû, et pour quand.
  *
  * Alimente le bandeau du tableau de bord. Ne remonte QUE les engagements non
  * soldés dont l'échéance est à J-1 ou déjà atteinte : c'est la règle retenue
  * (« à envoyer demain », puis « aujourd'hui », puis « en retard de N jours »).
  * Les engagements plus lointains existent en base mais n'ont pas à occuper le
- * tableau de bord — ils y deviendraient du bruit permanent.
+ * tableau de bord, ils y deviendraient du bruit permanent.
  *
  * Lecture directe sur `cargaisons` et non sur la vue de résumé : les colonnes
  * d'engagement n'y figurent pas (voir migration 00180), et l'index partiel
@@ -558,11 +558,11 @@ export async function etatCfsList(ctx: Ctx) {
  * Le tri place les retards en tête : le plus ancien dû est le plus urgent.
  */
 export async function engagementsDus(ctx: Ctx, p: { filtre?: string } = {}) {
-  /* UN FILTRE, POUR SERVIR DEUX ÉCRANS — 2026-09-17 (demande utilisateur).
+  /* UN FILTRE, POUR SERVIR DEUX ÉCRANS : 2026-09-17 (demande utilisateur).
    *
    * Sans paramètre, la réponse est CELLE D'AVANT : les seuls engagements qui
    * alertent (J-1, aujourd'hui, en retard), non soldés. C'est ce que l'encadré
-   * du tableau de bord affiche, et ce que le front déjà déployé attend — on ne
+   * du tableau de bord affiche, et ce que le front déjà déployé attend, on ne
    * change pas sa réponse sous ses pieds.
    *
    * Le volet « Engagements » demande, lui, la vue COMPLÈTE : `tous` (soldés
@@ -570,12 +570,12 @@ export async function engagementsDus(ctx: Ctx, p: { filtre?: string } = {}) {
    * incluses), `retard`, ou `solde`. L'encadré ne montrait qu'une partie, et
    * rien ne disait où voir le reste. */
   const filtre = String(p?.filtre ?? 'alerte');
-  /* TOUS les engagements sont chargés, puis filtrés ici — 2026-09-17.
+  /* TOUS les engagements sont chargés, puis filtrés ici, 2026-09-17.
    *
    * Le filtre SQL par solde a été retiré pour une raison précise : le volet
    * affiche DEUX compteurs (en cours / effectués) qui ne doivent PAS bouger
    * quand on change la vue affichée. Les calculer sur une liste déjà restreinte
-   * les rendrait faux — « 0 effectué » dès qu'on regarde les engagements en
+   * les rendrait faux, « 0 effectué » dès qu'on regarde les engagements en
    * cours. Le volume s'y prête : quelques centaines d'engagements, pas la table
    * des cargaisons. */
   const { data, error } = await ctx.db
@@ -603,7 +603,7 @@ export async function engagementsDus(ctx: Ctx, p: { filtre?: string } = {}) {
   const toutes = (data ?? []).map((r) => versCamel(r as unknown as Record<string, unknown>));
   // Compteurs GLOBAUX : ce que le volet affiche en haut, et que le filtre ne doit
   // pas changer. Un engagement soldé sort des « en cours » et entre dans les
-  // « effectués » — les deux chiffres se répondent.
+  // « effectués », les deux chiffres se répondent.
   const global = {
     encours: toutes.filter((o) => !aFait(o['engagementEffectueLe'])).length,
     soldes: toutes.filter((o) => aFait(o['engagementEffectueLe'])).length,
@@ -633,10 +633,10 @@ export async function engagementsDus(ctx: Ctx, p: { filtre?: string } = {}) {
 }
 
 
-/* ============== ARCHIVE PAR ANCIENNETÉ — 2026-09-10 ======================
+/* ============== ARCHIVE PAR ANCIENNETÉ : 2026-09-10 ======================
  *
  * DISTINCT de `report.archives` (v4.3), qui liste les dossiers archivés À LA
- * MAIN par un ADMIN — les « goulots », vieux dossiers restés bloqués. Ici, aucun
+ * MAIN par un ADMIN, les « goulots », vieux dossiers restés bloqués. Ici, aucun
  * geste : l'archive est définie par le SEUL critère de l'âge.
  *
  * POURQUOI LES DONNÉES NE SONT PAS DÉPLACÉES.
@@ -647,7 +647,7 @@ export async function engagementsDus(ctx: Ctx, p: { filtre?: string } = {}) {
  *  · rien ne peut se perdre pendant un déplacement, ni se désynchroniser entre
  *    deux tables ;
  *  · une cargaison de plus d'un an reste consultable, recherchable et liée à ses
- *    conteneurs comme n'importe quelle autre — un dossier douanier archivé ne
+ *    conteneurs comme n'importe quelle autre, un dossier douanier archivé ne
  *    doit pas devenir moins accessible ;
  *  · le seuil d'un an devient un simple paramètre : le changer ne demande aucune
  *    migration, aucun rattrapage.
@@ -656,7 +656,7 @@ export async function engagementsDus(ctx: Ctx, p: { filtre?: string } = {}) {
  * principale (GOV-05). C'est un autre chantier, avec sa propre décision.
  * ======================================================================== */
 
-/** Un an en arrière, en date ISO — le seuil de l'archive. */
+/** Un an en arrière, en date ISO, le seuil de l'archive. */
 function seuilArchive(mois = 12): string {
   const d = new Date();
   d.setMonth(d.getMonth() - mois);
@@ -664,7 +664,7 @@ function seuilArchive(mois = 12): string {
 }
 
 /**
- * ARCHIVE — les cargaisons de plus d'un an (ADMIN).
+ * ARCHIVE : les cargaisons de plus d'un an (ADMIN).
  *
  * Requête PAGINÉE côté SQL, et non `fetchAll` : à 14 055 cargaisons dont une
  * part croissante dépasse l'année, tout charger en mémoire dans l'Edge Function
@@ -709,7 +709,7 @@ export async function archiveAncienne(ctx: Ctx, p: Record<string, unknown>) {
  * PASSAGES ANTÉRIEURS D'UN CAMION (2026-09-10).
  *
  * Répond à : « ce camion est-il déjà venu, et quand ? ». C'est ce qui donne son
- * intérêt à l'archive — un camion qui revient trois ans après doit être reconnu
+ * intérêt à l'archive, un camion qui revient trois ans après doit être reconnu
  * au moment où l'on saisit sa plaque, pas retrouvé après coup.
  *
  * La comparaison se fait sur `numero_camion_norm`, la colonne générée qui

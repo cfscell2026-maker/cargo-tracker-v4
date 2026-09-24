@@ -46,7 +46,7 @@ export function Detail({ user, arg, go, retour, ecranPrecedent }: Nav) {
   const quitter = () => (ecranPrecedent ? retour() : go('list'));
   // Bloc « Éditer » complet (conteneurs, déclaration, type, plaque, suppression).
   //
-  // 2026-09-11 (décision utilisateur) — le CFS y accède désormais À TOUTE ÉTAPE,
+  // 2026-09-11 (décision utilisateur), le CFS y accède désormais À TOUTE ÉTAPE,
   // et non plus jusqu'à la seule fin de chargement. C'est en aval du parcours
   // qu'on découvre qu'une déclaration manque ou qu'un numéro est faux, et le CFS
   // est le seul à savoir lequel écrire ; le renvoyer vers l'administrateur pour
@@ -69,7 +69,7 @@ export function Detail({ user, arg, go, retour, ecranPrecedent }: Nav) {
       <Timeline c={c} />
 
       {/* Panneaux d'action selon rôle × étape */}
-      {/* Sortie Magasin/MAD : pas de conteneurs — on ne « finalise » que les
+      {/* Sortie Magasin/MAD : pas de conteneurs, on ne « finalise » que les
           scellés du camion (vrac). Les autres opérations passent par PanneauCFS. */}
       {c['typeOperation'] !== OPERATIONS.MAGASIN
         && (c['statut'] === STATUTS.CAMION || c['statut'] === STATUTS.CHARGEMENT || (c['statut'] === STATUTS.CREEE && binomePossible)) && can(ROLES.CFS, A) &&
@@ -83,30 +83,30 @@ export function Detail({ user, arg, go, retour, ecranPrecedent }: Nav) {
       {pend.includes('BS') && can(ROLES.BON_SORTIE, A) && <PanneauBS c={c} dets={dets} action={action} />}
       {pend.includes('PP') && can(ROLES.PP, A) && <PanneauPP c={c} estVeh={estVeh} action={action} />}
       {c['statut'] === STATUTS.GPS && can(ROLES.BALISE, A) && <PanneauGpsEdit c={c} action={action} />}
-      {/* CORRECTIONS DE CELLULES REMPLIES (2026-09-10) — ajout.
+      {/* CORRECTIONS DE CELLULES REMPLIES (2026-09-10), ajout.
           Chaque cellule corrige la sienne, l'ADMIN corrige partout. Le panneau
           n'apparaît QUE si la cellule est déjà renseignée : avant, c'est la
           saisie normale qui s'affiche, et corriger n'aurait aucun sens. */}
       {!!c['dateT1'] && can(ROLES.T1, A) && <PanneauT1Edit c={c} dets={dets} action={action} />}
       {!!c['dateBonSortie'] && can(ROLES.BON_SORTIE, A) && <PanneauBSEdit c={c} action={action} />}
-      {/* 2026-09-17 : la correction reste offerte APRÈS « Effectué » — un clic de
+      {/* 2026-09-17 : la correction reste offerte APRÈS « Effectué », un clic de
           trop ne doit pas figer un engagement mal saisi. */}
       {c['suiviEngagement'] === true
         && can(ROLES.CHEF_BRIGADE, ROLES.CHEF_BRIGADE_ADJOINT, ROLES.CHEF_VISITE, ROLES.CHEF_DIVISION, A)
         && <PanneauEngagementEdit c={c} action={action} admin={role === A} />}
       {c['statut'] === STATUTS.SORTIE && (String(c['baliseRequise']) === 'Non' || estOui(c['sauteBalise'])) && !estOui(c['arriveeBureau']) && can(ROLES.BALISE, A) &&
-        <div className="card"><TitrePanneau icone="drapeau" etape="balise">Dispense — arrivée au bureau</TitrePanneau>
+        <div className="card"><TitrePanneau icone="drapeau" etape="balise">Dispense, arrivée au bureau</TitrePanneau>
           <button onClick={() => action(() => call('cargo.arriveebureau', { id }), 'Arrivée confirmée.')}>Confirmer l'arrivée (solder la dispense)</button></div>}
       {!estVeh && c['statut'] !== STATUTS.SORTIE && can(ROLES.CFS, A) && <PanneauEtatCFS c={c} action={action} />}
 
-      {/* v4 — enchaîner un autre camion sur la même déclaration : enlèvement,
+      {/* v4, enchaîner un autre camion sur la même déclaration : enlèvement,
           dépotage ET sortie Magasin/MAD (v4.1). */}
       {[OPERATIONS.DEPOTAGE, OPERATIONS.ENLEVEMENT, OPERATIONS.MAGASIN].includes(c['typeOperation'] as never) && can(ROLES.CFS, A) && !!c['numeroDeclaration'] &&
         <AjouterCamion c={c} go={go} />}
-      {/* v4 — Éditer : le CFS a la main JUSQU'À la fin de chargement ; l'ADMIN toujours. */}
+      {/* v4, Éditer : le CFS a la main JUSQU'À la fin de chargement ; l'ADMIN toujours. */}
       {peutTtEditer
         ? <PanneauEditer c={c} dets={dets} action={action} apresSuppression={quitter} admin={role === A} />
-        /* 2026-09-12 — décision utilisateur : la correction de plaque est de
+        /* 2026-09-12 · décision utilisateur : la correction de plaque est de
            nouveau ouverte à TOUS les rôles (permission serveur alignée). */
         : <CorrigerCamion c={c} action={action} estVeh={estVeh} />}
     </div>
@@ -116,9 +116,9 @@ export function Detail({ user, arg, go, retour, ecranPrecedent }: Nav) {
 type Groupe = ReturnType<typeof groupesDeclaration>[number];
 
 /**
- * Fiche d'identité de la cargaison — en-tête du détail.
+ * Fiche d'identité de la cargaison, en-tête du détail.
  *
- * v4 — la déclaration n'est plus affichée comme une ligne unique : un camion
+ * v4, la déclaration n'est plus affichée comme une ligne unique : un camion
  * peut être en CHARGEMENT MIXTE (conteneurs relevant de plusieurs déclarations,
  * cas courant en enlèvement). L'Apps Script l'affichait par un bandeau, mais
  * sur la foi d'un drapeau posé à la saisie ; ici il est reconnu automatiquement
@@ -154,7 +154,7 @@ function FicheCargaison({ c, groupes }: { c: O; groupes: Groupe[] }) {
       {c['nbColis'] ? <div className="kv"><b>Nombre de colis</b>{c['nbColis'] as string}</div> : null}
       {c['agentCfs'] ? <div className="kv"><b>Agent CFS</b>{c['agentCfs'] as string}</div> : null}
       {'horsGabarit' in c ? <div className="kv"><b>Hors gabarit</b>{estOui(c['horsGabarit']) ? `Oui (${(c['hauteurChargement'] as string) || '?'} m)` : 'Non'}</div> : null}
-      {/* Suivi des engagements (2026-09-10) — renseigné à la validation.
+      {/* Suivi des engagements (2026-09-10), renseigné à la validation.
           `null` n'est PAS « Non » : il désigne les cargaisons validées avant
           l'existence du champ. On n'affiche donc rien pour celles-là, plutôt que
           d'affirmer une absence de suivi qui n'a jamais été constatée. */}
@@ -166,9 +166,9 @@ function FicheCargaison({ c, groupes }: { c: O; groupes: Groupe[] }) {
     </div>
 
     {mixte && <div className="bandeau">
-      <div className="t">⊞ Chargement mixte — {groupes.length} déclarations sur ce camion</div>
+      <div className="t">⊞ Chargement mixte, {groupes.length} déclarations sur ce camion</div>
       {groupes.map((g) => <div key={g.cle} className="l">
-        <b>{libelleDeclaration(g)}</b>{g.declarant ? ` — ${g.declarant}` : ''} · conteneur{g.rangs.length > 1 ? 's' : ''} n° {g.rangs.join(', ')}
+        <b>{libelleDeclaration(g)}</b>{g.declarant ? `, ${g.declarant}` : ''} · conteneur{g.rangs.length > 1 ? 's' : ''} n° {g.rangs.join(', ')}
       </div>)}
       <div className="help" style={{ marginTop: 6 }}>Un bon de chargement et un ordre d'exécution sont édités <b>par déclaration</b> : ce camion apparaîtra sur chacun d'eux, avec ses seuls conteneurs concernés.</div>
     </div>}
@@ -178,12 +178,12 @@ function FicheCargaison({ c, groupes }: { c: O; groupes: Groupe[] }) {
 /**
  * Conteneurs du camion, placés AVANT le parcours (l'agent cherche d'abord ce
  * qu'il y a dans le camion). En chargement mixte, les conteneurs sont groupés
- * par déclaration au lieu d'être listés à plat — sans ce regroupement, rien à
+ * par déclaration au lieu d'être listés à plat, sans ce regroupement, rien à
  * l'écran ne disait quel conteneur relevait de quelle déclaration.
  */
 function CarteConteneurs({ c, dets, groupes }: { c: O; dets: ReturnType<typeof parseConteneursDetails>; groupes: Groupe[] }) {
   if (!dets.conteneurs.length) {
-    // Sortie Magasin/MAD : vrac sans conteneur — on n'a que les scellés du camion.
+    // Sortie Magasin/MAD : vrac sans conteneur, on n'a que les scellés du camion.
     if (c['typeOperation'] === OPERATIONS.MAGASIN && dets.scellesCamion.length) return <div className="card">
       <TitrePanneau icone="camion" etape="cfs">Camion</TitrePanneau>
       <div className="kv"><b>Scellés camion</b>{dets.scellesCamion.join(' · ')}</div>
@@ -210,7 +210,7 @@ function CarteConteneurs({ c, dets, groupes }: { c: O; dets: ReturnType<typeof p
       <b>Scellés camion</b>{dets.scellesCamion.length ? dets.scellesCamion.join(' · ') : '—'}</div>}
     {mixte
       ? groupes.map((g) => <div key={g.cle} style={{ marginBottom: 12 }}>
-        <div className="section-title" style={{ marginTop: 0 }}>Déclaration {libelleDeclaration(g)}{g.declarant ? ` — ${g.declarant}` : ''}</div>
+        <div className="section-title" style={{ marginTop: 0 }}>Déclaration {libelleDeclaration(g)}{g.declarant ? `, ${g.declarant}` : ''}</div>
         {table(g.conteneurs)}
       </div>)
       : table(dets.conteneurs)}
@@ -218,7 +218,7 @@ function CarteConteneurs({ c, dets, groupes }: { c: O; dets: ReturnType<typeof p
 }
 
 /**
- * v4 — Bouton « Éditer » regroupant TOUTES les corrections (conteneur,
+ * v4, Bouton « Éditer » regroupant TOUTES les corrections (conteneur,
  * déclaration, type, N° camion) + suppression (ADMIN). Le CFS y a accès
  * jusqu'à la fin de chargement ; l'ADMIN à tout moment (erreurs fatales).
  */
@@ -229,11 +229,11 @@ function PanneauEditer({ c, dets, action, apresSuppression, admin }: { c: O; det
     <p className="help" style={{ marginTop: 8 }}>Corrections de saisie. {admin ? 'Accès administrateur (à tout moment).' : 'Possible jusqu\'à la fin de chargement.'}</p>
     <div style={{ display: 'grid', gap: 8 }}>
       {dets.conteneurs.length > 0 && <PanneauEditConteneurs c={c} dets={dets} action={action} admin={admin} />}
-      {/* v4.1 — plus conditionné à la présence d'un n° de déclaration : sans
+      {/* v4.1, plus conditionné à la présence d'un n° de déclaration : sans
           celui-ci le panneau disparaissait, et un camion dont la déclaration
           manquait ne pouvait plus jamais en recevoir une par la correction. */}
       <PanneauEditDecl c={c} action={action} admin={admin} />
-      {/* 2026-09-11 — le bloc « Éditer » est maintenant ouvert au CFS à toute
+      {/* 2026-09-11 : le bloc « Éditer » est maintenant ouvert au CFS à toute
           étape (pour la déclaration). Le TYPE D'OPÉRATION, lui, garde son verrou
           serveur : le changer après le T1 ou après signature est refusé. On
           masque donc le panneau quand il ne pourrait que refuser, plutôt que
@@ -253,9 +253,9 @@ function PanneauEditer({ c, dets, action, apresSuppression, admin }: { c: O; det
 }
 
 /**
- * v4 — Annulation d'un doublon de cargaison (ADMIN uniquement).
+ * v4, Annulation d'un doublon de cargaison (ADMIN uniquement).
  * SEC-12 : la cargaison n'est plus effacée mais marquée annulée, et le MOTIF est
- * obligatoire — sans lui, l'historique dit qu'une pièce a été retirée mais pas
+ * obligatoire, sans lui, l'historique dit qu'une pièce a été retirée mais pas
  * pourquoi, ce qui ne vaut rien lors d'un contrôle.
  */
 function PanneauSupprimer({ c, apresSuppression }: { c: O; apresSuppression: () => void }) {
@@ -271,7 +271,7 @@ function PanneauSupprimer({ c, apresSuppression }: { c: O; apresSuppression: () 
      * Il ne se contente plus d'annoncer « elle disparaîtra » : il ÉNUMÈRE ce qui
      * sera retiré, camion par camion. Un avertissement vague se clique sans être
      * lu ; celui-ci nomme les conséquences, et se durcit quand la cargaison est
-     * déjà validée ou sortie — les deux cas que le serveur bloquait autrefois et
+     * déjà validée ou sortie, les deux cas que le serveur bloquait autrefois et
      * qu'il autorise désormais à l'ADMIN. */
     const engagee = [valide && 'VALIDÉE ET SIGNÉE par le chef de brigade', sortie && 'DÉJÀ SORTIE du port sec']
       .filter(Boolean).join('\n  · ');
@@ -279,14 +279,14 @@ function PanneauSupprimer({ c, apresSuppression }: { c: O; apresSuppression: () 
     const avertissement =
       `⚠ ANNULATION DE LA CARGAISON ${id}\n`
       + `Camion : ${String(c['numeroCamion'] || '—')}\n`
-      + (engagee ? `\n⚠ ATTENTION — cette cargaison est :\n  · ${engagee}\n` : '')
+      + (engagee ? `\n⚠ ATTENTION, cette cargaison est :\n  · ${engagee}\n` : '')
       + `\nCe camion sera retiré de TOUT le système :\n`
       + `  · les listes, la recherche et le détail\n`
       + `  · tous les rapports, statistiques et compteurs\n`
       + `  · l'apurement de sa déclaration, qui sera rendu\n`
       + `  · ses conteneurs de stock, qui repassent « En stock »\n`
       + `\nLa pièce reste conservée en base pour un contrôle douanier,\n`
-      + `et l'opération est inscrite au journal d'audit — elle ne peut\n`
+      + `et l'opération est inscrite au journal d'audit, elle ne peut\n`
       + `pas être effacée.\n`
       + `\nMotif enregistré : ${motif.trim()}\n`
       + `\nConfirmer ?`;
@@ -299,7 +299,7 @@ function PanneauSupprimer({ c, apresSuppression }: { c: O; apresSuppression: () 
       apresSuppression(); // la fiche sort des listes : on repart d'où l'on venait
     } catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(false); }
   }
-  return <details style={EDIT_ITEM}><summary style={{ cursor: 'pointer', fontWeight: 600, color: 'var(--warn)' }}>Annuler cette cargaison (doublon) — ADMIN</summary>
+  return <details style={EDIT_ITEM}><summary style={{ cursor: 'pointer', fontWeight: 600, color: 'var(--warn)' }}>Annuler cette cargaison (doublon), ADMIN</summary>
     <p className="help" style={{ marginTop: 10 }}>
       Réservé à l'administrateur. La cargaison et ses conteneurs sont <b>conservés en
       base</b> (on ne détruit pas une écriture douanière) mais sortent des listes, des
@@ -316,17 +316,17 @@ function PanneauSupprimer({ c, apresSuppression }: { c: O; apresSuppression: () 
   </details>;
 }
 
-/** Icône de chaque poste du parcours — mêmes dessins que le reste de l'application. */
+/** Icône de chaque poste du parcours, mêmes dessins que le reste de l'application. */
 const ICONE_ETAPE_PARCOURS: Record<string, string> = {
   cfs: 'camion', validation: 'valider', t1: 't1',
   balise: 'balise', bs: 'bonSortie', pp: 'sortie',
 };
 
 /**
- * TITRE DE PANNEAU AVEC PASTILLE — 2026-09-11.
+ * TITRE DE PANNEAU AVEC PASTILLE : 2026-09-11.
  *
  * Chaque bloc d'action de la fiche porte l'icône de son poste, dans la teinte
- * de l'étape — les mêmes que sur les tuiles du tableau de bord et sur le
+ * de l'étape, les mêmes que sur les tuiles du tableau de bord et sur le
  * parcours. Sur une fiche qui empile huit à dix cartes, la pastille dit d'un
  * coup d'œil de quelle cellule on parle, avant qu'on ait lu le titre.
  */
@@ -342,24 +342,24 @@ function Timeline({ c }: { c: O }) {
   // CASCADE DESCENDANTE (cf. workflow.ts / etatCellules) : la validation chef
   // brigade est RÉPUTÉE acquise dès que le T1 est saisi ou que le camion est
   // sorti ; le bon de sortie est réputé acquis dès la sortie. Aucune signature
-  // n'est fabriquée — c'est un état déduit, signalé « (réputée) » ci-dessous.
+  // n'est fabriquée, c'est un état déduit, signalé « (réputée) » ci-dessous.
   const valideReel = !!c['dateValidation'];
   const bsReel = estOui(c['sauteBS']) || estOui(c['sauteBs']) || !!c['bonSortieNumero'];
   const e = {
     cfs: c['statut'] !== STATUTS.CAMION && c['statut'] !== STATUTS.CHARGEMENT && c['statut'] !== STATUTS.VEHICULE_OUILLAGE,
     // T1 sauté par nature pour les types hors transit (C/A), même si le flag
-    // `sauteT1` n'a pas été persisté — cf. workflow.ts / etatCellules.
+    // `sauteT1` n'a pas été persisté, cf. workflow.ts / etatCellules.
     valide: valideReel || !!c['dateT1'] || pp, t1: estOui(c['sauteT1']) || estTypeSansT1(c['typeDeclaration']) || !!c['dateT1'],
     balise: estOui(c['sauteBalise']) || estOui(c['estVehicule']) || !!c['datePoseGps'],
-    // `sauteBs` (camelCase de la colonne) ET `sauteBS` (payload client) — cf. workflow.ts.
+    // `sauteBs` (camelCase de la colonne) ET `sauteBS` (payload client), cf. workflow.ts.
     bs: bsReel || pp, pp,
   };
   /* 4ᵉ champ (2026-09-11) : la CLÉ D'ÉTAPE. Elle apporte à la fois la couleur
-     (`--etape-*`) et l'icône — les mêmes que sur les tuiles du tableau de bord.
+     (`--etape-*`) et l'icône, les mêmes que sur les tuiles du tableau de bord.
      Une seule table de correspondance pour toute l'application : le parcours ne
      peut pas montrer un vert là où le tableau de bord montre un indigo. */
   const steps: [boolean, string, string, string][] = [
-    [e.cfs, 'CFS — chargement', c['agentCfs'] ? `${c['agentCfs']}` : '', 'cfs'],
+    [e.cfs, 'CFS, chargement', c['agentCfs'] ? `${c['agentCfs']}` : '', 'cfs'],
     [e.valide, 'Validation chef brigade',
       // Traçabilité CBPI : on nomme le signataire ET, s'il a signé par intérim,
       // on le signale explicitement (« par intérim »).
@@ -379,7 +379,7 @@ function Timeline({ c }: { c: O }) {
     {steps.map(([done, t, d, etape], i) => {
       const manque = !done && sorti;
       // L'étape COURANTE : la première encore à faire sur un dossier vivant.
-      // Elle seule bat — un parcours où tout clignote ne désigne plus rien.
+      // Elle seule bat, un parcours où tout clignote ne désigne plus rien.
       const courante = !done && !sorti && steps.slice(0, i).every(([f]) => f);
       return (
         <div key={i} className={`tl ${done ? 'done' : 'wait'} ${manque ? 'manque' : ''} ${courante ? 'courante' : ''} et-${etape}`}>
@@ -404,7 +404,7 @@ function Champ({ label, ...p }: { label: string } & React.InputHTMLAttributes<HT
 }
 
 /**
- * v4.2 — État d'un conteneur DANS LE PARC, affiché sous le champ de saisie.
+ * v4.2, État d'un conteneur DANS LE PARC, affiché sous le champ de saisie.
  *
  * Répond au cas réel signalé par le CFS : « il y a des positionnements dans la
  * journée ; quand on fait le pointage matinal et qu'on part, ils viennent encore
@@ -421,19 +421,19 @@ function EtatConteneurParc({
   fiche: O | null; cherche: boolean; estEnl: boolean; manuel: boolean;
   regulariser: boolean; setRegulariser: (v: boolean) => void; activerManuel: () => void;
 }) {
-  /* INDICATION DE LA SAISIE MANUELLE — 2026-09-12, règles du douanier.
+  /* INDICATION DE LA SAISIE MANUELLE : 2026-09-12, règles du douanier.
    *
    * L'ancien texte « le conteneur ne sera pas rattaché à une fiche du parc »
    * n'est plus vrai : en dépotage, une fiche est désormais créée pour un
    * conteneur absent. Il disait aussi à l'agent ce que le logiciel NE FAIT PAS,
-   * au lieu de lui dire QUAND s'en servir — d'où trois blocages en une journée. */
+   * au lieu de lui dire QUAND s'en servir, d'où trois blocages en une journée. */
   if (manuel) return <div className="help" style={{ marginTop: 6 }}>
     {/* Règles du 2026-09-14 (demande utilisateur). */}
-    <b>Saisie manuelle</b> — possible dans trois cas :
+    <b>Saisie manuelle</b>, possible dans trois cas :
     <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>
-      <li>le conteneur est <b>absent du parc</b> — sa fiche sera créée à votre nom ;</li>
-      <li>il est <b>au parc sans avoir été pointé</b> — il sera rattaché à sa fiche et marqué dépoté ;</li>
-      <li>il est <b>déjà dépoté sur un autre camion</b> (marchandise partagée) — il ne sera
+      <li>le conteneur est <b>absent du parc</b>, sa fiche sera créée à votre nom ;</li>
+      <li>il est <b>au parc sans avoir été pointé</b>, il sera rattaché à sa fiche et marqué dépoté ;</li>
+      <li>il est <b>déjà dépoté sur un autre camion</b> (marchandise partagée), il ne sera
         <b> pas compté</b> dans les conteneurs dépotés.</li>
     </ul>
   </div>;
@@ -453,7 +453,7 @@ function EtatConteneurParc({
    * En DÉPOTAGE, elle n'existe plus (2026-09-10) : tout conteneur dépoté au port
    * sec a été acheminé sur le site de la PIA, donc il doit figurer au stock. Un
    * conteneur absent est soit une erreur de numéro, soit un conteneur qu'on a
-   * oublié de faire entrer — et c'est cela qu'il faut corriger, pas contourner. */
+   * oublié de faire entrer, et c'est cela qu'il faut corriger, pas contourner. */
   if (!fiche['existe']) return <div style={enc('#fff7ed', '#fdba74')}>
     <b>Conteneur absent du parc.</b> Il n'a pas été importé ni annoncé.
     {estEnl
@@ -461,7 +461,7 @@ function EtatConteneurParc({
         « saisie manuelle » ; sinon vérifiez le numéro.
         <div style={{ marginTop: 6 }}><button className="ghost xs" onClick={activerManuel}>Passer en saisie manuelle</button></div></>
       /* Dépotage (règles du douanier, 2026-09-12) : saisie manuelle permise pour
-         un conteneur absent du parc — le serveur crée sa fiche et la pointe. */
+         un conteneur absent du parc, le serveur crée sa fiche et la pointe. */
       : <> <b>Vérifiez d'abord le numéro.</b> S'il est juste, passez en saisie
         manuelle : la fiche du conteneur sera créée et pointée à votre nom.
         <div style={{ marginTop: 6 }}><button className="ghost xs" onClick={activerManuel}>Passer en saisie manuelle</button></div></>}
@@ -472,7 +472,7 @@ function EtatConteneurParc({
     <b>Conteneur déjà dépoté</b>{fiche['cargaisonId'] ? <> sur la cargaison <b>{String(fiche['cargaisonId'])}</b></> : null}.
     {estEnl
       ? <> Vérifiez le numéro : un conteneur ne se dépote qu'une fois.</>
-      /* Dépotage : marchandise partagée entre plusieurs camions — permis par le
+      /* Dépotage : marchandise partagée entre plusieurs camions, permis par le
          serveur en saisie manuelle, compté une seule fois (2026-09-12). */
       : <> Vérifiez le numéro. S'il s'agit d'un conteneur <b>partagé</b> entre plusieurs
         camions, passez en saisie manuelle : il ne sera <b>pas compté</b> dans les conteneurs dépotés.
@@ -482,13 +482,13 @@ function EtatConteneurParc({
   // Au parc et pointé positionné : rien à signaler.
   if (!fiche['aRegulariser']) return <div style={enc('#f0fdf4', '#86efac')}>
     Conteneur au parc, <b>positionné</b>
-    {fiche['datePointage'] ? <> — pointé le {String(fiche['datePointage']).slice(0, 10)}{fiche['pointePar'] ? ` par ${String(fiche['pointePar'])}` : ''}</> : null}
+    {fiche['datePointage'] ? <>, pointé le {String(fiche['datePointage']).slice(0, 10)}{fiche['pointePar'] ? ` par ${String(fiche['pointePar'])}` : ''}</> : null}
     {fiche['pointeAujourdhui'] ? ' (aujourd\'hui).' : '.'}
   </div>;
 
   // LE CAS VISÉ : présent au parc, jamais pointé comme positionné au CFS.
   if (estEnl) return <div style={enc('#f0fdf4', '#86efac')}>
-    Conteneur au parc — statut <b>{String(fiche['statut'])}</b>. Enlèvement : rien à pointer.
+    Conteneur au parc, statut <b>{String(fiche['statut'])}</b>. Enlèvement : rien à pointer.
   </div>;
 
   return <div style={enc('#fffbeb', '#fcd34d')}>
@@ -519,7 +519,7 @@ function PanneauCFS({ c, dets, action, prefillDecl }: { c: O; dets: ReturnType<t
   const [f, setF] = useState<O>({ num: '', taille: '', type: '', poids: '', plomb: '', manuel: false });
   const [d, setD] = useState<O>({ declarant: '', contactDeclarant: '', destinationMarchandise: '', bureauDeclaration: 'TG120', typeDeclaration: 'T', numeroDeclaration: '', anneeDeclaration: String(new Date().getFullYear()), descriptionMarchandise: '', nombreConteneurs: '', dateDeclaration: '', ...(prefillDecl ?? {}) });
   const [consoMode, setConsoMode] = useState('balise'); // type C / A : balisée ou non balisée (dispense)
-  // v4 — propose les TC de la bonne source à la frappe : dépotage → stock du jour
+  // v4, propose les TC de la bonne source à la frappe : dépotage → stock du jour
   // (Positionné) ; enlèvement → stock du PIA (En stock).
   const statutStock = estEnl ? 'En stock' : 'Positionné';
   const { data: stk } = useAsync<{ rows: O[] }>(() => call('stock.list', { statut: statutStock }), [statutStock]);
@@ -528,18 +528,18 @@ function PanneauCFS({ c, dets, action, prefillDecl }: { c: O; dets: ReturnType<t
   const stockByTc = Object.fromEntries(stockRows.map((r) => [String(r['numeroTC'] ?? ''), r]));
   const set = (k: string, v: unknown) => setF((o) => ({ ...o, [k]: v }));
 
-  /* v4.2 — LE CONTENEUR EST AU PARC MAIS N'A PAS ÉTÉ POINTÉ.
+  /* v4.2, LE CONTENEUR EST AU PARC MAIS N'A PAS ÉTÉ POINTÉ.
    *
    * La liste ci-dessus ne contient que les conteneurs « Positionné ». Or le
    * pointage matinal fige la liste du jour, et des conteneurs continuent d'être
    * positionnés dans la journée : au dépotage, ils sont introuvables, et les
-   * agents se rabattent sur « saisie manuelle » — qui ne rattache RIEN à la
+   * agents se rabattent sur « saisie manuelle », qui ne rattache RIEN à la
    * fiche stock. Le conteneur reste « En stock » pour toujours et le parc
    * affiche des conteneurs partis depuis longtemps.
    *
    * On interroge donc tout le parc dès que le numéro est complet, et on dit à
    * l'agent ce qu'il en est. S'il est là mais non pointé, un bouton le pointe
-   * et enchaîne — au lieu de le contourner. */
+   * et enchaîne, au lieu de le contourner. */
   const [fiche, setFiche] = useState<O | null>(null);
   const [cherche, setCherche] = useState(false);
   const [regulariser, setRegulariser] = useState(false);
@@ -556,7 +556,7 @@ function PanneauCFS({ c, dets, action, prefillDecl }: { c: O; dets: ReturnType<t
     return () => { annule = true; };
   }, [numSaisi, f['manuel']]);
 
-  // v4 — à la saisie/choix d'un conteneur du stock, pré-remplit taille + type
+  // v4, à la saisie/choix d'un conteneur du stock, pré-remplit taille + type
   // depuis la fiche stock (l'agent n'a plus à les ressaisir ; reste modifiable).
   function choisirConteneur(v: string) {
     const num = masks.tc(v);
@@ -588,7 +588,7 @@ function PanneauCFS({ c, dets, action, prefillDecl }: { c: O; dets: ReturnType<t
   async function ajouter() {
     if (!tcValide(String(f['num']))) { toast('N° conteneur invalide (4 lettres + 7 chiffres).', 'err'); return; }
     const payload: O = { id, conteneur: { num: f['num'], taille: f['taille'], type: f['type'], poids: f['poids'], plomb: f['plomb'], manuel: f['manuel'] } };
-    // v4.2 — confirmation explicite du pointage à la volée (le serveur refuse sans).
+    // v4.2, confirmation explicite du pointage à la volée (le serveur refuse sans).
     if (regulariser) payload['pointerSiNonPositionne'] = true;
     if (montrerDecl && String(d['declarant']).trim()) { payload['declaration'] = d; if (estConso) payload['consoMode'] = consoMode; }
     await action(
@@ -601,7 +601,7 @@ function PanneauCFS({ c, dets, action, prefillDecl }: { c: O; dets: ReturnType<t
 
   return (
     <div className="card">
-      <TitrePanneau icone="conteneur" etape="cfs">CFS — associer / ajouter un conteneur</TitrePanneau>
+      <TitrePanneau icone="conteneur" etape="cfs">CFS, associer / ajouter un conteneur</TitrePanneau>
       <p style={{ color: '#5c6b7a', marginTop: 0 }}>Opération : <b>{c['typeOperation'] as string}</b>. {estEnl ? 'Enlèvement : scellé par conteneur, déclaration au 1er.' : 'Dépotage : conteneurs du stock (Positionné), déclaration par conteneur, puis scellés camion.'}</p>
       <div className="grid2">
         <Champ label="N° conteneur (ISO 6346)" className="mono" value={String(f['num'])} onChange={(e) => choisirConteneur(e.target.value)} list="dl-cfs-tc" autoComplete="off" />
@@ -609,7 +609,7 @@ function PanneauCFS({ c, dets, action, prefillDecl }: { c: O; dets: ReturnType<t
         <Champ label="Taille" value={String(f['taille'])} onChange={(e) => set('taille', masks.upper(e.target.value))} placeholder="20' / 40' / 45'" />
         <Champ label="Type (facultatif)" value={String(f['type'])} onChange={(e) => set('type', masks.upper(e.target.value))} />
         {estEnl && <Champ label="Scellé / Plomb" value={String(f['plomb'])} onChange={(e) => set('plomb', masks.upper(e.target.value))} />}
-        {/* SAISIE MANUELLE — rétablie en DÉPOTAGE le 2026-09-14.
+        {/* SAISIE MANUELLE : rétablie en DÉPOTAGE le 2026-09-14.
             Elle avait été retirée du dépotage le 2026-09-10. Le 2026-09-12, les
             règles du douanier l'ont rouverte côté SERVEUR (conteneur absent du parc :
             fiche créée ; conteneur déjà dépoté sur un autre camion : compté une fois),
@@ -618,7 +618,7 @@ function PanneauCFS({ c, dets, action, prefillDecl }: { c: O; dets: ReturnType<t
             un conteneur AU PARC non pointé doit être pointé, pas saisi à la main. */}
         <label className="help" style={{ alignSelf: 'end' }}><input type="checkbox" style={{ width: 'auto' }} checked={!!f['manuel']} onChange={(e) => set('manuel', e.target.checked)} /> {estEnl ? 'Saisie manuelle (conteneur hors stock)' : 'Saisie manuelle (conteneur absent du parc ou partagé)'}</label>
       </div>
-      <div className="help" style={{ marginTop: 6 }}>{estEnl ? 'Enlèvement' : 'Dépotage'} : {tcOptions.length} conteneur(s) {estEnl ? 'en stock (PIA)' : 'positionné(s) du jour'} — tapez pour choisir.</div>
+      <div className="help" style={{ marginTop: 6 }}>{estEnl ? 'Enlèvement' : 'Dépotage'} : {tcOptions.length} conteneur(s) {estEnl ? 'en stock (PIA)' : 'positionné(s) du jour'}, tapez pour choisir.</div>
       <EtatConteneurParc
         fiche={fiche} cherche={cherche} estEnl={estEnl} manuel={!!f['manuel']}
         regulariser={regulariser} setRegulariser={setRegulariser}
@@ -634,7 +634,7 @@ function PanneauCFS({ c, dets, action, prefillDecl }: { c: O; dets: ReturnType<t
             <ChampDestination value={String(d['destinationMarchandise'])} onChange={(v) => setDd('destinationMarchandise', v)} />
             <Champ label="Bureau" value={String(d['bureauDeclaration'])} onChange={(e) => setDd('bureauDeclaration', masks.upper(e.target.value))} />
             <div><label className="help">Type déclaration</label><select value={String(d['typeDeclaration'])} onChange={(e) => setDd('typeDeclaration', e.target.value)}>{TYPES_DECLARATION.map((t) => <option key={t}>{t}</option>)}</select></div>
-            {estConso && <div><label className="help">Type {String(d['typeDeclaration'])} — balise</label><select value={consoMode} onChange={(e) => setConsoMode(e.target.value)}><option value="balise">À baliser</option><option value="sansbalise">Non balisée (dispense)</option></select></div>}
+            {estConso && <div><label className="help">Type {String(d['typeDeclaration'])}, balise</label><select value={consoMode} onChange={(e) => setConsoMode(e.target.value)}><option value="balise">À baliser</option><option value="sansbalise">Non balisée (dispense)</option></select></div>}
             <Champ label="N° déclaration" value={String(d['numeroDeclaration'])} onChange={(e) => setDd('numeroDeclaration', masks.upper(e.target.value))} />
             <Champ label="Année" value={String(d['anneeDeclaration'])} onChange={(e) => setDd('anneeDeclaration', e.target.value)} />
             <Champ label="Description marchandise" value={String(d['descriptionMarchandise'])} onChange={(e) => setDd('descriptionMarchandise', masks.upper(e.target.value))} />
@@ -643,9 +643,9 @@ function PanneauCFS({ c, dets, action, prefillDecl }: { c: O; dets: ReturnType<t
       )}
       <div style={{ marginTop: 12 }}><button onClick={ajouter}>Ajouter le conteneur</button></div>
 
-      {/* v4 — un camion d'effets divers (0 conteneur) se finalise aussi (scellés camion). */}
+      {/* v4, un camion d'effets divers (0 conteneur) se finalise aussi (scellés camion). */}
       {!estEnl && c['statut'] === STATUTS.CHARGEMENT && <FinaliserDepotage id={id} action={action} />}
-      {/* v4.1 (affiné 2026-07-22) — l'ENLÈVEMENT passe désormais SEUL en « Créée »
+      {/* v4.1 (affiné 2026-07-22), l'ENLÈVEMENT passe désormais SEUL en « Créée »
           à la saisie (scellés par conteneur = fin de chargement). Ce bouton n'est
           qu'un RATTRAPAGE pour les enlèvements restés « En cours de chargement »
           d'avant ce changement ; le flux normal ne l'affiche jamais. */}
@@ -655,7 +655,7 @@ function PanneauCFS({ c, dets, action, prefillDecl }: { c: O; dets: ReturnType<t
 }
 
 /**
- * v4.1 — RATTRAPAGE de fin de chargement (enlèvements bloqués « En cours de
+ * v4.1, RATTRAPAGE de fin de chargement (enlèvements bloqués « En cours de
  * chargement » avant le 2026-07-22, où l'enlèvement passe seul en « Créée »).
  * Ne s'affiche plus dans le flux normal.
  */
@@ -672,7 +672,7 @@ function FinirEnlevement({ c, action }: { c: O; action: ActionFn }) {
       en « Créée » pour qu'il reparte dans le circuit.
     </p>
     {!conts.length && <div className="err-msg">Aucun conteneur : ajoutez-en au moins un.</div>}
-    {!!sansPlomb && <div className="err-msg">{sansPlomb} conteneur(s) sans scellé — corrigez-les d'abord.</div>}
+    {!!sansPlomb && <div className="err-msg">{sansPlomb} conteneur(s) sans scellé, corrigez-les d'abord.</div>}
     {sansDecl && <div className="err-msg">Déclaration non renseignée.</div>}
     <div style={{ marginTop: 12 }}>
       <button disabled={bloque} onClick={() => action(() => call('cargo.fincharge', { id }), 'Chargement terminé.')}>
@@ -683,7 +683,7 @@ function FinirEnlevement({ c, action }: { c: O; action: ActionFn }) {
 }
 
 /**
- * v4 — Enchaîner un AUTRE camion sur la MÊME déclaration (enlèvement ET dépotage).
+ * v4, Enchaîner un AUTRE camion sur la MÊME déclaration (enlèvement ET dépotage).
  * La déclaration du camion courant est reportée telle quelle sur le nouveau :
  * l'agent ne re-saisit que le N° de camion puis les conteneurs.
  */
@@ -700,7 +700,7 @@ function AjouterCamion({ c, go }: { c: O; go: Nav['go'] }) {
   const [num, setNum] = useState('');
   const [busy, setBusy] = useState(false);
   const op = String(c['typeOperation'] ?? OPERATIONS.ENLEVEMENT);
-  // v4.1 — la Sortie Magasin/MAD n'a PAS de conteneurs : le camion se crée en
+  // v4.1, la Sortie Magasin/MAD n'a PAS de conteneurs : le camion se crée en
   // une fois (comme le formulaire Magasin), pas en « camion vide + conteneurs ».
   const estMagasin = op === OPERATIONS.MAGASIN;
   async function creer() {
@@ -727,8 +727,8 @@ function AjouterCamion({ c, go }: { c: O; go: Nav['go'] }) {
   }
   return <div className="card"><TitrePanneau icone="camionPlus" etape="cfs">Ajouter un autre camion (même déclaration)</TitrePanneau>
     <p className="help" style={{ marginTop: 0 }}>{estMagasin
-      ? <>Crée une nouvelle <b>sortie Magasin / MAD</b> en reprenant la déclaration de ce camion (déclarant, n° de déclaration, marchandise) — vous n'aurez qu'à saisir le N° du camion.</>
-      : <>Crée un nouveau camion de <b>{op.toLowerCase()}</b> en reprenant la déclaration de ce camion (déclarant, n° de déclaration, marchandise) — vous n'aurez qu'à saisir les conteneurs.</>}</p>
+      ? <>Crée une nouvelle <b>sortie Magasin / MAD</b> en reprenant la déclaration de ce camion (déclarant, n° de déclaration, marchandise), vous n'aurez qu'à saisir le N° du camion.</>
+      : <>Crée un nouveau camion de <b>{op.toLowerCase()}</b> en reprenant la déclaration de ce camion (déclarant, n° de déclaration, marchandise), vous n'aurez qu'à saisir les conteneurs.</>}</p>
     <div className="row"><ChampCamion value={num} onChange={setNum} label="" />
       <button disabled={busy} onClick={creer}>{estMagasin ? 'Créer' : 'Créer et associer'}</button></div>
     {!estMagasin && <p className="help" style={{ marginBottom: 0 }}>Plusieurs camions d'un coup ? Utilisez l'écran « Plusieurs camions (1 déclaration) » du menu.</p>}
@@ -743,7 +743,7 @@ function FinaliserDepotage({ id, action }: { id: string; action: ActionFn }) {
   return <div style={{ borderTop: '1px solid var(--line)', marginTop: 14, paddingTop: 12 }}>
     <div className="section-title">Finaliser le dépotage (hauteur + colis + scellés camion)</div>
     <div className="grid2">
-      <Champ label={`Hauteur chargement (m) — hors gabarit auto si > ${String(hauteurHorsGabarit).replace('.', ',')}`} value={hauteur} onChange={(e) => setHauteur(e.target.value)} />
+      <Champ label={`Hauteur chargement (m), hors gabarit auto si > ${String(hauteurHorsGabarit).replace('.', ',')}`} value={hauteur} onChange={(e) => setHauteur(e.target.value)} />
       <Champ label="Nombre de colis" value={colis} onChange={(e) => setColis(e.target.value)} />
       {[0, 1, 2].map((i) => <Champ key={i} label={`Scellé camion ${i + 1}${i < 2 ? ' *' : ''}`} value={sc[i]} onChange={(e) => setSc((a) => a.map((x, j) => j === i ? masks.upper(e.target.value) : x))} />)}
     </div>
@@ -752,7 +752,7 @@ function FinaliserDepotage({ id, action }: { id: string; action: ActionFn }) {
 }
 
 /**
- * v4.1 — Finaliser une SORTIE MAGASIN/MAD restée « En cours de chargement » :
+ * v4.1, Finaliser une SORTIE MAGASIN/MAD restée « En cours de chargement » :
  * poser les scellés du camion (2-3, comme en dépotage) → « Créée ». C'est
  * l'équivalent, pour le vrac sans conteneur, de la finalisation du dépotage.
  */
@@ -764,7 +764,7 @@ function FinaliserMagasin({ id, action }: { id: string; action: ActionFn }) {
     <div className="grid2">
       {[0, 1, 2].map((i) => <Champ key={i} label={`Scellé camion ${i + 1}${i < 2 ? ' *' : ''}`} value={sc[i]} onChange={(e) => setSc((a) => a.map((x, j) => j === i ? masks.upper(e.target.value) : x))} />)}
     </div>
-    <div style={{ marginTop: 12 }}><button onClick={() => action(() => call('cargo.sceller', { id, scellesCamion: sc.filter(Boolean) }), 'Scellés posés — chargement terminé.')}>Poser les scellés → « Créée »</button></div>
+    <div style={{ marginTop: 12 }}><button onClick={() => action(() => call('cargo.sceller', { id, scellesCamion: sc.filter(Boolean) }), 'Scellés posés, chargement terminé.')}>Poser les scellés → « Créée »</button></div>
   </div>;
 }
 
@@ -772,7 +772,7 @@ function PanneauOuillage({ c, action }: { c: O; action: ActionFn }) {
   const id = c['id'] as string;
   const [d, setD] = useState<O>({ declarant: '', contactDeclarant: '', destinationMarchandise: '', bureauDeclaration: 'TG120', typeDeclaration: 'T', numeroDeclaration: '', anneeDeclaration: String(new Date().getFullYear()) });
   const setDd = (k: string, v: unknown) => setD((o) => ({ ...o, [k]: v }));
-  return <div className="card"><TitrePanneau icone="voiture" etape="cfs">Ouillage — compléter la déclaration du véhicule</TitrePanneau>
+  return <div className="card"><TitrePanneau icone="voiture" etape="cfs">Ouillage, compléter la déclaration du véhicule</TitrePanneau>
     <div className="grid2">
       <Champ label="Déclarant" value={String(d['declarant'])} onChange={(e) => setDd('declarant', masks.upper(e.target.value))} />
       <Champ label="Contact" value={String(d['contactDeclarant'])} onChange={(e) => setDd('contactDeclarant', masks.tel(e.target.value))} />
@@ -789,19 +789,19 @@ function PanneauOuillage({ c, action }: { c: O; action: ActionFn }) {
 function PanneauValidation({ c, action }: { c: O; action: ActionFn }) {
   const id = c['id'] as string;
   const horsGab = estOui(c['horsGabarit']);
-  // v4.3 — hors gabarit & surcharge = DÉPOTAGE uniquement (2026-08-19). En
+  // v4.3, hors gabarit & surcharge = DÉPOTAGE uniquement (2026-08-19). En
   // enlèvement / véhicule / conso / magasin, pas de pesée : rien à cocher.
   const exigePesee = exigeControlePoids(c['typeOperation']);
-  // v4.1 — pesée AVANT la signature : en surcharge OUI/NON ; si OUI, le poids (kg).
+  // v4.1, pesée AVANT la signature : en surcharge OUI/NON ; si OUI, le poids (kg).
   const [enSurcharge, setEnSurcharge] = useState<'' | 'oui' | 'non'>('');
   const [poids, setPoids] = useState('');
   const pretPesee = !exigePesee || enSurcharge === 'non' || (enSurcharge === 'oui' && poids.trim() !== '');
 
-  // Suivi des engagements (2026-09-10) — bloquant, sur toutes les opérations.
+  // Suivi des engagements (2026-09-10), bloquant, sur toutes les opérations.
   // Le hook est partagé avec les deux écrans de validation en lot (lib/ui.tsx).
   const eng = useSuiviEngagement();
 
-  return <div className="card"><TitrePanneau icone="valider" etape="validation">Validation — chef brigade</TitrePanneau>
+  return <div className="card"><TitrePanneau icone="valider" etape="validation">Validation, chef brigade</TitrePanneau>
     {horsGab && exigePesee && <p style={{ background: 'var(--warn-soft)', color: 'var(--warn)', padding: 10, borderRadius: 6 }}>⚠ Chargement <b>hors gabarit</b> ({(c['hauteurChargement'] as string) || '?'} m).</p>}
     {exigePesee ? <>
       <div className="section-title">Pesée</div>
@@ -903,7 +903,7 @@ function PanneauPP({ c, estVeh, action }: { c: O; estVeh: boolean; action: Actio
   const id = c['id'] as string;
   const [ck, setCk] = useState({ cfs: false, t1: false, balise: false, bs: false });
   const [infos, setInfos] = useState(false);
-  return <div className="card"><TitrePanneau icone="sortie" etape="pp">Sortie — Porte Principale</TitrePanneau>
+  return <div className="card"><TitrePanneau icone="sortie" etape="pp">Sortie, Porte Principale</TitrePanneau>
     {estVeh ? (
       <label className="help"><input type="checkbox" style={{ width: 'auto' }} checked={infos} onChange={(e) => setInfos(e.target.checked)} /> Informations validées</label>
     ) : (
@@ -921,7 +921,7 @@ function PanneauPP({ c, estVeh, action }: { c: O; estVeh: boolean; action: Actio
  * Correction d'une balise déjà posée. Ouverte à la cellule BALISE (et à
  * l'ADMIN) : c'est elle qui saisit le numéro, elle seule est sur le terrain pour
  * rattraper sa coquille, et attendre l'administrateur immobilisait le camion.
- * Reste borné au statut « Balisé » — passé le bon de sortie, plus de reprise —
+ * Reste borné au statut « Balisé », passé le bon de sortie, plus de reprise,
  * et chaque remplacement est tracé (ancien → nouveau) dans l'historique.
  */
 function PanneauGpsEdit({ c, action }: { c: O; action: ActionFn }) {
@@ -948,7 +948,7 @@ function PanneauGpsEdit({ c, action }: { c: O; action: ActionFn }) {
 
 /**
  * Correction du N° de camion (ou de châssis pour un véhicule), accessible à
- * TOUS LES RÔLES et à tout statut — c'est ce que faisait l'Apps Script, où le
+ * TOUS LES RÔLES et à tout statut, c'est ce que faisait l'Apps Script, où le
  * bouton « ✎ Corriger N° camion » figurait en tête de fiche sans condition. La
  * v4 l'avait enfermé dans le bloc « Éditer » réservé au CFS et à l'ADMIN : la
  * Balise et la Porte Principale, qui lisent la plaque au passage du camion,
@@ -987,7 +987,7 @@ function PanneauEtatCFS({ c, action }: { c: O; action: ActionFn }) {
     <p className="help" style={{ marginTop: 0 }}>Traçabilité du parking : dans quel état le camion quitte la zone CFS. Sans rapport avec l'ajout de conteneurs ci-dessus.</p>
     <div className="row">
       <select value={etat} onChange={(e) => setEtat(e.target.value)} style={{ maxWidth: 240 }}>
-        <option value="">— Choisir —</option>{ETATS_SORTIE.map((s) => <option key={s}>{s}</option>)}
+        <option value="">Choisir…</option>{ETATS_SORTIE.map((s) => <option key={s}>{s}</option>)}
       </select>
       <button disabled={!etat} onClick={() => action(() => call('cargo.etatcfs', { id, etatSortie: etat }), 'État à la sortie enregistré.')}>Enregistrer l'état à la sortie</button>
     </div>
@@ -1010,7 +1010,7 @@ function PanneauEditCamion({ c, action }: { c: O; action: ActionFn }) {
 }
 
 /**
- * v4 — CORRECTION d'un conteneur déjà enregistré (N° erroné, taille, type,
+ * v4, CORRECTION d'un conteneur déjà enregistré (N° erroné, taille, type,
  * scellé) ou retrait de la ligne. Sans cet écran, une faute de frappe sur le
  * N° de conteneur restait définitive.
  */
@@ -1019,7 +1019,7 @@ function PanneauEditConteneurs({ c, dets, action, admin }: { c: O; dets: ReturnT
   const estEnl = c['typeOperation'] === OPERATIONS.ENLEVEMENT;
   const [i, setI] = useState<number | null>(null);
   const [f, setF] = useState<O>({ num: '', taille: '', type: '', plomb: '', manuel: false });
-  // v4.1 — déclaration PROPRE à la ligne (chargement mixte) : éditable ici, car
+  // v4.1, déclaration PROPRE à la ligne (chargement mixte) : éditable ici, car
   // « Corriger les informations de déclaration » réécrit TOUS les conteneurs à
   // l'identique et écraserait le mixte.
   const [d, setD] = useState<O>({ numeroDeclaration: '', anneeDeclaration: '', bureauDeclaration: '', typeDeclaration: '' });
@@ -1058,19 +1058,19 @@ function PanneauEditConteneurs({ c, dets, action, admin }: { c: O; dets: ReturnT
     {dets.conteneurs.map((ct, k) => <div key={k} className="row" style={{ alignItems: 'center', marginBottom: 6 }}>
       <span style={{ flex: 1 }}>
         <span className="mono">{k + 1}. {ct.num} · {ct.taille || '—'}{ct.plomb ? ` · scellé ${ct.plomb}` : ''}</span>
-        <span className="help"> — décl. {declDe(ct as unknown as O) || '(celle du camion)'}</span>
+        <span className="help">, décl. {declDe(ct as unknown as O) || '(celle du camion)'}</span>
       </span>
       <button className="ghost xs" onClick={() => ouvrir(k)}>Corriger</button>
       <button className="ghost xs" onClick={() => retirer(k)}>Retirer</button>
     </div>)}
     {i !== null && <div style={{ borderTop: '1px solid var(--line)', marginTop: 10, paddingTop: 10 }}>
-      <div className="section-title">Nouvelle saisie — ligne {i + 1}</div>
+      <div className="section-title">Nouvelle saisie, ligne {i + 1}</div>
       <div className="grid2">
         <Champ label="N° conteneur (ISO 6346)" className="mono" value={String(f['num'])} onChange={(e) => set('num', masks.tc(e.target.value))} />
         <Champ label="Taille" value={String(f['taille'])} onChange={(e) => set('taille', masks.upper(e.target.value))} placeholder="20' / 40' / 45'" />
         <Champ label="Type (facultatif)" value={String(f['type'])} onChange={(e) => set('type', masks.upper(e.target.value))} />
         {estEnl && <Champ label="Scellé / Plomb" value={String(f['plomb'])} onChange={(e) => set('plomb', masks.upper(e.target.value))} />}
-        {/* 2026-09-14 — aussi en DÉPOTAGE : le serveur (`editconteneur`) l'accepte
+        {/* 2026-09-14 · aussi en DÉPOTAGE : le serveur (`editconteneur`) l'accepte
             pour tout type d'opération, et son propre refus conseille de la cocher. */}
         <label className="help" style={{ alignSelf: 'end' }}><input type="checkbox" style={{ width: 'auto' }} checked={!!f['manuel']} onChange={(e) => set('manuel', e.target.checked)} /> Saisie manuelle (conteneur hors stock / partagé)</label>
       </div>
@@ -1082,7 +1082,7 @@ function PanneauEditConteneurs({ c, dets, action, admin }: { c: O; dets: ReturnT
         <Champ label="Bureau" value={String(d['bureauDeclaration'])} onChange={(e) => setDd('bureauDeclaration', masks.upper(e.target.value))} />
         <div><label className="help">Type déclaration</label>
           <select value={String(d['typeDeclaration'])} onChange={(e) => setDd('typeDeclaration', e.target.value)}>
-            <option value="">— inchangé —</option>{TYPES_DECLARATION.map((t) => <option key={t}>{t}</option>)}
+            <option value="">Inchangé…</option>{TYPES_DECLARATION.map((t) => <option key={t}>{t}</option>)}
           </select></div>
       </div>
       <ChampMotifCorrection c={c} motif={motif} setMotif={setMotif} admin={admin} />
@@ -1094,13 +1094,13 @@ function PanneauEditConteneurs({ c, dets, action, admin }: { c: O; dets: ReturnT
   </details>;
 }
 
-/** v4 — Correction des informations de déclaration déjà enregistrées. */
+/** v4, Correction des informations de déclaration déjà enregistrées. */
 /**
- * CHAMP « MOTIF » DES CORRECTIONS TARDIVES — 2026-09-11.
+ * CHAMP « MOTIF » DES CORRECTIONS TARDIVES : 2026-09-11.
  *
  * N'apparaît QUE si la cargaison a dépassé le statut « Créée ». Avant, corriger
  * une saisie est un geste courant : réclamer un motif à chaque frappe serait du
- * bruit. Après, la correction touche un dossier en cours de parcours — le
+ * bruit. Après, la correction touche un dossier en cours de parcours, le
  * serveur exige alors le motif, et il est inscrit au journal d'audit.
  *
  * Quand la cargaison est DÉJÀ VALIDÉE, l'avertissement le dit franchement : la
@@ -1112,7 +1112,7 @@ function ChampMotifCorrection({ c, motif, setMotif, admin }: { c: O; motif: stri
   const avancee = ![STATUTS.CAMION, STATUTS.CHARGEMENT, STATUTS.CREEE].includes(c['statut'] as never);
   if (!avancee) return null;
   return <div className="avis-signature" style={{ marginTop: 10 }}>
-    <b>Cargaison déjà avancée</b> (statut « {String(c['statut'])} ») — le motif est{' '}
+    <b>Cargaison déjà avancée</b> (statut « {String(c['statut'])} »), le motif est{' '}
     {admin ? 'facultatif pour un administrateur, mais vivement conseillé' : 'obligatoire'}. Il sera
     inscrit au journal d'audit.
     {c['dateValidation'] ? <span className="detail">
@@ -1147,7 +1147,7 @@ function PanneauEditDecl({ c, action, admin }: { c: O; action: ActionFn; admin: 
       <ChampDestination value={String(d['destinationMarchandise'])} onChange={(v) => setDd('destinationMarchandise', v)} />
       <Champ label="Bureau" value={String(d['bureauDeclaration'])} onChange={(e) => setDd('bureauDeclaration', masks.upper(e.target.value))} />
       <div><label className="help">Type déclaration</label><select value={String(d['typeDeclaration'])} onChange={(e) => setDd('typeDeclaration', e.target.value)}>{TYPES_DECLARATION.map((t) => <option key={t}>{t}</option>)}</select></div>
-      {estConso && <div><label className="help">Type {String(d['typeDeclaration'])} — balise</label><select value={consoMode} onChange={(e) => setConsoMode(e.target.value)}><option value="balise">À baliser</option><option value="sansbalise">Non balisée (dispense)</option></select></div>}
+      {estConso && <div><label className="help">Type {String(d['typeDeclaration'])}, balise</label><select value={consoMode} onChange={(e) => setConsoMode(e.target.value)}><option value="balise">À baliser</option><option value="sansbalise">Non balisée (dispense)</option></select></div>}
       <Champ label="N° déclaration" value={String(d['numeroDeclaration'])} onChange={(e) => setDd('numeroDeclaration', masks.upper(e.target.value))} />
       <Champ label="Année" value={String(d['anneeDeclaration'])} onChange={(e) => setDd('anneeDeclaration', e.target.value)} />
       <Champ label="Description marchandise" value={String(d['descriptionMarchandise'])} onChange={(e) => setDd('descriptionMarchandise', masks.upper(e.target.value))} />
@@ -1157,7 +1157,7 @@ function PanneauEditDecl({ c, action, admin }: { c: O; action: ActionFn; admin: 
   </details>;
 }
 
-/** v4 — Correction du type d'opération (Dépotage ↔ Enlèvement), phase CFS. */
+/** v4, Correction du type d'opération (Dépotage ↔ Enlèvement), phase CFS. */
 function PanneauEditType({ c, action }: { c: O; action: ActionFn }) {
   const id = c['id'] as string;
   const actuel = String(c['typeOperation']);
@@ -1169,12 +1169,12 @@ function PanneauEditType({ c, action }: { c: O; action: ActionFn }) {
   </details>;
 }
 
-/* ============ CORRECTIONS DE CELLULES REMPLIES — ajout 2026-09-10 ==========
+/* ============ CORRECTIONS DE CELLULES REMPLIES : ajout 2026-09-10 ==========
  *
  * Trois panneaux repliés (`<details>`), sur le modèle de `PanneauSupprimer` :
  * une correction n'est pas une saisie courante, elle ne doit pas s'imposer à
  * l'écran ni s'ouvrir par mégarde. Chacun affiche la valeur ACTUELLE avant de
- * proposer la nouvelle — corriger à l'aveugle, c'est écraser sans savoir quoi.
+ * proposer la nouvelle, corriger à l'aveugle, c'est écraser sans savoir quoi.
  * ========================================================================== */
 
 /** Correction des numéros T1 déjà saisis (cellule T1 + ADMIN). */
@@ -1251,7 +1251,7 @@ function PanneauBSEdit({ c, action }: { c: O; action: ActionFn }) {
  *
  * ⚠ L'engagement entre dans l'empreinte de signature SEC-10. La signature du
  * chef n'est PAS recalculée : elle reste celle de ce qu'il a signé. L'écart
- * devient donc détectable — c'est voulu, et l'écran le dit.
+ * devient donc détectable, c'est voulu, et l'écran le dit.
  */
 function PanneauEngagementEdit({ c, action, admin }: { c: O; action: ActionFn; admin: boolean }) {
   const id = c['id'] as string;
@@ -1304,7 +1304,7 @@ function PanneauEngagementEdit({ c, action, admin }: { c: O; action: ActionFn; a
       <button disabled={!motif.trim() || !type} onClick={enregistrer}>
         Enregistrer la correction
       </button>
-      {/* RETRAIT — 2026-09-17 : un engagement coché par erreur ne pouvait pas être
+      {/* RETRAIT · 2026-09-17 : un engagement coché par erreur ne pouvait pas être
           enlevé, seulement remplacé par un autre. Réservé à l'ADMINISTRATEUR :
           le geste efface l'engagement, son échéance et son solde. */}
       {admin && <button className="ghost" style={{ color: 'var(--err)' }} disabled={!motif.trim()} onClick={retirer}>
@@ -1317,7 +1317,7 @@ function PanneauEngagementEdit({ c, action, admin }: { c: O; action: ActionFn; a
   </details>;
 }
 
-/* ================ TOUTES LES INFORMATIONS — ajout 2026-09-10 ==============
+/* ================ TOUTES LES INFORMATIONS : ajout 2026-09-10 ==============
  *
  * La fiche du haut est un RÉSUMÉ : neuf champs choisis pour être lus d'un coup
  * d'œil. Elle reste telle quelle. Ce bloc-ci ajoute l'intégralité de ce que
@@ -1334,7 +1334,7 @@ function PanneauEngagementEdit({ c, action, admin }: { c: O; action: ActionFn; a
  *     envoyé. `filtrerConfidentiel` (lecture.ts) retire déjà le contact du
  *     déclarant, le n° de balise et le hors gabarit aux rôles qui n'y ont pas
  *     droit : ces champs n'arrivent pas, donc ne s'affichent pas. Aucune règle
- *     de droits n'est réécrite ici — elle serait la deuxième, donc celle qui
+ *     de droits n'est réécrite ici, elle serait la deuxième, donc celle qui
  *     finit par diverger.
  * ========================================================================== */
 
@@ -1359,7 +1359,7 @@ const GROUPES_INFOS: [string, [string, string][]][] = [
     ['agentCfs', 'Agent CFS'], ['observationsCfs', 'Observations CFS'],
     ['etatSortie', 'État à la sortie CFS'],
   ]],
-  ['Validation — chef de brigade', [
+  ['Validation, chef de brigade', [
     ['dateValidation', 'Date de validation'], ['agentValidation', 'Agent'],
     ['roleValidation', 'Rôle du signataire'], ['signatureValidation', 'Signature'],
     ['horsGabarit', 'Hors gabarit'], ['hauteurChargement', 'Hauteur du chargement'],
@@ -1385,7 +1385,7 @@ const GROUPES_INFOS: [string, [string, string][]][] = [
     ['agentBonSortie', 'Agent'], ['observationsBonSortie', 'Observations'],
     ['sauteBs', 'Bon de sortie sauté'], ['sauteBS', 'Bon de sortie sauté'],
   ]],
-  ['Sortie — Porte Principale', [
+  ['Sortie, Porte Principale', [
     ['dateSortie', 'Date de sortie'], ['agentPp', 'Agent PP'],
     ['infosValidees', 'Informations validées'], ['ppChecklist', 'Liste de contrôle'],
     ['observationsPp', 'Observations PP'],
@@ -1469,16 +1469,16 @@ function ToutesLesInformations({ c }: { c: O }) {
   </details>;
 }
 
-/* ============ CORRECTION D'APUREMENT — ADMIN, ajout 2026-09-10 ============
+/* ============ CORRECTION D'APUREMENT : ADMIN, ajout 2026-09-10 ============
  *
  * ⚠ C'EST UN COMPTEUR DOUANIER : déclarer qu'un nombre de conteneurs a été
  * dédouané. D'où un panneau replié, réservé à l'ADMIN, qui affiche l'état réel
- * AVANT de proposer quoi que ce soit — corriger à l'aveugle, c'est écraser sans
+ * AVANT de proposer quoi que ce soit, corriger à l'aveugle, c'est écraser sans
  * savoir quoi.
  *
  * Ce n'est PAS le chemin normal. Depuis la migration 00170, l'apurement se
  * corrige tout seul quand un conteneur est retiré, réaffecté, ou qu'une
- * cargaison est annulée. Ce panneau ne sert qu'à rattraper un écart hérité —
+ * cargaison est annulée. Ce panneau ne sert qu'à rattraper un écart hérité,
  * les 34 déclarations sur-apurées relevées le 2026-09-09, par exemple.
  *
  * Les garde-fous vivent côté SERVEUR (`decl.apurementedit`) : motif obligatoire,
@@ -1508,7 +1508,7 @@ function PanneauApurement({ c, admin }: { c: O; admin: boolean }) {
   const restant = Number(d['restant'] ?? 0);
   const surApuree = aNombre > 0 && aApures > aNombre;
 
-  /** Suppression de la ligne de suivi — ADMIN, et seulement si rien n'est apuré. */
+  /** Suppression de la ligne de suivi, ADMIN, et seulement si rien n'est apuré. */
   async function supprimer() {
     const avertissement =
       `⚠ SUPPRESSION D'UNE LIGNE DE DÉCLARATION\n\n`
@@ -1553,7 +1553,7 @@ function PanneauApurement({ c, admin }: { c: O; admin: boolean }) {
 
   return <details style={EDIT_ITEM}>
     <summary style={{ cursor: 'pointer', fontWeight: 600, color: surApuree ? 'var(--err)' : undefined }}>
-      Apurement de la déclaration{surApuree ? ' — ⚠ sur-apurée' : ''}
+      Apurement de la déclaration{surApuree ? ', ⚠ sur-apurée' : ''}
     </summary>
     {loading ? <Spinner /> : <>
       <p className="help" style={{ marginTop: 10 }}>
@@ -1587,10 +1587,10 @@ function PanneauApurement({ c, admin }: { c: O; admin: boolean }) {
           {busy ? 'Correction…' : "Corriger l'apurement"}
         </button>
 
-        {/* SUPPRESSION — ADMIN seul, et seulement une ligne à ZÉRO apuré.
+        {/* SUPPRESSION : ADMIN seul, et seulement une ligne à ZÉRO apuré.
             Le bouton reste VISIBLE mais désactivé quand des conteneurs sont
             apurés : le masquer laisserait croire que la suppression n'existe
-            pas, alors que c'est une règle qui s'applique — et l'explication
+            pas, alors que c'est une règle qui s'applique, et l'explication
             juste en dessous dit laquelle. */}
         {admin && <button className="ghost" style={{ color: 'var(--err)' }}
           disabled={busy || !motif.trim() || !cle || aApures > 0}
@@ -1601,18 +1601,18 @@ function PanneauApurement({ c, admin }: { c: O; admin: boolean }) {
       {admin && aApures > 0 && <div className="help" style={{ marginTop: 4 }}>
         Suppression impossible : <b>{aApures} conteneur(s) apurés</b> sur cette
         déclaration. Effacer la ligne ferait disparaître la trace de ce qui a été
-        dédouané — corrigez les compteurs plutôt que de supprimer.
+        dédouané, corrigez les compteurs plutôt que de supprimer.
       </div>}
     </>}
   </details>;
 }
 
 /**
- * HISTORIQUE DE LA CARGAISON (2026-09-10) — le PARCOURS, pas l'état.
+ * HISTORIQUE DE LA CARGAISON (2026-09-10) : le PARCOURS, pas l'état.
  *
  * La fiche et « Toutes les informations » disent où en est le camion. Ceci dit
  * comment il y est arrivé : qui a saisi, qui a corrigé, ce qui a été modifié
- * après coup et pourquoi. C'était la moitié manquante — un champ corrigé ne
+ * après coup et pourquoi. C'était la moitié manquante, un champ corrigé ne
  * laisse sur la fiche que sa valeur finale, jamais ce qu'il valait avant.
  *
  * Chargé À L'OUVERTURE du bloc seulement (`ouvert`), pas au rendu de la fiche :
@@ -1635,7 +1635,7 @@ function HistoriqueCargaison({ c }: { c: O }) {
   return <details className="card" style={{ marginTop: 10 }}
     onToggle={(e) => setOuvert((e.currentTarget as HTMLDetailsElement).open)}>
     <summary style={{ cursor: 'pointer', fontWeight: 600 }}>
-      Historique de ce camion — qui a fait quoi, et quand
+      Historique de ce camion, qui a fait quoi, et quand
     </summary>
     {!ouvert ? null : loading ? <Spinner /> : !lignes.length
       ? <div className="empty" style={{ marginTop: 8 }}>Aucun événement enregistré.</div>

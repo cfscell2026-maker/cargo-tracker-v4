@@ -1,5 +1,5 @@
 /**
- * Périodes de rapport — les 4 périodes glissantes usuelles PLUS une PLAGE
+ * Périodes de rapport, les 4 périodes glissantes usuelles PLUS une PLAGE
  * PERSONNALISÉE (décision utilisateur 2026-07-20) : les périodes calendaires ne
  * couvrent pas les questions réelles (« du 3 au 17 », une campagne, un mois
  * écoulé à cheval sur deux mois).
@@ -49,7 +49,7 @@ export function normaliserPlage(du: string, au: string): { du: string; au: strin
   return inversee ? { du: au, au: du, inversee } : { du, au, inversee };
 }
 
-/* ============ COMPARAISON AVEC LA PÉRIODE PRÉCÉDENTE — 2026-09-11 ==========
+/* ============ COMPARAISON AVEC LA PÉRIODE PRÉCÉDENTE, 2026-09-11 ==========
  *
  * Le tableau de bord affiche désormais une flèche de hausse ou de baisse sur
  * les tuiles d'ÉVÉNEMENTS. Elle suppose un point de comparaison : la période de
@@ -58,7 +58,7 @@ export function normaliserPlage(du: string, au: string): { du: string; au: strin
  * 9 jours qui la précèdent.
  *
  * ⚠ Réservé aux tuiles de période. Les compteurs « Attente » sont INSTANTANÉS
- * (voir `dashboardStats` côté serveur : ils ignorent `du`/`au`) — leur coller
+ * (voir `dashboardStats` côté serveur : ils ignorent `du`/`au`), leur coller
  * une variation afficherait un écart qui n'existe pas.
  * ====================================================================== */
 
@@ -85,7 +85,7 @@ export type Variation = { sens: 'hausse' | 'baisse' | 'stable'; pourcent: number
  * Compare deux valeurs.
  *
  * Renvoie `null` quand la période précédente est à ZÉRO : un pourcentage de
- * variation n'a alors aucun sens — on ne divise pas par zéro, et « +∞ % »
+ * variation n'a alors aucun sens, on ne divise pas par zéro, et « +∞ % »
  * n'informe personne. Le cas est fréquent au démarrage d'une cellule ou après
  * une semaine chômée ; l'écran affichera « nouveau » plutôt qu'un faux calcul.
  */
@@ -99,7 +99,7 @@ export function comparer(actuel: number, precedent: number): Variation | null {
 }
 
 /**
- * RÉPARTITION DES MOUVEMENTS — 2026-09-13 (demande utilisateur).
+ * RÉPARTITION DES MOUVEMENTS : 2026-09-13 (demande utilisateur).
  *
  * Deux pourcentages qui font 100 % : la part des ARRIVÉES et la part des
  * DÉPARTS dans l'ensemble des mouvements d'une étape sur la période.
@@ -117,7 +117,7 @@ export function repartition(arrives: number, partis: number): { arrivees: number
 }
 
 /**
- * FENÊTRE DE COMPARAISON HONNÊTE — 2026-09-11, corrigée le 2026-09-12.
+ * FENÊTRE DE COMPARAISON HONNÊTE : 2026-09-11, corrigée le 2026-09-12.
  *
  * Comparer une période EN COURS à une période ACHEVÉE fausse tout. Un vendredi,
  * la semaine du lundi au dimanche ne compte que cinq jours de travail ; la
@@ -130,18 +130,18 @@ export function repartition(arrives: number, partis: number): { arrivees: number
  *   · semaine lun 07 → sam 12 comparée à mar 01 → dim 06 (au lieu de lun 31/08 → sam 05/09) ;
  *   · un jeudi, lundi-jeudi se mesurait à jeudi-DIMANCHE : un week-end dans la référence ;
  *   · mois 01 → 12 sept. comparé à 20 → 31 août (au lieu de 01 → 12 août).
- * La longueur était la bonne, les jours ne l'étaient pas — et le trafic d'un port
+ * La longueur était la bonne, les jours ne l'étaient pas, et le trafic d'un port
  * sec ne pèse pas la même chose un dimanche et un lundi.
  *
  * Désormais, selon la période choisie :
- *   · jour    : le MÊME JOUR de la semaine d'avant — lundi contre lundi
+ *   · jour    : le MÊME JOUR de la semaine d'avant, lundi contre lundi
  *               (décision utilisateur 2026-09-12). Contre la veille, un lundi se
  *               mesurait à un dimanche calme et affichait une hausse factice ;
  *   · semaine : les mêmes jours de la semaine d'avant (lundi → même jour) ;
  *   · mois    : du 1er au même quantième du mois d'avant (plafonné à sa fin :
  *               le 30 mars se compare au 28 février) ; mois achevé → mois entier ;
  *   · année   : du 1er janvier au même jour de l'année d'avant (29 février plafonné) ;
- *   · plage personnalisée : la plage de même longueur juste avant — pour une
+ *   · plage personnalisée : la plage de même longueur juste avant, pour une
  *     plage libre, il n'existe pas d'autre « période jumelle ».
  *
  * Les chiffres AFFICHÉS sur les tuiles ne bougent pas : seule la fenêtre de

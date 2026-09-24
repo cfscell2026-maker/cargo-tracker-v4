@@ -3,21 +3,21 @@
   --accent:#0e5a8a; --accent-soft:#e3eef5; --ok:#1f7a5c; --ok-soft:#e4f1eb;
   --warn:#b4531f; --warn-soft:#f7eae1; --err:#b00020;
   --mono:ui-monospace,Consolas,Menlo,monospace; --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
-  /* TITRES — 2026-09-11.
+  /* TITRES : 2026-09-11.
      Une serif de lecture, distincte de la sans de l'interface : un en-tête de
      plateforme douanière gagne à ne pas ressembler à un bouton. Toutes les
-     familles citées sont INSTALLÉES SUR LE POSTE — Cambria et Constantia sous
+     familles citées sont INSTALLÉES SUR LE POSTE, Cambria et Constantia sous
      Windows, Noto Serif sous Android. Aucune police distante n'est possible
      ici : la CSP de `netlify.toml` n'autorise que `font-src 'self' data:`,
      et une police chargée d'un CDN serait bloquée en production sans erreur
      visible. La solution, si tu veux une police précise, est de déposer le
-     fichier dans `public/` — pas d'appeler Google Fonts. */
+     fichier dans `public/`, pas d'appeler Google Fonts. */
   --titre:Cambria,Constantia,"Noto Serif",Georgia,"Times New Roman",serif;
 }
 *{box-sizing:border-box}
 /* Le fond de l'application porte un lavis très dilué (2026-09-11).
    RAISON TECHNIQUE, pas décorative : un verre dépoli ne montre que ce qu'il a
-   derrière. Sur un gris uni, le flou de la barre supérieure ne révélait rien —
+   derrière. Sur un gris uni, le flou de la barre supérieure ne révélait rien,
    du gris flouté reste du gris. Avec ce lavis, la barre a enfin de la couleur à
    diffuser. `fixed` le fige : le lavis ne défile pas, seul le contenu passe
    dessous, ce qui rend le verre lisible en permanence. */
@@ -46,7 +46,7 @@ a{color:var(--accent)}
    utilisateur) est défini dans le bloc « refonte 2026-09-10 » en fin de fichier. */
 .side{background:#12222f;color:#dce4eb;position:sticky;top:0;height:100vh}
 .main{display:flex;flex-direction:column;min-width:0}
-/* ============ BARRE SUPÉRIEURE — refonte 2026-09-11 =====================
+/* ============ BARRE SUPÉRIEURE : refonte 2026-09-11 =====================
  *
  * Une barre POSÉE sur la page plutôt que collée en haut : marges sur les trois
  * côtés, coins arrondis, ombre portée. Le dégradé va du BLANC (à gauche, où se
@@ -54,7 +54,7 @@ a{color:var(--accent)}
  * BLEU DÉJÀ EN USAGE (`--accent`, à droite, sous la carte de l'agent). Le sens
  * du dégradé n'est pas décoratif : il suit la lecture, du titre vers l'identité.
  *
- * L'effet de verre a ici de quoi se voir — la page défile DERRIÈRE la barre, et
+ * L'effet de verre a ici de quoi se voir, la page défile DERRIÈRE la barre, et
  * c'est ce contenu en mouvement que le flou saisit.
  * ====================================================================== */
 .top{
@@ -62,12 +62,12 @@ a{color:var(--accent)}
   padding:10px 16px;margin:10px 12px 4px;
   position:sticky;top:10px;z-index:5;
   /* 30 px (2026-09-11) : la barre mesure une soixantaine de pixels de haut, et
-     un rayon vaut au plus la MOITIÉ de la hauteur — au-delà, la forme n'arrondit
+     un rayon vaut au plus la MOITIÉ de la hauteur, au-delà, la forme n'arrondit
      plus, elle devient une pilule et le rayon cesse d'avoir un effet. 30 est
      donc tout près du maximum utile, en gardant un soupçon de côté droit. */
   border-radius:30px;
   /* Opacités ABAISSÉES (2026-09-11) : à .92 la surface était presque opaque et
-     le flou ne montrait rien. Le verre ne se voit que si l'on voit au travers —
+     le flou ne montrait rien. Le verre ne se voit que si l'on voit au travers,
      ici, le contenu de la page qui défile dessous. */
   background:linear-gradient(100deg,
     rgba(255,255,255,.42) 0%,
@@ -90,7 +90,7 @@ a{color:var(--accent)}
 .top-titre{display:flex;align-items:center;gap:12px;flex:1;min-width:0}
 /* Fond blanc et contour bleu CLIGNOTANT : c'est le repère qui dit « vous êtes
    ici », et le battement le fait remarquer sans clignoter au sens pénible du
-   terme — deux secondes de cycle, une pulsation lente. */
+   terme, deux secondes de cycle, une pulsation lente. */
 .top-icone{
   flex:0 0 auto;width:40px;height:40px;border-radius:50%;
   background:#fff;color:var(--accent);
@@ -104,7 +104,7 @@ a{color:var(--accent)}
 }
 .top-textes{min-width:0}
 /* LE NOM DE LA PLATEFORME DOMINE (2026-09-11, demande utilisateur) : 17 px
-   contre 13,5 pour le volet. La hiérarchie était inversée — l'écran courant
+   contre 13,5 pour le volet. La hiérarchie était inversée, l'écran courant
    criait plus fort que l'application elle-même.
 
    Il reprend la SERIF des titres, en capitales espacées : c'est l'écriture
@@ -116,7 +116,7 @@ a{color:var(--accent)}
   color:var(--accent);line-height:1.18;
 }
 /* Le nom du volet : plus petit, en GRAISSE LÉGÈRE, et dans la sans de
-   l'interface. C'est une précision sous le nom de la plateforme — une légende,
+   l'interface. C'est une précision sous le nom de la plateforme, une légende,
    pas un titre qui lui dispute la place. Le contraste serif/sans sépare les
    deux d'un coup d'œil, sans qu'aucune ligne n'ait besoin d'être en gras. */
 .top-volet{
@@ -149,16 +149,16 @@ a{color:var(--accent)}
 @media (prefers-reduced-motion:reduce){
   .top-icone{animation:none;border-color:rgba(14,90,138,.6)}
 }
-/* LARGEUR DE LA ZONE DE TRAVAIL — revu le 2026-09-11.
+/* LARGEUR DE LA ZONE DE TRAVAIL : revu le 2026-09-11.
  *
- * Elle était plafonnée à 1100 px. L'intention était bonne — une ligne de texte
- * trop longue se lit mal, l'œil perd le début de la ligne suivante — mais le
+ * Elle était plafonnée à 1100 px. L'intention était bonne, une ligne de texte
+ * trop longue se lit mal, l'œil perd le début de la ligne suivante, mais le
  * réglage était mal calibré POUR CETTE APPLICATION : on n'y lit presque pas de
  * texte suivi, on y lit des TABLEAUX et des grilles de tuiles, qui eux gagnent
  * à s'étaler. Sur un écran de 1920, près de 600 px restaient vides à droite.
  *
- * Le plafond passe donc à 1720 px — un 1920 est rempli, un écran très large
- * reste borné — et la contrainte de lecture est reportée là où elle a un sens :
+ * Le plafond passe donc à 1720 px, un 1920 est rempli, un écran très large
+ * reste borné, et la contrainte de lecture est reportée là où elle a un sens :
  * sur les PARAGRAPHES eux-mêmes (voir la règle suivante), pas sur les tableaux.
  */
 .content{padding:20px 24px;max-width:1720px;width:100%}
@@ -224,7 +224,7 @@ tr.clk{cursor:pointer} tr.clk:hover{background:var(--accent-soft)}
 @keyframes sp{to{transform:rotate(360deg)}}
 .err-msg{color:var(--err);font-size:13px;margin-top:6px}
 
-/* AVIS « signature faite, affichage en échec » — 2026-09-11.
+/* AVIS « signature faite, affichage en échec », 2026-09-11.
    Volontairement PAS rouge : la signature a bien été enregistrée, seul le
    rafraîchissement de la liste a échoué. Un rouge d'erreur à cet endroit est ce
    qui poussait le chef à resigner. Encadré ambre, donc : quelque chose demande
@@ -246,7 +246,7 @@ tr.clk{cursor:pointer} tr.clk:hover{background:var(--accent-soft)}
 .bandeau .t{font-weight:700;font-size:13.5px;color:var(--warn);margin-bottom:5px}
 .bandeau .l{font-size:13px;margin:3px 0}
 
-/* Fiche de synthèse repliable — reprise de la MISE EN PAGE de la fiche papier
+/* Fiche de synthèse repliable, reprise de la MISE EN PAGE de la fiche papier
    du chef : bandeau noir par bloc, puis des cases « étiquette sombre / grand
    nombre ». La grille est fixée à 4 colonnes pour qu'une ligne de 3 cases laisse
    le même vide que sur le papier. */
@@ -356,7 +356,7 @@ tr.clk{cursor:pointer} tr.clk:hover{background:var(--accent-soft)}
   .side{position:fixed;left:-240px;width:230px;transition:left .2s;z-index:30}
   .side.open{left:0}
   /* LES TROIS TRAITS SEULS (2026-09-11) : aucun cadre, aucun fond. Le survol
-     se marque par un disque très clair — jamais un rectangle, qui redessinerait
+     se marque par un disque très clair, jamais un rectangle, qui redessinerait
      la boîte qu'on vient d'enlever. */
   .burger{
     display:grid;place-items:center;
@@ -370,11 +370,11 @@ tr.clk{cursor:pointer} tr.clk:hover{background:var(--accent-soft)}
   .burger:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
   /* Barre supérieure : sur 375 px, le dégradé bleu passerait sous la carte de
      l'agent et la rendrait illisible. On garde le blanc, on resserre, et le
-     nom de l'agent cède la place — il reste dans la barre latérale. */
+     nom de l'agent cède la place, il reste dans la barre latérale. */
   /* Mêmes opacités basses qu'en grand écran : le verre doit se voir partout.
      Le bleu est seulement adouci, car sur 375 px il passerait sous la carte de
      l'agent et la rendrait illisible. */
-  /* Écran étroit : la barre est plus basse, le rayon suit — sinon les coins
+  /* Écran étroit : la barre est plus basse, le rayon suit, sinon les coins
      mordraient sur le contenu. */
   .top{margin:8px;padding:8px 10px;gap:10px;border-radius:22px;
     background:linear-gradient(100deg,rgba(255,255,255,.54),rgba(255,255,255,.42) 70%,rgba(14,90,138,.22) 100%)}
@@ -508,7 +508,7 @@ tr.clk{cursor:pointer} tr.clk:hover{background:var(--accent-soft)}
   .nm-onglet,.nm-onglet svg{transition:none}
 }
 
-/* ================= LOGO PIA_Suivi_Cargo — 2026-09-10 =====================
+/* ================= LOGO PIA_Suivi_Cargo, 2026-09-10 =====================
  *
  * Cadre ROND, logo ENTIER. Les deux ensemble supposent `object-fit: contain`,
  * jamais `cover` : `cover` remplit le cercle en RECADRANT, ce qui couperait le
@@ -537,7 +537,7 @@ tr.clk{cursor:pointer} tr.clk:hover{background:var(--accent-soft)}
 .brand-login .logo-rond{width:96px;height:96px}
 
 
-/* ============ BARRE LATÉRALE — refonte 2026-09-10 ========================
+/* ============ BARRE LATÉRALE : refonte 2026-09-10 ========================
  *
  * Reprise de la disposition de la plateforme LA TERMITIÈRE : bloc de marque en
  * carte arrondie, éléments de menu en PILULES, et carte utilisateur ancrée en
@@ -546,7 +546,7 @@ tr.clk{cursor:pointer} tr.clk:hover{background:var(--accent-soft)}
  * La teinte, elle, reste celle de Cargo Tracker (bleu marine + accent `--accent`)
  * : c'est la disposition qu'on reprend, pas la couleur d'une autre application.
  *
- * La barre devient une COLONNE FLEX en trois parties — marque figée en haut,
+ * La barre devient une COLONNE FLEX en trois parties, marque figée en haut,
  * menu qui défile au milieu, compte ancré en bas (`margin-top:auto`). Sans ça, un
  * menu long comme celui de l'ADMIN (30 entrées) repoussait le bouton de
  * déconnexion hors de l'écran.
@@ -557,16 +557,16 @@ tr.clk{cursor:pointer} tr.clk:hover{background:var(--accent-soft)}
   gap:10px;
   overflow:hidden; /* c'est le menu qui défile, pas la barre entière */
 
-  /* FOND TEXTURÉ — indispensable au verre dépoli.
+  /* FOND TEXTURÉ : indispensable au verre dépoli.
    * `backdrop-filter` FLOUTE CE QU'IL Y A DERRIÈRE : sur un aplat uni, il n'a
    * rien à flouter et l'effet ne se voit pas. Ces deux halos donnent au fond la
    * matière que le verre vient diffuser ; c'est ce qui rend la carte lisible
    * comme une plaque translucide et non comme un simple rectangle plus clair. */
-  /* FOND TEXTURÉ, OPAQUE — décision utilisateur du 2026-09-11 : le panneau
+  /* FOND TEXTURÉ, OPAQUE · décision utilisateur du 2026-09-11 : le panneau
      translucide essayé le même jour a été retiré. La barre latérale reste donc
      un aplat sombre franc.
      Les deux halos ne sont PAS décoratifs : ils donnent au panneau la matière
-     que le verre des cartes intérieures — marque, compte, pilule active — vient
+     que le verre des cartes intérieures (marque, compte, pilule active) vient
      diffuser. Les retirer ferait disparaître l'effet de verre de ces cartes,
      qui n'auraient plus rien à flouter. */
   background:
@@ -586,7 +586,7 @@ tr.clk{cursor:pointer} tr.clk:hover{background:var(--accent-soft)}
   /* VERRE DÉPOLI. Quatre ingrédients, chacun nécessaire :
    *  · le dégradé translucide donne l'épaisseur (plus clair en haut, comme une
    *    plaque prise en lumière rasante) ;
-   *  · `backdrop-filter` floute et sature le fond texturé défini sur `.side` —
+   *  · `backdrop-filter` floute et sature le fond texturé défini sur `.side`,
    *    c'est LUI qui fait le dépoli ;
    *  · la bordure claire dessine l'arête de la plaque ;
    *  · l'ombre portée la décolle du fond, et le liseré interne (`inset`) simule
@@ -610,7 +610,7 @@ tr.clk{cursor:pointer} tr.clk:hover{background:var(--accent-soft)}
 /* --- Logo : anneau lumineux en rotation --------------------------------- */
 .logo-halo{position:relative;width:46px;height:46px;flex:0 0 auto;display:grid;place-items:center}
 /* L'anneau : un dégradé conique tournant. Le pseudo-élément `::after` en masque
-   le centre, ne laissant qu'un filet de 2 px — sans lui on aurait un disque. */
+   le centre, ne laissant qu'un filet de 2 px, sans lui on aurait un disque. */
 .logo-halo::before{
   content:'';position:absolute;inset:0;border-radius:50%;
   background:conic-gradient(from 0turn,transparent 0 52%,#4aa3d8 72%,#8fd3ff 82%,transparent 95%);
@@ -642,7 +642,7 @@ tr.clk{cursor:pointer} tr.clk:hover{background:var(--accent-soft)}
   transition:background .12s,color .12s;
 }
 .side .nav a:hover{background:#ffffff14;color:#fff}
-/* Pilule active — verre TEINTÉ, plus léger que la carte de marque.
+/* Pilule active, verre TEINTÉ, plus léger que la carte de marque.
  * L'accent reste dominant (c'est un repère de navigation, il doit trancher),
  * mais le voile clair en diagonale et le liseré supérieur lui donnent la même
  * matière qu'au bloc du haut : l'ensemble se lit comme un seul matériau. */
@@ -704,7 +704,7 @@ tr.clk{cursor:pointer} tr.clk:hover{background:var(--accent-soft)}
 /* À la connexion, le bandeau est dans la colonne étroite : pas de marge latérale. */
 .ecran-connexion .maj-bandeau{margin:0 0 16px;position:relative;z-index:2}
 /* !important : la règle générale des boutons (une chaîne de :not()) pose un
-   dégradé bleu plus spécifique que tout sélecteur raisonnable — sans cela le
+   dégradé bleu plus spécifique que tout sélecteur raisonnable, sans cela le
    bouton serait bleu sur le bandeau bleu, texte illisible. */
 .maj-bandeau button{
   background:#fff !important;color:var(--accent) !important;border:0;border-radius:9px;
@@ -722,16 +722,16 @@ tr.clk{cursor:pointer} tr.clk:hover{background:var(--accent-soft)}
 .side .nav a:hover .ic,.side .nav a.active .ic{opacity:1}
 
 
-/* ============ ÉCRAN DE CONNEXION — 2026-09-11 ===========================
+/* ============ ÉCRAN DE CONNEXION : 2026-09-11 ===========================
  *
  * LE TITRE. Serif, corps généreux, interlettrage resserré : l'écriture d'un
  * en-tête institutionnel, non celle d'un formulaire.
  *
  * L'ANIMATION. Le logo est entouré de ce que la plateforme fait réellement :
- *   · une ROUTE en pointillés qui tourne lentement — l'itinéraire ;
+ *   · une ROUTE en pointillés qui tourne lentement, l'itinéraire ;
  *   · un CAMION qui la parcourt, maintenu droit par une contre-rotation
  *     (sans elle, il roulerait sur le toit à mi-parcours) ;
- *   · une ONDE qui se propage — le relevé de position qui remonte.
+ *   · une ONDE qui se propage, le relevé de position qui remonte.
  *
  * Trois signes lents et discrets. Un écran de connexion se regarde plusieurs
  * fois par jour : ce qui s'agite y devient vite fatigant.
@@ -744,7 +744,7 @@ tr.clk{cursor:pointer} tr.clk:hover{background:var(--accent-soft)}
 .hero-sous{
   /* Même serif que le titre : le bloc d'en-tête se lit d'un seul tenant, au
      lieu de mélanger deux écritures sur trois lignes. Corps un peu plus grand
-     et interligne aéré — c'est une phrase de présentation, pas une étiquette. */
+     et interligne aéré, c'est une phrase de présentation, pas une étiquette. */
   font-family:var(--titre);
   font-size:16px;line-height:1.6;letter-spacing:.005em;
   color:var(--muted);text-align:center;max-width:30rem;margin:14px auto 20px;
@@ -787,7 +787,7 @@ tr.clk{cursor:pointer} tr.clk:hover{background:var(--accent-soft)}
 }
 
 /* Mouvement réduit : on garde les repères, on retire le mouvement. Certaines
-   personnes souffrent réellement des animations — ce n'est pas une préférence
+   personnes souffrent réellement des animations, ce n'est pas une préférence
    esthétique. */
 @media (prefers-reduced-motion:reduce){
   .suivi-piste,.suivi-onde,.suivi-orbite,.suivi-mobile{animation:none}
@@ -795,15 +795,15 @@ tr.clk{cursor:pointer} tr.clk:hover{background:var(--accent-soft)}
 }
 
 
-/* ============ VERRE DÉPOLI DE L'ÉCRAN DE CONNEXION — 2026-09-11 ==========
+/* ============ VERRE DÉPOLI DE L'ÉCRAN DE CONNEXION, 2026-09-11 ==========
  *
  * ⚠ LE POINT QUI DÉCIDE DE TOUT : un `backdrop-filter` ne montre QUE ce qu'il
- * a derrière lui. Posé sur un aplat blanc, il ne produit rien — du blanc flouté
+ * a derrière lui. Posé sur un aplat blanc, il ne produit rien, du blanc flouté
  * reste du blanc. Trois couches sont donc nécessaires, et dans cet ordre :
  *
- *   1. un FOND TRAVAILLÉ (dégradés radiaux) — la matière à flouter ;
- *   2. une CARTE translucide — elle laisse passer ce fond ;
- *   3. le BOUTON translucide — il floute la carte, donc le fond au travers.
+ *   1. un FOND TRAVAILLÉ (dégradés radiaux), la matière à flouter ;
+ *   2. une CARTE translucide, elle laisse passer ce fond ;
+ *   3. le BOUTON translucide, il floute la carte, donc le fond au travers.
  *
  * Traiter le bouton seul aurait donné un effet déclaré mais invisible.
  * ====================================================================== */
@@ -835,13 +835,13 @@ tr.clk{cursor:pointer} tr.clk:hover{background:var(--accent-soft)}
 
 /* 3. Les boutons. La règle porte sur TOUS ceux de l'écran, pas seulement sur
       ceux des formulaires : « Retour à la connexion » vit en dehors du
-      formulaire, et il échappait donc à la mise en forme — d'où un bouton
+      formulaire, et il échappait donc à la mise en forme, d'où un bouton
       d'angle carré isolé sous une carte entièrement arrondie.
 
       Deux rôles, une seule famille :
         · l'ACTION PRINCIPALE (Se connecter, Valider) est pleine et colorée ;
         · l'ACTION SECONDAIRE (`.ghost`) est de verre clair, et se REMPLIT DE
-          BLANC au survol — c'est le retour visuel qui manquait. */
+          BLANC au survol, c'est le retour visuel qui manquait. */
 .ecran-connexion button{
   border-radius:999px;
   padding:11px 18px;
@@ -911,7 +911,7 @@ tr.clk{cursor:pointer} tr.clk:hover{background:var(--accent-soft)}
 }
 
 /* Les champs : bords arrondis, creux léger, et un halo net à la prise de focus.
-   Le creux (`inset`) fait lire le champ comme une surface en retrait — c'est ce
+   Le creux (`inset`) fait lire le champ comme une surface en retrait, c'est ce
    qui distingue une zone où l'on écrit d'une zone qui affiche. */
 .ecran-connexion input{
   border-radius:12px;
@@ -1108,8 +1108,8 @@ tr.clk{cursor:pointer} tr.clk:hover{background:var(--accent-soft)}
 /* ---- Mot d'accueil -----------------------------------------------------
  *
  * Une ligne, en italique de la serif des titres, encadrée de deux filets qui
- * s'effacent vers l'extérieur. Le procédé est ancien — c'est la mise en page
- * d'une dédicace — et c'est précisément ce qui le rend élégant sans bruit :
+ * s'effacent vers l'extérieur. Le procédé est ancien, c'est la mise en page
+ * d'une dédicace, et c'est précisément ce qui le rend élégant sans bruit :
  * aucun cadre, aucune couleur, rien qui dispute l'attention au formulaire.
  */
 .mot-accueil{
@@ -1125,7 +1125,7 @@ tr.clk{cursor:pointer} tr.clk:hover{background:var(--accent-soft)}
 .mot-accueil::after{background:linear-gradient(90deg,rgba(14,90,138,.38),transparent)}
 
 
-/* ============ TABLEAU DE BORD — bento + verre — 2026-09-11 ==============
+/* ============ TABLEAU DE BORD (bento + verre) 2026-09-11 ==============
  *
  * CANTONNÉ à `.bento`, c'est-à-dire au seul tableau de bord. Les tuiles
  * `.stats` des autres écrans (rapports, entrepôts) gardent leur mise en forme :
@@ -1137,32 +1137,32 @@ tr.clk{cursor:pointer} tr.clk:hover{background:var(--accent-soft)}
  * lit avant même qu'on ait lu un chiffre.
  *
  * VERRE. Le lavis coloré du fond de page (voir `body`) passe sous les tuiles et
- * les traverse. C'est lui qui rend l'effet visible — sur un fond uni il n'y
+ * les traverse. C'est lui qui rend l'effet visible, sur un fond uni il n'y
  * aurait rien à diffuser.
  * ====================================================================== */
-/* ============ TABLEAU DE BORD — 2026-09-11 ==============================
+/* ============ TABLEAU DE BORD : 2026-09-11 ==============================
  *
  * Le fond bleu profond essayé plus tôt a été RETIRÉ (décision utilisateur) :
  * l'écran retrouve le fond clair de l'application. Le bento et le verre, eux,
- * restent — c'est le cadre coloré sous la grille (`.bento-cadre`) qui donne
+ * restent, c'est le cadre coloré sous la grille (`.bento-cadre`) qui donne
  * alors au verre la matière qu'il lui faut pour se voir.
  */
 
 /* ---- PALETTE DES ÉTAPES ----------------------------------------------
  *
  * Une couleur par poste du parcours, et la même partout : la tuile, sa flèche
- * d'évolution et son chevron de clic. Toutes SOMBRES ET PEU SATURÉES — sur un
+ * d'évolution et son chevron de clic. Toutes SOMBRES ET PEU SATURÉES, sur un
  * outil de service, la couleur sert à identifier un poste, pas à décorer. Deux
  * d'entre elles existaient déjà (`--accent` pour le CFS, `--ok` pour la sortie).
  */
 :root{
-  --etape-cfs:#0e5a8a;        /* bleu PIA — l'entrée */
-  --etape-validation:#8a4b1c; /* ocre brûlé — la signature du chef */
-  --etape-t1:#2f6f6b;         /* sarcelle profond — le transit */
-  --etape-balise:#5c4a92;     /* indigo — la pose de balise */
-  --etape-bs:#8a6a14;         /* ambre foncé — le bon de sortie */
-  --etape-pp:#1f7a5c;         /* vert — la sortie effective */
-  --etape-vehicule:#46586b;   /* ardoise — les véhicules */
+  --etape-cfs:#0e5a8a;        /* bleu PIA, l'entrée */
+  --etape-validation:#8a4b1c; /* ocre brûlé, la signature du chef */
+  --etape-t1:#2f6f6b;         /* sarcelle profond, le transit */
+  --etape-balise:#5c4a92;     /* indigo, la pose de balise */
+  --etape-bs:#8a6a14;         /* ambre foncé, le bon de sortie */
+  --etape-pp:#1f7a5c;         /* vert, la sortie effective */
+  --etape-vehicule:#46586b;   /* ardoise, les véhicules */
 }
 .et-cfs{--teinte:var(--etape-cfs)}
 .et-validation{--teinte:var(--etape-validation)}
@@ -1194,7 +1194,7 @@ tr.clk{cursor:pointer} tr.clk:hover{background:var(--accent-soft)}
  * Elle s'affichait dans la graisse et la taille du texte courant (15 px, encre
  * pleine) : elle pesait autant que les données qu'elle commente. Réduite,
  * grisée, posée sur un fond très pâle et marquée d'un filet franc, elle se lit
- * pour ce qu'elle est — une note de lecture — sans disparaître.
+ * pour ce qu'elle est (une note de lecture) sans disparaître.
  */
 .ecran-dash .card > .help{
   border-left:3px solid rgba(14,90,138,.45);
@@ -1207,7 +1207,7 @@ tr.clk{cursor:pointer} tr.clk:hover{background:var(--accent-soft)}
 
 /* ---- Le sélecteur de période ------------------------------------------
  *
- * `appearance:none` retire la flèche native — il FAUT donc en fournir une, sans
+ * `appearance:none` retire la flèche native, il FAUT donc en fournir une, sans
  * quoi le champ n'annoncerait plus qu'il se déroule. Elle est dessinée en SVG
  * dans une `data:` URI : la CSP autorise `img-src 'self' data:`, une icône
  * distante serait bloquée.
@@ -1282,7 +1282,7 @@ tr.clk{cursor:pointer} tr.clk:hover{background:var(--accent-soft)}
  * clair de la page, les tuiles n'avaient rien à dépolir : l'effet était déclaré
  * et invisible. Ce cadre porte trois halos aux couleurs de l'application, assez
  * francs pour que chaque tuile en diffuse une teinte différente selon l'endroit
- * où elle se trouve — c'est cette VARIATION d'une tuile à l'autre qui fait
+ * où elle se trouve, c'est cette VARIATION d'une tuile à l'autre qui fait
  * reconnaître du verre, bien plus que la transparence elle-même.
  */
 /* Le cadre coloré : c'est lui qui donne au verre des tuiles quelque chose à
@@ -1307,7 +1307,7 @@ tr.clk{cursor:pointer} tr.clk:hover{background:var(--accent-soft)}
      formats doubles essayés plus tôt sont retirés : un tableau de bord se
      balaie du regard, et des tuiles inégales font hésiter sur ce qu'il faut
      lire en premier. 244 px : depuis que la mention d'évolution se réduit à la
-     flèche et au pourcentage, la tuile n'a plus besoin d'être aussi large — on
+     flèche et au pourcentage, la tuile n'a plus besoin d'être aussi large, on
      en loge davantage par rangée sans rien serrer. */
   grid-template-columns:repeat(auto-fill,minmax(244px,1fr));
   gap:14px;
@@ -1317,7 +1317,7 @@ tr.clk{cursor:pointer} tr.clk:hover{background:var(--accent-soft)}
 /* ---- LA TUILE, calquée sur le modèle fourni ---------------------------
  *
  * Trois colonnes : la PASTILLE d'étape, les TEXTES, le CHEVRON. La grille les
- * pose sans toucher à l'ordre du HTML — le chiffre reste écrit avant son
+ * pose sans toucher à l'ordre du HTML, le chiffre reste écrit avant son
  * libellé dans le code, ce qui garde `StatCard` compatible avec les autres
  * écrans, tandis qu'ici le libellé s'affiche AU-DESSUS, comme sur le modèle.
  */
@@ -1333,7 +1333,7 @@ tr.clk{cursor:pointer} tr.clk:hover{background:var(--accent-soft)}
   column-gap:12px;
   /* Hauteur commune : les tuiles d'ÉVÉNEMENTS portent une ligne d'évolution que
      les tuiles d'ATTENTE n'ont pas, et l'écart de 15 px se voyait d'un rang à
-     l'autre. On réserve la place pour toutes — la grille reste régulière. */
+     l'autre. On réserve la place pour toutes, la grille reste régulière. */
   min-height:90px;
   border:1px solid rgba(255,255,255,.72);
   /* LA COULEUR DU BORD RESTE : c'est elle qui identifie l'étape d'un coup d'œil. */
@@ -1385,7 +1385,7 @@ tr.clk{cursor:pointer} tr.clk:hover{background:var(--accent-soft)}
 /* Rien ne distinguait une tuile qui ouvre un écran d'une tuile inerte. Le
    curseur ne suffit pas : sur un poste tactile, il n'existe pas. */
 .bento .stat.cliquable{cursor:pointer}
-/* À DROITE, CENTRÉ EN HAUTEUR — la place qu'il occupe sur le modèle fourni.
+/* À DROITE, CENTRÉ EN HAUTEUR : la place qu'il occupe sur le modèle fourni.
    Discret au repos : il indique qu'on peut ouvrir, il ne réclame pas le regard. */
 .stat-clic{
   grid-area:chevron;
@@ -1419,7 +1419,7 @@ tr.clk{cursor:pointer} tr.clk:hover{background:var(--accent-soft)}
 .bento .evo-hausse{color:#1f7a5c;background:none}
 .bento .evo-baisse{color:#c0392b;background:none}
 .bento .evo-stable,.bento .evo-neuf{color:#6b7a89;background:none}
-/* La PART de la file : gris sobre, sans flèche — ce n'est pas un mouvement,
+/* La PART de la file : gris sobre, sans flèche, ce n'est pas un mouvement,
    c'est un poids. La confondre avec une évolution serait pire que rien. */
 .evo-part{color:#6b7a89;background:none;font-weight:500}
 .bento .evo-part svg{opacity:.7}
@@ -1436,10 +1436,10 @@ tr.clk{cursor:pointer} tr.clk:hover{background:var(--accent-soft)}
 }
 
 
-/* ============ CRÉER UN CAMION — 2026-09-11 ==============================
+/* ============ CRÉER UN CAMION : 2026-09-11 ==============================
  *
  * Mêmes matériaux que le tableau de bord : carte de verre, coins arrondis,
- * champs translucides. Et un EN-TÊTE ILLUSTRÉ qui raconte le geste — là où
+ * champs translucides. Et un EN-TÊTE ILLUSTRÉ qui raconte le geste, là où
  * l'écran de connexion montre un suivi (un camion qui tourne), celui-ci montre
  * une CRÉATION : le camion entre dans le cercle, puis un « + » apparaît.
  *
@@ -1555,7 +1555,7 @@ tr.clk{cursor:pointer} tr.clk:hover{background:var(--accent-soft)}
   outline:none;background:#fff;border-color:var(--accent);
   box-shadow:0 0 0 3px rgba(14,90,138,.17);
 }
-/* L'aide sous le champ : une précision, pas une consigne — d'où le gris. */
+/* L'aide sous le champ : une précision, pas une consigne, d'où le gris. */
 .ecran-creer .card > div > .help,
 .ecran-creer div > div.help{font-size:12px;color:#6b7a89;margin-top:5px}
 
@@ -1643,11 +1643,11 @@ tr.clk{cursor:pointer} tr.clk:hover{background:var(--accent-soft)}
 }
 
 
-/* ================= PARKING — 2026-09-24, demande utilisateur =============
+/* ================= PARKING : 2026-09-24, demande utilisateur =============
  *
  * L'en-tête de la fenêtre d'ajout : le logo au centre, et un camion qui TOURNE
  * AUTOUR pour venir se ranger. Même langage que l'écran « Créer un camion »
- * (anneau en pointillés, pastille bleue, ombre courte) — c'est la même maison.
+ * (anneau en pointillés, pastille bleue, ombre courte), c'est la même maison.
  */
 .park-entete{
   display:flex;flex-direction:column;align-items:center;text-align:center;
@@ -1671,7 +1671,7 @@ tr.clk{cursor:pointer} tr.clk:hover{background:var(--accent-soft)}
 @keyframes park-places{to{transform:rotate(-360deg)}}
 
 /* LE CAMION FAIT LE TOUR PUIS SE RANGE : il tourne, marque un temps d'arrêt
-   sur une place, puis repart — c'est l'entrée au parking, en boucle. */
+   sur une place, puis repart, c'est l'entrée au parking, en boucle. */
 .park-orbite{
   position:absolute;inset:2px;
   animation:park-tour 7s cubic-bezier(.45,0,.2,1) infinite;
@@ -1702,7 +1702,7 @@ tr.clk{cursor:pointer} tr.clk:hover{background:var(--accent-soft)}
 /* La liste des camions signalés par l'alerte de saisie. */
 .park-alerte{margin:6px 0 10px;padding-left:18px;font-size:13px;line-height:1.7;color:#42505c}
 /* La ligne de période, au-dessus de la liste : discrète tant qu'elle n'est
-   pas cochée — la question courante est « qui est là aujourd'hui ? ». */
+   pas cochée, la question courante est « qui est là aujourd'hui ? ». */
 .park-periode{padding:10px 14px}
 .park-periode .row{margin-top:8px}
 /* « Supprimer » porte la couleur de l'irréversible, comme sur les dossiers. */
@@ -1712,7 +1712,7 @@ tr.clk{cursor:pointer} tr.clk:hover{background:var(--accent-soft)}
   .park-places,.park-orbite,.park-camion{animation:none}
 }
 
-/* ============ FINITIONS GÉNÉRALES — 2026-09-11 ==========================
+/* ============ FINITIONS GÉNÉRALES : 2026-09-11 ==========================
  *
  * Le traitement mis au point sur le tableau de bord, étendu à TOUS les écrans
  * (demande utilisateur). Deux principes ont guidé le dosage :
@@ -1722,7 +1722,7 @@ tr.clk{cursor:pointer} tr.clk:hover{background:var(--accent-soft)}
  *     douane n'est pas une page d'accueil.
  *  2. LE FLOU COÛTE CHER. `backdrop-filter` est calculé par le processeur
  *     graphique à chaque image ; multiplié par les dizaines de surfaces d'un
- *     écran de rapport, il se sent sur un poste modeste — et les postes du port
+ *     écran de rapport, il se sent sur un poste modeste, et les postes du port
  *     ne sont pas des stations de travail. Il est donc réservé aux CARTES et
  *     aux TABLEAUX, jamais posé sur chaque champ.
  * ====================================================================== */
@@ -1740,7 +1740,7 @@ tr.clk{cursor:pointer} tr.clk:hover{background:var(--accent-soft)}
 
 /* ---- Champs de saisie ----
    Pas de flou ici : un champ se lit et se remplit, il n'a pas à être une
-   plaque de verre — et c'est autant de calcul épargné. */
+   plaque de verre, et c'est autant de calcul épargné. */
 input,select,textarea{
   border-radius:10px;
   padding:9px 12px;
@@ -1774,8 +1774,8 @@ button{
   transition:background .18s ease,color .18s ease,border-color .18s ease,box-shadow .2s ease,transform .14s ease;
 }
 /* ⚠ `.burger` et `.repli` portent leur PROPRE fond (trois traits nus, chevron
-   de repli). Sans ces exclusions, la règle générale — écrite plus bas dans le
-   fichier — les repeignait en pastille bleue pleine. C'est le piège classique
+   de repli). Sans ces exclusions, la règle générale, écrite plus bas dans le
+   fichier, les repeignait en pastille bleue pleine. C'est le piège classique
    d'un style global ajouté après coup : il rattrape les exceptions déjà
    réglées. */
 button:not(.ghost):not(.burger):not(.repli):not(.bm-action):not(.bm-retour):not(.btn-export):not(.acte):not(.hubitem):not(.nm-onglet):not(.seg-choix):not(.modal-fermer):not(:disabled){
@@ -1838,14 +1838,14 @@ tr.clk:hover{background:rgba(14,90,138,.06)}
 
 /* ---- Les textes d'aide ------------------------------------------------
  *
- * `.help` sert 250 fois dans l'application — explications d'écran, précisions
- * sous un champ, notes de bas de carte — et SEULE la variante `label.help`
+ * `.help` sert 250 fois dans l'application, explications d'écran, précisions
+ * sous un champ, notes de bas de carte, et SEULE la variante `label.help`
  * était stylée. Partout ailleurs, ces textes héritaient du corps : 15 px, encre
  * pleine, c'est-à-dire exactement le poids des données qu'ils commentent.
  *
  * Ils passent en 12,5 px gris. Rien d'autre : pas d'encadré, pas de fond. Ces
- * blocs sont de natures trop différentes — une note de trois lignes et une
- * précision de quatre mots sous un champ — pour recevoir le même traitement
+ * blocs sont de natures trop différentes, une note de trois lignes et une
+ * précision de quatre mots sous un champ, pour recevoir le même traitement
  * décoratif. Seul le tableau de bord, où la note d'en-tête est longue et
  * isolée, garde son encadré (règle plus spécifique, définie plus haut).
  *
@@ -1855,7 +1855,7 @@ tr.clk:hover{background:rgba(14,90,138,.06)}
 .help b{color:var(--ink);font-weight:600}
 
 
-/* ============ FICHE CARGAISON — 2026-09-11 ==============================
+/* ============ FICHE CARGAISON : 2026-09-11 ==============================
  *
  * Trois ajouts : une pastille d'identité en tête, un PARCOURS illustré où
  * chaque poste porte son icône et sa couleur, et un bouton de retour court.
@@ -1878,7 +1878,7 @@ tr.clk:hover{background:rgba(14,90,138,.06)}
 .btn-retour svg{transition:transform .16s ease}
 /* SIGNAL LUMINEUX BLEU au survol (2026-09-11) : un halo diffus, doublé d'un
    anneau net. Le halo se voit de loin, l'anneau dit précisément où s'arrête le
-   bouton — seul, le halo rendrait le contour flou et la cible imprécise. */
+   bouton, seul, le halo rendrait le contour flou et la cible imprécise. */
 .btn-retour:hover:not(:disabled){
   box-shadow:0 0 0 4px rgba(14,90,138,.16),
              0 0 20px rgba(14,90,138,.42),
@@ -1892,7 +1892,7 @@ tr.clk:hover{background:rgba(14,90,138,.06)}
  * La pastille porte l'ICÔNE du poste, plus un numéro : on reconnaît l'étape
  * avant de lire son nom. Une étape FAITE s'allume de sa couleur avec un halo ;
  * l'étape COURANTE respire lentement ; une étape non faite sur un dossier déjà
- * sorti reste grise et barrée d'un tiret — elle ne se fera plus.
+ * sorti reste grise et barrée d'un tiret, elle ne se fera plus.
  *
  * Un seul élément bat à la fois. Un parcours où tout clignote ne désigne rien.
  */
@@ -1954,7 +1954,7 @@ tr.clk:hover{background:rgba(14,90,138,.06)}
 
 /* ---- CORRECTIF : libellés de cases à cocher et de boutons radio ---------
  *
- * La règle générale met `label.help` en PETITES CAPITALES — juste pour un
+ * La règle générale met `label.help` en PETITES CAPITALES, juste pour un
  * libellé de champ posé au-dessus d'une zone de saisie. Mais la même classe
  * sert aussi à envelopper une case à cocher, et « NUMÉRO T1 CORRECT » en
  * capitales grises de 10,5 px se lisait mal et sonnait comme un en-tête, alors
@@ -1983,7 +1983,7 @@ input[type="checkbox"],input[type="radio"]{
 /* ---- En-tête d'écran illustré ------------------------------------------
  *
  * Pastille de l'étape + titre + compteur. Reprise sur les écrans de liste et
- * sur « À valider » : la pastille y porte l'icône de l'écran — celle du menu —
+ * sur « À valider » : la pastille y porte l'icône de l'écran, celle du menu,
  * et la teinte du poste filtré, s'il y en a un.
  *
  * Le COMPTEUR n'est pas décoratif : « À compléter (CFS) » ne disait pas s'il
@@ -1991,7 +1991,7 @@ input[type="checkbox"],input[type="radio"]{
  * veut savoir en ouvrant l'écran.
  */
 /* L'en-tête se REPLIE plutôt que de comprimer ses éléments : sur écran étroit,
-   le bouton d'extraction et le compteur se chevauchaient avec le titre — un
+   le bouton d'extraction et le compteur se chevauchaient avec le titre, un
    `flex` sans repli réduit jusqu'au recouvrement au lieu de passer à la ligne. */
 .ecran-tete{
   display:flex;align-items:center;gap:13px;flex-wrap:wrap;
@@ -2012,8 +2012,8 @@ input[type="checkbox"],input[type="radio"]{
   text-transform:uppercase;color:var(--muted);margin-top:2px;
 }
 
-/* Libellé de champ portant une icône : elle dit la NATURE de ce qu'on attend —
-   un camion, un conteneur — là où deux champs voisins se ressemblent. Les
+/* Libellé de champ portant une icône : elle dit la NATURE de ce qu'on attend,
+   un camion, un conteneur, là où deux champs voisins se ressemblent. Les
    petites capitales du libellé sont conservées ; seule l'icône s'aligne. */
 label.help.lbl-icone{display:inline-flex;align-items:center;gap:6px}
 label.help.lbl-icone svg{color:var(--accent);flex:0 0 auto}
@@ -2044,7 +2044,7 @@ label.help.lbl-icone svg{color:var(--accent);flex:0 0 auto}
 .stat .stat-clic{position:absolute;top:11px;right:11px;left:auto;bottom:auto;transform:none}
 .stat.cliquable:hover .stat-clic{opacity:1;color:var(--teinte,var(--accent));transform:translateX(2px)}
 
-/* Le bouton d'extraction, en tête de liste : contour plutôt que plein — c'est
+/* Le bouton d'extraction, en tête de liste : contour plutôt que plein, c'est
    un geste secondaire, il ne doit pas peser autant que le contenu de l'écran. */
 .btn-export{
   display:inline-flex;align-items:center;gap:7px;flex:0 0 auto;
@@ -2068,11 +2068,11 @@ label.help.lbl-icone svg{color:var(--accent);flex:0 0 auto}
 }
 
 
-/* ============ GRAPHIQUES — verre — 2026-09-11 ===========================
+/* ============ GRAPHIQUES (verre) 2026-09-11 ===========================
  *
  * La zone de tracé devient une plaque translucide posée sur la carte. C'est
  * l'un des rares endroits où le verre SERT à quelque chose : il détache l'aire
- * du graphique du reste de la carte sans tracer de cadre — un cadre autour d'un
+ * du graphique du reste de la carte sans tracer de cadre, un cadre autour d'un
  * graphique ajoute une ligne qui n'est pas de la donnée.
  *
  * ⚠ Le verre s'arrête à l'ENVELOPPE. Les barres, les courbes et les points
@@ -2199,14 +2199,14 @@ label.help.lbl-icone svg{color:var(--accent);flex:0 0 auto}
 .ch-engagement{flex:1 1 260px;min-width:0;max-width:420px}
 .ch-delai{flex:0 0 auto}
 
-/* ============ FENÊTRES MODALES — verre — 2026-09-11 =====================
+/* ============ FENÊTRES MODALES (verre) 2026-09-11 =====================
  *
  * TOUTES les fenêtres qui s'ouvrent par-dessus l'écran : détail d'un rapport,
  * anti-doublon, nouveau compte, avertissements. Elles partagent `.modal`, donc
  * une seule règle les couvre.
  *
- * Le voile de fond est lui aussi flouté : on garde le contexte — la liste qu'on
- * vient de quitter reste devinée derrière — sans qu'il concurrence la fenêtre.
+ * Le voile de fond est lui aussi flouté : on garde le contexte, la liste qu'on
+ * vient de quitter reste devinée derrière, sans qu'il concurrence la fenêtre.
  */
 .overlay{
   background:rgba(10,24,38,.52);
@@ -2284,7 +2284,7 @@ label.help.lbl-icone svg{color:var(--accent);flex:0 0 auto}
 
 /* ---- Onglets du module magasin ----------------------------------------
  *
- * L'onglet ACTIF est bleu plein ; au survol il passe au BLANC, contour bleu —
+ * L'onglet ACTIF est bleu plein ; au survol il passe au BLANC, contour bleu,
  * la même inversion que partout ailleurs dans l'application. L'effet ne se
  * sentait pas ici parce que ces boutons héritaient de la règle générale sans
  * transition ni relief propres : c'est le mouvement et l'ombre qui font
@@ -2298,7 +2298,7 @@ label.help.lbl-icone svg{color:var(--accent);flex:0 0 auto}
 .onglet-mag:hover:not(:disabled){
   background:#fff;color:var(--accent);border-color:var(--accent);
   transform:translateY(-2px);
-  /* Halo bleu — le même signal que sur le bouton de retour. */
+  /* Halo bleu, le même signal que sur le bouton de retour. */
   box-shadow:0 0 0 3px rgba(14,90,138,.15),
              0 0 18px rgba(14,90,138,.35),
              0 8px 20px rgba(15,35,55,.14);
@@ -2322,7 +2322,7 @@ label.help.lbl-icone svg{color:var(--accent);flex:0 0 auto}
   box-shadow:0 12px 32px rgba(14,90,138,.30),inset 0 1px 0 rgba(255,255,255,.22);
 }
 /* Deux cercles très pâles en fond : ils donnent de la profondeur au bandeau
-   sans image — et sans un pixel de plus à télécharger. */
+   sans image, et sans un pixel de plus à télécharger. */
 .bandeau-module::after{
   content:'';position:absolute;right:-40px;top:-70px;width:230px;height:230px;
   border-radius:50%;background:rgba(255,255,255,.07);pointer-events:none;
@@ -2348,7 +2348,7 @@ label.help.lbl-icone svg{color:var(--accent);flex:0 0 auto}
    colonne, comme pour tout paragraphe. */
 .bm-sous{max-width:96ch}
 /* ⚠ Exclu de la règle générale des boutons (voir `:not(.bm-action)`) : celle-ci
-   est plus spécifique que cette classe et repeignait le bouton en bleu — donc
+   est plus spécifique que cette classe et repeignait le bouton en bleu, donc
    bleu sur bleu, illisible sur le bandeau. */
 .bm-action{
   flex:0 0 auto;display:inline-flex;align-items:center;gap:7px;
@@ -2548,13 +2548,13 @@ label.help.lbl-icone svg{color:var(--accent);flex:0 0 auto}
 
 /* ---- Liste des comptes ---- */
 .compte-ligne-u{display:flex;align-items:center;gap:11px;min-width:0}
-/* AVATAR EN RELIEF — 2026-09-11.
+/* AVATAR EN RELIEF : 2026-09-11.
  *
  * Une sphère, pas une pastille. Quatre couches, chacune nécessaire :
- *   · un REFLET en haut à gauche (dégradé radial) — la source de lumière ;
- *   · une OMBRE INTERNE en bas — le volume qui fuit dans l'ombre ;
- *   · un LISERÉ clair sur l'arête haute — le bord éclairé de la sphère ;
- *   · une OMBRE PORTÉE sous le cercle — il repose sur la ligne, il n'y flotte pas.
+ *   · un REFLET en haut à gauche (dégradé radial), la source de lumière ;
+ *   · une OMBRE INTERNE en bas, le volume qui fuit dans l'ombre ;
+ *   · un LISERÉ clair sur l'arête haute, le bord éclairé de la sphère ;
+ *   · une OMBRE PORTÉE sous le cercle, il repose sur la ligne, il n'y flotte pas.
  *
  * ⚠ La couleur arrive par `backgroundColor` en ligne, jamais par `background` :
  * la forme courte effacerait le dégradé du reflet posé ici.
@@ -2598,7 +2598,7 @@ tr:hover .avatar-u{
 }
 
 /* Sous 700 px, le bandeau se met en COLONNE : à l'horizontale, le bouton
-   d'action passait par-dessus le titre — un `flex` sans repli réduit les
+   d'action passait par-dessus le titre, un `flex` sans repli réduit les
    éléments jusqu'à ce qu'ils se chevauchent au lieu de passer à la ligne. */
 @media(max-width:700px){
   .bandeau-module{flex-wrap:wrap;gap:12px;padding:14px}
@@ -2615,7 +2615,7 @@ tr:hover .avatar-u{
 }
 
 
-/* ============ ÉCRAN D'ATTENTE — 2026-09-11 ==============================
+/* ============ ÉCRAN D'ATTENTE : 2026-09-11 ==============================
  *
  * Le logo, un anneau, et un conteneur qui en fait le tour. Le mouvement reste
  * dans le sujet de l'application : on attend qu'une cargaison arrive, pas
@@ -2658,7 +2658,7 @@ tr:hover .avatar-u{
 }
 .att-mot{font-size:12.5px;letter-spacing:.04em}
 
-/* Mouvement réduit : l'anneau se fige, le mot reste — l'information « ça
+/* Mouvement réduit : l'anneau se fige, le mot reste, l'information « ça
    charge » ne doit pas dépendre de l'animation. */
 @media (prefers-reduced-motion:reduce){
   .att-anneau,.att-orbite,.att-colis,.att-logo .logo-rond{animation:none}
@@ -2729,13 +2729,13 @@ tr:hover .avatar-u{
 
 @supports not (selector(:has(*))){ .modal{max-width:560px} }
 
-/* ---- LA SCÈNETTE D'ATTENTE — 2026-09-12 -------------------------------
+/* ---- LA SCÈNETTE D'ATTENTE : 2026-09-12 -------------------------------
  *
  * Un trajet complet en 6 s, répété. Le camion arrive À VIDE, la barrière du
  * poste se lève, il se range sous le portique PIA, un conteneur descend sur son
  * plateau, il repart CHARGÉ et sort du cadre.
  *
- * UN SEUL cycle pour les cinq pièces — c'est lui qui garantit que le conteneur
+ * UN SEUL cycle pour les cinq pièces, c'est lui qui garantit que le conteneur
  * descend quand le camion est dessous, et pas dans le vide.
  *
  * LA PASSE DE MAIN. Le conteneur porté par le portique (`as-colis`) et celui
@@ -2800,9 +2800,9 @@ tr:hover .avatar-u{
   .att-scene{opacity:.35}
 }
 
-/* ---- MARQUE D'ENGAGEMENT dans les listes — 2026-09-12 ------------------
+/* ---- MARQUE D'ENGAGEMENT dans les listes, 2026-09-12 ------------------
  * Trois états, trois couleurs : soldé, en retard, en cours. La couleur ne
- * porte JAMAIS l'information seule — chaque pastille dit aussi son état en
+ * porte JAMAIS l'information seule, chaque pastille dit aussi son état en
  * toutes lettres, et son infobulle donne l'échéance. Un tableau douanier se
  * lit parfois en noir et blanc, ou par quelqu'un qui distingue mal le rouge
  * du vert. */
@@ -2821,7 +2821,7 @@ tr:hover .avatar-u{
 .acts-dossier .acts-suppr{color:var(--err);border-color:currentColor}
 /* !important (2026-09-24) : la regle generale des boutons (chaine de :not())
    pose un degrade bleu plus specifique. Le bouton d'une action IRREVERSIBLE
-   s'affichait donc en bleu, comme un bouton ordinaire — « Retirer
+   s'affichait donc en bleu, comme un bouton ordinaire, « Retirer
    l'engagement » comme « Supprimer » au parking. Il doit porter sa couleur. */
 button.acts-suppr-plein{background-color:var(--err) !important;background-image:none !important;color:#fff !important}
 
