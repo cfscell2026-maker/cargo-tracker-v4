@@ -278,10 +278,7 @@ export function ModaleAjoutParking({ onClose, onFait }: { onClose: () => void; o
 
   return <Modal onClose={onClose}>
     <EnteteParkingAnime />
-    <p className="help">
-      Le <b>N° du camion</b> est obligatoire. Le conteneur et le plomb sont facultatifs :
-      ils se complètent plus tard si l'information manque à l'entrée.
-    </p>
+    <p className="help">Camion obligatoire ; conteneur et plomb facultatifs.</p>
     <ChampCamion value={num} onChange={setNum} label="N° camion *" placeholder="" autoFocus onEnter={() => { if (pret && !busy) void ajouter(); }} />
     <div className="grid2" style={{ marginTop: 8 }}>
       <div>
@@ -297,9 +294,18 @@ export function ModaleAjoutParking({ onClose, onFait }: { onClose: () => void; o
       <input type="checkbox" style={{ width: 'auto' }} checked={pointer} onChange={(e) => setPointer(e.target.checked)} />
       <span>Pointer ce camion maintenant (présence du jour)</span>
     </label>
-    <div className="row" style={{ marginTop: 12, justifyContent: 'flex-end' }}>
+    {/* CE QUI MANQUE, ECRIT NOIR SUR BLANC (2026-09-24). Le bouton grisé
+        laissait deviner qu'il attendait quelque chose, sans dire quoi. */}
+    <div className="row park-pied" style={{ marginTop: 12 }}>
+      {!pret && <span className="park-attente">
+        <Icone nom="attente" taille={14} />
+        {num.trim() === '' ? 'Saisissez le N° du camion.' : 'Complétez le N° du camion.'}
+      </span>}
       <button className="ghost" onClick={onClose}>Annuler</button>
-      <button disabled={busy || !pret} onClick={ajouter}>{busy ? 'Ajout…' : 'Ajouter au parking'}</button>
+      <button disabled={busy || !pret} onClick={ajouter}
+        title={pret ? undefined : 'Le N° du camion est obligatoire'}>
+        {busy ? 'Ajout…' : 'Ajouter au parking'}
+      </button>
     </div>
   </Modal>;
 }
@@ -433,9 +439,12 @@ function ModaleModifierParking({ ligne, onClose, onFait }: { ligne: O; onClose: 
         <input className="mono" value={plomb} onChange={(e) => setPlomb(masks.upper(e.target.value))} />
       </div>
     </div>
-    <div className="row" style={{ marginTop: 12, justifyContent: 'flex-end' }}>
+    <div className="row park-pied" style={{ marginTop: 12 }}>
+      {!pret ? <span className="park-attente"><Icone nom="attente" taille={14} />Complétez le N° du camion.</span>
+        : !change ? <span className="park-attente"><Icone nom="attente" taille={14} />Rien n'a changé.</span> : null}
       <button className="ghost" onClick={onClose}>Annuler</button>
-      <button disabled={busy || !pret || !change} onClick={enregistrer}>
+      <button disabled={busy || !pret || !change} onClick={enregistrer}
+        title={!pret ? 'Le N° du camion est obligatoire' : !change ? 'Modifiez une valeur pour enregistrer' : undefined}>
         {busy ? 'Enregistrement…' : 'Enregistrer'}
       </button>
     </div>

@@ -1709,6 +1709,24 @@ tr.clk{cursor:pointer} tr.clk:hover{background:var(--accent-soft)}
 }
 .park-presence .help{margin:0}
 
+/* LE PIED DES FENETRES DU PARKING. Ce qui manque est ecrit a gauche, les
+   boutons restent a droite ; sur un ecran etroit la mention passe au-dessus
+   au lieu de comprimer les boutons. */
+.park-pied{justify-content:flex-end;flex-wrap:wrap;gap:10px}
+.park-attente{
+  margin-right:auto;display:inline-flex;align-items:center;gap:6px;
+  font-size:12.5px;color:var(--muted);
+}
+/* Un bouton en attente n'est pas un bouton casse : il garde un texte LISIBLE
+   (l'opacite a .55 le delavait au point qu'on ne lisait plus ce qu'il ferait)
+   et un fond neutre qui se distingue franchement du bouton actif. */
+.modal button:disabled:not(.ghost){
+  opacity:1;
+  background-color:#e6ebf0 !important;background-image:none !important;
+  color:#5c6b7a !important;border-color:#d4dce4 !important;
+  box-shadow:none;cursor:not-allowed;
+}
+
 /* KPI COMPACTS (demande utilisateur, 2026-09-24). Les tuiles empilaient
    pastille, chiffre et libelle sur trois etages : 115 px de haut pour trois
    nombres, et sur telephone elles repoussaient la liste hors de l'ecran. La
