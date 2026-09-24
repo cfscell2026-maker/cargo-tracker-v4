@@ -13,6 +13,7 @@ import {
   etapesEnAttente, etatCellules, etapePrecedenteManquante, messageEtapePrecedente, LIBELLE_ETAPE,
   estOui, tcValide, parseConteneursDetails, tailleBucket,
   groupesDeclaration, libelleDeclaration, estTypeSansT1, libelleTypeSansT1, exigeControlePoids,
+  numeroDispenseValide,
 } from '../../../supabase/functions/_shared/domaine/src/index.ts';
 
 type O = Record<string, unknown>;
@@ -937,18 +938,17 @@ function PanneauBalise({ c, action }: { c: O; action: ActionFn }) {
         : <>
           <Champ label="N° autorisation de dispense" value={disp} onChange={(e) => setDisp(masks.upper(e.target.value))} />
           {/* CE QUI COMPTE COMME DISPENSE (2026-09-24, décision utilisateur) :
-              seule une déclaration qui EXIGE une balise peut en être dispensée.
-              L'agent doit le savoir avant de taper un numéro de complaisance. */}
-          {estTypeSansT1(c['typeDeclaration'])
-            ? <p className="help">
-              {libelleTypeSansT1(c['typeDeclaration'])} : cette déclaration <b>n'exige pas de balise</b>.
-              Le camion pourra continuer, mais <b>ce ne sera pas compté comme une dispense</b> dans le
-              volet « Dispenses », qui ne suit que les transits réellement exemptés.
-            </p>
-            : <p className="help">
-              Le numéro d'autorisation part au volet « Dispenses » : indiquez la <b>référence réelle</b>
-              de l'exemption, pas « 0 » ni « sauté ».
-            </p>}
+              le marquage ici, ET une vraie référence. Le serveur refuse « 0 »
+              et « sauté » ; autant le dire avant la frappe. */}
+          <p className="help">
+            Le numéro part au volet « Dispenses » : indiquez la <b>référence réelle</b> de
+            l'exemption (numéro, escorte…). « 0 » et « sauté » sont refusés — sans autorisation,
+            posez la balise.
+          </p>
+          {disp.trim() !== '' && !numeroDispenseValide(disp) &&
+            <div className="help" style={{ color: 'var(--err)' }}>
+              « {disp} » ne sera pas accepté : ce n'est pas une référence d'autorisation.
+            </div>}
         </>}
     <div style={{ marginTop: 12 }}><button disabled={pose === ''}
       onClick={() => action(() => call('cargo.gps', { id, baliseRequise: requise ? 'Oui' : 'Non', t1Correct: t1ok ? 'Oui' : 'Non', numeroGPS: gps, numeroDispense: disp }), requise ? 'Balise posée.' : 'Dispense enregistrée.')}>Valider la balise</button></div>

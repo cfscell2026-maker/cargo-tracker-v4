@@ -223,21 +223,43 @@ export function fileAttente(c: SourceEtapes): Etape | null {
  * ⚠ Ce n'est PAS la même chose qu'un « saute-balise » : un véhicule saute la
  * balise par nature, il n'est donc jamais dispensé.
  *
- * ⚠ SEUL CE QUI EXIGE UNE BALISE PEUT EN ÊTRE DISPENSÉ (2026-09-24, décision
- * utilisateur). Le commentaire d'origine disait déjà que les types hors transit
- * n'ont pas de balise par nature, mais le CODE ne vérifiait pas le type : le
- * volet « Dispenses » affichait 80 camions, dont 48 consos et admissions. Le
- * champ « N° d'autorisation » étant obligatoire dès qu'on choisit Dispense, les
- * agents y tapaient « 0 » (43 fois) ou « SAUTÉ » (21 fois) pour passer. Une
- * conso non balisée n'est pas dispensée : elle n'avait pas de balise à prendre.
+ * ⚠ IL FAUT UN VRAI NUMÉRO (2026-09-24, décision utilisateur). Le volet
+ * « Dispenses » affichait 80 camions pour une poignée de dispenses réelles. La
+ * cause : le champ « N° d'autorisation » est OBLIGATOIRE dès qu'on choisit
+ * Dispense, et les agents y tapaient « 0 » (43 fois) ou « SAUTÉ » (21 fois)
+ * pour passer. Une mention de contournement n'est pas une autorisation : elle
+ * ne fait pas une dispense. Le TYPE de déclaration, lui, n'entre pas dans la
+ * règle — ce qui compte est le marquage à la cellule Balise.
  */
 export function estDispenseBalise(c: {
-  baliseRequise?: unknown; numeroDispense?: unknown; estVehicule?: unknown; typeDeclaration?: unknown;
+  baliseRequise?: unknown; numeroDispense?: unknown; estVehicule?: unknown;
 }): boolean {
   if (estOui(c.estVehicule)) return false;
-  if (estTypeSansT1(c.typeDeclaration)) return false; // conso, admission, entrepôt
   const pasRequise = c.baliseRequise === false || String(c.baliseRequise) === 'Non';
-  return pasRequise && String(c.numeroDispense ?? '').trim() !== '';
+  return pasRequise && numeroDispenseValide(c.numeroDispense);
+}
+
+/**
+ * Le numéro d'autorisation est-il une VRAIE référence ?
+ *
+ * On écarte ce que les agents tapent pour franchir un champ obligatoire : zéro,
+ * « sauté », « sans balise », « néant »… La liste tient aux mentions relevées
+ * dans la base, accents et ponctuation ignorés. Tout le reste est accepté :
+ * « D 42034 », « IM4 » comme « ESCORTE SANVEE CONDJI » — on refuse le vide de
+ * sens, pas les formes inattendues.
+ */
+const MENTIONS_SANS_VALEUR = [
+  '', 'SANSBALISE', 'SANS', 'SAUTE', 'SAUTEE', 'SAUT', 'CONSO', 'NEANT', 'RAS', 'NA',
+  'AUCUN', 'AUCUNE', 'NON', 'NULL', 'NUL', 'X', 'XX', 'XXX', 'VIDE', 'PASDEBALISE',
+];
+
+export function numeroDispenseValide(v: unknown): boolean {
+  const brut = String(v ?? '')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // accents : SAUTÉ = SAUTE
+    .toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (!brut) return false;
+  if (/^0+$/.test(brut)) return false; // « 0 », « 00 », « 000 »
+  return MENTIONS_SANS_VALEUR.indexOf(brut) < 0;
 }
 
 /* ===================== ENTRÉES ET SORTIES DES FILES =====================

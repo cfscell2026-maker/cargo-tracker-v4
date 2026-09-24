@@ -16,7 +16,7 @@ import {
   normaliserConteneur, normaliserDeclaration, parseConteneursDetails,
   declKey, typeDeRoutage, tailleBucket, construireCamion, verifierBinome, apercuConteneurs,
   etapesEnAttente, etatCellules, estOui, aFait, sautsTypeC,
-  etapePrecedenteManquante, messageEtapePrecedente,
+  etapePrecedenteManquante, messageEtapePrecedente, numeroDispenseValide,
 } from '../../_shared/domaine/src/index.ts';
 import {
   getCargo, patchCargo, nextId, nextRapportId, ajouterConteneurs, supprimerConteneursDe,
@@ -907,6 +907,15 @@ export async function gps(ctx: Ctx, p: Record<string, unknown>) {
   if (!t1Correct) throw new Error('Cochez « Numéro T1 correct » avant de valider la balise.');
   if (requise && !numeroGPS) throw new Error('Numéro de balise requis.');
   if (!requise && !numeroDispense) throw new Error("Numéro d'autorisation de dispense requis.");
+  /* PAS DE NUMÉRO DE COMPLAISANCE (2026-09-24, décision utilisateur). « 0 » ou
+     « sauté » passaient le champ obligatoire et peuplaient le volet Dispenses
+     de camions jamais dispensés. Si l'exemption n'a pas de référence, c'est
+     qu'il faut poser la balise. */
+  if (!requise && !numeroDispenseValide(numeroDispense))
+    throw new ErreurMetier(
+      "« " + numeroDispense + " » n'est pas une autorisation : indiquez la RÉFÉRENCE RÉELLE de la "
+      + "dispense (numéro, escorte…). Sans autorisation, posez la balise.",
+    );
 
   const cargo = await getCargo(ctx, id);
   const c = cargo.o;

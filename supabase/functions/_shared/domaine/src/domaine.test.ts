@@ -9,6 +9,7 @@ import {
   etatCellules, etapesEnAttente, fileAttente, prochaineEtape, estOui, aFait, exigeControlePoids,
   etapePrecedenteManquante, messageEtapePrecedente,
   libelleTypeDeclaration, optionTypeDeclaration,
+  numeroDispenseValide,
   tcValide, maj, alphaNumMaj, normAlphaNum, declKey, normaliserDeclaration,
   parseConteneursDetails, parseDateImport, tailleBucket, evpDeTaille, trancheAge,
   verifierPermission, PERMISSIONS, TYPES_DECLARATION,
@@ -533,20 +534,22 @@ test("type de déclaration : la lettre reste la valeur, le sens s'affiche", () =
   assert.equal(estTypeSansT1('T'), false);
 });
 
-test('dispense : seul ce qui EXIGE une balise peut en etre dispense', () => {
-  const avecNumero = { baliseRequise: false, numeroDispense: 'D-42034' };
-  // Transit : la balise est exigee, la dispense est reelle.
-  assert.equal(estDispenseBalise({ ...avecNumero, typeDeclaration: 'T' }), true);
-  assert.equal(estDispenseBalise({ ...avecNumero, typeDeclaration: 'E' }), true);
-  // Conso, admission, entrepot : pas de balise a prendre, donc jamais de dispense,
-  // meme avec un numero (decision utilisateur 2026-09-24).
-  assert.equal(estDispenseBalise({ ...avecNumero, typeDeclaration: 'C' }), false);
-  assert.equal(estDispenseBalise({ ...avecNumero, typeDeclaration: 'A' }), false);
-  assert.equal(estDispenseBalise({ ...avecNumero, typeDeclaration: 'S' }), false);
-  // Un vehicule saute la balise par nature.
-  assert.equal(estDispenseBalise({ ...avecNumero, typeDeclaration: 'T', estVehicule: true }), false);
-  // Sans numero d'autorisation, il n'y a pas de dispense.
-  assert.equal(estDispenseBalise({ baliseRequise: false, numeroDispense: '', typeDeclaration: 'T' }), false);
+test("dispense : marquee a la Balise ET munie d'une vraie reference", () => {
+  // Marquage a la cellule Balise + reference reelle = dispense, quel que soit le type.
+  assert.equal(estDispenseBalise({ baliseRequise: false, numeroDispense: 'D 42034', typeDeclaration: 'T' }), true);
+  assert.equal(estDispenseBalise({ baliseRequise: false, numeroDispense: 'ESCORTE SANVEE CONDJI', typeDeclaration: 'C' }), true);
+  assert.equal(estDispenseBalise({ baliseRequise: false, numeroDispense: 'IM4', typeDeclaration: 'A' }), true);
+
+  // Les mentions de contournement ne font pas une dispense.
+  for (const faux of ['0', '00', 'SAUTÉ', 'saute', 'SANS BALISE', 'CONSO', 'NÉANT', 'RAS', 'N/A', '-', '']) {
+    assert.equal(estDispenseBalise({ baliseRequise: false, numeroDispense: faux, typeDeclaration: 'T' }), false, faux);
+    assert.equal(numeroDispenseValide(faux), false, faux);
+  }
+  assert.equal(numeroDispenseValide('D-42034'), true);
+  assert.equal(numeroDispenseValide('escorte'), true);
+
+  // Un vehicule saute la balise par nature : jamais dispense.
+  assert.equal(estDispenseBalise({ baliseRequise: false, numeroDispense: 'D 42034', estVehicule: true }), false);
   // Balise posee normalement : rien a signaler.
   assert.equal(estDispenseBalise({ baliseRequise: true, numeroDispense: '', typeDeclaration: 'T' }), false);
 });
