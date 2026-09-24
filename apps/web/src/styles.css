@@ -1701,10 +1701,13 @@ tr.clk{cursor:pointer} tr.clk:hover{background:var(--accent-soft)}
 .park-ligne td{vertical-align:middle}
 /* La liste des camions signalés par l'alerte de saisie. */
 .park-alerte{margin:6px 0 10px;padding-left:18px;font-size:13px;line-height:1.7;color:#42505c}
-/* La ligne de période, au-dessus de la liste : discrète tant qu'elle n'est
-   pas cochée, la question courante est « qui est là aujourd'hui ? ». */
-.park-periode{padding:10px 14px}
-.park-periode .row{margin-top:8px}
+/* Le choix « Présents / Sortis / Tous », posé au-dessus de la liste qu'il
+   commande. Il se met en colonne sur un téléphone plutôt que de déborder. */
+.park-presence{
+  display:flex;align-items:center;gap:12px;flex-wrap:wrap;
+  margin-bottom:10px;
+}
+.park-presence .help{margin:0}
 /* « Supprimer » porte la couleur de l'irréversible, comme sur les dossiers. */
 .park-ligne .acts-suppr{color:var(--err);border-color:currentColor}
 

@@ -18,8 +18,9 @@ import * as XLSX from 'xlsx';
 import { call } from './lib/rpc.ts';
 import { useAsync } from './lib/hooks.ts';
 import { Icone } from './lib/icones.tsx';
-import { Spinner, StatCard, Modal, masks, toast, fmtDate, fmtJour, ChampCamion } from './lib/ui.tsx';
-import { BandeauModule, PeriodPicker, useReportRange } from './screens.tsx';
+import { Spinner, StatCard, Modal, masks, toast, fmtDate, fmtJour, ChampCamion, ChoixSegmente } from './lib/ui.tsx';
+import { BandeauModule, useReportRange } from './screens.tsx';
+import type { ModePeriode } from './lib/periode.ts';
 import type { Nav } from './App.tsx';
 import { ROLES, alphaNumMaj, camionValide, dureeLisible } from '../../../supabase/functions/_shared/domaine/src/index.ts';
 
@@ -38,13 +39,20 @@ export function EcranParking({ user }: Nav) {
   const [supprime, setSupprime] = useState<O | null>(null);
   const [busy, setBusy] = useState('');
   const admin = user.role === ROLES.ADMIN;
-  /* PÉRIODE (demande utilisateur) : jour, mois, année ou plage. Elle porte sur
-     la DATE D'ENTRÉE au parking. « Toute la période » la neutralise, c'est le
-     défaut, car la question courante est « qui est là aujourd'hui ? ». */
+  /* PÉRIODE (demande utilisateur) : jour, mois, année ou plage, sur la DATE
+     D'ENTRÉE au parking. Elle tient dans UNE liste déroulante du bandeau, dont
+     la première ligne (« Toute la période ») la neutralise : c'est le défaut,
+     car la question courante est « qui est là aujourd'hui ? ». Les deux champs
+     de dates n'apparaissent que si l'on choisit « Plage… ». */
   const periode = useReportRange('mois');
   const [limiterPeriode, setLimiterPeriode] = useState(false);
   const du = limiterPeriode ? periode.du : '';
   const au = limiterPeriode ? periode.au : '';
+  const choisirPeriode = (v: string) => {
+    if (!v) { setLimiterPeriode(false); return; }
+    setLimiterPeriode(true);
+    periode.setM(v as ModePeriode);
+  };
 
   /* La recherche se fait sur les lignes DÉJÀ REÇUES : filtrer à chaque
      caractère ne doit pas appeler le serveur à chaque frappe. */
@@ -72,13 +80,24 @@ export function EcranParking({ user }: Nav) {
       action={<div className="bm-outils">
         <input className="mono" value={recherche} onChange={(e) => setRecherche(e.target.value)}
           placeholder="N° camion" title="Tapez la plaque : la liste se réduit à chaque caractère"
-          style={{ width: 160 }} />
+          style={{ width: 150 }} />
         {recherche && <button className="ghost xs" onClick={() => setRecherche('')}>Tout afficher</button>}
-        <select value={statut} onChange={(e) => setStatut(e.target.value)} style={{ maxWidth: 150 }}>
-          <option value="presents">Présents</option>
-          <option value="sortis">Sortis</option>
-          <option value="tous">Tous</option>
+        {/* La période tient en une seule liste : le bandeau est déjà chargé. */}
+        <select value={limiterPeriode ? periode.m : ''} onChange={(e) => choisirPeriode(e.target.value)}
+          title="Période d'entrée au parking" style={{ maxWidth: 150 }}>
+          <option value="">Toute la période</option>
+          <option value="jour">Aujourd'hui</option>
+          <option value="semaine">Cette semaine</option>
+          <option value="mois">Ce mois</option>
+          <option value="annee">Cette année</option>
+          <option value="perso">Plage…</option>
         </select>
+        {limiterPeriode && periode.m === 'perso' && <>
+          <input type="date" value={periode.duP} onChange={(e) => periode.setDuP(e.target.value)}
+            title="Entrées à partir du" style={{ maxWidth: 150 }} />
+          <input type="date" value={periode.auP} onChange={(e) => periode.setAuP(e.target.value)}
+            title="Entrées jusqu'au" style={{ maxWidth: 150 }} />
+        </>}
         <button className="btn-export" onClick={() => exporterExcel(lignes, statut)}
           disabled={!lignes.length} title="Extraire la liste affichée au format Excel">
           <Icone nom="telecharger" taille={15} />Excel
@@ -86,21 +105,6 @@ export function EcranParking({ user }: Nav) {
         <button onClick={() => setAjout(true)}><Icone nom="camionPlus" />Ajouter un camion</button>
       </div>} />
 
-    {/* La période, sur sa propre ligne : elle sert à relire un mois ou une
-        année passés, pas à la consultation du jour, qui est le défaut. */}
-    <div className="card park-periode">
-      <label className="help" style={{ display: 'flex', alignItems: 'center', gap: 8, margin: 0, textTransform: 'none', fontSize: 13.5 }}>
-        <input type="checkbox" style={{ width: 'auto' }} checked={limiterPeriode}
-          onChange={(e) => setLimiterPeriode(e.target.checked)} />
-        Filtrer par période d'entrée au parking
-      </label>
-      {limiterPeriode
-        ? <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center', marginTop: 8 }}>
-          <PeriodPicker p={periode} />
-          <span className="help">du {fmtJour(periode.du)} au {fmtJour(periode.au)}</span>
-        </div>
-        : <p className="help" style={{ margin: '6px 0 0' }}>Toute la période, cochez pour restreindre.</p>}
-    </div>
 
     {!active && <div className="card" style={{ borderLeft: '4px solid var(--warn)' }}>
       <b style={{ color: 'var(--warn)' }}>Le parking n'est pas encore activé</b>
@@ -117,6 +121,21 @@ export function EcranParking({ user }: Nav) {
     </div>
 
     <div className="card">
+      {/* PRÉSENCE : au-dessus de la liste qu'elle commande, et non dans le
+          bandeau (demande utilisateur). Un choix segmenté plutôt qu'une liste
+          déroulante : trois valeurs, toutes visibles d'un coup d'œil. */}
+      <div className="park-presence">
+        <ChoixSegmente libelle="Camions affichés" valeur={statut}
+          onChange={(v) => setStatut(v || statut)}
+          options={[
+            { valeur: 'presents', libelle: 'Présents', icone: 'parking' },
+            { valeur: 'sortis', libelle: 'Sortis', icone: 'sortie' },
+            { valeur: 'tous', libelle: 'Tous', icone: 'liste' },
+          ]} />
+        {limiterPeriode && <span className="help">
+          Entrées du {fmtJour(periode.du)} au {fmtJour(periode.au)}
+        </span>}
+      </div>
       {loading ? <Spinner /> : error ? <div className="err-msg">{error}</div> : <>
         <div className="help" style={{ marginBottom: 8 }}>
           {q ? `${lignes.length} camion(s) sur ${recues.length}` : `${lignes.length} camion(s)`}
