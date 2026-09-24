@@ -528,11 +528,24 @@ export async function rapportStock(ctx: Ctx) {
     else if (o['statut'] === STOCK_STATUTS.POSITIONNE) compte.positionne++;
     else if (o['statut'] === STOCK_STATUTS.DEPOTE) compte.depote++;
     if (o['datePointage']) compte.pointes++;
-    if (o['statut'] === STOCK_STATUTS.DEPOTE) continue;
-    const j = o['dateEntree'] ? jours(new Date(String(o['dateEntree'])), now) : Number(o['nbSejoursImport'] || 0) || 0;
-    dist[trancheAge(j)]!.n++; sommeJ += j; nJ++;
-    if (j >= seuilSejour) compte.alerte++;
-    instance.push({ numeroTC: o['numeroTc'], taille: o['taille'], statut: o['statut'], provenance: o['provenance'], joursSejour: j });
+
+    /* LE CONTENEUR DÉPOTÉ FIGURE DANS LA LISTE, mais PAS dans les compteurs
+       (2026-09-24). L'écran rend chaque chiffre cliquable : « Total » doit donc
+       pouvoir montrer les 12 537 conteneurs, dépotés compris. Les moyennes, les
+       tranches et l'alerte, elles, ne parlent que de ce qui est ENCORE au parc :
+       les additionner à du dépoté n'aurait aucun sens. Son séjour s'arrête au
+       jour du dépotage, il ne court plus. */
+    const depote = o['statut'] === STOCK_STATUTS.DEPOTE;
+    const fin = depote && o['dateDepote'] ? new Date(String(o['dateDepote'])) : now;
+    const j = o['dateEntree'] ? jours(new Date(String(o['dateEntree'])), fin) : Number(o['nbSejoursImport'] || 0) || 0;
+    if (!depote) {
+      dist[trancheAge(j)]!.n++; sommeJ += j; nJ++;
+      if (j >= seuilSejour) compte.alerte++;
+    }
+    instance.push({
+      numeroTC: o['numeroTc'], taille: o['taille'], statut: o['statut'],
+      provenance: o['provenance'], joursSejour: j, depote,
+    });
   }
   compte.sejourMoyen = nJ ? Math.round(sommeJ / nJ) : 0;
   instance.sort((a, b) => (b as { joursSejour: number }).joursSejour - (a as { joursSejour: number }).joursSejour);

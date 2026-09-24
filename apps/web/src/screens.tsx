@@ -4328,12 +4328,93 @@ SCREENS.dwell = ({ go }) => {
   </div>;
 };
 
+/** Conteneurs affichés d'un coup : au-delà, on pagine (12 537 lignes sinon). */
+const TC_PAR_PAGE = 50;
+
+/**
+ * SÉJOUR & INSTANCES CONTENEURS, revu le 2026-09-24 (demande utilisateur).
+ *
+ * L'écran posait quatre chiffres muets, puis déroulait les DOUZE MILLE lignes
+ * du parc d'un seul bloc : une page de 181 000 pixels de haut, lente à ouvrir
+ * et impossible à parcourir. Désormais :
+ *   · chaque chiffre est CLIQUABLE et commande la liste en dessous ;
+ *   · la liste se lit par pages de 50, avec une recherche par N° de conteneur.
+ * Aucun aller-retour au serveur : tout se joue sur les lignes déjà reçues.
+ */
 SCREENS.stockdwell = () => {
   const { data, loading } = useAsync<{ compte: O; tranches: O[]; instance: O[]; seuil?: number }>(() => call('report.stock'), []);
-  return <div className="card"><h2>Séjour & instances conteneurs</h2>
+  const [vue, setVue] = useState('tous');
+  const [q, setQ] = useState('');
+  const [page, setPage] = useState(1);
+  const seuil = Number(data?.seuil ?? 90);
+  const cpt = (data?.compte ?? {}) as O;
+  const toutes = (data?.instance ?? []) as O[];
+
+  const choisir = (v: string) => { setVue(v === vue ? 'tous' : v); setPage(1); };
+
+  // Le filtre suit EXACTEMENT ce que compte le chiffre cliqué : « Alerte » ne
+  // retient que ce qui est encore au parc, comme le compteur.
+  const parVue = toutes.filter((r) => {
+    if (vue === 'stock') return r['statut'] === 'En stock';
+    if (vue === 'alerte') return r['depote'] !== true && Number(r['joursSejour'] ?? 0) >= seuil;
+    if (vue === 'parc') return r['depote'] !== true;
+    return true;
+  });
+  const cherche = q.trim() !== '';
+  const alnum = q.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const lignes = cherche
+    ? parVue.filter((r) => String(r['numeroTC'] ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '').includes(alnum))
+    : parVue;
+
+  const pages = Math.max(1, Math.ceil(lignes.length / TC_PAR_PAGE));
+  const pageSure = Math.min(page, pages);
+  const visibles = lignes.slice((pageSure - 1) * TC_PAR_PAGE, pageSure * TC_PAR_PAGE);
+  const LIBELLES: Record<string, string> = {
+    tous: 'Tous les conteneurs', stock: 'En stock', parc: 'Encore au parc',
+    alerte: `En alerte (≥ ${seuil} jours)`,
+  };
+
+  return <div className="card"><h2>Séjour &amp; instances conteneurs</h2>
     {loading ? <Spinner /> : <>
-      <div className="stats"><StatCard n={Number(data?.compte['total'] ?? 0)} l="Total" /><StatCard n={Number(data?.compte['stock'] ?? 0)} l="En stock" /><StatCard n={Number(data?.compte['sejourMoyen'] ?? 0)} l="Séjour moyen (j)" /><StatCard n={Number(data?.compte['alerte'] ?? 0)} l={`Alerte ≥ ${data?.seuil ?? 90} j`} tone="warn" /></div>
-      <Table cols={[['numeroTC', 'Conteneur'], ['taille', 'Taille'], ['statut', 'Statut'], ['joursSejour', 'Séjour (j)']]} rows={data?.instance ?? []} />
+      <p className="help" style={{ marginTop: 0 }}>Cliquez un chiffre pour ne voir que les conteneurs qu'il compte.</p>
+      <div className="stats compacts">
+        <StatCard n={Number(cpt['total'] ?? 0)} l="Total" icone="conteneur" onClick={() => choisir('tous')} />
+        <StatCard n={Number(cpt['stock'] ?? 0)} l="En stock" icone="boites" onClick={() => choisir('stock')} />
+        <StatCard n={Number(cpt['sejourMoyen'] ?? 0)} l="Séjour moyen (j)" icone="horloge" onClick={() => choisir('parc')} />
+        <StatCard n={Number(cpt['alerte'] ?? 0)} l={`Alerte ≥ ${seuil} j`} tone="warn" icone="sablier" onClick={() => choisir('alerte')} />
+      </div>
+
+      {/* La répartition par tranche d'âge : elle explique le séjour moyen, que
+          la seule moyenne ne dit pas (un parc jeune et un parc bloqué peuvent
+          afficher le même chiffre). */}
+      {vue === 'parc' && <div className="tranches-sejour">
+        {((data?.tranches ?? []) as O[]).map((t) => <span key={String(t['tranche'])} className="tranche-puce">
+          <b>{String(t['n'])}</b> {String(t['tranche'])}
+        </span>)}
+      </div>}
+
+      <div className="row depot-recherche" style={{ marginTop: 10 }}>
+        <span className="champ-loupe">
+          <Icone nom="loupe" taille={15} />
+          <input className="mono" value={q} onChange={(e) => { setQ(e.target.value); setPage(1); }}
+            placeholder="N° de conteneur" title="Cherche un conteneur dans la vue affichée" />
+        </span>
+        {(cherche || vue !== 'tous') && <button className="ghost xs" onClick={() => { setQ(''); setVue('tous'); setPage(1); }}>Tout afficher</button>}
+      </div>
+
+      <div className="help" style={{ margin: '8px 0' }}>
+        <b>{LIBELLES[vue]}</b> · {lignes.length} conteneur(s){cherche ? ` trouvé(s) pour « ${q.trim()} »` : ''}
+        {lignes.length > TC_PAR_PAGE ? ` · page ${pageSure} sur ${pages}` : ''}
+      </div>
+
+      {lignes.length === 0 ? <div className="empty">Aucun conteneur dans cette vue.</div> : <>
+        <Table cols={[['numeroTC', 'Conteneur'], ['taille', 'Taille'], ['statut', 'Statut'], ['joursSejour', 'Séjour (j)']]} rows={visibles} />
+        {pages > 1 && <div className="row pagination-tc">
+          <button className="ghost xs" disabled={pageSure <= 1} onClick={() => setPage(pageSure - 1)}>‹ Précédents</button>
+          <span className="help">{(pageSure - 1) * TC_PAR_PAGE + 1} à {Math.min(pageSure * TC_PAR_PAGE, lignes.length)} sur {lignes.length}</span>
+          <button className="ghost xs" disabled={pageSure >= pages} onClick={() => setPage(pageSure + 1)}>Suivants ›</button>
+        </div>}
+      </>}
     </>}
   </div>;
 };
