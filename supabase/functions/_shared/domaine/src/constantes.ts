@@ -26,6 +26,34 @@ export const DEFAUTS = {
 // de transit) n'apparaît PAS ici, il est saisi à l'étape T1, pas au CFS.
 export const TYPES_DECLARATION = ['T', 'C', 'S', 'A', 'E'] as const;
 
+/**
+ * CE QUE CHAQUE LETTRE VEUT DIRE (2026-09-24, precise par l'utilisateur).
+ *
+ * Les listes deroulantes n'affichaient que la lettre : un agent nouveau devait
+ * la deviner ou demander. La VALEUR enregistree reste la lettre seule ; seul
+ * l'affichage porte le sens.
+ */
+export const LIBELLES_TYPE_DECLARATION: Record<string, string> = {
+  T: 'Transit national',
+  C: 'Mise en conso',
+  S: 'Entrée en entrepôt',
+  A: 'Entrée en MAD',
+  E: 'Exportation',
+};
+
+/** « Transit national » pour 'T'. Rend la lettre seule si elle est inconnue. */
+export function libelleTypeDeclaration(t: unknown): string {
+  const cle = String(t ?? '').trim().toUpperCase();
+  return LIBELLES_TYPE_DECLARATION[cle] ?? cle;
+}
+
+/** « T (Transit national) » : ce qu'affiche une liste deroulante. */
+export function optionTypeDeclaration(t: unknown): string {
+  const cle = String(t ?? '').trim().toUpperCase();
+  const lib = LIBELLES_TYPE_DECLARATION[cle];
+  return lib ? cle + ' (' + lib + ')' : cle;
+}
+
 /** Conteneurs : nombre LIBRE par camion. Garde-fou anti-abus + taille d'aperçu. */
 export const CONTENEURS_MAX = 50;
 export const CONTENEURS_APERCU = 4;
@@ -131,10 +159,11 @@ export function sautsTypeC(typeDeclaration: unknown, consoMode?: unknown): { sau
 /** Phrase d'explication du parcours, à l'écran, pour un type hors transit. */
 export function libelleTypeSansT1(typeDeclaration: unknown): string {
   const t = String(typeDeclaration ?? '').trim().toUpperCase();
-  if (t === 'C') return 'Type C = mise à la consommation';
-  if (t === 'A') return 'Type A = admission (même parcours que la conso)';
-  if (t === 'S') return 'Type S = ne prend pas le T1';
-  return 'Type ' + t;
+  if (t === 'C') return 'Type C = mise en conso';
+  if (t === 'A') return 'Type A = entrée en MAD (même parcours que la conso)';
+  if (t === 'S') return 'Type S = entrée en entrepôt (ne prend pas le T1)';
+  const lib = LIBELLES_TYPE_DECLARATION[t];
+  return lib ? 'Type ' + t + ' = ' + lib.toLowerCase() : 'Type ' + t;
 }
 
 /**

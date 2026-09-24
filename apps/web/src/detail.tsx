@@ -9,7 +9,7 @@ import { Icone } from './lib/icones.tsx';
 import { useParametres, Spinner, Tag, Modal, masks, toast, fmtDate, BoutonRetour, ChampDestination, useSuiviEngagement, ChampCamion, roleLabel, ChoixSegmente, BoutonBascule } from './lib/ui.tsx';
 import type { Nav } from './App.tsx';
 import {
-  STATUTS, OPERATIONS, ROLES, TYPES_DECLARATION, ETATS_SORTIE, dateDansNJours,
+  STATUTS, OPERATIONS, ROLES, TYPES_DECLARATION, optionTypeDeclaration, ETATS_SORTIE, dateDansNJours,
   etapesEnAttente, etatCellules, etapePrecedenteManquante, messageEtapePrecedente, LIBELLE_ETAPE,
   estOui, tcValide, parseConteneursDetails, tailleBucket,
   groupesDeclaration, libelleDeclaration, estTypeSansT1, libelleTypeSansT1, exigeControlePoids,
@@ -643,7 +643,7 @@ function PanneauCFS({ c, dets, action, prefillDecl }: { c: O; dets: ReturnType<t
             <Champ label="Contact (téléphone)" value={String(d['contactDeclarant'])} onChange={(e) => setDd('contactDeclarant', masks.tel(e.target.value))} />
             <ChampDestination value={String(d['destinationMarchandise'])} onChange={(v) => setDd('destinationMarchandise', v)} />
             <Champ label="Bureau" value={String(d['bureauDeclaration'])} onChange={(e) => setDd('bureauDeclaration', masks.upper(e.target.value))} />
-            <div><label className="help">Type déclaration</label><select value={String(d['typeDeclaration'])} onChange={(e) => setDd('typeDeclaration', e.target.value)}>{TYPES_DECLARATION.map((t) => <option key={t}>{t}</option>)}</select></div>
+            <div><label className="help">Type déclaration</label><select value={String(d['typeDeclaration'])} onChange={(e) => setDd('typeDeclaration', e.target.value)}>{TYPES_DECLARATION.map((t) => <option key={t} value={t}>{optionTypeDeclaration(t)}</option>)}</select></div>
             {estConso && <div><label className="help">Type {String(d['typeDeclaration'])}, balise</label><select value={consoMode} onChange={(e) => setConsoMode(e.target.value)}><option value="balise">À baliser</option><option value="sansbalise">Non balisée (dispense)</option></select></div>}
             <Champ label="N° déclaration" value={String(d['numeroDeclaration'])} onChange={(e) => setDd('numeroDeclaration', masks.upper(e.target.value))} />
             <Champ label="Année" value={String(d['anneeDeclaration'])} onChange={(e) => setDd('anneeDeclaration', e.target.value)} />
@@ -788,7 +788,7 @@ function PanneauOuillage({ c, action }: { c: O; action: ActionFn }) {
       <Champ label="Contact" value={String(d['contactDeclarant'])} onChange={(e) => setDd('contactDeclarant', masks.tel(e.target.value))} />
       <ChampDestination value={String(d['destinationMarchandise'])} onChange={(v) => setDd('destinationMarchandise', v)} />
       <Champ label="Bureau" value={String(d['bureauDeclaration'])} onChange={(e) => setDd('bureauDeclaration', masks.upper(e.target.value))} />
-      <div><label className="help">Type (seuls T et E → T1)</label><select value={String(d['typeDeclaration'])} onChange={(e) => setDd('typeDeclaration', e.target.value)}>{TYPES_DECLARATION.map((t) => <option key={t}>{t}</option>)}</select></div>
+      <div><label className="help">Type (seuls T et E → T1)</label><select value={String(d['typeDeclaration'])} onChange={(e) => setDd('typeDeclaration', e.target.value)}>{TYPES_DECLARATION.map((t) => <option key={t} value={t}>{optionTypeDeclaration(t)}</option>)}</select></div>
       <Champ label="N° déclaration" value={String(d['numeroDeclaration'])} onChange={(e) => setDd('numeroDeclaration', masks.upper(e.target.value))} />
       <Champ label="Année" value={String(d['anneeDeclaration'])} onChange={(e) => setDd('anneeDeclaration', e.target.value)} />
     </div>
@@ -1134,7 +1134,7 @@ function PanneauEditConteneurs({ c, dets, action, admin }: { c: O; dets: ReturnT
         <Champ label="Bureau" value={String(d['bureauDeclaration'])} onChange={(e) => setDd('bureauDeclaration', masks.upper(e.target.value))} />
         <div><label className="help">Type déclaration</label>
           <select value={String(d['typeDeclaration'])} onChange={(e) => setDd('typeDeclaration', e.target.value)}>
-            <option value="">Inchangé…</option>{TYPES_DECLARATION.map((t) => <option key={t}>{t}</option>)}
+            <option value="">Inchangé…</option>{TYPES_DECLARATION.map((t) => <option key={t} value={t}>{optionTypeDeclaration(t)}</option>)}
           </select></div>
       </div>
       <ChampMotifCorrection c={c} motif={motif} setMotif={setMotif} admin={admin} />
@@ -1215,7 +1215,7 @@ function PanneauEditDecl({ c, action, admin }: { c: O; action: ActionFn; admin: 
       <Champ label="Contact (téléphone)" value={String(d['contactDeclarant'])} onChange={(e) => setDd('contactDeclarant', masks.tel(e.target.value))} />
       <ChampDestination value={String(d['destinationMarchandise'])} onChange={(v) => setDd('destinationMarchandise', v)} />
       <Champ label="Bureau" value={String(d['bureauDeclaration'])} onChange={(e) => setDd('bureauDeclaration', masks.upper(e.target.value))} />
-      <div><label className="help">Type déclaration</label><select value={String(d['typeDeclaration'])} onChange={(e) => setDd('typeDeclaration', e.target.value)}>{TYPES_DECLARATION.map((t) => <option key={t}>{t}</option>)}</select></div>
+      <div><label className="help">Type déclaration</label><select value={String(d['typeDeclaration'])} onChange={(e) => setDd('typeDeclaration', e.target.value)}>{TYPES_DECLARATION.map((t) => <option key={t} value={t}>{optionTypeDeclaration(t)}</option>)}</select></div>
       {estConso && <div><label className="help">Type {String(d['typeDeclaration'])}, balise</label><select value={consoMode} onChange={(e) => setConsoMode(e.target.value)}><option value="balise">À baliser</option><option value="sansbalise">Non balisée (dispense)</option></select></div>}
       <Champ label="N° déclaration" value={String(d['numeroDeclaration'])} onChange={(e) => setDd('numeroDeclaration', masks.upper(e.target.value))} />
       <Champ label="Année" value={String(d['anneeDeclaration'])} onChange={(e) => setDd('anneeDeclaration', e.target.value)} />

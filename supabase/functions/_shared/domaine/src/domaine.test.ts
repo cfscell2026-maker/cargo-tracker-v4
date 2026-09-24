@@ -8,6 +8,7 @@ import {
   STATUTS, OPERATIONS, ROLES,
   etatCellules, etapesEnAttente, fileAttente, prochaineEtape, estOui, aFait, exigeControlePoids,
   etapePrecedenteManquante, messageEtapePrecedente,
+  libelleTypeDeclaration, optionTypeDeclaration,
   tcValide, maj, alphaNumMaj, normAlphaNum, declKey, normaliserDeclaration,
   parseConteneursDetails, parseDateImport, tailleBucket, evpDeTaille, trancheAge,
   verifierPermission, PERMISSIONS, TYPES_DECLARATION,
@@ -515,4 +516,19 @@ test('paramètres : tout le monde les lit, seul l\'administrateur les modifie (2
   assert.doesNotThrow(() => verifierPermission(ROLES.ADMIN, 'params.set'));
   for (const r of [ROLES.CHEF_BRIGADE, ROLES.CHEF_DIVISION, ROLES.CBPI, ROLES.CFS])
     assert.throws(() => verifierPermission(r, 'params.set'), /Accès refusé/);
+});
+
+test("type de déclaration : la lettre reste la valeur, le sens s'affiche", () => {
+  assert.equal(libelleTypeDeclaration('T'), 'Transit national');
+  assert.equal(libelleTypeDeclaration('c'), 'Mise en conso');
+  assert.equal(libelleTypeDeclaration('S'), 'Entrée en entrepôt');
+  assert.equal(libelleTypeDeclaration('A'), 'Entrée en MAD');
+  assert.equal(libelleTypeDeclaration('E'), 'Exportation');
+  assert.equal(optionTypeDeclaration('T'), 'T (Transit national)');
+  // Une lettre inconnue (donnee migree) ne disparait pas : elle s'affiche telle quelle.
+  assert.equal(optionTypeDeclaration('D'), 'D');
+  assert.equal(libelleTypeDeclaration(''), '');
+  // Les types qui sautent le T1 restent les memes : le libelle ne change pas la regle.
+  assert.equal(estTypeSansT1('S'), true);
+  assert.equal(estTypeSansT1('T'), false);
 });
