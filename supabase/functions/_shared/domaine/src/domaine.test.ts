@@ -39,9 +39,15 @@ test('validé → le T1 seul est ouvert', () => {
   assert.deepEqual(etapesEnAttente({ statut: STATUTS.CREEE, dateValidation: '2026-01-01' }), ['T1']);
 });
 
-test("après T1 → la BALISE s'ouvre, le bon de sortie attend encore", () => {
+test("apres T1 le BON DE SORTIE s'ouvre, la balise attend encore", () => {
   const c = { statut: STATUTS.T1, dateValidation: 'x', dateT1: 'x' };
-  assert.deepEqual(etapesEnAttente(c), ['BALISE']);
+  assert.deepEqual(etapesEnAttente(c), ['BS']);
+  // Et sans bon de sortie, la balise reste fermee (2026-09-25).
+  assert.equal(etapePrecedenteManquante(c, 'BALISE'), 'BS');
+  // Le bon emis, la balise s'ouvre a son tour.
+  const apresBon = { ...c, bonSortieNumero: 'BS1' };
+  assert.deepEqual(etapesEnAttente(apresBon), ['BALISE']);
+  assert.equal(etapePrecedenteManquante(apresBon, 'BALISE'), null);
 });
 
 test('sans T1, ni balise ni bon de sortie ne sont ouverts', () => {
@@ -51,10 +57,12 @@ test('sans T1, ni balise ni bon de sortie ne sont ouverts', () => {
   assert.match(messageEtapePrecedente('T1', 'BALISE'), /le T1 doit être fait avant la pose de la balise/);
 });
 
-test("T1 sauté par nature (type C) : la balise s'ouvre quand même", () => {
+test("T1 saute par nature (type C) : le bon de sortie s'ouvre quand meme", () => {
   const c = { statut: STATUTS.CREEE, dateValidation: 'x', typeDeclaration: 'C' };
-  assert.equal(etapePrecedenteManquante(c, 'BALISE'), null);
-  assert.deepEqual(etapesEnAttente(c), ['BALISE']);
+  assert.equal(etapePrecedenteManquante(c, 'BS'), null);
+  assert.deepEqual(etapesEnAttente(c), ['BS']);
+  // Le T1 saute ne dispense pas du bon de sortie avant la balise.
+  assert.equal(etapePrecedenteManquante(c, 'BALISE'), 'BS');
 });
 
 test("balise dispensée : le bon de sortie s'ouvre", () => {
@@ -130,17 +138,19 @@ test('ouillage saute le BS', () => {
 });
 
 test('fileAttente : file UNIQUE et séquentielle (2026-08-19)', () => {
-  // Un dossier ne figure QUE dans une file = sa prochaine étape, dans l'ordre
-  // CFS → VALIDATION → T1 → BALISE → BS → PP.
+  // Un dossier ne figure QUE dans une file = sa prochaine etape, dans l'ordre
+  // CFS -> VALIDATION -> T1 -> BS -> BALISE -> PP (2026-09-25).
   assert.equal(fileAttente({ statut: STATUTS.CAMION }), 'CFS');
   assert.equal(fileAttente({ statut: STATUTS.CREEE, typeDeclaration: 'T' }), 'VALIDATION');
   assert.equal(fileAttente({ statut: STATUTS.CREEE, dateValidation: 'x', typeDeclaration: 'T' }), 'T1');
-  assert.equal(fileAttente({ statut: STATUTS.T1, dateValidation: 'x', dateT1: 'x' }), 'BALISE');
-  // Balise faite mais bon de sortie PAS émis → il attend le BON DE SORTIE (pas la PP).
-  assert.equal(fileAttente({ statut: STATUTS.T1, dateValidation: 'x', dateT1: 'x', datePoseGps: 'x' }), 'BS');
-  // Bon de sortie émis → et seulement là, il attend la SORTIE.
-  assert.equal(fileAttente({ statut: STATUTS.T1, dateValidation: 'x', dateT1: 'x', datePoseGps: 'x', bonSortieNumero: 'BS1' }), 'PP');
-  // Étapes sautées franchies automatiquement (conso non balisée → BS directement).
+  assert.equal(fileAttente({ statut: STATUTS.T1, dateValidation: 'x', dateT1: 'x' }), 'BS');
+  // Bon de sortie emis mais balise PAS posee : il attend la BALISE (pas la PP).
+  assert.equal(fileAttente({ statut: STATUTS.BS, dateValidation: 'x', dateT1: 'x', bonSortieNumero: 'BS1' }), 'BALISE');
+  // Balise posee : et seulement la, il attend la SORTIE.
+  assert.equal(fileAttente({ statut: STATUTS.GPS, dateValidation: 'x', dateT1: 'x', bonSortieNumero: 'BS1', datePoseGps: 'x' }), 'PP');
+  // Dossier d'avant le 2026-09-25, balise sans bon : il attend le bon de sortie.
+  assert.equal(fileAttente({ statut: STATUTS.GPS, dateValidation: 'x', dateT1: 'x', datePoseGps: 'x' }), 'BS');
+  // Etapes sautees franchies automatiquement (conso non balisee -> BS directement).
   assert.equal(fileAttente({ statut: STATUTS.CREEE, dateValidation: 'x', sauteT1: 'Oui', sauteBalise: 'Oui' }), 'BS');
   // Sorti → aucune file.
   assert.equal(fileAttente({ statut: STATUTS.SORTIE }), null);

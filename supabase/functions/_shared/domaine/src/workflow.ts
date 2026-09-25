@@ -116,7 +116,7 @@ export function etatCellules(c: SourceEtapes): EtatCellules {
   };
 }
 
-/** Étapes ENCORE EN ATTENTE (parallèle Balise/Bon de Sortie). */
+/** Étapes ENCORE EN ATTENTE (chaîne T1 → Bon de sortie → Balise). */
 export function etapesEnAttente(c: SourceEtapes): Etape[] {
   const e = etatCellules(c);
   if (e.sorti) return [];
@@ -128,18 +128,28 @@ export function etapesEnAttente(c: SourceEtapes): Etape[] {
   // pour la Balise). Le Bon de sortie reste, lui, non bloquant.
   const p: Etape[] = [];
   if (!e.valide) p.push('VALIDATION');
-  /* CHAINE STRICTE T1 -> BALISE -> BON DE SORTIE (2026-09-24, demande
-     utilisateur). Ces trois cellules ne travaillent plus en parallele : la
-     balise attend le T1, le bon de sortie attend la balise. Une etape SAUTEE
-     par nature (type C/A/S pour le T1, vehicule ou dispense pour la balise,
-     ouillage et magasin pour le bon de sortie) compte comme faite : la chaine
-     encadre l'ordre de travail, elle ne rouvre pas des etapes que le regime de
-     la declaration ne prevoit pas.
+  /* CHAINE STRICTE T1 -> BON DE SORTIE -> BALISE (2026-09-25, demande
+     utilisateur). Ces trois cellules ne travaillent pas en parallele et, DEPUIS
+     CE JOUR, LE BON DE SORTIE PRECEDE LA BALISE : la balise attend le bon, le
+     bon attend le T1. L'ordre inverse valait du 24 au 25 septembre ; le fait
+     decisif est que la balise ne se pose qu'au dernier moment, quand le camion
+     part, et que le bon de sortie est la piece qui l'autorise a partir.
+
+     Une etape SAUTEE par nature (type C/A/S pour le T1, ouillage et magasin
+     pour le bon de sortie, vehicule ou dispense pour la balise) compte comme
+     faite : la chaine encadre l'ordre de travail, elle ne rouvre pas des etapes
+     que le regime de la declaration ne prevoit pas.
+
      La VALIDATION reste en parallele : elle n'a jamais bloque le parcours, et
      le T1 la vaut (cascade descendante, voir etatCellules). */
   if (!e.t1) p.push('T1');
-  else if (!e.balise) p.push('BALISE');
   else if (!e.bs) p.push('BS');
+  else if (!e.balise) p.push('BALISE');
+  /* LE VERROU DE LA PP NE CHANGE PAS : T1 et Balise. Il n'y ajoute pas le bon
+     de sortie, alors que la chaine le rend desormais obligatoire en amont. La
+     raison est le STOCK EN COURS : les dossiers deja balises sans bon (l'ordre
+     d'hier) doivent pouvoir sortir. Pour tout dossier neuf, la question ne se
+     pose pas : sans bon de sortie, il n'y a pas eu de balise. */
   if (e.t1 && e.balise) p.push('PP');
   return p;
 }
@@ -164,11 +174,11 @@ export const LIBELLE_ETAPE: Record<Etape, string> = {
 export function etapePrecedenteManquante(c: SourceEtapes, etape: Etape): Etape | null {
   const e = etatCellules(c);
   if (etape !== 'CFS' && !e.cfs) return 'CFS';
-  if (etape === 'BALISE' && !e.t1) return 'T1';
-  if (etape === 'BS') {
+  if (etape === 'BALISE') {
     if (!e.t1) return 'T1';
-    if (!e.balise) return 'BALISE';
+    if (!e.bs) return 'BS';
   }
+  if (etape === 'BS' && !e.t1) return 'T1';
   if (etape === 'PP') {
     if (!e.t1) return 'T1';
     if (!e.balise) return 'BALISE';
@@ -193,7 +203,7 @@ export function prochaineEtape(c: SourceEtapes): Etape | null {
  *
  * Un dossier ne doit figurer que dans UNE SEULE file&nbsp;: celle de ce qui lui
  * reste à faire AU PROCHAIN POSTE, dans l'ordre strict&nbsp;:
- *   CFS → VALIDATION → T1 → BALISE → BON DE SORTIE → PP (sortie).
+ *   CFS → VALIDATION → T1 → BON DE SORTIE → BALISE → PP (sortie).
  * Renvoie `null` si le dossier est terminé (sorti).
  *
  * ⚠ À DISTINGUER de `etapesEnAttente`, qui reste l'AUTORITÉ du workflow (files
@@ -210,8 +220,8 @@ export function fileAttente(c: SourceEtapes): Etape | null {
   if (!e.cfs) return 'CFS';     // chargement pas fini
   if (!e.valide) return 'VALIDATION';
   if (!e.t1) return 'T1';
-  if (!e.balise) return 'BALISE';
   if (!e.bs) return 'BS';
+  if (!e.balise) return 'BALISE';
   return 'PP';                  // tout l'amont fait : attend la sortie
 }
 
@@ -311,8 +321,9 @@ export function numeroDispenseValide(v: unknown): boolean {
  * période couvrant toute la vie des dossiers, entrées − sorties = taille de la file.
  */
 
-/** Ordre des files, celui de `fileAttente`. */
-export const ORDRE_FILES: readonly Etape[] = ['CFS', 'VALIDATION', 'T1', 'BALISE', 'BS', 'PP'];
+/** Ordre des files, celui de `fileAttente`. Le bon de sortie precede la balise
+ *  depuis le 2026-09-25 (demande utilisateur). */
+export const ORDRE_FILES: readonly Etape[] = ['CFS', 'VALIDATION', 'T1', 'BS', 'BALISE', 'PP'];
 
 export interface SourcePassages extends SourceEtapes {
   dateCreation?: unknown;
@@ -365,8 +376,10 @@ export function passagesDesFiles(c: SourcePassages): Partial<Record<Etape, Passa
     // les files) ; à défaut encore (dossier ancien sans horodatage), l'instant
     // d'entrée, traversée comptée, sans inventer de durée.
     let fin = dateFin[k] ?? sortiePort ?? courant;
-    // Étape faite AVANT d'y arriver (Bon de sortie émis avant la balise) : le
-    // dossier traverse la file à l'instant où il l'atteint.
+    // Étape faite AVANT d'y arriver : c'est le cas de tous les dossiers
+    // ANTÉRIEURS au 2026-09-25, balisés avant d'avoir leur bon de sortie. Le
+    // dossier traverse alors la file à l'instant où il l'atteint, sans durée
+    // négative ni passage inventé.
     if (fin < courant) fin = courant;
     if (sortiePort !== null && fin > sortiePort) fin = Math.max(courant, sortiePort);
     out[k] = { entree: courant, sortie: fin };

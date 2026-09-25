@@ -853,7 +853,7 @@ export async function ficheBord(ctx: Ctx, p: Record<string, unknown>) {
     // ou passé au T1.
     //
     // ⚠ ON NE PASSE PLUS PAR `etapesEnAttente` (2026-09-24). Depuis que la chaîne
-    // T1 → Balise → Bon de sortie est stricte, un camion sans T1 n'a plus
+    // T1 → Bon de sortie → Balise est stricte, un camion sans T1 n'a plus
     // « BALISE » dans ses étapes en attente : il serait sorti de ce compte alors
     // qu'il est bel et bien au parc, à attendre. On lit donc l'ÉTAT des cellules,
     // qui dit une présence et non une place dans une file.

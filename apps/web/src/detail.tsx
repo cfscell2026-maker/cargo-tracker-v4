@@ -82,16 +82,19 @@ export function Detail({ user, arg, go, retour, ecranPrecedent }: Nav) {
       {c['statut'] === STATUTS.VEHICULE_OUILLAGE && can(ROLES.CFS, A) && <PanneauOuillage c={c} action={action} />}
       {pend.includes('VALIDATION') && can(ROLES.CHEF_BRIGADE, ROLES.CBPI, A) && <PanneauValidation c={c} action={action} />}
       {pend.includes('T1') && can(ROLES.T1, A) && <PanneauT1 c={c} dets={dets} action={action} />}
-      {pend.includes('BALISE') && can(ROLES.BALISE, A) && !estVeh && <PanneauBalise c={c} action={action} />}
+      {/* Le bon de sortie est posé AVANT la balise (2026-09-25) : les panneaux
+          suivent l'ordre de travail, pour que la fiche se lise de haut en bas
+          comme le camion avance. */}
       {pend.includes('BS') && can(ROLES.BON_SORTIE, A) && <PanneauBS c={c} dets={dets} action={action} />}
-      {/* CHAÎNE T1 → BALISE → BON DE SORTIE (2026-09-24, demande utilisateur).
+      {pend.includes('BALISE') && can(ROLES.BALISE, A) && !estVeh && <PanneauBalise c={c} action={action} />}
+      {/* CHAÎNE T1 → BON DE SORTIE → BALISE (2026-09-25, demande utilisateur).
           Quand la cellule ouvre une fiche dont l'étape précédente manque, elle
           trouvait un écran sans panneau, sans un mot. Elle lit désormais ce qui
           manque et à qui cela revient. */}
-      {!cellules.sorti && !cellules.balise && !estVeh && can(ROLES.BALISE) &&
-        <EtapeBloquee voulue="BALISE" c={c} />}
       {!cellules.sorti && !cellules.bs && can(ROLES.BON_SORTIE) &&
         <EtapeBloquee voulue="BS" c={c} />}
+      {!cellules.sorti && !cellules.balise && !estVeh && can(ROLES.BALISE) &&
+        <EtapeBloquee voulue="BALISE" c={c} />}
       {pend.includes('PP') && can(ROLES.PP, A) && <PanneauPP c={c} estVeh={estVeh} action={action} />}
       {c['statut'] === STATUTS.GPS && can(ROLES.BALISE, A) && <PanneauGpsEdit c={c} action={action} />}
       {/* CORRECTIONS DE CELLULES REMPLIES (2026-09-10), ajout.
@@ -902,10 +905,10 @@ function EtapeBloquee({ c, voulue }: { c: O; voulue: 'BALISE' | 'BS' }) {
       </div>
     </div>
     <div className="eb-chaine" aria-hidden="true">
-      {(['T1', 'BALISE', 'BS'] as const).map((e, i) => <span key={e}
+      {(['T1', 'BS', 'BALISE'] as const).map((e, i) => <span key={e}
         className={`eb-maillon ${e === manquante ? 'manque' : e === voulue ? 'voulue' : ''}`}>
         {i > 0 ? <span className="eb-fleche">→</span> : null}
-        {e === 'T1' ? 'T1' : e === 'BALISE' ? 'Balise' : 'Bon de sortie'}
+        {e === 'T1' ? 'T1' : e === 'BS' ? 'Bon de sortie' : 'Balise'}
       </span>)}
     </div>
   </div>;

@@ -820,7 +820,7 @@ SCREENS.dash = (nav) => {
               : nom.startsWith('Bon') ? 'wait_bs' : 'wait_sortie')} />
       <p className="help" style={{ marginBottom: 0 }}>
         Chaque dossier en cours est dans <b>une seule file</b>, celle de sa prochaine étape : quand un camion
-        avance (CFS → validation → T1 → Balise → Bon de sortie → sortie), il quitte une file et rejoint la
+        avance (CFS → validation → T1 → Bon de sortie → Balise → sortie), il quitte une file et rejoint la
         suivante. Mise à jour automatique chaque minute.
       </p>
     </div>}
@@ -4354,7 +4354,7 @@ SCREENS.temps = ({ go }) => {
  */
 const CELLULES_HORODATAGE: [string, string][] = [
   ['', 'Toutes les cellules'], ['CFS', 'CFS (entrée / chargement)'], ['VALIDATION', 'Validation (chef brigade)'],
-  ['T1', 'Cellule T1'], ['BALISE', 'Cellule Balise'], ['BS', 'Bon de sortie'], ['PP', 'Porte principale (sortie)'],
+  ['T1', 'Cellule T1'], ['BS', 'Bon de sortie'], ['BALISE', 'Cellule Balise'], ['PP', 'Porte principale (sortie)'],
 ];
 SCREENS.horodatage = () => {
   const p = useReportRange('jour'); // par défaut : la journée d'aujourd'hui
@@ -4553,7 +4553,7 @@ SCREENS.goulots = (nav) => {
  */
 const POSTES_UI: [string, string][] = [
   ['cfs', 'CFS (chargement)'], ['validation', 'Chef de brigade'], ['t1', 'Cellule T1'],
-  ['balise', 'Cellule Balise'], ['bs', 'Bon de sortie'], ['pp', 'Porte Principale'],
+  ['bs', 'Bon de sortie'], ['balise', 'Cellule Balise'], ['pp', 'Porte Principale'],
 ];
 
 SCREENS.dwell = ({ go }) => {
