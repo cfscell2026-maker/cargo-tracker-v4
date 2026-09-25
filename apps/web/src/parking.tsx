@@ -13,7 +13,7 @@
  *  Le camion quitte le parking quand il est signalé à la Porte Principale.
  * ============================================================================
  */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import * as XLSX from 'xlsx';
 import { call } from './lib/rpc.ts';
 import { useAsync } from './lib/hooks.ts';
@@ -27,11 +27,17 @@ import { ROLES, alphaNumMaj, camionValide, dureeLisible } from '../../../supabas
 type O = Record<string, unknown>;
 const s = (v: unknown) => String(v ?? '');
 
+/** Camions montres d'un coup ; au-dela, on pagine. */
+const PARKING_PAR_PAGE = 50;
+
 /* ---------------------------------------------------------------- l'écran */
 
 export function EcranParking({ user }: Nav) {
   const [recherche, setRecherche] = useState('');
   const [statut, setStatut] = useState('presents');
+  const [page, setPage] = useState(1);
+  // Changer de vue, de periode ou de recherche ramene a la premiere page :
+  // rester sur une page 4 qui n'existe plus donnerait une liste vide.
   const [ajout, setAjout] = useState(false);
   const [detail, setDetail] = useState<string | null>(null);
   const [edite, setEdite] = useState<O | null>(null);
@@ -59,7 +65,15 @@ export function EcranParking({ user }: Nav) {
     () => call('parking.list', { statut, du, au }), [statut, du, au]);
   const recues = (data?.['lignes'] as O[]) ?? [];
   const q = alphaNumMaj(recherche).replace(/[^A-Z0-9]/g, '');
+  useEffect(() => { setPage(1); }, [q, statut, periode.du, periode.au]);
   const lignes = q ? recues.filter((l) => s(l['numeroCamionNorm']).indexOf(q) > -1) : recues;
+  /* PAR PAGES (2026-09-25, demande utilisateur). Un parking bien rempli, ou une
+     vue « Tous » sur plusieurs mois, deroulait des centaines de lignes d'un
+     bloc. La recherche reste le geste rapide ; la pagination evite la page
+     interminable quand on ne cherche rien de precis. */
+  const pages = Math.max(1, Math.ceil(lignes.length / PARKING_PAR_PAGE));
+  const pageSure = Math.min(page, pages);
+  const visibles = lignes.slice((pageSure - 1) * PARKING_PAR_PAGE, pageSure * PARKING_PAR_PAGE);
   const cpt = (data?.['compte'] as O) ?? {};
   const active = data?.['active'] !== false;
 
@@ -140,6 +154,7 @@ export function EcranParking({ user }: Nav) {
       {loading ? <Spinner /> : error ? <div className="err-msg">{error}</div> : <>
         <div className="help" style={{ marginBottom: 8 }}>
           {q ? `${lignes.length} camion(s) sur ${recues.length}` : `${lignes.length} camion(s)`}
+          {lignes.length > PARKING_PAR_PAGE ? ` · page ${pageSure} sur ${pages}` : ''}
           {data?.['jour'] ? ` · pointage du ${fmtJour(data['jour'])}` : ''}
         </div>
         {!lignes.length ? <div className="empty">
@@ -152,7 +167,7 @@ export function EcranParking({ user }: Nav) {
             <th>Durée au parking</th><th>Dernier pointage</th><th>Aujourd'hui</th><th></th>
           </tr></thead>
           <tbody>
-            {lignes.map((l) => {
+            {visibles.map((l) => {
               const id = s(l['id']);
               const pointe = l['pointeAujourdhui'] === true;
               const sorti = l['statut'] === 'Sorti';
@@ -182,6 +197,11 @@ export function EcranParking({ user }: Nav) {
             })}
           </tbody>
         </table></div>}
+        {pages > 1 && <div className="row pagination-tc">
+          <button className="ghost xs" disabled={pageSure <= 1} onClick={() => setPage(pageSure - 1)}>‹ Précédents</button>
+          <span className="help">{(pageSure - 1) * PARKING_PAR_PAGE + 1} à {Math.min(pageSure * PARKING_PAR_PAGE, lignes.length)} sur {lignes.length}</span>
+          <button className="ghost xs" disabled={pageSure >= pages} onClick={() => setPage(pageSure + 1)}>Suivants ›</button>
+        </div>}
       </>}
     </div>
 

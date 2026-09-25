@@ -131,6 +131,100 @@ function Table({ cols, rows, onRow, icones, actions }: {
   </table></div>;
 }
 
+/* ---------------------- Listes longues : pages & filtre ----------------- */
+/**
+ * ON N'AFFICHE PLUS TOUT D'UN COUP (2026-09-25, demande utilisateur).
+ *
+ * Plusieurs volets (délai & instance, temps de passage, stock, heures
+ * d'activité…) déroulaient la totalité de leurs lignes : des pages
+ * interminables, lentes à ouvrir et impossibles à parcourir sur téléphone.
+ *
+ * `ListeLongue` remplace `Table` partout où la liste peut être longue et pose,
+ * d'un seul tenant : une RECHERCHE (elle fouille toutes les colonnes
+ * affichées, accents et ponctuation ignorés), un compteur qui dit ce qu'on
+ * regarde, et des PAGES. Rien ne repart au serveur : tout se joue sur les
+ * lignes déjà reçues, la frappe filtre donc instantanément.
+ *
+ * Les écrans qui ont besoin d'un filtre à eux (une vue commandée par un
+ * chiffre, un choix de cellule…) le passent dans `filtres` : il se range à
+ * côté de la loupe au lieu d'être posé ailleurs sur l'écran.
+ */
+const LIGNES_PAR_PAGE = 50;
+
+/** Forme comparable d'une valeur : sans accent, sans ponctuation, en capitales. */
+function cleRecherche(v: unknown): string {
+  return String(v ?? '')
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+
+function ListeLongue({
+  cols, rows, onRow, icones, actions, placeholder, vide, nom, filtres, cherchables,
+  parPage = LIGNES_PAR_PAGE, reinit,
+}: {
+  cols: [string, string][]; rows: O[]; onRow?: (r: O) => void;
+  icones?: Record<string, string>; actions?: (r: O) => ReactNode;
+  /** Ce qu'on cherche ici : « N° de camion », « conteneur, déclaration »… */
+  placeholder?: string;
+  /** Phrase affichée quand la vue ne contient rien. */
+  vide?: string;
+  /** Nom des lignes, pour le compteur : « camion(s) », « conteneur(s) ». */
+  nom?: string;
+  /** Contrôles propres à l'écran, posés à côté de la recherche. */
+  filtres?: ReactNode;
+  /** Colonnes fouillées par la recherche. Par défaut, toutes celles affichées. */
+  cherchables?: string[];
+  parPage?: number;
+  /** Change de valeur quand l'écran change de vue : la pagination repart à 1. */
+  reinit?: unknown;
+}) {
+  const [q, setQ] = useState('');
+  const [page, setPage] = useState(1);
+  // Un changement de vue en amont ne doit pas laisser l'utilisateur sur une
+  // page 7 qui n'existe plus dans la nouvelle liste.
+  useEffect(() => { setPage(1); }, [reinit]);
+
+  const cles = cherchables ?? cols.map((c) => c[0]);
+  const terme = cleRecherche(q);
+  const lignes = terme ? rows.filter((r) => cles.some((k) => cleRecherche(r[k]).includes(terme))) : rows;
+  const pages = Math.max(1, Math.ceil(lignes.length / parPage));
+  const pageSure = Math.min(page, pages);
+  const visibles = lignes.slice((pageSure - 1) * parPage, pageSure * parPage);
+  const chercher = (v: string) => { setQ(v); setPage(1); };
+
+  return <>
+    <div className="row depot-recherche liste-outils">
+      <span className="champ-loupe">
+        <Icone nom="loupe" taille={15} />
+        <input value={q} onChange={(e) => chercher(e.target.value)}
+          placeholder={placeholder ?? 'Rechercher dans la liste'}
+          title="Filtre la liste à chaque caractère saisi" />
+      </span>
+      {filtres}
+      {terme !== '' && <button className="ghost xs" onClick={() => chercher('')}>Tout afficher</button>}
+    </div>
+    <div className="help liste-compte">
+      <b>{lignes.length}</b> {nom ?? 'ligne(s)'}{terme !== '' ? ` pour « ${q.trim()} »` : ''}
+      {lignes.length > parPage ? ` · page ${pageSure} sur ${pages}` : ''}
+    </div>
+    {/* Une recherche infructueuse le DIT : le message propre a l'ecran
+        (« Aucun conteneur annonce ») ferait croire que la base est vide, alors
+        que c'est le terme cherche qui ne donne rien. */}
+    {lignes.length === 0
+      ? <div className="empty">{terme !== ''
+        ? `Aucun résultat pour « ${q.trim()} ».`
+        : vide ?? 'Aucune donnée.'}</div>
+      : <>
+        <Table cols={cols} rows={visibles} onRow={onRow} icones={icones} actions={actions} />
+        {pages > 1 && <div className="row pagination-tc">
+          <button className="ghost xs" disabled={pageSure <= 1} onClick={() => setPage(pageSure - 1)}>‹ Précédents</button>
+          <span className="help">{(pageSure - 1) * parPage + 1} à {Math.min(pageSure * parPage, lignes.length)} sur {lignes.length}</span>
+          <button className="ghost xs" disabled={pageSure >= pages} onClick={() => setPage(pageSure + 1)}>Suivants ›</button>
+        </div>}
+      </>}
+  </>;
+}
+
 /* ------------------ Modifier / supprimer un dossier --------------------- */
 /**
  * 2026-09-12 · DEMANDE UTILISATEUR : des agents créent le même camion plusieurs
@@ -2783,7 +2877,9 @@ function StockList({ statut, titre }: { statut: string; titre?: string }) {
         <StatCard n={Number(data?.compte['depote'] ?? 0)} l="Dépotés" />
         <StatCard n={Number(data?.compte['evp'] ?? 0)} l="EVP" />
       </div>
-      <Table cols={[['numeroTC', 'Conteneur'], ['taille', 'Taille'], ['statut', 'Statut'], ['provenance', 'Provenance'], ['numeroDeclaration', 'N° décl.'], ['joursSejour', 'Séjour (j)']]} rows={data?.rows ?? []} />
+      <ListeLongue cols={[['numeroTC', 'Conteneur'], ['taille', 'Taille'], ['statut', 'Statut'], ['provenance', 'Provenance'], ['numeroDeclaration', 'N° décl.'], ['joursSejour', 'Séjour (j)']]}
+        rows={(data?.rows ?? []) as O[]} nom="conteneur(s)" reinit={statut}
+        placeholder="N° de conteneur, déclaration, provenance…" vide="Aucun conteneur." />
     </>}
   </div>;
 }
@@ -2811,13 +2907,15 @@ function StockJournalier() {
         <StatCard n={Number(data?.compte['depote'] ?? 0)} l="Dépotés (total)" />
       </div>
       <div className="section-title">Positionnés aujourd'hui ({duJour.length})</div>
-      <Table cols={cols} rows={duJour} />
+      <ListeLongue cols={cols} rows={duJour} nom="conteneur(s) positionné(s)"
+        placeholder="N° de conteneur, déclaration…" vide="Aucun conteneur positionné aujourd'hui." />
       {restes.length > 0 && <>
         <div className="row" style={{ alignItems: 'center', marginTop: 12 }}>
           <div className="section-title" style={{ flex: 1, margin: 0 }}>Restes des jours précédents ({restes.length})</div>
           <button className="ghost xs" onClick={() => setVoirRestes((v) => !v)}>{voirRestes ? 'Masquer' : 'Afficher'}</button>
         </div>
-        {voirRestes && <Table cols={cols} rows={restes} />}
+        {voirRestes && <ListeLongue cols={cols} rows={restes} nom="reste(s) à dépoter"
+          placeholder="N° de conteneur, déclaration…" vide="Aucun reste." />}
       </>}
     </>}
   </div>;
@@ -3117,7 +3215,9 @@ SCREENS.annonce = () => {
         <StatCard n={Number(data?.compte['confirmes'] ?? 0)} l="Confirmés" tone="ok" />
         <StatCard n={`${Number(data?.compte['tauxTransfert'] ?? 0)}%`} l="Taux transfert" />
       </div>
-      <Table cols={[['numeroTC', 'Conteneur'], ['taille', 'Taille'], ['statut', 'Statut'], ['numeroDeclaration', 'N° décl.'], ['datePointage', 'Pointé le'], ['dateConfirmation', 'Confirmé le']]} rows={data?.rows ?? []} />
+      <ListeLongue cols={[['numeroTC', 'Conteneur'], ['taille', 'Taille'], ['statut', 'Statut'], ['numeroDeclaration', 'N° décl.'], ['datePointage', 'Pointé le'], ['dateConfirmation', 'Confirmé le']]}
+        rows={(data?.rows ?? []) as O[]} nom="conteneur(s) annoncé(s)"
+        placeholder="N° de conteneur, déclaration…" vide="Aucun conteneur annoncé." />
     </>}
   </div>;
 };
@@ -3136,7 +3236,10 @@ SCREENS.etatcfs = ({ go }) => {
         <StatCard n={Number(data?.compte['vide'] ?? 0)} l="Vides" />
         <StatCard n={Number(data?.compte['np'] ?? 0)} l="Non précisé" tone="warn" />
       </div>
-      <Table cols={[['id', 'ID'], ['numeroCamion', 'Camion / Châssis'], ['typeOperation', 'Opération'], ['statut', 'Statut'], ['etatSortie', 'État sortie']]} rows={data?.rows ?? []} onRow={(r) => go('detail', r['id'])} />
+      <ListeLongue cols={[['id', 'ID'], ['numeroCamion', 'Camion / Châssis'], ['typeOperation', 'Opération'], ['statut', 'Statut'], ['etatSortie', 'État sortie']]}
+        rows={(data?.rows ?? []) as O[]} onRow={(r) => go('detail', r['id'])}
+        nom="camion(s) présent(s)" placeholder="N° de camion, châssis, ID…"
+        vide="Aucun camion au parking." />
     </>}
   </div>;
 };
@@ -3899,13 +4002,13 @@ SCREENS.dispenses = () => {
               { valeur: 'dispense', libelle: 'Dispenses', icone: 'drapeau' },
               { valeur: 'escorte', libelle: 'Escortes', icone: 'escorte' },
             ]} />
-          <span className="help">{lignes.length} ligne(s)</span>
         </div>
-        {lignes.length === 0 ? <div className="empty">Aucune exemption dans cette vue.</div>
-          : <Table
-            cols={[['id', 'ID'], ['numeroCamion', 'Camion'], ['nature', 'Nature'], ['numeroDispense', 'Référence'],
-              ['typeDeclaration', 'Type décl.'], ['statut', 'Statut']]}
-            rows={lignes.map((r) => ({ ...r, nature: String(r['exemption']) === 'escorte' ? 'Escorte' : 'Dispense' }))} />}
+        <ListeLongue
+          cols={[['id', 'ID'], ['numeroCamion', 'Camion'], ['nature', 'Nature'], ['numeroDispense', 'Référence'],
+            ['typeDeclaration', 'Type décl.'], ['statut', 'Statut']]}
+          rows={lignes.map((r) => ({ ...r, nature: String(r['exemption']) === 'escorte' ? 'Escorte' : 'Dispense' }))}
+          nom="exemption(s)" placeholder="Camion, référence, ID…" reinit={vue}
+          vide="Aucune exemption dans cette vue." />
       </div>
     </>}
   </>;
@@ -4216,7 +4319,9 @@ SCREENS.temps = ({ go }) => {
 
       <div className="card">
         <h2>Détail par dossier ({lignes.length})</h2>
-        <Table
+        <ListeLongue
+          nom="dossier(s)" placeholder="Camion, châssis, déclaration…" vide="Aucun dossier sur la période."
+          cherchables={['numeroCamion', 'declaration', 'jourTxt']}
           cols={[['numeroCamion', 'Camion / Châssis'], ['declaration', 'Déclaration'], ['jourTxt', 'Entré le'],
             ['cfsTxt', 'CFS'], ['validationTxt', 'Brigade'], ['t1Txt', 'T1'], ['baliseTxt', 'Balise'], ['bsTxt', 'Bon sortie'], ['ppTxt', 'PP'], ['globalTxt', 'GLOBAL']]}
           rows={lignes.map((l) => ({
@@ -4279,11 +4384,11 @@ SCREENS.horodatage = () => {
       <span style={{ flex: 1 }} />
       <button className="ghost xs" disabled={busy} onClick={exporter}>⤓ Excel</button>
     </div>
-    {loading ? <Spinner /> : rows.length === 0
-      ? <div className="empty">Aucune activité sur la période.</div>
-      : <Table cols={[['celluleLibelle', 'Cellule'], ['agent', 'Agent'], ['jourTxt', 'Jour'],
+    {loading ? <Spinner />
+      : <ListeLongue cols={[['celluleLibelle', 'Cellule'], ['agent', 'Agent'], ['jourTxt', 'Jour'],
         ['debut', 'Début'], ['fin', 'Fin'], ['dureeTxt', 'Durée'], ['camions', 'Camions'], ['conteneurs', 'Conteneurs']]}
-        rows={rows} />}
+        rows={rows} nom="journée(s) d'agent" placeholder="Agent, cellule, jour…"
+        vide="Aucune activité sur la période." reinit={cellule} />}
   </div></>;
 };
 
@@ -4332,7 +4437,22 @@ SCREENS.goulots = (nav) => {
   const [motif, setMotif] = useState('');
   const [busy, setBusy] = useState(false);
   const { data, loading, reload } = useAsync<O>(() => call('report.goulots', { joursMin: jours }), [jours]);
-  const rows = (data?.['rows'] as O[]) ?? [];
+  /* LA LISTE NE S'AFFICHE PLUS EN ENTIER (2026-09-25, demande utilisateur).
+     Elle porte des cases a cocher, donc elle ne peut pas passer par
+     `ListeLongue` ; elle en reprend le principe : une recherche qui fouille les
+     colonnes affichees, et des pages de 50. LA SELECTION SUIT LA RECHERCHE :
+     « Tout cocher » ne coche que ce qui est trouve, jamais des dossiers que
+     l'utilisateur ne voit pas. */
+  const [q, setQ] = useState('');
+  const [page, setPage] = useState(1);
+  const toutes = (data?.['rows'] as O[]) ?? [];
+  const terme = cleRecherche(q);
+  const rows = terme
+    ? toutes.filter((r) => ['id', 'numeroCamion', 'statut', 'etapeLibelle'].some((k) => cleRecherche(r[k]).includes(terme)))
+    : toutes;
+  const pages = Math.max(1, Math.ceil(rows.length / LIGNES_PAR_PAGE));
+  const pageSure = Math.min(page, pages);
+  const visibles = rows.slice((pageSure - 1) * LIGNES_PAR_PAGE, pageSure * LIGNES_PAR_PAGE);
   const parEtape = (data?.['parEtape'] as O[]) ?? [];
   const parStatut = (data?.['parStatut'] as O[]) ?? [];
   const parAge = (data?.['parAge'] as O[]) ?? [];
@@ -4360,7 +4480,7 @@ SCREENS.goulots = (nav) => {
       </p>
       <div className="row" style={{ alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
         <label className="help" style={{ margin: 0 }}>Plus vieux que</label>
-        <select value={jours} onChange={(e) => { setJours(Number(e.target.value)); setSel(new Set()); }} style={{ maxWidth: 160 }}>
+        <select value={jours} onChange={(e) => { setJours(Number(e.target.value)); setSel(new Set()); setPage(1); }} style={{ maxWidth: 160 }}>
           <option value={0}>Tous (0 jour)</option><option value={30}>30 jours</option>
           <option value={60}>60 jours</option><option value={90}>90 jours</option><option value={180}>180 jours</option>
         </select>
@@ -4385,9 +4505,18 @@ SCREENS.goulots = (nav) => {
 
     {!loading && <div className="card">
       <div className="row" style={{ alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
-        <h2 style={{ flex: 1, margin: 0 }}>Dossiers concernés ({rows.length})</h2>
+        <h2 style={{ flex: 1, margin: 0 }}>Dossiers concernés ({rows.length}{terme !== '' ? ` sur ${toutes.length}` : ''})</h2>
         {rows.length > 0 && <button className="ghost xs" onClick={() => setSel(tousCoches ? new Set() : new Set(rows.map((r) => String(r['id']))))}>
           {tousCoches ? 'Tout décocher' : 'Tout cocher'}</button>}
+      </div>
+      <div className="row depot-recherche liste-outils" style={{ marginTop: 8 }}>
+        <span className="champ-loupe">
+          <Icone nom="loupe" taille={15} />
+          <input value={q} onChange={(e) => { setQ(e.target.value); setPage(1); }}
+            placeholder="ID, n° de camion, statut, poste d'attente…"
+            title="Filtre les dossiers à chaque caractère saisi" />
+        </span>
+        {terme !== '' && <button className="ghost xs" onClick={() => { setQ(''); setPage(1); }}>Tout afficher</button>}
       </div>
       {!admin && <p className="help">Lecture seule, seul un administrateur peut archiver.</p>}
       {admin && <div className="row" style={{ alignItems: 'center', gap: 8, flexWrap: 'wrap', margin: '8px 0' }}>
@@ -4397,12 +4526,17 @@ SCREENS.goulots = (nav) => {
       {rows.length === 0 ? <p className="help">Aucun dossier au-delà de ce seuil.</p>
         : <div className="tbl"><table><thead><tr>
           {admin && <th style={{ width: 28 }}></th>}<th>ID</th><th>Camion</th><th>Statut</th><th>En attente à</th><th>Âge (j)</th><th>Entré le</th>
-        </tr></thead><tbody>{rows.map((r) => <tr key={String(r['id'])} className="clk" onClick={() => nav.go('detail', r['id'])}>
+        </tr></thead><tbody>{visibles.map((r) => <tr key={String(r['id'])} className="clk" onClick={() => nav.go('detail', r['id'])}>
           {admin && <td onClick={(e) => e.stopPropagation()}><input type="checkbox" checked={sel.has(String(r['id']))} onChange={() => toggle(String(r['id']))} /></td>}
           <td className="mono">{String(r['id'])}</td><td><NumeroMobile valeur={r['numeroCamion']} /></td>
           <td>{String(r['statut'])}</td><td>{String(r['etapeLibelle'] || '—')}</td>
           <td>{String(r['age'])}</td><td>{fmtDate(r['dateCreation'])}</td>
         </tr>)}</tbody></table></div>}
+      {pages > 1 && <div className="row pagination-tc">
+        <button className="ghost xs" disabled={pageSure <= 1} onClick={() => setPage(pageSure - 1)}>‹ Précédents</button>
+        <span className="help">{(pageSure - 1) * LIGNES_PAR_PAGE + 1} à {Math.min(pageSure * LIGNES_PAR_PAGE, rows.length)} sur {rows.length}</span>
+        <button className="ghost xs" disabled={pageSure >= pages} onClick={() => setPage(pageSure + 1)}>Suivants ›</button>
+      </div>}
     </div>}
 
     {admin && <BlocArchives />}
@@ -4427,7 +4561,10 @@ SCREENS.dwell = ({ go }) => {
   return <div className="card"><h2>Délai & camions en instance</h2>
     {loading ? <Spinner /> : <>
       <div className="stats"><StatCard n={Number(data?.compte['totInstance'] ?? 0)} l="En instance" /><StatCard n={Number(data?.compte['totSortis'] ?? 0)} l="Sortis" tone="ok" /><StatCard n={Number(data?.compte['delaiMoyen'] ?? 0)} l="Délai moyen (j)" /><StatCard n={Number(data?.compte['alerte'] ?? 0)} l={`Alerte ≥ ${data?.seuil ?? 90} j`} tone="warn" /></div>
-      <Table cols={[['id', 'ID'], ['numeroCamion', 'Camion'], ['typeOperation', 'Opération'], ['statut', 'Statut'], ['age', 'Âge (j)']]} rows={data?.instance ?? []} onRow={(r) => go('detail', r['id'])} />
+      <ListeLongue cols={[['id', 'ID'], ['numeroCamion', 'Camion'], ['typeOperation', 'Opération'], ['statut', 'Statut'], ['age', 'Âge (j)']]}
+        rows={(data?.instance ?? []) as O[]} onRow={(r) => go('detail', r['id'])}
+        nom="camion(s) en instance" placeholder="N° de camion, ID, statut…"
+        vide="Aucun camion en instance." />
     </>}
   </div>;
 };

@@ -1732,6 +1732,14 @@ tr.clk{cursor:pointer} tr.clk:hover{background:var(--accent-soft)}
 .pagination-tc{justify-content:center;align-items:center;gap:12px;margin-top:10px}
 .pagination-tc .help{margin:0}
 
+/* ---- Listes longues : barre de recherche et compteur (2026-09-25) ------
+   Un seul habillage pour tous les volets qui paginent : la loupe prend la
+   largeur, les filtres propres a l'ecran se rangent a sa droite, et le
+   compteur dit ce qu'on regarde avant meme de lire le tableau. */
+.liste-outils{flex-wrap:wrap;margin-top:10px}
+.liste-outils .champ-loupe{min-width:180px}
+.liste-compte{margin:8px 0}
+
 /* ---- Dispenses et escortes (2026-09-24) -------------------------------
    Une barre par mois, coupee en deux : ce qui releve d'une autorisation et ce
    qui releve d'un accompagnement. La longueur compare les mois entre eux. */
