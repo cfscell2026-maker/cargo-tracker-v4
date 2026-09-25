@@ -11,6 +11,7 @@ import { STATUTS, etapesEnAttente, fileAttente, groupesDeclaration, verifierPerm
 import { versCamel, type Ctx } from '../ctx.ts';
 import { FakeDB } from './fake-db.ts';
 import * as ecr from './ecriture.ts';
+import { delierStock } from './helpers.ts';
 import * as spe from './speciaux.ts';
 import * as stk from './stock.ts';
 import * as rap from './rapports.ts';
@@ -387,7 +388,7 @@ test('validation non bloquante : T1 / Balise / sortie possibles sans validation'
     id, conteneur: { num: 'MSKU1234567', taille: "40'", type: 'DRY', plomb: 'S1' },
     declaration: { declarant: 'A', contactDeclarant: '901234', destinationMarchandise: 'D', bureauDeclaration: 'TG120', typeDeclaration: 'T', numeroDeclaration: '60', anneeDeclaration: '2026', descriptionMarchandise: 'X', nombreConteneurs: 1 },
   });
-  // AUCUNE validation chef brigade, le process continue quand même.
+  // AUCUNE validation chef brigade — le process continue quand même.
   await ecr.t1(ctxRole(db, 'T1', 'T1'), { id, bureauDestination: 'TG120', t1Numeros: [{ conteneur: 'MSKU1234567', numero: 'T1' }] });
   await ecr.gps(ctxRole(db, 'BALISE', 'B'), { id, baliseRequise: 'Oui', t1Correct: 'Oui', numeroGPS: 'G' });
   await ecr.sortie(ctxRole(db, 'PP', 'PP'), { id, ckCfs: true, ckT1: true, ckBalise: true, ckBs: true });
@@ -2580,6 +2581,59 @@ test('dépotage, un conteneur partagé NE redevient PAS « positionné »', asyn
   const stk = db.store['stock'].find((x) => x['numero_tc'] === 'MSKU7770002')!;
   assert.equal(stk['statut'], 'Dépoté',
     'le re-pointage ferait réapparaître au parc un conteneur déjà parti');
+});
+
+/* ===== FANTÔMES DU PARC — 2026-09-24 (rapprochement PIA) ==================
+ *
+ * 2 260 conteneurs « au parc » étaient déjà sur un camion sorti. Une des
+ * fuites : annuler le PREMIER camion d'un conteneur partagé remettait sa fiche
+ * « En stock » alors qu'il restait chargé sur le second.
+ */
+test('annulation du 1er camion d\'un conteneur partagé : la fiche passe au 2e, pas au parc', async () => {
+  const db = new FakeDB();
+  db.store['stock'].push({ numero_tc: 'MSKU5550101', taille: "40'", statut: 'Positionné' });
+  const a = await depotagePret(db, 'FANT001/RM01');
+  await ecr.cfs(a.cfs, { id: a.id, declaration: DECL_PNT, conteneur: { num: 'MSKU5550101', taille: "40'", type: 'DRY' } });
+  const b = await depotagePret(db, 'FANT002/RM01');
+  await ecr.cfs(b.cfs, { id: b.id, declaration: DECL_PNT, conteneur: { num: 'MSKU5550101', taille: "40'", type: 'DRY', manuel: true } });
+
+  await ecr.supprimerCargo(ctxRole(db, 'ADMIN', 'Admin'), { id: a.id, motif: 'doublon de saisie' });
+  const fiche = () => db.store['stock'].find((x) => x['numero_tc'] === 'MSKU5550101')!;
+  assert.equal(fiche()['statut'], 'Dépoté', 'toujours chargé sur le 2e camion : il ne revient pas au parc');
+  assert.equal(fiche()['cargaison_id'], b.id, 'la fiche suit le camion qui le porte encore');
+
+  // Le second annulé à son tour : plus aucun camion ne le porte, il revient au parc.
+  await ecr.supprimerCargo(ctxRole(db, 'ADMIN', 'Admin'), { id: b.id, motif: 'doublon de saisie' });
+  assert.equal(fiche()['statut'], 'En stock');
+  assert.equal(fiche()['cargaison_id'], null);
+});
+
+test('annulation d\'un camion NON partagé : le conteneur revient au parc comme avant', async () => {
+  const db = new FakeDB();
+  db.store['stock'].push({ numero_tc: 'MSKU5550102', taille: "40'", statut: 'Positionné' });
+  const a = await depotagePret(db, 'FANT003/RM01');
+  await ecr.cfs(a.cfs, { id: a.id, declaration: DECL_PNT, conteneur: { num: 'MSKU5550102', taille: "40'", type: 'DRY' } });
+  await ecr.supprimerCargo(ctxRole(db, 'ADMIN', 'Admin'), { id: a.id, motif: 'doublon de saisie' });
+  const f = db.store['stock'].find((x) => x['numero_tc'] === 'MSKU5550102')!;
+  assert.equal(f['statut'], 'En stock');
+  assert.equal(f['cargaison_id'], null);
+});
+
+test('correction : un conteneur retiré du 1er camion mais encore sur un autre camion ARCHIVÉ revient au parc', async () => {
+  const db = new FakeDB();
+  db.store['stock'].push({ numero_tc: 'MSKU5550103', taille: "40'", statut: 'Dépoté', cargaison_id: 'CT-A' });
+  db.store['cargaisons'].push(
+    { id: 'CT-A', numero_camion: 'A', statut: 'En cours de chargement', date_creation: '2026-09-20T08:00:00Z' },
+    { id: 'CT-B', numero_camion: 'B', statut: 'Sortie Enregistrée', date_creation: '2026-09-21T08:00:00Z', archive: true },
+  );
+  db.store['conteneurs'].push(
+    { cargaison_id: 'CT-A', conteneur: 'MSKU5550103' },
+    { cargaison_id: 'CT-B', conteneur: 'MSKU5550103' },
+  );
+  await delierStock(ctxAvec(db), 'MSKU5550103', 'CT-A', 'Positionné');
+  const f = db.store['stock'][0]!;
+  assert.equal(f['statut'], 'Positionné', 'un camion archivé ne retient pas le conteneur');
+  assert.equal(f['cargaison_id'], null);
 });
 
 test('dépotage, le conteneur NON dépoté garde sa règle de pointage', async () => {

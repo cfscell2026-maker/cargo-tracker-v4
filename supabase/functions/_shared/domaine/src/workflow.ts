@@ -123,7 +123,7 @@ export function etapesEnAttente(c: SourceEtapes): Etape[] {
   if (!e.cfs) return ['CFS']; // camion vide / en cours -> à compléter par le CFS
   // Après le CFS, les cellules Validation / T1 / Balise / Bon de sortie sont
   // ouvertes EN PARALLÈLE. v4.1 (décision utilisateur 2026-07-27) : VERROU PP
-  // RÉACTIVÉ : la Porte Principale ne peut clôturer qu'une fois le T1 ET la
+  // RÉACTIVÉ — la Porte Principale ne peut clôturer qu'une fois le T1 ET la
   // Balise faits (ou sautés par nature : type C/A/E pour le T1, dispense/véhicule
   // pour la Balise). Le Bon de sortie reste, lui, non bloquant.
   const p: Etape[] = [];

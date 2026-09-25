@@ -52,9 +52,10 @@ class Query {
   private payload: Row | Row[] | null = null;
   private wantSingle: 'maybe' | 'one' | null = null;
   private wantSelect = false;
-  private orderCol: string | null = null;
-  private orderAsc = true;
+  // Plusieurs `.order()` s'enchaînent comme en SQL : le 2e départage le 1er.
+  private ordres: { col: string; asc: boolean }[] = [];
   private limitN: number | null = null;
+  private borne: [number, number] | null = null;
   private store: Record<string, Row[]>;
   private table: string;
 
@@ -75,9 +76,9 @@ class Query {
   lte(c: string, v: unknown) { this.filters.push([c, 'lte', v]); return this; }
   lt(c: string, v: unknown) { this.filters.push([c, 'lt', v]); return this; }
   gt(c: string, v: unknown) { this.filters.push([c, 'gt', v]); return this; }
-  order(c: string, o?: { ascending?: boolean }) { this.orderCol = c; this.orderAsc = o?.ascending !== false; return this; }
+  order(c: string, o?: { ascending?: boolean }) { this.ordres.push({ col: c, asc: o?.ascending !== false }); return this; }
   limit(n: number) { this.limitN = n; return this; }
-  range() { return this; }
+  range(de: number, a: number) { this.borne = [de, a]; return this; }
   maybeSingle() { this.wantSingle = 'maybe'; return this; }
   single() { this.wantSingle = 'one'; return this; }
 
@@ -101,13 +102,21 @@ class Query {
     }
     // select
     let res = rows.filter((r) => match(r, this.filters)).map((r) => structuredClone(r));
-    if (this.orderCol) {
-      const col = this.orderCol;
-      res.sort((a, b) => (String(a[col] ?? '') < String(b[col] ?? '') ? -1 : 1) * (this.orderAsc ? 1 : -1));
+    if (this.ordres.length) {
+      res.sort((a, b) => {
+        for (const { col, asc } of this.ordres) {
+          const x = String(a[col] ?? ''), y = String(b[col] ?? '');
+          if (x !== y) return (x < y ? -1 : 1) * (asc ? 1 : -1);
+        }
+        return 0;
+      });
     }
+    // Comme PostgREST : `count` porte sur toutes les lignes filtrées, AVANT la page.
+    const count = res.length;
+    if (this.borne) res = res.slice(this.borne[0], this.borne[1] + 1);
     if (this.limitN != null) res = res.slice(0, this.limitN);
     if (this.wantSingle) return { data: res[0] ?? null, error: null };
-    return { data: res, error: null, count: res.length };
+    return { data: res, error: null, count };
   }
 
   then<T>(onF: (v: { data: unknown; error: { message: string } | null; count?: number }) => T) {

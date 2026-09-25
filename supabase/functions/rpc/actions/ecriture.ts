@@ -1249,11 +1249,13 @@ export async function supprimerCargo(ctx: Ctx, p: Record<string, unknown>) {
   if (aFait(c['dateValidation'])) engagee.push('VALIDÉE ET SIGNÉE le ' + fmtDate(c['dateValidation']));
   if (c['statut'] === STATUTS.SORTIE) engagee.push('DÉJÀ SORTIE le ' + fmtDate(c['dateSortie']));
 
-  // Libère les conteneurs de stock rattachés à cette cargaison.
-  const { error: eStock } = await ctx.db.from('stock')
-    .update({ statut: STOCK_STATUTS.STOCK, cargaison_id: null, date_depote: null })
-    .eq('cargaison_id', id);
+  // Libère les conteneurs de stock rattachés à cette cargaison — un par un, car
+  // un conteneur partagé encore chargé sur un autre camion ne doit PAS revenir
+  // au parc : sa fiche passe à cet autre camion (voir `delierStock`).
+  const { data: fiches, error: eStock } = await ctx.db.from('stock')
+    .select('numero_tc').eq('cargaison_id', id);
   if (eStock) throw new Error(eStock.message);
+  for (const f of fiches ?? []) await delierStock(ctx, String(f['numero_tc']), id, STOCK_STATUTS.STOCK);
 
   // Trace intégrale AVANT l'annulation : le journal doit permettre de
   // reconstituer ce qui a été écarté, pas seulement d'en connaître l'existence.
