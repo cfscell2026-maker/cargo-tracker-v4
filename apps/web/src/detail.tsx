@@ -95,6 +95,9 @@ export function Detail({ user, arg, go, retour, ecranPrecedent }: Nav) {
         <EtapeBloquee voulue="BS" c={c} />}
       {!cellules.sorti && !cellules.balise && !estVeh && can(ROLES.BALISE) &&
         <EtapeBloquee voulue="BALISE" c={c} />}
+      {/* LE PORTAIL AUSSI (2026-09-25) : la sortie exige toute la chaine, et
+          l'agent de la PP trouvait un ecran muet quand une piece manquait. */}
+      {!cellules.sorti && can(ROLES.PP) && <EtapeBloquee voulue="PP" c={c} />}
       {pend.includes('PP') && can(ROLES.PP, A) && <PanneauPP c={c} estVeh={estVeh} action={action} />}
       {c['statut'] === STATUTS.GPS && can(ROLES.BALISE, A) && <PanneauGpsEdit c={c} action={action} />}
       {/* CORRECTIONS DE CELLULES REMPLIES (2026-09-10), ajout.
@@ -896,7 +899,7 @@ const CELLULE_DE_L_ETAPE: Record<string, string> = {
   BALISE: 'la cellule Balise', BS: 'la cellule Bon de sortie', PP: 'la Porte Principale',
 };
 
-function EtapeBloquee({ c, voulue }: { c: O; voulue: 'BALISE' | 'BS' }) {
+function EtapeBloquee({ c, voulue }: { c: O; voulue: 'BALISE' | 'BS' | 'PP' }) {
   const manquante = etapePrecedenteManquante(c as never, voulue);
   if (!manquante) return null;
   return <div className="card etape-bloquee">
@@ -911,10 +914,12 @@ function EtapeBloquee({ c, voulue }: { c: O; voulue: 'BALISE' | 'BS' }) {
       </div>
     </div>
     <div className="eb-chaine" aria-hidden="true">
-      {(['T1', 'BS', 'BALISE'] as const).map((e, i) => <span key={e}
+      {/* La sortie ferme la chaine : quand c'est ELLE qui est bloquee, le dernier
+          maillon dessine est le portail lui-meme. */}
+      {(voulue === 'PP' ? (['T1', 'BS', 'BALISE', 'PP'] as const) : (['T1', 'BS', 'BALISE'] as const)).map((e, i) => <span key={e}
         className={`eb-maillon ${e === manquante ? 'manque' : e === voulue ? 'voulue' : ''}`}>
         {i > 0 ? <span className="eb-fleche">→</span> : null}
-        {e === 'T1' ? 'T1' : e === 'BS' ? 'Bon de sortie' : 'Balise'}
+        {e === 'T1' ? 'T1' : e === 'BS' ? 'Bon de sortie' : e === 'BALISE' ? 'Balise' : 'Sortie (PP)'}
       </span>)}
     </div>
   </div>;

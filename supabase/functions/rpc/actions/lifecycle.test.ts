@@ -129,9 +129,10 @@ test('déclaration type C non balisée : saute le T1 ET la Balise', async () => 
   const c = versCamel(db.store['cargaisons'][0]!);
   assert.equal(c['sauteT1'], true);
   assert.equal(c['sauteBalise'], true);
-  // Après validation : T1 et Balise sautés → Bon de sortie + PP disponibles.
+  // Apres validation : T1 et Balise sautes, mais le bon de sortie reste du, et
+  // la PP l'exige desormais (2026-09-25).
   await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'), { id, enSurcharge: false, suiviEngagement: false });
-  assert.deepEqual(etapesEnAttente(versCamel(db.store['cargaisons'][0]!) as never), ['BS', 'PP']);
+  assert.deepEqual(etapesEnAttente(versCamel(db.store['cargaisons'][0]!) as never), ['BS']);
 });
 
 test('déclaration : date et nombre de conteneurs FACULTATIFS (dépotage)', async () => {
@@ -468,10 +469,10 @@ test('garde-fou : sortie refusée tant que la Balise n\'est pas posée', async (
     declaration: { declarant: 'A', contactDeclarant: '901234', destinationMarchandise: 'D', bureauDeclaration: 'TG120', typeDeclaration: 'T', numeroDeclaration: '1', anneeDeclaration: '2026', dateDeclaration: '2026-06-24', descriptionMarchandise: 'X', nombreConteneurs: 1 },
   });
   await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'), { id, enSurcharge: false, suiviEngagement: false });
-  // v4.1, VERROU RÉACTIVÉ : ni T1 ni Balise → la PP ne peut pas clôturer.
+  // La PP exige TOUTE la chaine (2026-09-25) ; ici il manque deja le T1.
   await assert.rejects(
     () => ecr.sortie(ctxRole(db, 'PP', 'PP'), { id, ckCfs: true, ckT1: true, ckBalise: true, ckBs: true }),
-    /le T1 et la Balise/,
+    /le T1 doit être fait avant la sortie/,
   );
   // CHAINE STRICTE (2026-09-25) : sans T1, ni le bon de sortie ni la balise.
   await assert.rejects(
@@ -484,12 +485,18 @@ test('garde-fou : sortie refusée tant que la Balise n\'est pas posée', async (
     () => ecr.gps(ctxRole(db, 'BALISE', 'B'), { id, baliseRequise: 'Oui', t1Correct: 'Oui', numeroGPS: 'G' }),
     /le bon de sortie doit être fait avant la pose de la balise/,
   );
+  // T1 fait, mais le bon de sortie manque : la PP le nomme.
   await assert.rejects(
     () => ecr.sortie(ctxRole(db, 'PP', 'PP'), { id, ckCfs: true, ckT1: true, ckBalise: true, ckBs: true }),
-    /le T1 et la Balise/,
+    /le bon de sortie doit être fait avant la sortie/,
   );
-  // Bon de sortie puis balise → la sortie passe enfin.
+  // Bon emis, balise pas encore posee : la PP nomme maintenant la balise.
   await ecr.bonsortie(ctxRole(db, 'BON_SORTIE', 'BS'), { id, bonSortieNumero: 'BS-Z' });
+  await assert.rejects(
+    () => ecr.sortie(ctxRole(db, 'PP', 'PP'), { id, ckCfs: true, ckT1: true, ckBalise: true, ckBs: true }),
+    /la pose de la balise doit être fait avant la sortie/,
+  );
+  // Balise posee : la sortie passe enfin.
   await ecr.gps(ctxRole(db, 'BALISE', 'B'), { id, baliseRequise: 'Oui', t1Correct: 'Oui', numeroGPS: 'G' });
   await ecr.sortie(ctxRole(db, 'PP', 'PP'), { id, ckCfs: true, ckT1: true, ckBalise: true, ckBs: true });
   assert.equal(statutDe(db, id), STATUTS.SORTIE);
@@ -864,8 +871,15 @@ test('checklist PP : une case cochée ne crée pas la pièce manquante (SEC-13)'
   await ecr.t1(ctxRole(db, 'T1', 'Agent T1'), { id, bureauDestination: 'TG120', t1Numeros: [{ conteneur: 'MSKU1111111', numero: 'T1-CHK' }] });
   await ecr.gps(ctxRole(db, 'ADMIN', 'Admin'), { id, baliseRequise: 'Oui', t1Correct: 'Oui', numeroGPS: 'GPS-CHK' });
 
-  // L'agent coche les 4 contrôles alors qu'AUCUN bon de sortie n'a été émis.
-  const pp = ctxTrace(db, 'PP', 'Agent PP');
+  // L'agent du portail, lui, est refuse net : la chaine exige le bon de sortie.
+  await assert.rejects(
+    () => ecr.sortie(ctxRole(db, 'PP', 'Agent PP'), { id, ckCfs: true, ckT1: true, ckBalise: true, ckBs: true }),
+    /le bon de sortie doit être fait avant la sortie/);
+
+  /* L'ADMIN, lui, passe outre pour depanner, et coche les 4 controles alors
+     qu'AUCUN bon de sortie n'a ete emis. C'est la que SEC-13 compte le plus :
+     le forcage doit laisser une trace exacte, pas la version cochee. */
+  const pp = ctxTrace(db, 'ADMIN', 'Admin');
   const res = (await ecr.sortie(pp.ctx, { id, ckCfs: true, ckT1: true, ckBalise: true, ckBs: true })) as { ecart?: string[] };
 
   const ck = versCamel(db.store['cargaisons'][0]!)['ppChecklist'] as Record<string, unknown>;

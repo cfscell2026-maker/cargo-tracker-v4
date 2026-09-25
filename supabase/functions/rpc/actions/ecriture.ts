@@ -1051,8 +1051,14 @@ export async function sortie(ctx: Ctx, p: Record<string, unknown>) {
   const cargo = await getCargo(ctx, id);
   const c = cargo.o;
   const estVeh = c['estVehicule'] === true || c['estVehicule'] === 'Oui';
+  /* LA SORTIE EXIGE TOUTE LA CHAINE (2026-09-25, demande utilisateur) : T1,
+     bon de sortie, balise. Le refus NOMME la piece qui manque, au lieu d'une
+     phrase generique que l'agent du portail ne peut pas exploiter. */
+  const manqueAvantPP = etapePrecedenteManquante(c as never, 'PP');
+  if (ctx.session.role !== ROLES.ADMIN && manqueAvantPP)
+    throw new ErreurMetier(messageEtapePrecedente(manqueAvantPP, 'PP'));
   if (ctx.session.role !== ROLES.ADMIN && etapesEnAttente(c as never).indexOf('PP') < 0)
-    throw new Error('Sortie impossible : le T1 et la Balise doivent être faits d\'abord (statut « ' + c['statut'] + ' »).');
+    throw new Error('Sortie impossible : étape non attendue (statut « ' + c['statut'] + ' »).');
   let checklist: Record<string, unknown> = {};
   let derogation = '';
   let ecart = '';

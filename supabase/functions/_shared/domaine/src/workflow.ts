@@ -145,12 +145,15 @@ export function etapesEnAttente(c: SourceEtapes): Etape[] {
   if (!e.t1) p.push('T1');
   else if (!e.bs) p.push('BS');
   else if (!e.balise) p.push('BALISE');
-  /* LE VERROU DE LA PP NE CHANGE PAS : T1 et Balise. Il n'y ajoute pas le bon
-     de sortie, alors que la chaine le rend desormais obligatoire en amont. La
-     raison est le STOCK EN COURS : les dossiers deja balises sans bon (l'ordre
-     d'hier) doivent pouvoir sortir. Pour tout dossier neuf, la question ne se
-     pose pas : sans bon de sortie, il n'y a pas eu de balise. */
-  if (e.t1 && e.balise) p.push('PP');
+  /* LA CHAINE VA JUSQU'A LA SORTIE (2026-09-25, demande utilisateur). La Porte
+     Principale exige DESORMAIS les trois pieces : T1, bon de sortie, balise.
+     Elle n'en demandait que deux ; un camion pouvait donc sortir sans bon de
+     sortie, ce qui est arrive 520 fois sur 3 544 sorties en septembre.
+
+     Consequence assumee : les dossiers montes sous l'ancien ordre, balises
+     sans bon, ne sortiront qu'une fois leur bon emis. L'ADMIN reste au-dessus
+     de la chaine pour les cas qui ne peuvent pas attendre. */
+  if (e.t1 && e.bs && e.balise) p.push('PP');
   return p;
 }
 
@@ -181,6 +184,7 @@ export function etapePrecedenteManquante(c: SourceEtapes, etape: Etape): Etape |
   if (etape === 'BS' && !e.t1) return 'T1';
   if (etape === 'PP') {
     if (!e.t1) return 'T1';
+    if (!e.bs) return 'BS';
     if (!e.balise) return 'BALISE';
   }
   return null;
