@@ -625,11 +625,11 @@ const CELLULES_HORO: { cle: string; libelle: string; dateCol: string; agentCols:
   { cle: 'CFS', libelle: 'CFS (entrée / chargement)', dateCol: 'dateCreation', agentCols: ['agentCfs', 'agentEntree'] },
   { cle: 'VALIDATION', libelle: 'Validation (chef brigade)', dateCol: 'dateValidation', agentCols: ['agentValidation'] },
   { cle: 'T1', libelle: 'Cellule T1', dateCol: 'dateT1', agentCols: ['agentT1'] },
-  { cle: 'BALISE', libelle: 'Cellule Balise', dateCol: 'datePoseGps', agentCols: ['agentBalise'] },
   { cle: 'BS', libelle: 'Bon de sortie', dateCol: 'dateBonSortie', agentCols: ['agentBonSortie'] },
+  { cle: 'BALISE', libelle: 'Cellule Balise', dateCol: 'datePoseGps', agentCols: ['agentBalise'] },
   { cle: 'PP', libelle: 'Porte principale (sortie)', dateCol: 'dateSortie', agentCols: ['agentPp'] },
 ];
-const ORDRE_HORO: Record<string, number> = { CFS: 0, VALIDATION: 1, T1: 2, BALISE: 3, BS: 4, PP: 5 };
+const ORDRE_HORO: Record<string, number> = { CFS: 0, VALIDATION: 1, T1: 2, BS: 3, BALISE: 4, PP: 5 };
 /** Jour local (UTC, = heure locale au Togo) 'YYYY-MM-DD'. */
 const jourUTC = (d: Date) => d.toISOString().slice(0, 10);
 /** 'HH:MM' en UTC (= heure locale au Togo). */
@@ -853,7 +853,7 @@ export async function ficheBord(ctx: Ctx, p: Record<string, unknown>) {
     // ou passé au T1.
     //
     // ⚠ ON NE PASSE PLUS PAR `etapesEnAttente` (2026-09-24). Depuis que la chaîne
-    // T1 → Balise → Bon de sortie est stricte, un camion sans T1 n'a plus
+    // T1 → Bon de sortie → Balise est stricte, un camion sans T1 n'a plus
     // « BALISE » dans ses étapes en attente : il serait sorti de ce compte alors
     // qu'il est bel et bien au parc, à attendre. On lit donc l'ÉTAT des cellules,
     // qui dit une présence et non une place dans une file.

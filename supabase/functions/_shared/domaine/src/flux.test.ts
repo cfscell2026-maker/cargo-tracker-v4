@@ -14,13 +14,13 @@ test('parcours complet : chaque sortie est l\'entrée de la file suivante', () =
   const p = passagesDesFiles({
     statut: STATUTS.SORTIE, typeDeclaration: 'T',
     dateCreation: h('08:00'), dateFinChargement: h('09:00'), dateValidation: h('10:00'),
-    dateT1: h('11:00'), datePoseGps: h('12:00'), bonSortieNumero: 'BS1', dateBonSortie: h('13:00'), dateSortie: h('14:00'),
+    dateT1: h('11:00'), bonSortieNumero: 'BS1', dateBonSortie: h('12:00'), datePoseGps: h('13:00'), dateSortie: h('14:00'),
   });
   assert.deepEqual(p.CFS, { entree: t('08:00'), sortie: t('09:00') });
   assert.deepEqual(p.VALIDATION, { entree: t('09:00'), sortie: t('10:00') });
   assert.deepEqual(p.T1, { entree: t('10:00'), sortie: t('11:00') });
-  assert.deepEqual(p.BALISE, { entree: t('11:00'), sortie: t('12:00') });
-  assert.deepEqual(p.BS, { entree: t('12:00'), sortie: t('13:00') });
+  assert.deepEqual(p.BS, { entree: t('11:00'), sortie: t('12:00') });
+  assert.deepEqual(p.BALISE, { entree: t('12:00'), sortie: t('13:00') });
   assert.deepEqual(p.PP, { entree: t('13:00'), sortie: t('14:00') });
 });
 
@@ -32,23 +32,27 @@ test('un dossier en attente est dans UNE file, sans sortie, et nulle part après
   assert.equal(p.BALISE, undefined);
 });
 
-test('type C : pas de file T1, le dossier passe de la validation à la balise', () => {
+test("type C : pas de file T1, le dossier passe de la validation au bon de sortie", () => {
   const p = passagesDesFiles({ statut: STATUTS.CREEE, typeDeclaration: 'C', dateCreation: h('08:00'), dateFinChargement: h('09:00'), dateValidation: h('10:00') });
   assert.equal(p.T1, undefined);
-  assert.deepEqual(p.BALISE, { entree: t('10:00'), sortie: null });
+  assert.deepEqual(p.BS, { entree: t('10:00'), sortie: null });
 });
 
-test('bon de sortie émis AVANT la balise : traversée de la file BS à l\'arrivée', () => {
-  const p = passagesDesFiles({ statut: STATUTS.GPS, typeDeclaration: 'T', dateCreation: h('08:00'), dateFinChargement: h('09:00'),
-    dateValidation: h('10:00'), dateT1: h('11:00'), bonSortieNumero: 'BS1', dateBonSortie: h('11:30'), datePoseGps: h('12:00') });
-  assert.deepEqual(p.BS, { entree: t('12:00'), sortie: t('12:00') });
+test("balise posee AVANT le bon de sortie (dossier d'avant le 25/09) : traversee a l'arrivee", () => {
+  // L'ordre d'hier laisse des dossiers balises avant leur bon. La file BALISE
+  // est alors franchie a l'instant ou le dossier l'atteint, sans duree negative.
+  const p = passagesDesFiles({ statut: STATUTS.BS, typeDeclaration: 'T', dateCreation: h('08:00'), dateFinChargement: h('09:00'),
+    dateValidation: h('10:00'), dateT1: h('11:00'), datePoseGps: h('11:30'), bonSortieNumero: 'BS1', dateBonSortie: h('12:00') });
+  assert.deepEqual(p.BS, { entree: t('11:00'), sortie: t('12:00') });
+  assert.deepEqual(p.BALISE, { entree: t('12:00'), sortie: t('12:00') });
   assert.deepEqual(p.PP, { entree: t('12:00'), sortie: null });
 });
 
 test('camion sorti sans date de balise : il quitte les files à sa sortie du port', () => {
   const p = passagesDesFiles({ statut: STATUTS.SORTIE, typeDeclaration: 'T', dateCreation: h('08:00'), dateFinChargement: h('09:00'),
     dateValidation: h('10:00'), dateT1: h('11:00'), dateSortie: h('15:00') });
-  assert.deepEqual(p.BALISE, { entree: t('11:00'), sortie: t('15:00') });
+  assert.deepEqual(p.BS, { entree: t('11:00'), sortie: t('15:00') });
+  assert.deepEqual(p.BALISE, { entree: t('15:00'), sortie: t('15:00') });
   assert.deepEqual(p.PP, { entree: t('15:00'), sortie: t('15:00') });
 });
 

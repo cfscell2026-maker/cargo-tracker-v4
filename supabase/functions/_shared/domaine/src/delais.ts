@@ -38,8 +38,11 @@ import { estOui } from './workflow.ts';
 
 export type Poste = 'cfs' | 'validation' | 't1' | 'balise' | 'bs' | 'pp';
 
-/** Ordre d'affichage : celui du parcours réel. */
-export const POSTES: Poste[] = ['cfs', 'validation', 't1', 'balise', 'bs', 'pp'];
+/** Ordre d'affichage : celui du parcours réel. Le bon de sortie precede la
+ *  balise depuis le 2026-09-25 (demande utilisateur). Seul l'ORDRE change : les
+ *  durees restent mesurees depuis la fin de chargement, poste par poste, donc
+ *  aucun calcul ne depend de cette suite. */
+export const POSTES: Poste[] = ['cfs', 'validation', 't1', 'bs', 'balise', 'pp'];
 
 export const LIBELLE_POSTE: Record<Poste, string> = {
   cfs: 'CFS (chargement)',

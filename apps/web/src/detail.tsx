@@ -82,16 +82,22 @@ export function Detail({ user, arg, go, retour, ecranPrecedent }: Nav) {
       {c['statut'] === STATUTS.VEHICULE_OUILLAGE && can(ROLES.CFS, A) && <PanneauOuillage c={c} action={action} />}
       {pend.includes('VALIDATION') && can(ROLES.CHEF_BRIGADE, ROLES.CBPI, A) && <PanneauValidation c={c} action={action} />}
       {pend.includes('T1') && can(ROLES.T1, A) && <PanneauT1 c={c} dets={dets} action={action} />}
-      {pend.includes('BALISE') && can(ROLES.BALISE, A) && !estVeh && <PanneauBalise c={c} action={action} />}
+      {/* Le bon de sortie est posé AVANT la balise (2026-09-25) : les panneaux
+          suivent l'ordre de travail, pour que la fiche se lise de haut en bas
+          comme le camion avance. */}
       {pend.includes('BS') && can(ROLES.BON_SORTIE, A) && <PanneauBS c={c} dets={dets} action={action} />}
-      {/* CHAÎNE T1 → BALISE → BON DE SORTIE (2026-09-24, demande utilisateur).
+      {pend.includes('BALISE') && can(ROLES.BALISE, A) && !estVeh && <PanneauBalise c={c} action={action} />}
+      {/* CHAÎNE T1 → BON DE SORTIE → BALISE (2026-09-25, demande utilisateur).
           Quand la cellule ouvre une fiche dont l'étape précédente manque, elle
           trouvait un écran sans panneau, sans un mot. Elle lit désormais ce qui
           manque et à qui cela revient. */}
-      {!cellules.sorti && !cellules.balise && !estVeh && can(ROLES.BALISE) &&
-        <EtapeBloquee voulue="BALISE" c={c} />}
       {!cellules.sorti && !cellules.bs && can(ROLES.BON_SORTIE) &&
         <EtapeBloquee voulue="BS" c={c} />}
+      {!cellules.sorti && !cellules.balise && !estVeh && can(ROLES.BALISE) &&
+        <EtapeBloquee voulue="BALISE" c={c} />}
+      {/* LE PORTAIL AUSSI (2026-09-25) : la sortie exige toute la chaine, et
+          l'agent de la PP trouvait un ecran muet quand une piece manquait. */}
+      {!cellules.sorti && can(ROLES.PP) && <EtapeBloquee voulue="PP" c={c} />}
       {pend.includes('PP') && can(ROLES.PP, A) && <PanneauPP c={c} estVeh={estVeh} action={action} />}
       {c['statut'] === STATUTS.GPS && can(ROLES.BALISE, A) && <PanneauGpsEdit c={c} action={action} />}
       {/* CORRECTIONS DE CELLULES REMPLIES (2026-09-10), ajout.
@@ -377,10 +383,16 @@ function Timeline({ c }: { c: O }) {
       c['agentValidation'] ? `${c['agentValidation']}${c['roleValidation'] === ROLES.CBPI ? ' (par intérim)' : ''} · ${fmtDate(c['dateValidation'])}`
         : (e.valide && !valideReel ? 'réputée (T1/sortie effectué)' : ''), 'validation'],
     [e.t1, (estOui(c['sauteT1']) || estTypeSansT1(c['typeDeclaration'])) && !c['dateT1'] ? 'T1 (sauté)' : 'T1', c['agentT1'] ? `${c['agentT1']} · ${fmtDate(c['dateT1'])}` : '', 't1'],
-    [e.balise, estOui(c['estVehicule']) || estOui(c['sauteBalise']) ? 'Balise (sautée)' : (c['numeroGps'] ? 'Balisé' : 'Balise/Dispense'), c['datePoseGps'] ? `${c['agentBalise']} · ${fmtDate(c['datePoseGps'])}` : '', 'balise'],
+    /* LE BON DE SORTIE PRECEDE LA BALISE (2026-09-25, demande utilisateur).
+       La frise raconte le parcours : elle doit suivre l'ordre reellement impose
+       par la chaine, sans quoi l'agent lit ici l'inverse de ce que le serveur
+       lui demande. Les dossiers d'avant cette date, balises avant leur bon,
+       affichent donc une etape faite au-dessus d'une etape en attente : c'est
+       leur histoire, on ne la reecrit pas. */
     [e.bs, (estOui(c['sauteBS']) || estOui(c['sauteBs'])) ? 'Bon de sortie (sauté)' : 'Bon de sortie',
       c['dateBonSortie'] ? `${c['agentBonSortie']} · ${fmtDate(c['dateBonSortie'])}`
         : (e.bs && !bsReel ? 'réputé (sortie effectuée)' : ''), 'bs'],
+    [e.balise, estOui(c['estVehicule']) || estOui(c['sauteBalise']) ? 'Balise (sautée)' : (c['numeroGps'] ? 'Balisé' : 'Balise/Dispense'), c['datePoseGps'] ? `${c['agentBalise']} · ${fmtDate(c['datePoseGps'])}` : '', 'balise'],
     [e.pp, 'Sortie (PP)', c['dateSortie'] ? `${c['agentPp']} · ${fmtDate(c['dateSortie'])}` : '', 'pp'],
   ];
   // Cargaison clôturée : une étape non faite ne le sera plus → on l'affiche
@@ -887,7 +899,7 @@ const CELLULE_DE_L_ETAPE: Record<string, string> = {
   BALISE: 'la cellule Balise', BS: 'la cellule Bon de sortie', PP: 'la Porte Principale',
 };
 
-function EtapeBloquee({ c, voulue }: { c: O; voulue: 'BALISE' | 'BS' }) {
+function EtapeBloquee({ c, voulue }: { c: O; voulue: 'BALISE' | 'BS' | 'PP' }) {
   const manquante = etapePrecedenteManquante(c as never, voulue);
   if (!manquante) return null;
   return <div className="card etape-bloquee">
@@ -902,10 +914,12 @@ function EtapeBloquee({ c, voulue }: { c: O; voulue: 'BALISE' | 'BS' }) {
       </div>
     </div>
     <div className="eb-chaine" aria-hidden="true">
-      {(['T1', 'BALISE', 'BS'] as const).map((e, i) => <span key={e}
+      {/* La sortie ferme la chaine : quand c'est ELLE qui est bloquee, le dernier
+          maillon dessine est le portail lui-meme. */}
+      {(voulue === 'PP' ? (['T1', 'BS', 'BALISE', 'PP'] as const) : (['T1', 'BS', 'BALISE'] as const)).map((e, i) => <span key={e}
         className={`eb-maillon ${e === manquante ? 'manque' : e === voulue ? 'voulue' : ''}`}>
         {i > 0 ? <span className="eb-fleche">→</span> : null}
-        {e === 'T1' ? 'T1' : e === 'BALISE' ? 'Balise' : 'Bon de sortie'}
+        {e === 'T1' ? 'T1' : e === 'BS' ? 'Bon de sortie' : e === 'BALISE' ? 'Balise' : 'Sortie (PP)'}
       </span>)}
     </div>
   </div>;
@@ -995,7 +1009,8 @@ function PanneauPP({ c, estVeh, action }: { c: O; estVeh: boolean; action: Actio
       <label className="help"><input type="checkbox" style={{ width: 'auto' }} checked={infos} onChange={(e) => setInfos(e.target.checked)} /> Informations validées</label>
     ) : (
       <div style={{ display: 'grid', gap: 4 }}>
-        {([['cfs', 'CFS conforme'], ['t1', 'T1 valide'], ['balise', 'Balise vérifiée'], ['bs', 'Bon de sortie vérifié']] as const).map(([k, l]) => (
+        {/* Meme ordre que le parcours : le bon de sortie avant la balise. */}
+        {([['cfs', 'CFS conforme'], ['t1', 'T1 valide'], ['bs', 'Bon de sortie vérifié'], ['balise', 'Balise vérifiée']] as const).map(([k, l]) => (
           <label key={k} className="help"><input type="checkbox" style={{ width: 'auto' }} checked={ck[k]} onChange={(e) => setCk((o) => ({ ...o, [k]: e.target.checked }))} /> {l}</label>
         ))}
       </div>

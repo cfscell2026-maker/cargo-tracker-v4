@@ -773,18 +773,18 @@ SCREENS.dash = (nav) => {
         etape="cfs" comparable={!!flux('CFS')} repartition={rep('CFS')} />
       <StatCard n={Number(s['t1Periode'] ?? 0)} l="T1 saisis (période)" onClick={() => go(STATUTS.T1)}
         etape="t1" comparable={!!flux('T1')} repartition={rep('T1')} />
-      <StatCard n={Number(s['balisesPeriode'] ?? 0)} l="Balisés (période)" onClick={() => nav.go('baliserep')}
-        etape="balise" comparable={!!flux('BALISE')} repartition={rep('BALISE')} />
       <StatCard n={Number(s['bonsPeriode'] ?? 0)} l="Bons de sortie (période)" onClick={() => go(STATUTS.BS)}
         etape="bs" comparable={!!flux('BS')} repartition={rep('BS')} />
+      <StatCard n={Number(s['balisesPeriode'] ?? 0)} l="Balisés (période)" onClick={() => nav.go('baliserep')}
+        etape="balise" comparable={!!flux('BALISE')} repartition={rep('BALISE')} />
       <StatCard n={Number(s['sortiePeriode'] ?? 0)} l="Sortis (période)" onClick={() => nav.go('pprep')}
         etape="pp" comparable={!!flux('PP')} repartition={rep('PP')} />
       {/* En attente, état instantané (hors période). */}
       <StatCard n={Number(s['attCFS'] ?? 0)} l="En cours au CFS" onClick={() => nav.go('wait_cfs')} etape="cfs" part={part('attCFS')} />
       <StatCard n={Number(s['attValidation'] ?? 0)} l="Attente validation" onClick={() => nav.go('wait_valid')} etape="validation" part={part('attValidation')} />
       <StatCard n={Number(s['attT1'] ?? 0)} l="Attente T1" onClick={() => nav.go('wait_t1')} etape="t1" part={part('attT1')} />
-      <StatCard n={Number(s['attBalise'] ?? 0)} l="Attente Balise" onClick={() => nav.go('wait_gps')} etape="balise" part={part('attBalise')} />
       <StatCard n={Number(s['attBs'] ?? 0)} l="Attente Bon de sortie" onClick={() => nav.go('wait_bs')} etape="bs" part={part('attBs')} />
+      <StatCard n={Number(s['attBalise'] ?? 0)} l="Attente Balise" onClick={() => nav.go('wait_gps')} etape="balise" part={part('attBalise')} />
       <StatCard n={Number(s['attPP'] ?? 0)} l="Attente sortie" onClick={() => nav.go('wait_sortie')} etape="pp" part={part('attPP')} />
       <StatCard n={Number(s['vehiculesAttente'] ?? 0)} l="Véhicules en attente" onClick={() => nav.go('vehicules')} etape="vehicule" part={part('vehiculesAttente')} />
       {/* ENGAGEMENTS (2026-09-17, demande utilisateur) : ce qui reste à transmettre.
@@ -820,7 +820,7 @@ SCREENS.dash = (nav) => {
               : nom.startsWith('Bon') ? 'wait_bs' : 'wait_sortie')} />
       <p className="help" style={{ marginBottom: 0 }}>
         Chaque dossier en cours est dans <b>une seule file</b>, celle de sa prochaine étape : quand un camion
-        avance (CFS → validation → T1 → Balise → Bon de sortie → sortie), il quitte une file et rejoint la
+        avance (CFS → validation → T1 → Bon de sortie → Balise → sortie), il quitte une file et rejoint la
         suivante. Mise à jour automatique chaque minute.
       </p>
     </div>}
@@ -4354,7 +4354,7 @@ SCREENS.temps = ({ go }) => {
  */
 const CELLULES_HORODATAGE: [string, string][] = [
   ['', 'Toutes les cellules'], ['CFS', 'CFS (entrée / chargement)'], ['VALIDATION', 'Validation (chef brigade)'],
-  ['T1', 'Cellule T1'], ['BALISE', 'Cellule Balise'], ['BS', 'Bon de sortie'], ['PP', 'Porte principale (sortie)'],
+  ['T1', 'Cellule T1'], ['BS', 'Bon de sortie'], ['BALISE', 'Cellule Balise'], ['PP', 'Porte principale (sortie)'],
 ];
 SCREENS.horodatage = () => {
   const p = useReportRange('jour'); // par défaut : la journée d'aujourd'hui
@@ -4553,7 +4553,7 @@ SCREENS.goulots = (nav) => {
  */
 const POSTES_UI: [string, string][] = [
   ['cfs', 'CFS (chargement)'], ['validation', 'Chef de brigade'], ['t1', 'Cellule T1'],
-  ['balise', 'Cellule Balise'], ['bs', 'Bon de sortie'], ['pp', 'Porte Principale'],
+  ['bs', 'Bon de sortie'], ['balise', 'Cellule Balise'], ['pp', 'Porte Principale'],
 ];
 
 SCREENS.dwell = ({ go }) => {

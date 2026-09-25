@@ -39,9 +39,15 @@ test('validé → le T1 seul est ouvert', () => {
   assert.deepEqual(etapesEnAttente({ statut: STATUTS.CREEE, dateValidation: '2026-01-01' }), ['T1']);
 });
 
-test("après T1 → la BALISE s'ouvre, le bon de sortie attend encore", () => {
+test("apres T1 le BON DE SORTIE s'ouvre, la balise attend encore", () => {
   const c = { statut: STATUTS.T1, dateValidation: 'x', dateT1: 'x' };
-  assert.deepEqual(etapesEnAttente(c), ['BALISE']);
+  assert.deepEqual(etapesEnAttente(c), ['BS']);
+  // Et sans bon de sortie, la balise reste fermee (2026-09-25).
+  assert.equal(etapePrecedenteManquante(c, 'BALISE'), 'BS');
+  // Le bon emis, la balise s'ouvre a son tour.
+  const apresBon = { ...c, bonSortieNumero: 'BS1' };
+  assert.deepEqual(etapesEnAttente(apresBon), ['BALISE']);
+  assert.equal(etapePrecedenteManquante(apresBon, 'BALISE'), null);
 });
 
 test('sans T1, ni balise ni bon de sortie ne sont ouverts', () => {
@@ -51,21 +57,30 @@ test('sans T1, ni balise ni bon de sortie ne sont ouverts', () => {
   assert.match(messageEtapePrecedente('T1', 'BALISE'), /le T1 doit être fait avant la pose de la balise/);
 });
 
-test("T1 sauté par nature (type C) : la balise s'ouvre quand même", () => {
+test("T1 saute par nature (type C) : le bon de sortie s'ouvre quand meme", () => {
   const c = { statut: STATUTS.CREEE, dateValidation: 'x', typeDeclaration: 'C' };
-  assert.equal(etapePrecedenteManquante(c, 'BALISE'), null);
-  assert.deepEqual(etapesEnAttente(c), ['BALISE']);
+  assert.equal(etapePrecedenteManquante(c, 'BS'), null);
+  assert.deepEqual(etapesEnAttente(c), ['BS']);
+  // Le T1 saute ne dispense pas du bon de sortie avant la balise.
+  assert.equal(etapePrecedenteManquante(c, 'BALISE'), 'BS');
 });
 
-test("balise dispensée : le bon de sortie s'ouvre", () => {
+test("balise dispensee : le bon de sortie s'ouvre, et la PP l'attend", () => {
   const c = { statut: STATUTS.CREEE, dateValidation: 'x', typeDeclaration: 'C', sauteBalise: true };
   assert.equal(etapePrecedenteManquante(c, 'BS'), null);
-  assert.deepEqual(etapesEnAttente(c), ['BS', 'PP']);
+  // T1 et balise sautes par nature, mais le bon de sortie reste du : la PP
+  // l'exige depuis le 2026-09-25.
+  assert.deepEqual(etapesEnAttente(c), ['BS']);
+  assert.equal(etapePrecedenteManquante(c, 'PP'), 'BS');
+  assert.deepEqual(etapesEnAttente({ ...c, bonSortieNumero: 'BS1' }), ['PP']);
 });
 
-test('balise posée → Bon de sortie ouvert + PP possible', () => {
+test("balise posee sans bon de sortie (ancien ordre) : la PP attend le bon", () => {
   const c = { statut: STATUTS.T1, dateValidation: 'x', dateT1: 'x', datePoseGps: 'x' };
-  assert.deepEqual(etapesEnAttente(c), ['BS', 'PP']);
+  assert.deepEqual(etapesEnAttente(c), ['BS']);
+  assert.equal(etapePrecedenteManquante(c, 'PP'), 'BS');
+  // Le bon emis, la sortie s'ouvre.
+  assert.deepEqual(etapesEnAttente({ ...c, bonSortieNumero: 'BS1' }), ['PP']);
 });
 
 test('balise ET bs faits → PP', () => {
@@ -77,14 +92,18 @@ test('sorti → aucune étape', () => {
   assert.deepEqual(etapesEnAttente({ statut: STATUTS.SORTIE }), []);
 });
 
-test('véhicule saute la balise → Bon de sortie + PP', () => {
+test('vehicule saute la balise : reste le bon de sortie, puis la PP', () => {
   const c = { statut: STATUTS.T1, estVehicule: 'Oui', dateValidation: 'x', dateT1: 'x' };
-  assert.deepEqual(etapesEnAttente(c), ['BS', 'PP']);
+  assert.deepEqual(etapesEnAttente(c), ['BS']);
+  assert.deepEqual(etapesEnAttente({ ...c, bonSortieNumero: 'BS1' }), ['PP']);
 });
 
-test('conso non balisée : sauts T1 + Balise → Bon de sortie + PP', () => {
+test('conso non balisee : sauts T1 + Balise, reste le bon de sortie', () => {
   const c = { statut: STATUTS.CREEE, dateValidation: 'x', sauteT1: 'Oui', sauteBalise: 'Oui' };
-  assert.deepEqual(etapesEnAttente(c), ['BS', 'PP']);
+  assert.deepEqual(etapesEnAttente(c), ['BS']);
+  assert.deepEqual(etapesEnAttente({ ...c, bonSortieNumero: 'BS1' }), ['PP']);
+  // Un regime qui saute AUSSI le bon de sortie (ouillage) sort directement.
+  assert.deepEqual(etapesEnAttente({ ...c, sauteBS: 'Oui' }), ['PP']);
 });
 
 test('type A/C SANS flag saute_t1 : le T1 est sauté PAR NATURE (régression 2026-08-15)', () => {
@@ -130,17 +149,19 @@ test('ouillage saute le BS', () => {
 });
 
 test('fileAttente : file UNIQUE et séquentielle (2026-08-19)', () => {
-  // Un dossier ne figure QUE dans une file = sa prochaine étape, dans l'ordre
-  // CFS → VALIDATION → T1 → BALISE → BS → PP.
+  // Un dossier ne figure QUE dans une file = sa prochaine etape, dans l'ordre
+  // CFS -> VALIDATION -> T1 -> BS -> BALISE -> PP (2026-09-25).
   assert.equal(fileAttente({ statut: STATUTS.CAMION }), 'CFS');
   assert.equal(fileAttente({ statut: STATUTS.CREEE, typeDeclaration: 'T' }), 'VALIDATION');
   assert.equal(fileAttente({ statut: STATUTS.CREEE, dateValidation: 'x', typeDeclaration: 'T' }), 'T1');
-  assert.equal(fileAttente({ statut: STATUTS.T1, dateValidation: 'x', dateT1: 'x' }), 'BALISE');
-  // Balise faite mais bon de sortie PAS émis → il attend le BON DE SORTIE (pas la PP).
-  assert.equal(fileAttente({ statut: STATUTS.T1, dateValidation: 'x', dateT1: 'x', datePoseGps: 'x' }), 'BS');
-  // Bon de sortie émis → et seulement là, il attend la SORTIE.
-  assert.equal(fileAttente({ statut: STATUTS.T1, dateValidation: 'x', dateT1: 'x', datePoseGps: 'x', bonSortieNumero: 'BS1' }), 'PP');
-  // Étapes sautées franchies automatiquement (conso non balisée → BS directement).
+  assert.equal(fileAttente({ statut: STATUTS.T1, dateValidation: 'x', dateT1: 'x' }), 'BS');
+  // Bon de sortie emis mais balise PAS posee : il attend la BALISE (pas la PP).
+  assert.equal(fileAttente({ statut: STATUTS.BS, dateValidation: 'x', dateT1: 'x', bonSortieNumero: 'BS1' }), 'BALISE');
+  // Balise posee : et seulement la, il attend la SORTIE.
+  assert.equal(fileAttente({ statut: STATUTS.GPS, dateValidation: 'x', dateT1: 'x', bonSortieNumero: 'BS1', datePoseGps: 'x' }), 'PP');
+  // Dossier d'avant le 2026-09-25, balise sans bon : il attend le bon de sortie.
+  assert.equal(fileAttente({ statut: STATUTS.GPS, dateValidation: 'x', dateT1: 'x', datePoseGps: 'x' }), 'BS');
+  // Etapes sautees franchies automatiquement (conso non balisee -> BS directement).
   assert.equal(fileAttente({ statut: STATUTS.CREEE, dateValidation: 'x', sauteT1: 'Oui', sauteBalise: 'Oui' }), 'BS');
   // Sorti → aucune file.
   assert.equal(fileAttente({ statut: STATUTS.SORTIE }), null);
@@ -425,16 +446,22 @@ test("estDispenseBalise : le marquage a la cellule Balise suffit", () => {
   assert.equal(estDispenseBalise({ estVehicule: true, baliseRequise: false, numeroDispense: 'AUT-9' }), false);
 });
 
-test('verrou PP : la sortie attend T1 ET Balise (transit)', () => {
-  // Transit après CFS : ni T1 ni balise faits → PP absente des étapes.
+test('verrou PP : la sortie attend TOUTE la chaine (transit)', () => {
+  // Transit apres CFS : rien de fait -> PP absente des etapes.
   const base = { statut: STATUTS.CREEE };
+  const j = '2026-07-27';
   assert.equal(etapesEnAttente(base).includes('PP'), false);
-  // Balise seule (T1 pas fait) → PP toujours absente.
-  assert.equal(etapesEnAttente({ ...base, datePoseGps: '2026-07-27' }).includes('PP'), false);
-  // T1 + Balise faits → PP ouverte.
-  assert.equal(etapesEnAttente({ ...base, dateT1: '2026-07-27', datePoseGps: '2026-07-27' }).includes('PP'), true);
-  // Type C qui saute le T1 + balise posée → PP ouverte (le saut vaut « fait »).
-  assert.equal(etapesEnAttente({ ...base, sauteT1: true, datePoseGps: '2026-07-27' }).includes('PP'), true);
+  // Balise seule (ni T1 ni bon) -> PP toujours absente.
+  assert.equal(etapesEnAttente({ ...base, datePoseGps: j }).includes('PP'), false);
+  // T1 + Balise, SANS bon de sortie -> PP fermee depuis le 2026-09-25.
+  assert.equal(etapesEnAttente({ ...base, dateT1: j, datePoseGps: j }).includes('PP'), false);
+  assert.equal(etapePrecedenteManquante({ ...base, dateT1: j, datePoseGps: j }, 'PP'), 'BS');
+  // Les trois pieces -> PP ouverte.
+  assert.equal(etapesEnAttente({ ...base, dateT1: j, bonSortieNumero: 'BS1', datePoseGps: j }).includes('PP'), true);
+  // Type C qui saute le T1, bon emis et balise posee -> PP ouverte.
+  assert.equal(etapesEnAttente({ ...base, sauteT1: true, bonSortieNumero: 'BS1', datePoseGps: j }).includes('PP'), true);
+  // Ouillage : le bon de sortie est saute par nature, le saut vaut « fait ».
+  assert.equal(etapesEnAttente({ ...base, dateT1: j, sauteBS: 'Oui', datePoseGps: j }).includes('PP'), true);
 });
 
 test('engagements, le délai en jours devient une date, à compter du jour de saisie', () => {
