@@ -943,17 +943,19 @@ function PanneauBalise({ c, action }: { c: O; action: ActionFn }) {
         : <>
           <Champ label={pose === 'escorte' ? "Référence de l'escorte (unité, ordre de mission…)" : 'N° autorisation de dispense'}
             value={disp} onChange={(e) => setDisp(masks.upper(e.target.value))} />
-          {/* CE QUI COMPTE COMME DISPENSE (2026-09-24, décision utilisateur) :
-              le marquage ici, ET une vraie référence. Le serveur refuse « 0 »
-              et « sauté » ; autant le dire avant la frappe. */}
+          {/* CE QUI COMPTE COMME DISPENSE (2026-09-25, décision utilisateur) :
+              le marquage ici, rien d'autre. La qualité de la référence n'est
+              plus un refus, seulement un conseil : le camion figurera au volet
+              dans tous les cas. */}
           <p className="help">
             La référence part au volet « Dispenses », qui distingue les <b>dispenses</b> des
-            <b> escortes</b>. Indiquez la <b>référence réelle</b> : « 0 » et « sauté » sont refusés,
-            et sans référence, posez la balise.
+            <b> escortes</b>. Indiquez la <b>référence réelle</b> de l'exemption : le camion y
+            figurera de toute façon, autant qu'on sache au nom de quoi il est parti sans balise.
           </p>
           {disp.trim() !== '' && !numeroDispenseValide(disp) &&
-            <div className="help" style={{ color: 'var(--err)' }}>
-              « {disp} » ne sera pas accepté : ce n'est pas une référence d'autorisation.
+            <div className="help" style={{ color: 'var(--warn)' }}>
+              « {disp} » n'est pas une référence d'autorisation. L'exemption sera enregistrée,
+              mais elle apparaîtra au volet « Dispenses » sans justificatif.
             </div>}
         </>}
     <div style={{ marginTop: 12 }}><button disabled={pose === ''}

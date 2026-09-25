@@ -413,14 +413,14 @@ test('DESTINATIONS incluent NG', () => {
   assert.ok(DESTINATION_CODES.includes('NG'));
 });
 
-test('estDispenseBalise : seules les vraies dispenses (numéro d’autorisation) comptent', () => {
-  // Vraie dispense : la Balise a exempté + numéro d'autorisation.
+test("estDispenseBalise : le marquage a la cellule Balise suffit", () => {
+  // La Balise a exempte : c'est une dispense, avec ou sans reference.
   assert.equal(estDispenseBalise({ baliseRequise: false, numeroDispense: 'AUT-12' }), true);
   assert.equal(estDispenseBalise({ baliseRequise: 'Non', numeroDispense: 'AUT-12' }), true);
-  // Type C/A/E qui saute la balise PAR NATURE : PAS une dispense (bug des 59).
+  assert.equal(estDispenseBalise({ baliseRequise: false, numeroDispense: '' }), true);
+  // Type C/A/E qui saute la balise PAR NATURE : la cellule n'a rien decide.
   assert.equal(estDispenseBalise({ sauteBalise: true }), false);
-  assert.equal(estDispenseBalise({ baliseRequise: false, numeroDispense: '' }), false);
-  // Balise requise, ou véhicule : jamais une dispense.
+  // Balise requise, ou vehicule : jamais une dispense.
   assert.equal(estDispenseBalise({ baliseRequise: true, numeroDispense: 'AUT-9' }), false);
   assert.equal(estDispenseBalise({ estVehicule: true, baliseRequise: false, numeroDispense: 'AUT-9' }), false);
 });
@@ -534,21 +534,22 @@ test("type de déclaration : la lettre reste la valeur, le sens s'affiche", () =
   assert.equal(estTypeSansT1('T'), false);
 });
 
-test("dispense : marquee a la Balise ET munie d'une vraie reference", () => {
-  // Marquage a la cellule Balise + reference reelle = dispense, quel que soit le type.
+test("dispense : marquee a la Balise, quel que soit le type et la reference", () => {
+  // Marquage a la cellule Balise = dispense, quel que soit le type de declaration.
   assert.equal(estDispenseBalise({ baliseRequise: false, numeroDispense: 'D 42034', typeDeclaration: 'T' }), true);
   assert.equal(estDispenseBalise({ baliseRequise: false, numeroDispense: 'ESCORTE SANVEE CONDJI', typeDeclaration: 'C' }), true);
   assert.equal(estDispenseBalise({ baliseRequise: false, numeroDispense: 'IM4', typeDeclaration: 'A' }), true);
 
-  // Les mentions de contournement ne font pas une dispense.
-  for (const faux of ['0', '00', 'SAUTÉ', 'saute', 'SANS BALISE', 'CONSO', 'NÉANT', 'RAS', 'N/A', '-', '']) {
-    assert.equal(estDispenseBalise({ baliseRequise: false, numeroDispense: faux, typeDeclaration: 'T' }), false, faux);
-    assert.equal(numeroDispenseValide(faux), false, faux);
+  // Meme une reference de complaisance : la cellule a bel et bien exempte (25/09).
+  for (const faible of ['0', '00', 'SAUTÉ', 'saute', 'SANS BALISE', 'CONSO', 'NÉANT', 'RAS', 'N/A', '-', '']) {
+    assert.equal(estDispenseBalise({ baliseRequise: false, numeroDispense: faible, typeDeclaration: 'T' }), true, faible);
+    // numeroDispenseValide ne sert plus qu'a conseiller l'agent a la saisie.
+    assert.equal(numeroDispenseValide(faible), false, faible);
   }
   assert.equal(numeroDispenseValide('D-42034'), true);
   assert.equal(numeroDispenseValide('escorte'), true);
 
-  // Un vehicule saute la balise par nature : jamais dispense.
+  // Un vehicule est cree sans balise par nature : jamais dispense.
   assert.equal(estDispenseBalise({ baliseRequise: false, numeroDispense: 'D 42034', estVehicule: true }), false);
   // Balise posee normalement : rien a signaler.
   assert.equal(estDispenseBalise({ baliseRequise: true, numeroDispense: '', typeDeclaration: 'T' }), false);

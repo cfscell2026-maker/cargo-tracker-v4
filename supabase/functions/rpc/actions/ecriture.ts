@@ -16,7 +16,7 @@ import {
   normaliserConteneur, normaliserDeclaration, parseConteneursDetails,
   declKey, typeDeRoutage, tailleBucket, construireCamion, verifierBinome, apercuConteneurs,
   etapesEnAttente, etatCellules, estOui, aFait, sautsTypeC,
-  etapePrecedenteManquante, messageEtapePrecedente, numeroDispenseValide,
+  etapePrecedenteManquante, messageEtapePrecedente,
 } from '../../_shared/domaine/src/index.ts';
 import {
   getCargo, patchCargo, nextId, nextRapportId, ajouterConteneurs, supprimerConteneursDe,
@@ -915,16 +915,13 @@ export async function gps(ctx: Ctx, p: Record<string, unknown>) {
     throw new Error(exemption === 'escorte'
       ? "Référence de l'escorte requise."
       : "Numéro d'autorisation de dispense requis.");
-  /* PAS DE NUMÉRO DE COMPLAISANCE (2026-09-24, décision utilisateur). « 0 » ou
-     « sauté » passaient le champ obligatoire et peuplaient le volet Dispenses
-     de camions jamais dispensés. Si l'exemption n'a pas de référence, c'est
-     qu'il faut poser la balise. */
-  if (!requise && !numeroDispenseValide(numeroDispense))
-    throw new ErreurMetier(
-      "« " + numeroDispense + " » n'est pas une référence : indiquez la RÉFÉRENCE RÉELLE de "
-      + (exemption === 'escorte' ? "l'escorte (unité, ordre de mission…)" : 'la dispense (numéro, autorisation…)')
-      + '. Sans référence, posez la balise.',
-    );
+  /* LA RÉFÉRENCE DE COMPLAISANCE NE BLOQUE PLUS (2026-09-25, décision
+     utilisateur). Un refus sur « 0 » ou « sauté » empêchait la cellule
+     d'enregistrer une exemption qu'elle accordait pourtant. Le champ reste
+     obligatoire, l'écran conseille toujours la vraie référence, mais la
+     décision appartient à l'agent : ce qui est marqué dispense EST une
+     dispense, et le volet le montre. La saisie faible se voit alors dans la
+     colonne « Référence », au lieu de disparaître du comptage. */
 
   const cargo = await getCargo(ctx, id);
   const c = cargo.o;

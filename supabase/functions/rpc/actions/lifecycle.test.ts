@@ -3443,11 +3443,12 @@ test('depotage : plusieurs T1 sur un meme camion, numeros distincts exiges', asy
     /distincts/);
 });
 
-test('exemption : dispense et escorte se distinguent, les numeros bidons sont refuses', async () => {
+test("exemption : dispense et escorte se distinguent, la reference ne filtre plus", async () => {
   const db = new FakeDB();
   db.store['stock'].push(
     { numero_tc: 'MSKU9200001', taille: "40'", statut: 'En stock' },
     { numero_tc: 'MSKU9200002', taille: "40'", statut: 'En stock' },
+    { numero_tc: 'MSKU9200003', taille: "40'", statut: 'En stock' },
   );
   const cfs = ctxAvec(db);
   const balise = ctxRole(db, 'BALISE', 'Agent Balise');
@@ -3461,28 +3462,28 @@ test('exemption : dispense et escorte se distinguent, les numeros bidons sont re
 
   const a = await prepare('EXE001/RM01', 'MSKU9200001', '910');
   const b = await prepare('EXE002/RM01', 'MSKU9200002', '911');
-
-  // Un numero de complaisance est refuse, quelle que soit la nature.
-  await assert.rejects(
-    () => ecr.gps(balise, { id: a, baliseRequise: 'Non', t1Correct: 'Oui', numeroDispense: '0' }), /RÉFÉRENCE RÉELLE/);
-  await assert.rejects(
-    () => ecr.gps(balise, { id: a, baliseRequise: 'Non', t1Correct: 'Oui', numeroDispense: 'SAUTÉ', exemption: 'escorte' }), /RÉFÉRENCE RÉELLE/);
+  const d = await prepare('EXE003/RM01', 'MSKU9200003', '912');
 
   // Dispense et escorte sont enregistrees distinctement.
   await ecr.gps(balise, { id: a, baliseRequise: 'Non', t1Correct: 'Oui', numeroDispense: 'D 42034' });
   await ecr.gps(balise, { id: b, baliseRequise: 'Non', t1Correct: 'Oui', numeroDispense: 'ESCORTE MILITAIRE', exemption: 'escorte' });
+  // Une reference de complaisance ne bloque plus (25/09) : la cellule a exempte,
+  // donc le camion EST dispense, et le volet doit le montrer.
+  await ecr.gps(balise, { id: d, baliseRequise: 'Non', t1Correct: 'Oui', numeroDispense: '0' });
   const ligneA = db.store['cargaisons'].find((x) => x['id'] === a)!;
   const ligneB = db.store['cargaisons'].find((x) => x['id'] === b)!;
+  const ligneD = db.store['cargaisons'].find((x) => x['id'] === d)!;
   assert.equal(ligneA['type_exemption'], 'dispense');
   assert.equal(ligneB['type_exemption'], 'escorte');
+  assert.equal(ligneD['type_exemption'], 'dispense');
 
   // Le rapport les compte separement.
   const r = (await rap.rapportDispenses(ctxRole(db, 'ADMIN', 'Admin'), {})) as {
     compte: { total: number; dispenses: number; escortes: number };
     rows: { exemption: string }[];
   };
-  assert.equal(r.compte.total, 2);
-  assert.equal(r.compte.dispenses, 1);
+  assert.equal(r.compte.total, 3);
+  assert.equal(r.compte.dispenses, 2);
   assert.equal(r.compte.escortes, 1);
-  assert.deepEqual(r.rows.map((x) => x.exemption).sort(), ['dispense', 'escorte']);
+  assert.deepEqual(r.rows.map((x) => x.exemption).sort(), ['dispense', 'dispense', 'escorte']);
 });

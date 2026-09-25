@@ -223,24 +223,34 @@ export function fileAttente(c: SourceEtapes): Etape | null {
  * ⚠ Ce n'est PAS la même chose qu'un « saute-balise » : un véhicule saute la
  * balise par nature, il n'est donc jamais dispensé.
  *
- * ⚠ IL FAUT UN VRAI NUMÉRO (2026-09-24, décision utilisateur). Le volet
- * « Dispenses » affichait 80 camions pour une poignée de dispenses réelles. La
- * cause : le champ « N° d'autorisation » est OBLIGATOIRE dès qu'on choisit
- * Dispense, et les agents y tapaient « 0 » (43 fois) ou « SAUTÉ » (21 fois)
- * pour passer. Une mention de contournement n'est pas une autorisation : elle
- * ne fait pas une dispense. Le TYPE de déclaration, lui, n'entre pas dans la
- * règle — ce qui compte est le marquage à la cellule Balise.
+ * ⚠ LE MARQUAGE SUFFIT (2026-09-25, décision utilisateur). La règle a une
+ * seule condition : la cellule Balise a-t-elle EXEMPTÉ ce camion ? Ni le type de
+ * déclaration, ni la qualité de la référence saisie n'entrent en ligne de
+ * compte. Une version précédente écartait les références de complaisance
+ * (« 0 », « SAUTÉ ») : elle faisait disparaître du volet des camions que la
+ * cellule avait bel et bien dispensés. Une saisie bâclée reste un fait à
+ * montrer, pas un fait à cacher.
+ *
+ * SEULE EXCEPTION, les véhicules : `balise_requise` y est mis à false à la
+ * CRÉATION (voir speciaux.ts), sans qu'aucun agent n'ait rien décidé. Ils
+ * n'ont pas de balise à prendre, donc rien à en être dispensé.
+ *
+ * `numeroDispense` et `typeDeclaration` restent acceptés par la signature pour
+ * les appelants existants ; la règle ne les lit plus.
  */
 export function estDispenseBalise(c: {
-  baliseRequise?: unknown; numeroDispense?: unknown; estVehicule?: unknown;
+  baliseRequise?: unknown; numeroDispense?: unknown; estVehicule?: unknown; typeDeclaration?: unknown;
 }): boolean {
   if (estOui(c.estVehicule)) return false;
-  const pasRequise = c.baliseRequise === false || String(c.baliseRequise) === 'Non';
-  return pasRequise && numeroDispenseValide(c.numeroDispense);
+  return c.baliseRequise === false || String(c.baliseRequise) === 'Non';
 }
 
 /**
  * Le numéro d'autorisation est-il une VRAIE référence ?
+ *
+ * ⚠ Cette fonction ne DÉCIDE plus rien (2026-09-25) : elle ne sert qu'à
+ * CONSEILLER l'agent à la saisie. Ce qu'elle déconseille apparaît quand même
+ * au volet « Dispenses », dès lors que la cellule a exempté le camion.
  *
  * On écarte ce que les agents tapent pour franchir un champ obligatoire : zéro,
  * « sauté », « sans balise », « néant »… La liste tient aux mentions relevées
