@@ -380,10 +380,16 @@ function Timeline({ c }: { c: O }) {
       c['agentValidation'] ? `${c['agentValidation']}${c['roleValidation'] === ROLES.CBPI ? ' (par intérim)' : ''} · ${fmtDate(c['dateValidation'])}`
         : (e.valide && !valideReel ? 'réputée (T1/sortie effectué)' : ''), 'validation'],
     [e.t1, (estOui(c['sauteT1']) || estTypeSansT1(c['typeDeclaration'])) && !c['dateT1'] ? 'T1 (sauté)' : 'T1', c['agentT1'] ? `${c['agentT1']} · ${fmtDate(c['dateT1'])}` : '', 't1'],
-    [e.balise, estOui(c['estVehicule']) || estOui(c['sauteBalise']) ? 'Balise (sautée)' : (c['numeroGps'] ? 'Balisé' : 'Balise/Dispense'), c['datePoseGps'] ? `${c['agentBalise']} · ${fmtDate(c['datePoseGps'])}` : '', 'balise'],
+    /* LE BON DE SORTIE PRECEDE LA BALISE (2026-09-25, demande utilisateur).
+       La frise raconte le parcours : elle doit suivre l'ordre reellement impose
+       par la chaine, sans quoi l'agent lit ici l'inverse de ce que le serveur
+       lui demande. Les dossiers d'avant cette date, balises avant leur bon,
+       affichent donc une etape faite au-dessus d'une etape en attente : c'est
+       leur histoire, on ne la reecrit pas. */
     [e.bs, (estOui(c['sauteBS']) || estOui(c['sauteBs'])) ? 'Bon de sortie (sauté)' : 'Bon de sortie',
       c['dateBonSortie'] ? `${c['agentBonSortie']} · ${fmtDate(c['dateBonSortie'])}`
         : (e.bs && !bsReel ? 'réputé (sortie effectuée)' : ''), 'bs'],
+    [e.balise, estOui(c['estVehicule']) || estOui(c['sauteBalise']) ? 'Balise (sautée)' : (c['numeroGps'] ? 'Balisé' : 'Balise/Dispense'), c['datePoseGps'] ? `${c['agentBalise']} · ${fmtDate(c['datePoseGps'])}` : '', 'balise'],
     [e.pp, 'Sortie (PP)', c['dateSortie'] ? `${c['agentPp']} · ${fmtDate(c['dateSortie'])}` : '', 'pp'],
   ];
   // Cargaison clôturée : une étape non faite ne le sera plus → on l'affiche
@@ -998,7 +1004,8 @@ function PanneauPP({ c, estVeh, action }: { c: O; estVeh: boolean; action: Actio
       <label className="help"><input type="checkbox" style={{ width: 'auto' }} checked={infos} onChange={(e) => setInfos(e.target.checked)} /> Informations validées</label>
     ) : (
       <div style={{ display: 'grid', gap: 4 }}>
-        {([['cfs', 'CFS conforme'], ['t1', 'T1 valide'], ['balise', 'Balise vérifiée'], ['bs', 'Bon de sortie vérifié']] as const).map(([k, l]) => (
+        {/* Meme ordre que le parcours : le bon de sortie avant la balise. */}
+        {([['cfs', 'CFS conforme'], ['t1', 'T1 valide'], ['bs', 'Bon de sortie vérifié'], ['balise', 'Balise vérifiée']] as const).map(([k, l]) => (
           <label key={k} className="help"><input type="checkbox" style={{ width: 'auto' }} checked={ck[k]} onChange={(e) => setCk((o) => ({ ...o, [k]: e.target.checked }))} /> {l}</label>
         ))}
       </div>
