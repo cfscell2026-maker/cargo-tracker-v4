@@ -15,7 +15,7 @@ import { EcranParking, useAlerteParking } from './parking.tsx';
 import type { ReactNode } from 'react';
 import type { Nav } from './App.tsx';
 import { useNav } from './lib/contexte-nav.ts';
-import { ROLES, OPERATIONS, VEHICULE_DESTINATIONS, TYPES_DECLARATION, STATUTS, SUIVENT_ENGAGEMENTS, dateDansNJours, tcValide, fileAttente, estTypeSansT1, libelleTypeSansT1, exigeControlePoids, dureeLisible } from '../../../supabase/functions/_shared/domaine/src/index.ts';
+import { ROLES, OPERATIONS, VEHICULE_DESTINATIONS, TYPES_DECLARATION, optionTypeDeclaration, STATUTS, SUIVENT_ENGAGEMENTS, dateDansNJours, tcValide, fileAttente, estTypeSansT1, libelleTypeSansT1, exigeControlePoids, dureeLisible } from '../../../supabase/functions/_shared/domaine/src/index.ts';
 
 const STATUT_OPTIONS = Object.values(STATUTS);
 
@@ -129,6 +129,100 @@ function Table({ cols, rows, onRow, icones, actions }: {
       </tr>
     ))}</tbody>
   </table></div>;
+}
+
+/* ---------------------- Listes longues : pages & filtre ----------------- */
+/**
+ * ON N'AFFICHE PLUS TOUT D'UN COUP (2026-09-25, demande utilisateur).
+ *
+ * Plusieurs volets (délai & instance, temps de passage, stock, heures
+ * d'activité…) déroulaient la totalité de leurs lignes : des pages
+ * interminables, lentes à ouvrir et impossibles à parcourir sur téléphone.
+ *
+ * `ListeLongue` remplace `Table` partout où la liste peut être longue et pose,
+ * d'un seul tenant : une RECHERCHE (elle fouille toutes les colonnes
+ * affichées, accents et ponctuation ignorés), un compteur qui dit ce qu'on
+ * regarde, et des PAGES. Rien ne repart au serveur : tout se joue sur les
+ * lignes déjà reçues, la frappe filtre donc instantanément.
+ *
+ * Les écrans qui ont besoin d'un filtre à eux (une vue commandée par un
+ * chiffre, un choix de cellule…) le passent dans `filtres` : il se range à
+ * côté de la loupe au lieu d'être posé ailleurs sur l'écran.
+ */
+const LIGNES_PAR_PAGE = 50;
+
+/** Forme comparable d'une valeur : sans accent, sans ponctuation, en capitales. */
+function cleRecherche(v: unknown): string {
+  return String(v ?? '')
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+
+function ListeLongue({
+  cols, rows, onRow, icones, actions, placeholder, vide, nom, filtres, cherchables,
+  parPage = LIGNES_PAR_PAGE, reinit,
+}: {
+  cols: [string, string][]; rows: O[]; onRow?: (r: O) => void;
+  icones?: Record<string, string>; actions?: (r: O) => ReactNode;
+  /** Ce qu'on cherche ici : « N° de camion », « conteneur, déclaration »… */
+  placeholder?: string;
+  /** Phrase affichée quand la vue ne contient rien. */
+  vide?: string;
+  /** Nom des lignes, pour le compteur : « camion(s) », « conteneur(s) ». */
+  nom?: string;
+  /** Contrôles propres à l'écran, posés à côté de la recherche. */
+  filtres?: ReactNode;
+  /** Colonnes fouillées par la recherche. Par défaut, toutes celles affichées. */
+  cherchables?: string[];
+  parPage?: number;
+  /** Change de valeur quand l'écran change de vue : la pagination repart à 1. */
+  reinit?: unknown;
+}) {
+  const [q, setQ] = useState('');
+  const [page, setPage] = useState(1);
+  // Un changement de vue en amont ne doit pas laisser l'utilisateur sur une
+  // page 7 qui n'existe plus dans la nouvelle liste.
+  useEffect(() => { setPage(1); }, [reinit]);
+
+  const cles = cherchables ?? cols.map((c) => c[0]);
+  const terme = cleRecherche(q);
+  const lignes = terme ? rows.filter((r) => cles.some((k) => cleRecherche(r[k]).includes(terme))) : rows;
+  const pages = Math.max(1, Math.ceil(lignes.length / parPage));
+  const pageSure = Math.min(page, pages);
+  const visibles = lignes.slice((pageSure - 1) * parPage, pageSure * parPage);
+  const chercher = (v: string) => { setQ(v); setPage(1); };
+
+  return <>
+    <div className="row depot-recherche liste-outils">
+      <span className="champ-loupe">
+        <Icone nom="loupe" taille={15} />
+        <input value={q} onChange={(e) => chercher(e.target.value)}
+          placeholder={placeholder ?? 'Rechercher dans la liste'}
+          title="Filtre la liste à chaque caractère saisi" />
+      </span>
+      {filtres}
+      {terme !== '' && <button className="ghost xs" onClick={() => chercher('')}>Tout afficher</button>}
+    </div>
+    <div className="help liste-compte">
+      <b>{lignes.length}</b> {nom ?? 'ligne(s)'}{terme !== '' ? ` pour « ${q.trim()} »` : ''}
+      {lignes.length > parPage ? ` · page ${pageSure} sur ${pages}` : ''}
+    </div>
+    {/* Une recherche infructueuse le DIT : le message propre a l'ecran
+        (« Aucun conteneur annonce ») ferait croire que la base est vide, alors
+        que c'est le terme cherche qui ne donne rien. */}
+    {lignes.length === 0
+      ? <div className="empty">{terme !== ''
+        ? `Aucun résultat pour « ${q.trim()} ».`
+        : vide ?? 'Aucune donnée.'}</div>
+      : <>
+        <Table cols={cols} rows={visibles} onRow={onRow} icones={icones} actions={actions} />
+        {pages > 1 && <div className="row pagination-tc">
+          <button className="ghost xs" disabled={pageSure <= 1} onClick={() => setPage(pageSure - 1)}>‹ Précédents</button>
+          <span className="help">{(pageSure - 1) * parPage + 1} à {Math.min(pageSure * parPage, lignes.length)} sur {lignes.length}</span>
+          <button className="ghost xs" disabled={pageSure >= pages} onClick={() => setPage(pageSure + 1)}>Suivants ›</button>
+        </div>}
+      </>}
+  </>;
 }
 
 /* ------------------ Modifier / supprimer un dossier --------------------- */
@@ -999,7 +1093,7 @@ function EcranEntrepot({ nav, type }: { nav: Nav; type: EntrepotType }) {
       ? <div className="card"><div className="empty">Aucun entrepôt {titre}. {peutGerer ? 'Créez-en un dans l\'onglet « Entrepôts ».' : 'Demandez à un chef d\'en créer un.'}</div></div>
       : onglet === 'entree' ? <EntrepotEntree type={type} entrepots={entrepots} />
         : onglet === 'sortie' ? <EntrepotSortie type={type} entrepots={entrepots} nav={nav} />
-          : onglet === 'stats' ? <EntrepotStats type={type} />
+          : onglet === 'stats' ? <EntrepotStats type={type} role={nav.user.role} />
             : <EntrepotGerer type={type} reload={reload} admin={nav.user.role === 'ADMIN'} />}
   </>;
 }
@@ -1146,7 +1240,7 @@ function DeclEntrepot({ d, set, titre }: { d: O; set: (k: string, v: unknown) =>
   return <><div className="section-title">{titre}</div><div className="grid2">
     <div><label className="help">Déclarant</label><input value={String(d['declarant'] ?? '')} onChange={(e) => set('declarant', masks.upper(e.target.value))} /></div>
     <div><label className="help">Bureau</label><input value={String(d['bureauDeclaration'] ?? 'TG120')} onChange={(e) => set('bureauDeclaration', masks.upper(e.target.value))} /></div>
-    <div><label className="help">Type décl.</label><select value={String(d['typeDeclaration'] ?? 'T')} onChange={(e) => set('typeDeclaration', e.target.value)}>{TYPES_DECLARATION.map((t) => <option key={t}>{t}</option>)}</select></div>
+    <div><label className="help">Type décl.</label><select value={String(d['typeDeclaration'] ?? 'T')} onChange={(e) => set('typeDeclaration', e.target.value)}>{TYPES_DECLARATION.map((t) => <option key={t} value={t}>{optionTypeDeclaration(t)}</option>)}</select></div>
     <div><label className="help">N° décl.</label><input value={String(d['numeroDeclaration'] ?? '')} onChange={(e) => set('numeroDeclaration', masks.upper(e.target.value))} /></div>
     <div><label className="help">Année</label><input value={String(d['anneeDeclaration'] ?? new Date().getFullYear())} onChange={(e) => set('anneeDeclaration', e.target.value)} /></div>
   </div></>;
@@ -1332,10 +1426,10 @@ function EntrepotSortie({ type, entrepots, nav }: { type: EntrepotType; entrepot
  * cliquer un magasin ouvre le détail de ses entrées/articles ; cliquer une
  * quantité apurée ouvre la liste des déclarations venues apurer.
  */
-function EntrepotStats({ type }: { type: EntrepotType }) {
+function EntrepotStats({ type, role }: { type: EntrepotType; role: string }) {
   const indus = estIndus(type);
   const lib = indus ? 'Entrepôt' : 'Magasin';
-  const { data, loading } = useAsync<O>(() => call('entrepot.stats', { type }), [type]);
+  const { data, loading, reload } = useAsync<O>(() => call('entrepot.stats', { type }), [type]);
   const u = String(data?.['unite'] ?? 'colis') === 'poids' ? 'kg' : 'colis';
   const ents = (data?.['entrepots'] ?? []) as O[];
   const decls = (data?.['parDeclaration'] ?? []) as O[];
@@ -1352,47 +1446,246 @@ function EntrepotStats({ type }: { type: EntrepotType }) {
         : <Table cols={[['libelle', 'Déclaration'], ['entrepotCode', lib], ['entrees', `Entrées (${u})`], ['sorties', `Sorties (${u})`], ['restant', `Restant (${u})`]]}
           icones={{ libelle: 'document', entrepotCode: indus ? 'usine' : 'entrepot' }} rows={decls} />}
     </div>
-    {sel && <DetailEntrepotStats entrepot={sel} unite={u} lib={lib} onClose={() => setSel(null)} />}
+    {sel && <DetailEntrepotStats entrepot={sel} unite={u} lib={lib} role={role}
+      onClose={() => setSel(null)} onFait={reload} />}
   </>;
 }
 
+/** Combien d'entrées on montre d'emblée : les plus récentes suffisent à la
+ *  consultation courante, le reste s'ouvre d'un bouton. */
+const ENTREES_VISIBLES = 10;
+
+/**
+ * LES CONTENEURS D'UN DÉPÔT (2026-09-24, demande utilisateur).
+ *
+ * Ils s'affichaient en une phrase de vingt numéros séparés par des virgules :
+ * illisible, et l'œil ne pouvait ni compter ni repérer un numéro. Ils sont
+ * désormais posés en pastilles, triés, et dédoublonnés — un même conteneur
+ * saisi deux fois est compté une fois, et le doublon est signalé plutôt que
+ * caché.
+ */
+function ListeConteneurs({ conteneurs }: { conteneurs: string[] }) {
+  const propres = conteneurs.map((x) => String(x ?? '').trim().toUpperCase()).filter(Boolean);
+  const uniques = [...new Set(propres)].sort();
+  const doublons = propres.length - uniques.length;
+  if (!uniques.length) return null;
+  return <div className="tc-bloc">
+    <div className="help tc-entete">
+      <Icone nom="conteneur" taille={13} />
+      {uniques.length} conteneur{uniques.length > 1 ? 's' : ''} dépoté{uniques.length > 1 ? 's' : ''}
+      {doublons > 0 ? <span className="tc-doublon"> · {doublons} doublon{doublons > 1 ? 's' : ''} de saisie</span> : null}
+    </div>
+    <div className="tc-liste">{uniques.map((tc) => <span key={tc} className="tc-puce mono">{tc}</span>)}</div>
+  </div>;
+}
+
+/**
+ * RECHERCHE DANS UN MAGASIN (2026-09-24, demande utilisateur). Un magasin porte
+ * des dizaines de dépôts et des centaines de conteneurs : sans recherche, on
+ * déroule. Elle porte sur TOUT ce qui identifie un dépôt — déclaration,
+ * déclarant, marchandise et numéro de conteneur — et ignore espaces et tirets,
+ * comme partout ailleurs dans l'application.
+ */
+function depotCorrespond(e: O, q: string): boolean {
+  if (!q) return true;
+  const brut = q.trim().toUpperCase();
+  const alnum = brut.replace(/[^A-Z0-9]/g, '');
+  const champs = [
+    String(e['numeroDeclaration'] ?? ''), String(e['anneeDeclaration'] ?? ''),
+    String(e['bureauDeclaration'] ?? ''), String(e['typeDeclaration'] ?? ''),
+    String(e['declarant'] ?? ''),
+    ...((e['articles'] as O[]) ?? []).map((a) => String(a['designation'] ?? '')),
+  ].join(' ').toUpperCase();
+  if (champs.includes(brut)) return true;
+  if (!alnum) return false;
+  // Conteneurs : comparaison sur les seules lettres et chiffres.
+  return ((e['conteneurs'] as string[]) ?? []).some((tc) => String(tc ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '').includes(alnum));
+}
+
 /** Tiroir d'un magasin/entrepôt : ses entrées, chaque article (entrée / apuré / restant). */
-function DetailEntrepotStats({ entrepot, unite, lib, onClose }: { entrepot: O; unite: string; lib: string; onClose: () => void }) {
+function DetailEntrepotStats({ entrepot, unite, lib, role, onClose, onFait }: {
+  entrepot: O; unite: string; lib: string; role: string; onClose: () => void; onFait: () => void;
+}) {
   const code = String(entrepot['code']);
-  const { data, loading } = useAsync<{ rows: O[] }>(() => call('entrepot.entrees', { entrepotCode: code }), [code]);
-  const entrees = (data?.rows ?? []) as O[];
+  const { data, loading, reload } = useAsync<{ rows: O[] }>(() => call('entrepot.entrees', { entrepotCode: code }), [code]);
   const [apur, setApur] = useState<{ entreeId: string; numero: number; designation: string } | null>(null);
+  const [tout, setTout] = useState(false);
+  const [q, setQ] = useState('');
+  const [edite, setEdite] = useState<O | null>(null);
+  const [supprime, setSupprime] = useState<O | null>(null);
+  // Suppression réservée à l'administration : le seul rôle qui voit TOUS les
+  // volets de l'application (décision utilisateur).
+  const admin = role === ROLES.ADMIN;
+
+  // Les plus récentes d'abord : on consulte un magasin par son actualité.
+  const recues = ((data?.rows ?? []) as O[]).slice()
+    .sort((a, b) => String(b['dateEntree'] ?? '').localeCompare(String(a['dateEntree'] ?? '')));
+  const cherche = q.trim() !== '';
+  const toutes = cherche ? recues.filter((e) => depotCorrespond(e, q)) : recues;
+  // Une recherche montre TOUT ce qu'elle trouve : la limite des dix ne vaut
+  // que pour la consultation courante.
+  const entrees = (tout || cherche) ? toutes : toutes.slice(0, ENTREES_VISIBLES);
+  const reste = toutes.length - entrees.length;
+
+  const rafraichir = () => { reload(); onFait(); };
+
   return <Modal onClose={onClose}>
     <h2><span className="tp-pastille" aria-hidden="true"><Icone nom="entrepot" taille={18} /></span>{lib} {String(entrepot['nom'])} ({code})</h2>
     <div className="help" style={{ marginBottom: 8 }}>Entrées : {String(entrepot['entrees'])} {unite} · Sorties : {String(entrepot['sorties'])} {unite} · Restant : <b>{String(entrepot['restant'])}</b> {unite}</div>
-    {loading ? <Spinner /> : entrees.length === 0 ? <div className="empty">Aucune entrée.</div>
-      : entrees.map((e) => <div key={String(e['id'])} style={{ border: '1px solid var(--line)', borderRadius: 6, padding: 10, marginTop: 10 }}>
-        <div className="row" style={{ alignItems: 'center' }}>
-          <b className="mono" style={{ flex: 1 }}>{[e['numeroDeclaration'], e['anneeDeclaration'], e['bureauDeclaration'], e['typeDeclaration']].filter(Boolean).join(' · ')}</b>
-          <span className="help">{fmtDate(e['dateEntree'])}</span>
-        </div>
-        <div className="help">Déclarant {String(e['declarant'] || '—')}{e['conteneurise'] ? ` · conteneurs : ${((e['conteneurs'] as string[]) || []).join(', ') || '—'}` : ''}</div>
-        <div className="tbl" style={{ marginTop: 6 }}><table>
-          <thead><tr><th>Art.</th><th>Désignation</th><th>Entrée</th><th>Apuré</th><th>Restant</th></tr></thead>
-          <tbody>{(e['articles'] as O[]).map((a) => <tr key={String(a['numero'])}>
-            <td>{String(a['numero'])}</td><td>{String(a['designation'] || '—')}</td>
-            <td>{String(a['initial'])}</td>
-            <td>{Number(a['sorti']) > 0
-              ? <button className="ghost xs" onClick={() => setApur({ entreeId: String(e['id']), numero: Number(a['numero']), designation: String(a['designation'] || '') })}>{String(a['sorti'])} ▸</button>
-              : '0'}</td>
-            <td><b>{String(a['restant'])}</b></td>
-          </tr>)}</tbody>
-        </table></div>
-      </div>)}
-    {apur && <DetailApurements code={code} apur={apur} unite={unite} onClose={() => setApur(null)} />}
+    <div className="row depot-recherche">
+      {/* La loupe DANS le champ : elle dit à quoi il sert avant qu'on ait lu
+          le texte grisé, qui disparaît dès la première frappe. */}
+      <span className="champ-loupe">
+        <Icone nom="loupe" taille={15} />
+        <input value={q} onChange={(e) => setQ(e.target.value)}
+          placeholder="Déclaration, déclarant, conteneur, marchandise…"
+          title="Cherche dans les déclarations, les déclarants, les marchandises et les N° de conteneurs" />
+      </span>
+      {cherche && <button className="ghost xs" onClick={() => setQ('')}>Effacer</button>}
+    </div>
+    {loading ? <Spinner /> : toutes.length === 0
+      ? <div className="empty">{cherche ? 'Aucun dépôt ne correspond à cette recherche.' : 'Aucune entrée.'}</div>
+      : <>
+        <div className="help">{cherche
+          ? `${toutes.length} dépôt(s) trouvé(s) sur ${recues.length}`
+          : tout
+            ? `${toutes.length} dépôt(s), du plus récent au plus ancien`
+            : `Les ${entrees.length} dépôts les plus récents sur ${toutes.length}`}</div>
+        {entrees.map((e) => <div key={String(e['id'])} className="depot-bloc">
+          <div className="row" style={{ alignItems: 'center' }}>
+            <b className="mono" style={{ flex: 1 }}>{[e['numeroDeclaration'], e['anneeDeclaration'], e['bureauDeclaration'], e['typeDeclaration']].filter(Boolean).join(' · ')}</b>
+            <span className="help">{fmtDate(e['dateEntree'])}</span>
+          </div>
+          <div className="help">Déclarant {String(e['declarant'] || '—')}</div>
+          {e['conteneurise'] ? <ListeConteneurs conteneurs={(e['conteneurs'] as string[]) || []} /> : null}
+          <div className="tbl" style={{ marginTop: 6 }}><table>
+            <thead><tr><th>Art.</th><th>Désignation</th><th>Entrée</th><th>Apuré</th><th>Restant</th></tr></thead>
+            <tbody>{(e['articles'] as O[]).map((a) => <tr key={String(a['numero'])}>
+              <td>{String(a['numero'])}</td><td>{String(a['designation'] || '—')}</td>
+              <td>{String(a['initial'])}</td>
+              <td>{Number(a['sorti']) > 0
+                ? <button className="ghost xs" onClick={() => setApur({ entreeId: String(e['id']), numero: Number(a['numero']), designation: String(a['designation'] || '') })}>{String(a['sorti'])} ▸</button>
+                : '0'}</td>
+              <td><b>{String(a['restant'])}</b></td>
+            </tr>)}</tbody>
+          </table></div>
+          <div className="row depot-actions">
+            <button className="ghost xs" onClick={() => setEdite(e)}>Modifier</button>
+            {admin && <button className="ghost xs acts-suppr" onClick={() => setSupprime(e)}>Supprimer</button>}
+          </div>
+        </div>)}
+        {!cherche && (reste > 0 || tout) && <div className="row" style={{ justifyContent: 'center', marginTop: 12 }}>
+          <button className="ghost" onClick={() => setTout(!tout)}>
+            {tout ? `Revenir aux ${ENTREES_VISIBLES} plus récents` : `Voir tous les dépôts (${toutes.length})`}
+          </button>
+        </div>}
+      </>}
+    {apur && <DetailApurements code={code} apur={apur} unite={unite} role={role}
+      onClose={() => setApur(null)} onFait={rafraichir} />}
+    {edite && <ModaleModifierDepot entree={edite} unite={unite} onClose={() => setEdite(null)}
+      onFait={() => { setEdite(null); rafraichir(); }} />}
+    {supprime && <ModaleSupprimerDepot entree={supprime} onClose={() => setSupprime(null)}
+      onFait={() => { setSupprime(null); rafraichir(); }} />}
+  </Modal>;
+}
+
+/** Correction d'un DÉPÔT : ouverte à tous (décision utilisateur). */
+function ModaleModifierDepot({ entree, unite, onClose, onFait }: { entree: O; unite: string; onClose: () => void; onFait: () => void }) {
+  const [declarant, setDeclarant] = useState(String(entree['declarant'] ?? ''));
+  const [conteneurs, setConteneurs] = useState(((entree['conteneurs'] as string[]) || []).join('\n'));
+  const articles0 = ((entree['articles'] as O[]) || []).map((a) => ({
+    designation: String(a['designation'] ?? ''), quantite: String(a['initial'] ?? ''), sorti: Number(a['sorti'] ?? 0),
+  }));
+  const [articles, setArticles] = useState(articles0);
+  const [busy, setBusy] = useState(false);
+  const majArticle = (i: number, patch: Partial<typeof articles0[0]>) =>
+    setArticles((a) => a.map((x, j) => (j === i ? { ...x, ...patch } : x)));
+
+  async function enregistrer() {
+    setBusy(true);
+    try {
+      const champ = unite === 'kg' ? 'poids' : 'nbColis';
+      const r = await call<O>('entrepot.entreeedit', {
+        id: String(entree['id']),
+        declarant,
+        conteneurs: conteneurs.split(/[\s,;]+/).map((x) => x.trim()).filter(Boolean),
+        articles: articles.map((a) => ({ designation: a.designation, [champ]: Number(a.quantite) || 0 })),
+      });
+      toast(r['inchange'] ? 'Aucune modification.' : 'Dépôt corrigé.', 'ok');
+      onFait();
+    } catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(false); }
+  }
+
+  return <Modal onClose={onClose}>
+    <h2>Corriger ce dépôt</h2>
+    <p className="help" style={{ marginTop: 0 }}>
+      Déclaration <b className="mono">{[entree['numeroDeclaration'], entree['anneeDeclaration'], entree['bureauDeclaration']].filter(Boolean).join(' · ')}</b>,
+      entrée le <b>{fmtDate(entree['dateEntree'])}</b>. Une quantité ne peut pas descendre sous ce qui est déjà apuré.
+    </p>
+    <label className="help">Déclarant</label>
+    <input value={declarant} onChange={(e) => setDeclarant(masks.upper(e.target.value))} />
+    <label className="help">Conteneurs (un par ligne, ou séparés par des espaces)</label>
+    <textarea className="mono" rows={4} value={conteneurs} onChange={(e) => setConteneurs(e.target.value.toUpperCase())} />
+    <div className="section-title" style={{ marginTop: 12 }}>Articles ({unite})</div>
+    {articles.map((a, i) => <div key={i} className="grid2" style={{ marginBottom: 6 }}>
+      <div><label className="help">Désignation {i + 1}</label>
+        <input value={a.designation} onChange={(e) => majArticle(i, { designation: masks.upper(e.target.value) })} /></div>
+      <div><label className="help">Quantité{a.sorti > 0 ? ` (déjà apuré : ${a.sorti})` : ''}</label>
+        <input inputMode="numeric" value={a.quantite} onChange={(e) => majArticle(i, { quantite: e.target.value.replace(/[^0-9.]/g, '') })} /></div>
+    </div>)}
+    <div className="row" style={{ marginTop: 12, justifyContent: 'flex-end' }}>
+      <button className="ghost" onClick={onClose}>Annuler</button>
+      <button disabled={busy} onClick={enregistrer}>{busy ? 'Enregistrement…' : 'Enregistrer'}</button>
+    </div>
+  </Modal>;
+}
+
+/** Suppression d'un DÉPÔT : administration seule, motif obligatoire. */
+function ModaleSupprimerDepot({ entree, onClose, onFait }: { entree: O; onClose: () => void; onFait: () => void }) {
+  const [motif, setMotif] = useState('');
+  const [busy, setBusy] = useState(false);
+  const apures = ((entree['articles'] as O[]) || []).reduce((n, a) => n + Number(a['sorti'] ?? 0), 0);
+
+  async function supprimer() {
+    setBusy(true);
+    try {
+      await call('entrepot.entreedelete', { id: String(entree['id']), motif });
+      toast('Dépôt supprimé.', 'ok'); onFait();
+    } catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(false); }
+  }
+
+  return <Modal onClose={onClose}>
+    <h2>Supprimer ce dépôt ?</h2>
+    <p className="help">
+      Déclaration <b className="mono">{[entree['numeroDeclaration'], entree['anneeDeclaration'], entree['bureauDeclaration']].filter(Boolean).join(' · ')}</b>,
+      entrée le <b>{fmtDate(entree['dateEntree'])}</b>. La ligne disparaît du sommier, définitivement.
+    </p>
+    {apures > 0 && <p className="help" style={{ color: 'var(--err)' }}>
+      Ce dépôt porte déjà <b>{apures}</b> apurement(s) : le serveur refusera la suppression tant
+      qu'ils existent. Supprimez-les d'abord, sinon le sommier ne se retrouverait plus.
+    </p>}
+    <label className="help">Motif de la suppression (obligatoire)</label>
+    <input value={motif} onChange={(e) => setMotif(e.target.value)} placeholder="ex. dépôt saisi deux fois" autoFocus />
+    <div className="row" style={{ marginTop: 12, justifyContent: 'flex-end' }}>
+      <button className="ghost" onClick={onClose}>Annuler</button>
+      <button className="acts-suppr-plein" disabled={busy || !motif.trim()} onClick={supprimer}>
+        {busy ? 'Suppression…' : 'Supprimer le dépôt'}
+      </button>
+    </div>
   </Modal>;
 }
 
 /** Tiroir « quantité apurée » : les déclarations venues apurer un article. */
-function DetailApurements({ code, apur, unite, onClose }: { code: string; apur: { entreeId: string; numero: number; designation: string }; unite: string; onClose: () => void }) {
-  const { data, loading } = useAsync<{ rows: O[] }>(
+function DetailApurements({ code, apur, unite, role, onClose, onFait }: {
+  code: string; apur: { entreeId: string; numero: number; designation: string }; unite: string;
+  role: string; onClose: () => void; onFait: () => void;
+}) {
+  const { data, loading, reload } = useAsync<{ rows: O[] }>(
     () => call('entrepot.sorties', { entrepotCode: code, entreeId: apur.entreeId, numeroArticle: apur.numero }), [code, apur.entreeId, apur.numero]);
   const champ = unite === 'kg' ? 'poids' : 'nbColis';
+  const admin = role === ROLES.ADMIN;
+  const [edite, setEdite] = useState<O | null>(null);
+  const [supprime, setSupprime] = useState<O | null>(null);
   const rows = ((data?.rows ?? []) as O[]).map((r) => {
     const scelles = ((r['scelles'] as string[]) || []).filter(Boolean);
     // Sorties récentes : N° camion + scellés. Anciennes : liste de châssis (véhicules).
@@ -1401,11 +1694,101 @@ function DetailApurements({ code, apur, unite, onClose }: { code: string; apur: 
       : ((r['vehicules'] as O[]) || []).map((v) => String(v['chassis'] ?? '')).filter(Boolean).join(', ');
     return { ...r, camion: camion || '—' };
   });
+
+  const rafraichir = () => { reload(); onFait(); };
+
   return <Modal onClose={onClose}>
     <h2><span className="tp-pastille" aria-hidden="true"><Icone nom="boites" taille={18} /></span>Apurements, article n°{apur.numero}{apur.designation ? ` (${apur.designation})` : ''}</h2>
     <p className="help" style={{ marginTop: 0 }}>Déclarations venues apurer cet article ({unite}).</p>
     {loading ? <Spinner /> : rows.length === 0 ? <div className="empty">Aucun apurement.</div>
-      : <Table cols={[['declaration', 'Déclaration d\'apurement'], [champ, `Quantité (${unite})`], ['dateSortie', 'Date'], ['camion', 'Camion / scellés'], ['agent', 'Agent']]} rows={rows} />}
+      : <Table cols={[['declaration', 'Déclaration d\'apurement'], [champ, `Quantité (${unite})`], ['dateSortie', 'Date'], ['camion', 'Camion / scellés'], ['agent', 'Agent']]}
+        rows={rows}
+        actions={(r) => <>
+          <button className="ghost xs" onClick={() => setEdite(r)}>Modifier</button>
+          {admin && <button className="ghost xs acts-suppr" onClick={() => setSupprime(r)}>Supprimer</button>}
+        </>} />}
+    {edite && <ModaleModifierApurement sortie={edite} unite={unite} onClose={() => setEdite(null)}
+      onFait={() => { setEdite(null); rafraichir(); }} />}
+    {supprime && <ModaleSupprimerApurement sortie={supprime} onClose={() => setSupprime(null)}
+      onFait={() => { setSupprime(null); rafraichir(); }} />}
+  </Modal>;
+}
+
+/** Correction d'un APUREMENT : ouverte à tous. */
+function ModaleModifierApurement({ sortie, unite, onClose, onFait }: { sortie: O; unite: string; onClose: () => void; onFait: () => void }) {
+  const kg = unite === 'kg';
+  const [quantite, setQuantite] = useState(String(kg ? (sortie['poids'] ?? '') : (sortie['nbColis'] ?? '')));
+  const [camion, setCamion] = useState(String(sortie['numeroCamion'] ?? ''));
+  const [scelles, setScelles] = useState(((sortie['scelles'] as string[]) || []).join(', '));
+  const [busy, setBusy] = useState(false);
+
+  async function enregistrer() {
+    setBusy(true);
+    try {
+      const r = await call<O>('entrepot.sortieedit', {
+        id: String(sortie['id']),
+        [kg ? 'poids' : 'nbColis']: Number(quantite) || 0,
+        numeroCamion: camion,
+        scelles: scelles.split(/[,;]+/).map((x) => x.trim()).filter(Boolean),
+      });
+      toast(r['inchange'] ? 'Aucune modification.' : 'Apurement corrigé.', 'ok');
+      onFait();
+    } catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(false); }
+  }
+
+  return <Modal onClose={onClose}>
+    <h2>Corriger cet apurement</h2>
+    <p className="help" style={{ marginTop: 0 }}>
+      Apurement <b className="mono">{String(sortie['id'])}</b> du <b>{fmtDate(sortie['dateSortie'])}</b>.
+      La quantité reste bornée par ce qui restait sur l'article.
+    </p>
+    <div className="grid2">
+      <div><label className="help">Quantité ({unite})</label>
+        <input inputMode="numeric" value={quantite} onChange={(e) => setQuantite(e.target.value.replace(/[^0-9.]/g, ''))} autoFocus /></div>
+      <div><label className="help">N° camion</label>
+        <input className="mono" value={camion} onChange={(e) => setCamion(masks.upper(e.target.value))} /></div>
+    </div>
+    <label className="help">Scellés (séparés par des virgules)</label>
+    <input className="mono" value={scelles} onChange={(e) => setScelles(masks.upper(e.target.value))} />
+    <div className="row" style={{ marginTop: 12, justifyContent: 'flex-end' }}>
+      <button className="ghost" onClick={onClose}>Annuler</button>
+      <button disabled={busy || !quantite.trim()} onClick={enregistrer}>{busy ? 'Enregistrement…' : 'Enregistrer'}</button>
+    </div>
+  </Modal>;
+}
+
+/** Suppression d'un APUREMENT : administration seule, motif obligatoire. */
+function ModaleSupprimerApurement({ sortie, onClose, onFait }: { sortie: O; onClose: () => void; onFait: () => void }) {
+  const [motif, setMotif] = useState('');
+  const [busy, setBusy] = useState(false);
+  const cargaison = String(sortie['cargaisonId'] ?? '');
+
+  async function supprimer() {
+    setBusy(true);
+    try {
+      await call('entrepot.sortiedelete', { id: String(sortie['id']), motif });
+      toast('Apurement supprimé.', 'ok'); onFait();
+    } catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(false); }
+  }
+
+  return <Modal onClose={onClose}>
+    <h2>Supprimer cet apurement ?</h2>
+    <p className="help">
+      Apurement <b className="mono">{String(sortie['id'])}</b> du <b>{fmtDate(sortie['dateSortie'])}</b>.
+      La quantité revient au restant de l'article, et la ligne disparaît définitivement.
+    </p>
+    {cargaison && <p className="help" style={{ color: 'var(--err)' }}>
+      Cet apurement a créé le camion <b className="mono">{cargaison}</b> : le serveur refusera la
+      suppression tant que ce dossier vit. Annulez-le d'abord.
+    </p>}
+    <label className="help">Motif de la suppression (obligatoire)</label>
+    <input value={motif} onChange={(e) => setMotif(e.target.value)} placeholder="ex. apurement saisi par erreur" autoFocus />
+    <div className="row" style={{ marginTop: 12, justifyContent: 'flex-end' }}>
+      <button className="ghost" onClick={onClose}>Annuler</button>
+      <button className="acts-suppr-plein" disabled={busy || !motif.trim()} onClick={supprimer}>
+        {busy ? 'Suppression…' : 'Supprimer l\'apurement'}
+      </button>
+    </div>
   </Modal>;
 }
 
@@ -2127,7 +2510,7 @@ function DeclFields({ d, set }: { d: O; set: (k: string, v: unknown) => void }) 
     <div><label className="help">Contact</label><input value={String(d['contactDeclarant'] ?? '')} onChange={(e) => set('contactDeclarant', masks.tel(e.target.value))} /></div>
     <ChampDestination value={String(d['destinationMarchandise'] ?? '')} onChange={(v) => set('destinationMarchandise', v)} />
     <div><label className="help">Bureau</label><input value={String(d['bureauDeclaration'] ?? 'TG120')} onChange={(e) => set('bureauDeclaration', masks.upper(e.target.value))} /></div>
-    <div><label className="help">Type décl.</label><select value={String(d['typeDeclaration'] ?? 'T')} onChange={(e) => set('typeDeclaration', e.target.value)}>{TYPES_DECLARATION.map((t) => <option key={t}>{t}</option>)}</select></div>
+    <div><label className="help">Type décl.</label><select value={String(d['typeDeclaration'] ?? 'T')} onChange={(e) => set('typeDeclaration', e.target.value)}>{TYPES_DECLARATION.map((t) => <option key={t} value={t}>{optionTypeDeclaration(t)}</option>)}</select></div>
     <div><label className="help">N° décl.</label><input value={String(d['numeroDeclaration'] ?? '')} onChange={(e) => set('numeroDeclaration', masks.upper(e.target.value))} /></div>
     <div><label className="help">Année</label><input value={String(d['anneeDeclaration'] ?? new Date().getFullYear())} onChange={(e) => set('anneeDeclaration', e.target.value)} /></div>
     <div><label className="help">Désignation des marchandises</label><input value={String(d['descriptionMarchandise'] ?? '')} onChange={(e) => set('descriptionMarchandise', masks.upper(e.target.value))} /></div>
@@ -2494,7 +2877,9 @@ function StockList({ statut, titre }: { statut: string; titre?: string }) {
         <StatCard n={Number(data?.compte['depote'] ?? 0)} l="Dépotés" />
         <StatCard n={Number(data?.compte['evp'] ?? 0)} l="EVP" />
       </div>
-      <Table cols={[['numeroTC', 'Conteneur'], ['taille', 'Taille'], ['statut', 'Statut'], ['provenance', 'Provenance'], ['numeroDeclaration', 'N° décl.'], ['joursSejour', 'Séjour (j)']]} rows={data?.rows ?? []} />
+      <ListeLongue cols={[['numeroTC', 'Conteneur'], ['taille', 'Taille'], ['statut', 'Statut'], ['provenance', 'Provenance'], ['numeroDeclaration', 'N° décl.'], ['joursSejour', 'Séjour (j)']]}
+        rows={(data?.rows ?? []) as O[]} nom="conteneur(s)" reinit={statut}
+        placeholder="N° de conteneur, déclaration, provenance…" vide="Aucun conteneur." />
     </>}
   </div>;
 }
@@ -2522,13 +2907,15 @@ function StockJournalier() {
         <StatCard n={Number(data?.compte['depote'] ?? 0)} l="Dépotés (total)" />
       </div>
       <div className="section-title">Positionnés aujourd'hui ({duJour.length})</div>
-      <Table cols={cols} rows={duJour} />
+      <ListeLongue cols={cols} rows={duJour} nom="conteneur(s) positionné(s)"
+        placeholder="N° de conteneur, déclaration…" vide="Aucun conteneur positionné aujourd'hui." />
       {restes.length > 0 && <>
         <div className="row" style={{ alignItems: 'center', marginTop: 12 }}>
           <div className="section-title" style={{ flex: 1, margin: 0 }}>Restes des jours précédents ({restes.length})</div>
           <button className="ghost xs" onClick={() => setVoirRestes((v) => !v)}>{voirRestes ? 'Masquer' : 'Afficher'}</button>
         </div>
-        {voirRestes && <Table cols={cols} rows={restes} />}
+        {voirRestes && <ListeLongue cols={cols} rows={restes} nom="reste(s) à dépoter"
+          placeholder="N° de conteneur, déclaration…" vide="Aucun reste." />}
       </>}
     </>}
   </div>;
@@ -2828,7 +3215,9 @@ SCREENS.annonce = () => {
         <StatCard n={Number(data?.compte['confirmes'] ?? 0)} l="Confirmés" tone="ok" />
         <StatCard n={`${Number(data?.compte['tauxTransfert'] ?? 0)}%`} l="Taux transfert" />
       </div>
-      <Table cols={[['numeroTC', 'Conteneur'], ['taille', 'Taille'], ['statut', 'Statut'], ['numeroDeclaration', 'N° décl.'], ['datePointage', 'Pointé le'], ['dateConfirmation', 'Confirmé le']]} rows={data?.rows ?? []} />
+      <ListeLongue cols={[['numeroTC', 'Conteneur'], ['taille', 'Taille'], ['statut', 'Statut'], ['numeroDeclaration', 'N° décl.'], ['datePointage', 'Pointé le'], ['dateConfirmation', 'Confirmé le']]}
+        rows={(data?.rows ?? []) as O[]} nom="conteneur(s) annoncé(s)"
+        placeholder="N° de conteneur, déclaration…" vide="Aucun conteneur annoncé." />
     </>}
   </div>;
 };
@@ -2847,7 +3236,10 @@ SCREENS.etatcfs = ({ go }) => {
         <StatCard n={Number(data?.compte['vide'] ?? 0)} l="Vides" />
         <StatCard n={Number(data?.compte['np'] ?? 0)} l="Non précisé" tone="warn" />
       </div>
-      <Table cols={[['id', 'ID'], ['numeroCamion', 'Camion / Châssis'], ['typeOperation', 'Opération'], ['statut', 'Statut'], ['etatSortie', 'État sortie']]} rows={data?.rows ?? []} onRow={(r) => go('detail', r['id'])} />
+      <ListeLongue cols={[['id', 'ID'], ['numeroCamion', 'Camion / Châssis'], ['typeOperation', 'Opération'], ['statut', 'Statut'], ['etatSortie', 'État sortie']]}
+        rows={(data?.rows ?? []) as O[]} onRow={(r) => go('detail', r['id'])}
+        nom="camion(s) présent(s)" placeholder="N° de camion, châssis, ID…"
+        vide="Aucun camion au parking." />
     </>}
   </div>;
 };
@@ -2923,7 +3315,7 @@ SCREENS.chargement = () => {
       <div><label className="help">N° déclaration *</label><input className="mono" value={String(q['numeroDeclaration'])} onChange={(e) => set('numeroDeclaration', masks.upper(e.target.value))} onKeyDown={(e) => e.key === 'Enter' && chercher()} autoFocus /></div>
       <div><label className="help">Année (facultatif)</label><input value={String(q['anneeDeclaration'])} onChange={(e) => set('anneeDeclaration', e.target.value)} /></div>
       <div><label className="help">Bureau (facultatif)</label><input value={String(q['bureauDeclaration'])} onChange={(e) => set('bureauDeclaration', masks.upper(e.target.value))} /></div>
-      <div><label className="help">Type (facultatif)</label><select value={String(q['typeDeclaration'])} onChange={(e) => set('typeDeclaration', e.target.value)}><option value="">Tous</option>{TYPES_DECLARATION.map((t) => <option key={t}>{t}</option>)}</select></div>
+      <div><label className="help">Type (facultatif)</label><select value={String(q['typeDeclaration'])} onChange={(e) => set('typeDeclaration', e.target.value)}><option value="">Tous</option>{TYPES_DECLARATION.map((t) => <option key={t} value={t}>{optionTypeDeclaration(t)}</option>)}</select></div>
     </div>
     <div style={{ marginTop: 12 }}><button disabled={busy} onClick={chercher}>{busy ? 'Recherche…' : 'Rechercher'}</button></div>
 
@@ -3536,15 +3928,110 @@ SCREENS.kpi = () => {
   </div>;
 };
 
+/**
+ * DISPENSES ET ESCORTES (2026-09-24, demande utilisateur).
+ *
+ * Deux faits différents, longtemps mélangés : la dispense repose sur une
+ * AUTORISATION, l'escorte sur un ACCOMPAGNEMENT. La cellule Balise les distingue
+ * désormais à la saisie ; ce volet les compte séparément, mois par mois et par
+ * type de déclaration, et laisse filtrer la liste.
+ */
 SCREENS.dispenses = () => {
-  const { data, loading } = useAsync<{ compte: O; rows: O[] }>(() => call('report.dispenses', {}), []);
-  return <div className="card"><h2>Suivi des dispenses</h2>
-    {loading ? <Spinner /> : <>
-      <div className="stats"><StatCard n={Number(data?.compte['total'] ?? 0)} l="Total" /><StatCard n={Number(data?.compte['enCours'] ?? 0)} l="En cours" tone="warn" /><StatCard n={Number(data?.compte['terminees'] ?? 0)} l="Terminées" tone="ok" /></div>
-      <Table cols={[['id', 'ID'], ['numeroCamion', 'Camion'], ['numeroDispense', 'N° dispense'], ['statut', 'Statut']]} rows={data?.rows ?? []} />
+  const { data, loading } = useAsync<{ compte: O; rows: O[]; mois: O[]; types: O[] }>(() => call('report.dispenses', {}), []);
+  const [vue, setVue] = useState('toutes');
+  const cpt = (data?.compte ?? {}) as O;
+  const toutes = (data?.rows ?? []) as O[];
+  const lignes = vue === 'toutes' ? toutes : toutes.filter((r) => String(r['exemption']) === vue);
+  const mois = (data?.mois ?? []) as O[];
+  const types = (data?.types ?? []) as O[];
+  const maxMois = Math.max(1, ...mois.map((m) => Number(m['dispenses'] ?? 0) + Number(m['escortes'] ?? 0)));
+
+  return <>
+    <BandeauModule icone="drapeau" titre="Dispenses et escortes"
+      sous={<>Camions sortis <b>sans balise</b> : sur autorisation (dispense) ou sous accompagnement (escorte).</>}
+      action={<div className="bm-outils">
+        <button className="btn-export" disabled={!lignes.length} onClick={() => exporterExemptions(lignes, vue)}
+          title="Extraire la vue affichée en Excel">
+          <Icone nom="telecharger" taille={15} />Excel
+        </button>
+      </div>} />
+
+    <div className="stats compacts">
+      <StatCard n={Number(cpt['total'] ?? 0)} l="Exemptions" icone="drapeau" onClick={() => setVue('toutes')} />
+      <StatCard n={Number(cpt['dispenses'] ?? 0)} l="Dispenses" icone="drapeau" onClick={() => setVue('dispense')} />
+      <StatCard n={Number(cpt['escortes'] ?? 0)} l="Escortes" icone="escorte" onClick={() => setVue('escorte')} />
+      <StatCard n={Number(cpt['enCours'] ?? 0)} l="En cours" icone="sablier" tone="warn" />
+      <StatCard n={Number(cpt['terminees'] ?? 0)} l="Arrivées bureau" icone="valider" tone="ok" />
+    </div>
+
+    {loading ? <div className="card"><Spinner /></div> : <>
+      <div className="card">
+        <h2>Par mois</h2>
+        {mois.length === 0 ? <div className="empty">Aucune exemption enregistrée.</div>
+          : <div className="exem-mois">
+            {mois.map((m) => {
+              const d = Number(m['dispenses'] ?? 0);
+              const e = Number(m['escortes'] ?? 0);
+              return <div key={String(m['mois'])} className="exem-ligne">
+                <span className="exem-cle mono">{String(m['mois'])}</span>
+                <span className="exem-barres">
+                  <span className="exem-part dispense" style={{ width: `${(d / maxMois) * 100}%` }} title={`${d} dispense(s)`} />
+                  <span className="exem-part escorte" style={{ width: `${(e / maxMois) * 100}%` }} title={`${e} escorte(s)`} />
+                </span>
+                <span className="help exem-chiffres">{d} disp. · {e} esc.</span>
+              </div>;
+            })}
+            <div className="exem-legende help">
+              <span><i className="pastille dispense" /> Dispense</span>
+              <span><i className="pastille escorte" /> Escorte</span>
+            </div>
+          </div>}
+      </div>
+
+      {types.length > 0 && <div className="card">
+        <h2>Par type de déclaration</h2>
+        <Table cols={[['type', 'Type'], ['dispenses', 'Dispenses'], ['escortes', 'Escortes']]} rows={types} />
+      </div>}
+
+      <div className="card">
+        <div className="park-presence">
+          <ChoixSegmente libelle="Exemptions affichées" valeur={vue}
+            onChange={(v) => setVue(v || vue)}
+            options={[
+              { valeur: 'toutes', libelle: 'Toutes', icone: 'liste' },
+              { valeur: 'dispense', libelle: 'Dispenses', icone: 'drapeau' },
+              { valeur: 'escorte', libelle: 'Escortes', icone: 'escorte' },
+            ]} />
+        </div>
+        <ListeLongue
+          cols={[['id', 'ID'], ['numeroCamion', 'Camion'], ['nature', 'Nature'], ['numeroDispense', 'Référence'],
+            ['typeDeclaration', 'Type décl.'], ['statut', 'Statut']]}
+          rows={lignes.map((r) => ({ ...r, nature: String(r['exemption']) === 'escorte' ? 'Escorte' : 'Dispense' }))}
+          nom="exemption(s)" placeholder="Camion, référence, ID…" reinit={vue}
+          vide="Aucune exemption dans cette vue." />
+      </div>
     </>}
-  </div>;
+  </>;
 };
+
+/** L'extraction suit la vue affichée, comme partout ailleurs. */
+function exporterExemptions(lignes: O[], vue: string) {
+  if (!lignes.length) { toast('Rien à extraire.', 'err'); return; }
+  const rows = lignes.map((r) => ({
+    'ID': String(r['id'] ?? ''),
+    'Camion': String(r['numeroCamion'] ?? ''),
+    'Nature': String(r['exemption']) === 'escorte' ? 'Escorte' : 'Dispense',
+    'Référence': String(r['numeroDispense'] ?? ''),
+    'Type déclaration': String(r['typeDeclaration'] ?? ''),
+    'Statut': String(r['statut'] ?? ''),
+    'Arrivée bureau': r['arriveeBureau'] === true || r['arriveeBureau'] === 'Oui' ? 'Oui' : 'Non',
+  }));
+  const feuille = XLSX.utils.json_to_sheet(rows);
+  const classeur = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(classeur, feuille, 'Exemptions');
+  XLSX.writeFile(classeur, `exemptions-${vue}-${new Date().toISOString().slice(0, 10)}.xlsx`);
+  toast(`${rows.length} ligne(s) extraite(s).`, 'ok');
+}
 
 const MOIS_COURT = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.'];
 
@@ -3753,16 +4240,25 @@ SCREENS.temps = ({ go }) => {
 
   return <>
     <div className="card">
+      {/* Extraction DANS LE BANDEAU (2026-09-24, demande utilisateur), à côté
+          du choix de période qu'elle reprend. */}
       <BandeauModule icone="sablier" titre="Temps de passage par poste" sous={<PeriodeLue p={p} />}
-        action={<div className="bm-outils"><PeriodPicker p={p} /></div>} />
+        action={<div className="bm-outils">
+          <PeriodPicker p={p} />
+          <button className="btn-export" disabled={busy} onClick={() => exporter('xlsx')}
+            title="Extraire la période affichée en Excel">
+            <Icone nom="telecharger" taille={15} />Excel
+          </button>
+          <button className="btn-export" disabled={busy} onClick={() => exporter('pdf')}
+            title="Imprimer la période affichée">
+            <Icone nom="telecharger" taille={15} />PDF
+          </button>
+        </div>} />
       <div className="row" style={{ alignItems: 'center', flexWrap: 'wrap', gap: 8, marginTop: 6 }}>
         <label className="help" style={{ display: 'flex', gap: 6, alignItems: 'center', margin: 0 }}>
           <input type="checkbox" style={{ width: 'auto' }} checked={avecVeh} onChange={(e) => setAvecVeh(e.target.checked)} />
           <span>Inclure les véhicules</span>
         </label>
-        <span style={{ flex: 1 }} />
-        <button className="ghost xs" disabled={busy} onClick={() => exporter('xlsx')}>⤓ Excel</button>
-        <button className="ghost xs" disabled={busy} onClick={() => exporter('pdf')}>⤓ PDF</button>
       </div>
       <PeriodeLue p={p} />
       <p className="help" style={{ marginBottom: 0 }}>
@@ -3823,7 +4319,9 @@ SCREENS.temps = ({ go }) => {
 
       <div className="card">
         <h2>Détail par dossier ({lignes.length})</h2>
-        <Table
+        <ListeLongue
+          nom="dossier(s)" placeholder="Camion, châssis, déclaration…" vide="Aucun dossier sur la période."
+          cherchables={['numeroCamion', 'declaration', 'jourTxt']}
           cols={[['numeroCamion', 'Camion / Châssis'], ['declaration', 'Déclaration'], ['jourTxt', 'Entré le'],
             ['cfsTxt', 'CFS'], ['validationTxt', 'Brigade'], ['t1Txt', 'T1'], ['baliseTxt', 'Balise'], ['bsTxt', 'Bon sortie'], ['ppTxt', 'PP'], ['globalTxt', 'GLOBAL']]}
           rows={lignes.map((l) => ({
@@ -3886,11 +4384,11 @@ SCREENS.horodatage = () => {
       <span style={{ flex: 1 }} />
       <button className="ghost xs" disabled={busy} onClick={exporter}>⤓ Excel</button>
     </div>
-    {loading ? <Spinner /> : rows.length === 0
-      ? <div className="empty">Aucune activité sur la période.</div>
-      : <Table cols={[['celluleLibelle', 'Cellule'], ['agent', 'Agent'], ['jourTxt', 'Jour'],
+    {loading ? <Spinner />
+      : <ListeLongue cols={[['celluleLibelle', 'Cellule'], ['agent', 'Agent'], ['jourTxt', 'Jour'],
         ['debut', 'Début'], ['fin', 'Fin'], ['dureeTxt', 'Durée'], ['camions', 'Camions'], ['conteneurs', 'Conteneurs']]}
-        rows={rows} />}
+        rows={rows} nom="journée(s) d'agent" placeholder="Agent, cellule, jour…"
+        vide="Aucune activité sur la période." reinit={cellule} />}
   </div></>;
 };
 
@@ -3939,7 +4437,22 @@ SCREENS.goulots = (nav) => {
   const [motif, setMotif] = useState('');
   const [busy, setBusy] = useState(false);
   const { data, loading, reload } = useAsync<O>(() => call('report.goulots', { joursMin: jours }), [jours]);
-  const rows = (data?.['rows'] as O[]) ?? [];
+  /* LA LISTE NE S'AFFICHE PLUS EN ENTIER (2026-09-25, demande utilisateur).
+     Elle porte des cases a cocher, donc elle ne peut pas passer par
+     `ListeLongue` ; elle en reprend le principe : une recherche qui fouille les
+     colonnes affichees, et des pages de 50. LA SELECTION SUIT LA RECHERCHE :
+     « Tout cocher » ne coche que ce qui est trouve, jamais des dossiers que
+     l'utilisateur ne voit pas. */
+  const [q, setQ] = useState('');
+  const [page, setPage] = useState(1);
+  const toutes = (data?.['rows'] as O[]) ?? [];
+  const terme = cleRecherche(q);
+  const rows = terme
+    ? toutes.filter((r) => ['id', 'numeroCamion', 'statut', 'etapeLibelle'].some((k) => cleRecherche(r[k]).includes(terme)))
+    : toutes;
+  const pages = Math.max(1, Math.ceil(rows.length / LIGNES_PAR_PAGE));
+  const pageSure = Math.min(page, pages);
+  const visibles = rows.slice((pageSure - 1) * LIGNES_PAR_PAGE, pageSure * LIGNES_PAR_PAGE);
   const parEtape = (data?.['parEtape'] as O[]) ?? [];
   const parStatut = (data?.['parStatut'] as O[]) ?? [];
   const parAge = (data?.['parAge'] as O[]) ?? [];
@@ -3967,7 +4480,7 @@ SCREENS.goulots = (nav) => {
       </p>
       <div className="row" style={{ alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
         <label className="help" style={{ margin: 0 }}>Plus vieux que</label>
-        <select value={jours} onChange={(e) => { setJours(Number(e.target.value)); setSel(new Set()); }} style={{ maxWidth: 160 }}>
+        <select value={jours} onChange={(e) => { setJours(Number(e.target.value)); setSel(new Set()); setPage(1); }} style={{ maxWidth: 160 }}>
           <option value={0}>Tous (0 jour)</option><option value={30}>30 jours</option>
           <option value={60}>60 jours</option><option value={90}>90 jours</option><option value={180}>180 jours</option>
         </select>
@@ -3992,9 +4505,18 @@ SCREENS.goulots = (nav) => {
 
     {!loading && <div className="card">
       <div className="row" style={{ alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
-        <h2 style={{ flex: 1, margin: 0 }}>Dossiers concernés ({rows.length})</h2>
+        <h2 style={{ flex: 1, margin: 0 }}>Dossiers concernés ({rows.length}{terme !== '' ? ` sur ${toutes.length}` : ''})</h2>
         {rows.length > 0 && <button className="ghost xs" onClick={() => setSel(tousCoches ? new Set() : new Set(rows.map((r) => String(r['id']))))}>
           {tousCoches ? 'Tout décocher' : 'Tout cocher'}</button>}
+      </div>
+      <div className="row depot-recherche liste-outils" style={{ marginTop: 8 }}>
+        <span className="champ-loupe">
+          <Icone nom="loupe" taille={15} />
+          <input value={q} onChange={(e) => { setQ(e.target.value); setPage(1); }}
+            placeholder="ID, n° de camion, statut, poste d'attente…"
+            title="Filtre les dossiers à chaque caractère saisi" />
+        </span>
+        {terme !== '' && <button className="ghost xs" onClick={() => { setQ(''); setPage(1); }}>Tout afficher</button>}
       </div>
       {!admin && <p className="help">Lecture seule, seul un administrateur peut archiver.</p>}
       {admin && <div className="row" style={{ alignItems: 'center', gap: 8, flexWrap: 'wrap', margin: '8px 0' }}>
@@ -4004,12 +4526,17 @@ SCREENS.goulots = (nav) => {
       {rows.length === 0 ? <p className="help">Aucun dossier au-delà de ce seuil.</p>
         : <div className="tbl"><table><thead><tr>
           {admin && <th style={{ width: 28 }}></th>}<th>ID</th><th>Camion</th><th>Statut</th><th>En attente à</th><th>Âge (j)</th><th>Entré le</th>
-        </tr></thead><tbody>{rows.map((r) => <tr key={String(r['id'])} className="clk" onClick={() => nav.go('detail', r['id'])}>
+        </tr></thead><tbody>{visibles.map((r) => <tr key={String(r['id'])} className="clk" onClick={() => nav.go('detail', r['id'])}>
           {admin && <td onClick={(e) => e.stopPropagation()}><input type="checkbox" checked={sel.has(String(r['id']))} onChange={() => toggle(String(r['id']))} /></td>}
           <td className="mono">{String(r['id'])}</td><td><NumeroMobile valeur={r['numeroCamion']} /></td>
           <td>{String(r['statut'])}</td><td>{String(r['etapeLibelle'] || '—')}</td>
           <td>{String(r['age'])}</td><td>{fmtDate(r['dateCreation'])}</td>
         </tr>)}</tbody></table></div>}
+      {pages > 1 && <div className="row pagination-tc">
+        <button className="ghost xs" disabled={pageSure <= 1} onClick={() => setPage(pageSure - 1)}>‹ Précédents</button>
+        <span className="help">{(pageSure - 1) * LIGNES_PAR_PAGE + 1} à {Math.min(pageSure * LIGNES_PAR_PAGE, rows.length)} sur {rows.length}</span>
+        <button className="ghost xs" disabled={pageSure >= pages} onClick={() => setPage(pageSure + 1)}>Suivants ›</button>
+      </div>}
     </div>}
 
     {admin && <BlocArchives />}
@@ -4034,19 +4561,139 @@ SCREENS.dwell = ({ go }) => {
   return <div className="card"><h2>Délai & camions en instance</h2>
     {loading ? <Spinner /> : <>
       <div className="stats"><StatCard n={Number(data?.compte['totInstance'] ?? 0)} l="En instance" /><StatCard n={Number(data?.compte['totSortis'] ?? 0)} l="Sortis" tone="ok" /><StatCard n={Number(data?.compte['delaiMoyen'] ?? 0)} l="Délai moyen (j)" /><StatCard n={Number(data?.compte['alerte'] ?? 0)} l={`Alerte ≥ ${data?.seuil ?? 90} j`} tone="warn" /></div>
-      <Table cols={[['id', 'ID'], ['numeroCamion', 'Camion'], ['typeOperation', 'Opération'], ['statut', 'Statut'], ['age', 'Âge (j)']]} rows={data?.instance ?? []} onRow={(r) => go('detail', r['id'])} />
+      <ListeLongue cols={[['id', 'ID'], ['numeroCamion', 'Camion'], ['typeOperation', 'Opération'], ['statut', 'Statut'], ['age', 'Âge (j)']]}
+        rows={(data?.instance ?? []) as O[]} onRow={(r) => go('detail', r['id'])}
+        nom="camion(s) en instance" placeholder="N° de camion, ID, statut…"
+        vide="Aucun camion en instance." />
     </>}
   </div>;
 };
 
+/** Conteneurs affichés d'un coup : au-delà, on pagine (12 537 lignes sinon). */
+const TC_PAR_PAGE = 50;
+
+/**
+ * EXPORT EXCEL DU SÉJOUR (2026-09-24, demande utilisateur).
+ *
+ * Il sort la VUE AFFICHÉE en entier — le filtre du chiffre cliqué et la
+ * recherche comprises — et non la seule page à l'écran : on exporte ce qu'on a
+ * sous les yeux, pas cinquante lignes sur quatre mille.
+ */
+function exporterSejour(lignes: O[], vue: string) {
+  if (!lignes.length) { toast('Rien à extraire.', 'err'); return; }
+  const rows = lignes.map((r) => ({
+    'N° conteneur': String(r['numeroTC'] ?? ''),
+    'Taille': String(r['taille'] ?? ''),
+    'Statut': String(r['statut'] ?? ''),
+    'Provenance': String(r['provenance'] ?? ''),
+    'Séjour (jours)': Number(r['joursSejour'] ?? 0),
+  }));
+  const feuille = XLSX.utils.json_to_sheet(rows);
+  const classeur = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(classeur, feuille, 'Séjour conteneurs');
+  XLSX.writeFile(classeur, `sejour-conteneurs-${vue}-${new Date().toISOString().slice(0, 10)}.xlsx`);
+  toast(`${rows.length} ligne(s) extraite(s).`, 'ok');
+}
+
+/**
+ * SÉJOUR & INSTANCES CONTENEURS, revu le 2026-09-24 (demande utilisateur).
+ *
+ * L'écran posait quatre chiffres muets, puis déroulait les DOUZE MILLE lignes
+ * du parc d'un seul bloc : une page de 181 000 pixels de haut, lente à ouvrir
+ * et impossible à parcourir. Désormais :
+ *   · chaque chiffre est CLIQUABLE et commande la liste en dessous ;
+ *   · la liste se lit par pages de 50, avec une recherche par N° de conteneur.
+ * Aucun aller-retour au serveur : tout se joue sur les lignes déjà reçues.
+ */
 SCREENS.stockdwell = () => {
   const { data, loading } = useAsync<{ compte: O; tranches: O[]; instance: O[]; seuil?: number }>(() => call('report.stock'), []);
-  return <div className="card"><h2>Séjour & instances conteneurs</h2>
+  const [vue, setVue] = useState('tous');
+  const [q, setQ] = useState('');
+  const [page, setPage] = useState(1);
+  const seuil = Number(data?.seuil ?? 90);
+  const cpt = (data?.compte ?? {}) as O;
+  const toutes = (data?.instance ?? []) as O[];
+
+  const choisir = (v: string) => { setVue(v === vue ? 'tous' : v); setPage(1); };
+
+  // Le filtre suit EXACTEMENT ce que compte le chiffre cliqué : « Alerte » ne
+  // retient que ce qui est encore au parc, comme le compteur.
+  const parVue = toutes.filter((r) => {
+    if (vue === 'stock') return r['statut'] === 'En stock';
+    if (vue === 'alerte') return r['depote'] !== true && Number(r['joursSejour'] ?? 0) >= seuil;
+    if (vue === 'parc') return r['depote'] !== true;
+    return true;
+  });
+  const cherche = q.trim() !== '';
+  const alnum = q.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const lignes = cherche
+    ? parVue.filter((r) => String(r['numeroTC'] ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '').includes(alnum))
+    : parVue;
+
+  const pages = Math.max(1, Math.ceil(lignes.length / TC_PAR_PAGE));
+  const pageSure = Math.min(page, pages);
+  const visibles = lignes.slice((pageSure - 1) * TC_PAR_PAGE, pageSure * TC_PAR_PAGE);
+  const LIBELLES: Record<string, string> = {
+    tous: 'Tous les conteneurs', stock: 'En stock', parc: 'Encore au parc',
+    alerte: `En alerte (≥ ${seuil} jours)`,
+  };
+
+  return <>
+    {/* L'écran pose SON bandeau (2026-09-24, demande utilisateur) : le bouton
+        d'extraction y prend place, à droite, comme sur les autres volets. Sans
+        cela, App.tsx posait un bandeau automatique, muet, et le titre se
+        répétait juste en dessous. */}
+    <BandeauModule icone="horloge" titre="Séjour &amp; instances conteneurs"
+      sous={<>Le parc conteneur par conteneur. <b>Cliquez un chiffre</b> pour ne voir que ce qu'il compte.</>}
+      action={<div className="bm-outils">
+        <button className="btn-export" disabled={!lignes.length} onClick={() => exporterSejour(lignes, vue)}
+          title="Extraire en Excel la vue affichée, dans son entier">
+          <Icone nom="telecharger" taille={15} />Excel
+        </button>
+      </div>} />
+    <div className="card">
     {loading ? <Spinner /> : <>
-      <div className="stats"><StatCard n={Number(data?.compte['total'] ?? 0)} l="Total" /><StatCard n={Number(data?.compte['stock'] ?? 0)} l="En stock" /><StatCard n={Number(data?.compte['sejourMoyen'] ?? 0)} l="Séjour moyen (j)" /><StatCard n={Number(data?.compte['alerte'] ?? 0)} l={`Alerte ≥ ${data?.seuil ?? 90} j`} tone="warn" /></div>
-      <Table cols={[['numeroTC', 'Conteneur'], ['taille', 'Taille'], ['statut', 'Statut'], ['joursSejour', 'Séjour (j)']]} rows={data?.instance ?? []} />
+      <div className="stats compacts">
+        <StatCard n={Number(cpt['total'] ?? 0)} l="Total" icone="conteneur" onClick={() => choisir('tous')} />
+        <StatCard n={Number(cpt['stock'] ?? 0)} l="En stock" icone="boites" onClick={() => choisir('stock')} />
+        <StatCard n={Number(cpt['sejourMoyen'] ?? 0)} l="Séjour moyen (j)" icone="horloge" onClick={() => choisir('parc')} />
+        <StatCard n={Number(cpt['alerte'] ?? 0)} l={`Alerte ≥ ${seuil} j`} tone="warn" icone="sablier" onClick={() => choisir('alerte')} />
+      </div>
+
+      {/* La répartition par tranche d'âge : elle explique le séjour moyen, que
+          la seule moyenne ne dit pas (un parc jeune et un parc bloqué peuvent
+          afficher le même chiffre). */}
+      {vue === 'parc' && <div className="tranches-sejour">
+        {((data?.tranches ?? []) as O[]).map((t) => <span key={String(t['tranche'])} className="tranche-puce">
+          <b>{String(t['n'])}</b> {String(t['tranche'])}
+        </span>)}
+      </div>}
+
+      <div className="row depot-recherche" style={{ marginTop: 10 }}>
+        <span className="champ-loupe">
+          <Icone nom="loupe" taille={15} />
+          <input className="mono" value={q} onChange={(e) => { setQ(e.target.value); setPage(1); }}
+            placeholder="N° de conteneur" title="Cherche un conteneur dans la vue affichée" />
+        </span>
+        {(cherche || vue !== 'tous') && <button className="ghost xs" onClick={() => { setQ(''); setVue('tous'); setPage(1); }}>Tout afficher</button>}
+      </div>
+
+      <div className="help" style={{ margin: '8px 0' }}>
+        <b>{LIBELLES[vue]}</b> · {lignes.length} conteneur(s){cherche ? ` trouvé(s) pour « ${q.trim()} »` : ''}
+        {lignes.length > TC_PAR_PAGE ? ` · page ${pageSure} sur ${pages}` : ''}
+      </div>
+
+      {lignes.length === 0 ? <div className="empty">Aucun conteneur dans cette vue.</div> : <>
+        <Table cols={[['numeroTC', 'Conteneur'], ['taille', 'Taille'], ['statut', 'Statut'], ['joursSejour', 'Séjour (j)']]} rows={visibles} />
+        {pages > 1 && <div className="row pagination-tc">
+          <button className="ghost xs" disabled={pageSure <= 1} onClick={() => setPage(pageSure - 1)}>‹ Précédents</button>
+          <span className="help">{(pageSure - 1) * TC_PAR_PAGE + 1} à {Math.min(pageSure * TC_PAR_PAGE, lignes.length)} sur {lignes.length}</span>
+          <button className="ghost xs" disabled={pageSure >= pages} onClick={() => setPage(pageSure + 1)}>Suivants ›</button>
+        </div>}
+      </>}
     </>}
-  </div>;
+    </div>
+  </>;
 };
 
 /* ---------------------------- Utilisateurs ----------------------------- */

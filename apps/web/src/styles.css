@@ -1709,6 +1709,84 @@ tr.clk{cursor:pointer} tr.clk:hover{background:var(--accent-soft)}
 }
 .park-presence .help{margin:0}
 
+/* ---- Tiroir d'un magasin : depots et conteneurs (2026-09-24) ----------
+   Les numeros de conteneurs formaient une phrase de vingt virgules. En
+   pastilles, l'oeil compte et repere ; la grille se resserre d'elle-meme sur
+   un telephone. */
+.depot-bloc{border:1px solid var(--line);border-radius:10px;padding:10px;margin-top:10px}
+/* La recherche du tiroir : pleine largeur, collee au bilan qu'elle affine.
+   La loupe est POSEE DANS le champ, le texte se decale pour lui laisser la
+   place ; elle ne capte pas le clic, qui revient au champ. */
+.depot-recherche{gap:8px;align-items:center;margin-bottom:6px}
+.champ-loupe{position:relative;display:flex;align-items:center;flex:1;min-width:0}
+.champ-loupe > svg{position:absolute;left:11px;color:var(--muted);pointer-events:none}
+.champ-loupe input{flex:1;min-width:0;padding-left:34px}
+
+/* Sejour conteneurs : tranches d'age et pagination (2026-09-24). */
+.tranches-sejour{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.tranche-puce{
+  font-size:12px;color:var(--accent);background:var(--accent-soft);
+  border:1px solid rgba(14,90,138,.18);border-radius:999px;padding:3px 11px;
+}
+.tranche-puce b{font-size:13px}
+.pagination-tc{justify-content:center;align-items:center;gap:12px;margin-top:10px}
+.pagination-tc .help{margin:0}
+
+/* ---- Listes longues : barre de recherche et compteur (2026-09-25) ------
+   Un seul habillage pour tous les volets qui paginent : la loupe prend la
+   largeur, les filtres propres a l'ecran se rangent a sa droite, et le
+   compteur dit ce qu'on regarde avant meme de lire le tableau. */
+.liste-outils{flex-wrap:wrap;margin-top:10px}
+.liste-outils .champ-loupe{min-width:180px}
+.liste-compte{margin:8px 0}
+
+/* ---- Dispenses et escortes (2026-09-24) -------------------------------
+   Une barre par mois, coupee en deux : ce qui releve d'une autorisation et ce
+   qui releve d'un accompagnement. La longueur compare les mois entre eux. */
+.exem-ligne{display:flex;align-items:center;gap:10px;margin-bottom:7px}
+.exem-cle{flex:0 0 66px;font-size:12px;color:var(--muted)}
+.exem-barres{flex:1;display:flex;gap:3px;min-width:0;height:16px;align-items:center}
+.exem-part{height:14px;border-radius:4px;min-width:2px}
+.exem-part.dispense{background:var(--accent)}
+.exem-part.escorte{background:var(--warn)}
+.exem-chiffres{flex:0 0 auto;margin:0;font-size:12px}
+.exem-legende{display:flex;gap:16px;margin-top:10px}
+.exem-legende .pastille{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px}
+.exem-legende .pastille.dispense{background:var(--accent)}
+.exem-legende .pastille.escorte{background:var(--warn)}
+
+/* ---- Etape precedente manquante (2026-09-24) --------------------------
+   L'encadre remplace le panneau de saisie : il doit se lire comme un ARRET,
+   sans crier a l'erreur — l'agent n'a rien fait de mal, il est simplement
+   arrive trop tot. D'ou l'ambre de l'attente, et non le rouge du refus. */
+.etape-bloquee{border-left:4px solid var(--warn)}
+.eb-entete{display:flex;align-items:flex-start;gap:12px}
+.eb-pastille{
+  flex:0 0 auto;width:34px;height:34px;border-radius:11px;
+  display:grid;place-items:center;
+  color:var(--warn);background:color-mix(in srgb,var(--warn) 14%,#fff);
+}
+.eb-chaine{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:12px}
+.eb-maillon{
+  display:inline-flex;align-items:center;gap:6px;
+  font-size:12px;font-weight:600;color:var(--muted);
+  background:#f2f5f8;border:1px solid var(--line);border-radius:999px;padding:3px 11px;
+}
+.eb-maillon.manque{color:#fff;background:var(--warn);border-color:transparent}
+.eb-maillon.voulue{color:var(--accent);border-color:var(--accent);background:var(--accent-soft)}
+.eb-fleche{color:var(--muted);font-weight:400;margin-right:2px}
+.depot-actions{justify-content:flex-end;gap:8px;margin-top:8px}
+.tc-bloc{margin-top:6px}
+.tc-entete{display:flex;align-items:center;gap:6px;margin:0 0 5px}
+.tc-doublon{color:var(--warn);font-weight:600}
+.tc-liste{display:flex;flex-wrap:wrap;gap:5px}
+.tc-puce{
+  font-size:11.5px;letter-spacing:.02em;
+  background:var(--accent-soft);color:var(--accent);
+  border:1px solid rgba(14,90,138,.18);border-radius:999px;
+  padding:2px 9px;white-space:nowrap;
+}
+
 /* LE PIED DES FENETRES DU PARKING. Ce qui manque est ecrit a gauche, les
    boutons restent a droite ; sur un ecran etroit la mention passe au-dessus
    au lieu de comprimer les boutons. */

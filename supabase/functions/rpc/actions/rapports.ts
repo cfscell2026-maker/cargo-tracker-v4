@@ -15,7 +15,7 @@ import { versCamel } from '../ctx.ts';
 import {
   ROLES, STATUTS, OPERATIONS, DEFAUTS, DESTINATION_CODES, codeDestination, TRANCHES_SEJOUR, tailleBucket, evpDeTaille, trancheAge, parseConteneursDetails, estOui, aFait, normAlphaNum,
   groupesDeclaration, estChargementMixte, libelleDeclaration,
-  etapesEnAttente, fileAttente, etatCellules, estDispenseBalise,
+  etapesEnAttente, fileAttente, etatCellules, estDispenseBalise, natureExemption,
   // v4.2, temps de passage par poste
   delaisDe, agreger, dureeLisible, enHeures, POSTES, LIBELLE_POSTE,
 } from '../../_shared/domaine/src/index.ts';
@@ -849,11 +849,16 @@ export async function ficheBord(ctx: Ctx, p: Record<string, unknown>) {
     // et conso non balisées (jamais de balise à prendre), les camions encore en
     // chargement au CFS, et toute la base migrée restée à un statut intermédiaire.
     // « Camions au parking » = PHYSIQUEMENT au parc en attente de pose de balise :
-    // tout camion à qui il reste la BALISE à faire (qu'il soit ou non déjà validé
-    // / passé au T1). On garde donc la MEMBRESHIP parallèle (etapesEnAttente), et
-    // NON la file unique (fileAttente) — ici on compte une présence au parc, pas
-    // une place dans la file séquentielle du tableau de bord.
-    if (etapesEnAttente(c as never).indexOf('BALISE') >= 0) balise.parking++;
+    // tout camion à qui il reste la BALISE à faire, qu'il soit ou non déjà validé
+    // ou passé au T1.
+    //
+    // ⚠ ON NE PASSE PLUS PAR `etapesEnAttente` (2026-09-24). Depuis que la chaîne
+    // T1 → Balise → Bon de sortie est stricte, un camion sans T1 n'a plus
+    // « BALISE » dans ses étapes en attente : il serait sorti de ce compte alors
+    // qu'il est bel et bien au parc, à attendre. On lit donc l'ÉTAT des cellules,
+    // qui dit une présence et non une place dans une file.
+    const cel = etatCellules(c as never);
+    if (!cel.sorti && cel.cfs && !cel.balise) balise.parking++;
 
     /* --- BON DE SORTIE : à la date d'émission --- */
     if (inRange(c['dateBonSortie'], du, au) && aFait(c['bonSortieNumero'])) bs.total++;
@@ -1085,21 +1090,49 @@ export async function rapportConteneurs(ctx: Ctx, p: Record<string, unknown>) {
 export async function rapportDispenses(ctx: Ctx, p: Record<string, unknown>) {
   const cargos = await loadCargos(ctx);
   const rows: Record<string, unknown>[] = [];
-  let total = 0, enCours = 0, terminees = 0;
+  /* Une exemption = décision prise à la cellule Balise + référence réelle. Sa
+     NATURE (dispense ou escorte) vient de `type_exemption`, ou se déduit de la
+     référence pour les lignes antérieures au 2026-09-24. */
+  const compte = {
+    total: 0, enCours: 0, terminees: 0, dispenses: 0, escortes: 0,
+    dispensesEnCours: 0, escortesEnCours: 0,
+  };
+  const parMois: Record<string, { mois: string; dispenses: number; escortes: number }> = {};
+  const parType: Record<string, { type: string; dispenses: number; escortes: number }> = {};
   for (const c of cargos) {
-    // v4.1, une dispense = exemption prise à la Balise + numéro d'autorisation ;
-    // les type C/A/E « saute-balise » ne sont PAS des dispenses.
-    if (!estDispenseBalise(c as never)) continue;
-    total++;
-    if (estOui(c['arriveeBureau'])) terminees++; else enCours++;
-    rows.push({ id: c['id'], numeroCamion: c['numeroCamion'], numeroDispense: c['numeroDispense'], statut: c['statut'], arriveeBureau: c['arriveeBureau'], dateArriveeBureau: c['dateArriveeBureau'] });
+    const nature = natureExemption(c as never);
+    if (!nature) continue;
+    const escorte = nature === 'escorte';
+    const finie = estOui(c['arriveeBureau']);
+    compte.total++;
+    if (finie) compte.terminees++; else compte.enCours++;
+    if (escorte) { compte.escortes++; if (!finie) compte.escortesEnCours++; }
+    else { compte.dispenses++; if (!finie) compte.dispensesEnCours++; }
+
+    const mois = String(c['datePoseGps'] ?? c['dateCreation'] ?? '').slice(0, 7);
+    if (mois) {
+      const m = (parMois[mois] ??= { mois, dispenses: 0, escortes: 0 });
+      if (escorte) m.escortes++; else m.dispenses++;
+    }
+    const td = String(c['typeDeclaration'] ?? '') || '(sans type)';
+    const t = (parType[td] ??= { type: td, dispenses: 0, escortes: 0 });
+    if (escorte) t.escortes++; else t.dispenses++;
+
+    rows.push({
+      id: c['id'], numeroCamion: c['numeroCamion'], numeroDispense: c['numeroDispense'],
+      exemption: nature, typeDeclaration: c['typeDeclaration'], datePoseGps: c['datePoseGps'],
+      statut: c['statut'], arriveeBureau: c['arriveeBureau'], dateArriveeBureau: c['dateArriveeBureau'],
+    });
   }
+  const mois = Object.values(parMois).sort((a, b) => b.mois.localeCompare(a.mois)).slice(0, 12);
+  const types = Object.values(parType).sort((a, b) => (b.dispenses + b.escortes) - (a.dispenses + a.escortes));
   if (p['format'] === 'xlsx' || p['format'] === 'pdf') {
-    const aoa: unknown[][] = [['ID', 'Camion', 'N° dispense', 'Statut', 'Arrivée bureau']];
-    rows.forEach((r) => aoa.push([r['id'], r['numeroCamion'], r['numeroDispense'], r['statut'], estOui(r['arriveeBureau']) ? 'Oui' : 'Non']));
+    const aoa: unknown[][] = [['ID', 'Camion', 'Nature', 'Référence', 'Type décl.', 'Statut', 'Arrivée bureau']];
+    rows.forEach((r) => aoa.push([r['id'], r['numeroCamion'], r['exemption'] === 'escorte' ? 'Escorte' : 'Dispense',
+      r['numeroDispense'], r['typeDeclaration'], r['statut'], estOui(r['arriveeBureau']) ? 'Oui' : 'Non']));
     return fichier('Dispenses', String(p['format']), [{ nom: 'Dispenses', aoa }]);
   }
-  return { compte: { total, enCours, terminees }, rows };
+  return { compte, rows, mois, types };
 }
 
 /* =============================== Flux ================================= */

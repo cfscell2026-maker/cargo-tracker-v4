@@ -7,6 +7,9 @@ import assert from 'node:assert/strict';
 import {
   STATUTS, OPERATIONS, ROLES,
   etatCellules, etapesEnAttente, fileAttente, prochaineEtape, estOui, aFait, exigeControlePoids,
+  etapePrecedenteManquante, messageEtapePrecedente,
+  libelleTypeDeclaration, optionTypeDeclaration,
+  numeroDispenseValide,
   tcValide, maj, alphaNumMaj, normAlphaNum, declKey, normaliserDeclaration,
   parseConteneursDetails, parseDateImport, tailleBucket, evpDeTaille, trancheAge,
   verifierPermission, PERMISSIONS, TYPES_DECLARATION,
@@ -25,17 +28,39 @@ test('camion vide → étape CFS', () => {
   assert.deepEqual(etapesEnAttente({ statut: STATUTS.VEHICULE_OUILLAGE }), ['CFS']);
 });
 
-test('après CFS (Créée) → validation + cellules en parallèle', () => {
-  assert.deepEqual(etapesEnAttente({ statut: STATUTS.CREEE }), ['VALIDATION', 'T1', 'BALISE', 'BS']);
+/* CHAINE STRICTE depuis le 2026-09-24 (demande utilisateur) : la balise attend
+   le T1, le bon de sortie attend la balise. Seule la validation reste en
+   parallele, elle n'a jamais bloque le parcours. */
+test('après CFS (Créée) → validation et T1, mais PAS la balise', () => {
+  assert.deepEqual(etapesEnAttente({ statut: STATUTS.CREEE }), ['VALIDATION', 'T1']);
 });
 
-test('validé → T1 / Balise / Bon de sortie en parallèle', () => {
-  assert.deepEqual(etapesEnAttente({ statut: STATUTS.CREEE, dateValidation: '2026-01-01' }), ['T1', 'BALISE', 'BS']);
+test('validé → le T1 seul est ouvert', () => {
+  assert.deepEqual(etapesEnAttente({ statut: STATUTS.CREEE, dateValidation: '2026-01-01' }), ['T1']);
 });
 
-test('après T1 → BALISE et BS EN PARALLÈLE', () => {
+test("après T1 → la BALISE s'ouvre, le bon de sortie attend encore", () => {
   const c = { statut: STATUTS.T1, dateValidation: 'x', dateT1: 'x' };
-  assert.deepEqual(etapesEnAttente(c), ['BALISE', 'BS']);
+  assert.deepEqual(etapesEnAttente(c), ['BALISE']);
+});
+
+test('sans T1, ni balise ni bon de sortie ne sont ouverts', () => {
+  const c = { statut: STATUTS.CREEE, dateValidation: 'x' };
+  assert.equal(etapePrecedenteManquante(c, 'BALISE'), 'T1');
+  assert.equal(etapePrecedenteManquante(c, 'BS'), 'T1');
+  assert.match(messageEtapePrecedente('T1', 'BALISE'), /le T1 doit être fait avant la pose de la balise/);
+});
+
+test("T1 sauté par nature (type C) : la balise s'ouvre quand même", () => {
+  const c = { statut: STATUTS.CREEE, dateValidation: 'x', typeDeclaration: 'C' };
+  assert.equal(etapePrecedenteManquante(c, 'BALISE'), null);
+  assert.deepEqual(etapesEnAttente(c), ['BALISE']);
+});
+
+test("balise dispensée : le bon de sortie s'ouvre", () => {
+  const c = { statut: STATUTS.CREEE, dateValidation: 'x', typeDeclaration: 'C', sauteBalise: true };
+  assert.equal(etapePrecedenteManquante(c, 'BS'), null);
+  assert.deepEqual(etapesEnAttente(c), ['BS', 'PP']);
 });
 
 test('balise posée → Bon de sortie ouvert + PP possible', () => {
@@ -388,14 +413,14 @@ test('DESTINATIONS incluent NG', () => {
   assert.ok(DESTINATION_CODES.includes('NG'));
 });
 
-test('estDispenseBalise : seules les vraies dispenses (numéro d’autorisation) comptent', () => {
-  // Vraie dispense : la Balise a exempté + numéro d'autorisation.
+test("estDispenseBalise : le marquage a la cellule Balise suffit", () => {
+  // La Balise a exempte : c'est une dispense, avec ou sans reference.
   assert.equal(estDispenseBalise({ baliseRequise: false, numeroDispense: 'AUT-12' }), true);
   assert.equal(estDispenseBalise({ baliseRequise: 'Non', numeroDispense: 'AUT-12' }), true);
-  // Type C/A/E qui saute la balise PAR NATURE : PAS une dispense (bug des 59).
+  assert.equal(estDispenseBalise({ baliseRequise: false, numeroDispense: '' }), true);
+  // Type C/A/E qui saute la balise PAR NATURE : la cellule n'a rien decide.
   assert.equal(estDispenseBalise({ sauteBalise: true }), false);
-  assert.equal(estDispenseBalise({ baliseRequise: false, numeroDispense: '' }), false);
-  // Balise requise, ou véhicule : jamais une dispense.
+  // Balise requise, ou vehicule : jamais une dispense.
   assert.equal(estDispenseBalise({ baliseRequise: true, numeroDispense: 'AUT-9' }), false);
   assert.equal(estDispenseBalise({ estVehicule: true, baliseRequise: false, numeroDispense: 'AUT-9' }), false);
 });
@@ -492,4 +517,40 @@ test('paramètres : tout le monde les lit, seul l\'administrateur les modifie (2
   assert.doesNotThrow(() => verifierPermission(ROLES.ADMIN, 'params.set'));
   for (const r of [ROLES.CHEF_BRIGADE, ROLES.CHEF_DIVISION, ROLES.CBPI, ROLES.CFS])
     assert.throws(() => verifierPermission(r, 'params.set'), /Accès refusé/);
+});
+
+test("type de déclaration : la lettre reste la valeur, le sens s'affiche", () => {
+  assert.equal(libelleTypeDeclaration('T'), 'Transit national');
+  assert.equal(libelleTypeDeclaration('c'), 'Mise en conso');
+  assert.equal(libelleTypeDeclaration('S'), 'Entrée en entrepôt');
+  assert.equal(libelleTypeDeclaration('A'), 'Entrée en MAD');
+  assert.equal(libelleTypeDeclaration('E'), 'Exportation');
+  assert.equal(optionTypeDeclaration('T'), 'T (Transit national)');
+  // Une lettre inconnue (donnee migree) ne disparait pas : elle s'affiche telle quelle.
+  assert.equal(optionTypeDeclaration('D'), 'D');
+  assert.equal(libelleTypeDeclaration(''), '');
+  // Les types qui sautent le T1 restent les memes : le libelle ne change pas la regle.
+  assert.equal(estTypeSansT1('S'), true);
+  assert.equal(estTypeSansT1('T'), false);
+});
+
+test("dispense : marquee a la Balise, quel que soit le type et la reference", () => {
+  // Marquage a la cellule Balise = dispense, quel que soit le type de declaration.
+  assert.equal(estDispenseBalise({ baliseRequise: false, numeroDispense: 'D 42034', typeDeclaration: 'T' }), true);
+  assert.equal(estDispenseBalise({ baliseRequise: false, numeroDispense: 'ESCORTE SANVEE CONDJI', typeDeclaration: 'C' }), true);
+  assert.equal(estDispenseBalise({ baliseRequise: false, numeroDispense: 'IM4', typeDeclaration: 'A' }), true);
+
+  // Meme une reference de complaisance : la cellule a bel et bien exempte (25/09).
+  for (const faible of ['0', '00', 'SAUTÉ', 'saute', 'SANS BALISE', 'CONSO', 'NÉANT', 'RAS', 'N/A', '-', '']) {
+    assert.equal(estDispenseBalise({ baliseRequise: false, numeroDispense: faible, typeDeclaration: 'T' }), true, faible);
+    // numeroDispenseValide ne sert plus qu'a conseiller l'agent a la saisie.
+    assert.equal(numeroDispenseValide(faible), false, faible);
+  }
+  assert.equal(numeroDispenseValide('D-42034'), true);
+  assert.equal(numeroDispenseValide('escorte'), true);
+
+  // Un vehicule est cree sans balise par nature : jamais dispense.
+  assert.equal(estDispenseBalise({ baliseRequise: false, numeroDispense: 'D 42034', estVehicule: true }), false);
+  // Balise posee normalement : rien a signaler.
+  assert.equal(estDispenseBalise({ baliseRequise: true, numeroDispense: '', typeDeclaration: 'T' }), false);
 });

@@ -128,11 +128,58 @@ export function etapesEnAttente(c: SourceEtapes): Etape[] {
   // pour la Balise). Le Bon de sortie reste, lui, non bloquant.
   const p: Etape[] = [];
   if (!e.valide) p.push('VALIDATION');
+  /* CHAINE STRICTE T1 -> BALISE -> BON DE SORTIE (2026-09-24, demande
+     utilisateur). Ces trois cellules ne travaillent plus en parallele : la
+     balise attend le T1, le bon de sortie attend la balise. Une etape SAUTEE
+     par nature (type C/A/S pour le T1, vehicule ou dispense pour la balise,
+     ouillage et magasin pour le bon de sortie) compte comme faite : la chaine
+     encadre l'ordre de travail, elle ne rouvre pas des etapes que le regime de
+     la declaration ne prevoit pas.
+     La VALIDATION reste en parallele : elle n'a jamais bloque le parcours, et
+     le T1 la vaut (cascade descendante, voir etatCellules). */
   if (!e.t1) p.push('T1');
-  if (!e.balise) p.push('BALISE');
-  if (!e.bs) p.push('BS');
+  else if (!e.balise) p.push('BALISE');
+  else if (!e.bs) p.push('BS');
   if (e.t1 && e.balise) p.push('PP');
   return p;
+}
+
+/** Libellé lisible d'une étape, pour les messages adressés à l'agent. */
+export const LIBELLE_ETAPE: Record<Etape, string> = {
+  CFS: 'la saisie CFS (fin de chargement)',
+  VALIDATION: 'la validation du chef de brigade',
+  T1: 'le T1',
+  BALISE: 'la pose de la balise',
+  BS: 'le bon de sortie',
+  PP: 'la sortie à la Porte Principale',
+};
+
+/**
+ * L'étape qui doit être franchie AVANT celle qu'on veut faire, si elle manque.
+ *
+ * Une seule source pour les deux bouts : le serveur s'en sert pour REFUSER avec
+ * une phrase juste, l'écran pour PRÉVENIR avant même le clic. Rend `null` quand
+ * la voie est libre.
+ */
+export function etapePrecedenteManquante(c: SourceEtapes, etape: Etape): Etape | null {
+  const e = etatCellules(c);
+  if (etape !== 'CFS' && !e.cfs) return 'CFS';
+  if (etape === 'BALISE' && !e.t1) return 'T1';
+  if (etape === 'BS') {
+    if (!e.t1) return 'T1';
+    if (!e.balise) return 'BALISE';
+  }
+  if (etape === 'PP') {
+    if (!e.t1) return 'T1';
+    if (!e.balise) return 'BALISE';
+  }
+  return null;
+}
+
+/** La phrase montrée à l'agent : ce qui manque, et ce qu'il faut faire d'abord. */
+export function messageEtapePrecedente(manquante: Etape, voulue: Etape): string {
+  return 'Étape précédente manquante : ' + LIBELLE_ETAPE[manquante] + ' doit être fait avant '
+    + LIBELLE_ETAPE[voulue] + '.';
 }
 
 /** Compat : 1re étape en attente (ou null si terminé). */
@@ -173,18 +220,79 @@ export function fileAttente(c: SourceEtapes): Etape | null {
  * décision PRISE À LA BALISE : la cellule exempte de balise une cargaison qui en
  * aurait normalement eu besoin, et enregistre un NUMÉRO D'AUTORISATION obligatoire.
  *
- * ⚠ Ce n'est PAS la même chose qu'un « saute-balise » : les déclarations de type
- * C/A/E (mise à la consommation non balisée…) n'ont pas de balise PAR NATURE et
- * ne passent jamais par la cellule Balise. Les compter comme dispenses gonflait
- * le tableau de bord (59 affichées pour quelques-unes réelles). De même, les
- * véhicules sautent la balise par nature → jamais des dispenses.
+ * ⚠ Ce n'est PAS la même chose qu'un « saute-balise » : un véhicule saute la
+ * balise par nature, il n'est donc jamais dispensé.
+ *
+ * ⚠ LE MARQUAGE SUFFIT (2026-09-25, décision utilisateur). La règle a une
+ * seule condition : la cellule Balise a-t-elle EXEMPTÉ ce camion ? Ni le type de
+ * déclaration, ni la qualité de la référence saisie n'entrent en ligne de
+ * compte. Une version précédente écartait les références de complaisance
+ * (« 0 », « SAUTÉ ») : elle faisait disparaître du volet des camions que la
+ * cellule avait bel et bien dispensés. Une saisie bâclée reste un fait à
+ * montrer, pas un fait à cacher.
+ *
+ * SEULE EXCEPTION, les véhicules : `balise_requise` y est mis à false à la
+ * CRÉATION (voir speciaux.ts), sans qu'aucun agent n'ait rien décidé. Ils
+ * n'ont pas de balise à prendre, donc rien à en être dispensé.
+ *
+ * `numeroDispense` et `typeDeclaration` restent acceptés par la signature pour
+ * les appelants existants ; la règle ne les lit plus.
  */
 export function estDispenseBalise(c: {
-  baliseRequise?: unknown; numeroDispense?: unknown; estVehicule?: unknown;
+  baliseRequise?: unknown; numeroDispense?: unknown; estVehicule?: unknown; typeDeclaration?: unknown;
 }): boolean {
   if (estOui(c.estVehicule)) return false;
-  const pasRequise = c.baliseRequise === false || String(c.baliseRequise) === 'Non';
-  return pasRequise && String(c.numeroDispense ?? '').trim() !== '';
+  return c.baliseRequise === false || String(c.baliseRequise) === 'Non';
+}
+
+/**
+ * Le numéro d'autorisation est-il une VRAIE référence ?
+ *
+ * ⚠ Cette fonction ne DÉCIDE plus rien (2026-09-25) : elle ne sert qu'à
+ * CONSEILLER l'agent à la saisie. Ce qu'elle déconseille apparaît quand même
+ * au volet « Dispenses », dès lors que la cellule a exempté le camion.
+ *
+ * On écarte ce que les agents tapent pour franchir un champ obligatoire : zéro,
+ * « sauté », « sans balise », « néant »… La liste tient aux mentions relevées
+ * dans la base, accents et ponctuation ignorés. Tout le reste est accepté :
+ * « D 42034 », « IM4 » comme « ESCORTE SANVEE CONDJI » — on refuse le vide de
+ * sens, pas les formes inattendues.
+ */
+const MENTIONS_SANS_VALEUR = [
+  '', 'SANSBALISE', 'SANS', 'SAUTE', 'SAUTEE', 'SAUT', 'CONSO', 'NEANT', 'RAS', 'NA',
+  'AUCUN', 'AUCUNE', 'NON', 'NULL', 'NUL', 'X', 'XX', 'XXX', 'VIDE', 'PASDEBALISE',
+];
+
+/**
+ * NATURE DE L'EXEMPTION : dispense, escorte, ou rien (2026-09-24, demande
+ * utilisateur).
+ *
+ * La colonne `type_exemption` (migration 00202) porte le choix fait à la
+ * cellule Balise. Les lignes ANTÉRIEURES ne l'ont pas : faute de mieux, on la
+ * DÉDUIT de la référence saisie, où les agents écrivaient déjà « ESCORTE
+ * MILITAIRE » ou « ESCORTE SANVEE CONDJI ». On ne réécrit pas l'historique, on
+ * le lit mieux — et toute ligne exemptée sans indice reste une dispense.
+ */
+export type NatureExemption = 'dispense' | 'escorte' | null;
+
+export function natureExemption(c: {
+  baliseRequise?: unknown; numeroDispense?: unknown; estVehicule?: unknown; typeExemption?: unknown;
+}): NatureExemption {
+  if (!estDispenseBalise(c)) return null;
+  const declare = String(c.typeExemption ?? '').trim().toLowerCase();
+  if (declare === 'escorte' || declare === 'dispense') return declare;
+  const ref = String(c.numeroDispense ?? '')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
+  return ref.indexOf('ESCORT') >= 0 ? 'escorte' : 'dispense';
+}
+
+export function numeroDispenseValide(v: unknown): boolean {
+  const brut = String(v ?? '')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // accents : SAUTÉ = SAUTE
+    .toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (!brut) return false;
+  if (/^0+$/.test(brut)) return false; // « 0 », « 00 », « 000 »
+  return MENTIONS_SANS_VALEUR.indexOf(brut) < 0;
 }
 
 /* ===================== ENTRÉES ET SORTIES DES FILES =====================

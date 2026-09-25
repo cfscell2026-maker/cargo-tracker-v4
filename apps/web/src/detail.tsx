@@ -9,9 +9,11 @@ import { Icone } from './lib/icones.tsx';
 import { useParametres, Spinner, Tag, Modal, masks, toast, fmtDate, BoutonRetour, ChampDestination, useSuiviEngagement, ChampCamion, roleLabel, ChoixSegmente, BoutonBascule } from './lib/ui.tsx';
 import type { Nav } from './App.tsx';
 import {
-  STATUTS, OPERATIONS, ROLES, TYPES_DECLARATION, ETATS_SORTIE, dateDansNJours,
-  etapesEnAttente, estOui, tcValide, parseConteneursDetails, tailleBucket,
+  STATUTS, OPERATIONS, ROLES, TYPES_DECLARATION, optionTypeDeclaration, ETATS_SORTIE, dateDansNJours,
+  etapesEnAttente, etatCellules, etapePrecedenteManquante, messageEtapePrecedente, LIBELLE_ETAPE,
+  estOui, tcValide, parseConteneursDetails, tailleBucket,
   groupesDeclaration, libelleDeclaration, estTypeSansT1, libelleTypeSansT1, exigeControlePoids,
+  numeroDispenseValide,
 } from '../../../supabase/functions/_shared/domaine/src/index.ts';
 
 type O = Record<string, unknown>;
@@ -29,6 +31,7 @@ export function Detail({ user, arg, go, retour, ecranPrecedent }: Nav) {
   if (!c) return <div className="card">Introuvable.</div>;
 
   const pend = etapesEnAttente(c as never);
+  const cellules = etatCellules(c as never);
   const role = user.role;
   const can = (...roles: string[]) => roles.includes(role);
   const dets = parseConteneursDetails(c['conteneursDetails']);
@@ -81,6 +84,14 @@ export function Detail({ user, arg, go, retour, ecranPrecedent }: Nav) {
       {pend.includes('T1') && can(ROLES.T1, A) && <PanneauT1 c={c} dets={dets} action={action} />}
       {pend.includes('BALISE') && can(ROLES.BALISE, A) && !estVeh && <PanneauBalise c={c} action={action} />}
       {pend.includes('BS') && can(ROLES.BON_SORTIE, A) && <PanneauBS c={c} dets={dets} action={action} />}
+      {/* CHAÎNE T1 → BALISE → BON DE SORTIE (2026-09-24, demande utilisateur).
+          Quand la cellule ouvre une fiche dont l'étape précédente manque, elle
+          trouvait un écran sans panneau, sans un mot. Elle lit désormais ce qui
+          manque et à qui cela revient. */}
+      {!cellules.sorti && !cellules.balise && !estVeh && can(ROLES.BALISE) &&
+        <EtapeBloquee voulue="BALISE" c={c} />}
+      {!cellules.sorti && !cellules.bs && can(ROLES.BON_SORTIE) &&
+        <EtapeBloquee voulue="BS" c={c} />}
       {pend.includes('PP') && can(ROLES.PP, A) && <PanneauPP c={c} estVeh={estVeh} action={action} />}
       {c['statut'] === STATUTS.GPS && can(ROLES.BALISE, A) && <PanneauGpsEdit c={c} action={action} />}
       {/* CORRECTIONS DE CELLULES REMPLIES (2026-09-10), ajout.
@@ -633,7 +644,7 @@ function PanneauCFS({ c, dets, action, prefillDecl }: { c: O; dets: ReturnType<t
             <Champ label="Contact (téléphone)" value={String(d['contactDeclarant'])} onChange={(e) => setDd('contactDeclarant', masks.tel(e.target.value))} />
             <ChampDestination value={String(d['destinationMarchandise'])} onChange={(v) => setDd('destinationMarchandise', v)} />
             <Champ label="Bureau" value={String(d['bureauDeclaration'])} onChange={(e) => setDd('bureauDeclaration', masks.upper(e.target.value))} />
-            <div><label className="help">Type déclaration</label><select value={String(d['typeDeclaration'])} onChange={(e) => setDd('typeDeclaration', e.target.value)}>{TYPES_DECLARATION.map((t) => <option key={t}>{t}</option>)}</select></div>
+            <div><label className="help">Type déclaration</label><select value={String(d['typeDeclaration'])} onChange={(e) => setDd('typeDeclaration', e.target.value)}>{TYPES_DECLARATION.map((t) => <option key={t} value={t}>{optionTypeDeclaration(t)}</option>)}</select></div>
             {estConso && <div><label className="help">Type {String(d['typeDeclaration'])}, balise</label><select value={consoMode} onChange={(e) => setConsoMode(e.target.value)}><option value="balise">À baliser</option><option value="sansbalise">Non balisée (dispense)</option></select></div>}
             <Champ label="N° déclaration" value={String(d['numeroDeclaration'])} onChange={(e) => setDd('numeroDeclaration', masks.upper(e.target.value))} />
             <Champ label="Année" value={String(d['anneeDeclaration'])} onChange={(e) => setDd('anneeDeclaration', e.target.value)} />
@@ -778,7 +789,7 @@ function PanneauOuillage({ c, action }: { c: O; action: ActionFn }) {
       <Champ label="Contact" value={String(d['contactDeclarant'])} onChange={(e) => setDd('contactDeclarant', masks.tel(e.target.value))} />
       <ChampDestination value={String(d['destinationMarchandise'])} onChange={(v) => setDd('destinationMarchandise', v)} />
       <Champ label="Bureau" value={String(d['bureauDeclaration'])} onChange={(e) => setDd('bureauDeclaration', masks.upper(e.target.value))} />
-      <div><label className="help">Type (seuls T et E → T1)</label><select value={String(d['typeDeclaration'])} onChange={(e) => setDd('typeDeclaration', e.target.value)}>{TYPES_DECLARATION.map((t) => <option key={t}>{t}</option>)}</select></div>
+      <div><label className="help">Type (seuls T et E → T1)</label><select value={String(d['typeDeclaration'])} onChange={(e) => setDd('typeDeclaration', e.target.value)}>{TYPES_DECLARATION.map((t) => <option key={t} value={t}>{optionTypeDeclaration(t)}</option>)}</select></div>
       <Champ label="N° déclaration" value={String(d['numeroDeclaration'])} onChange={(e) => setDd('numeroDeclaration', masks.upper(e.target.value))} />
       <Champ label="Année" value={String(d['anneeDeclaration'])} onChange={(e) => setDd('anneeDeclaration', e.target.value)} />
     </div>
@@ -836,17 +847,67 @@ function PanneauT1({ c, dets, action }: { c: O; dets: ReturnType<typeof parseCon
   async function valider() {
     const t1Numeros = estEnl
       ? dets.conteneurs.map((ct, i) => ({ conteneur: ct.num, numero: nums[i] })).filter((x) => x.numero)
-      : nums.filter(Boolean);
+      : nums.map((x) => x.trim()).filter(Boolean);
     await action(() => call('cargo.t1', { id, bureauDestination: bureau, t1Numeros }), 'T1 enregistré.');
   }
+  /* DÉPOTAGE : AUTANT DE T1 QUE NÉCESSAIRE (2026-09-24, demande utilisateur).
+     La marchandise d'un même camion peut voyager sous plusieurs T1. Le serveur
+     l'acceptait déjà (il reçoit une liste) ; seul l'écran n'offrait qu'un champ.
+     En enlèvement, rien ne change : un T1 par conteneur, lié à son conteneur. */
+  const ajouterT1 = () => setNums((a) => [...a, '']);
+  const retirerT1 = (i: number) => setNums((a) => (a.length > 1 ? a.filter((_, j) => j !== i) : a));
   return <div className="card"><TitrePanneau icone="t1" etape="t1">Cellule T1</TitrePanneau>
     <Champ label="Bureau de destination" value={bureau} onChange={(e) => setBureau(masks.upper(e.target.value))} />
     <div className="section-title">Numéros T1 {estEnl ? '(1 par conteneur)' : '(1 ou plusieurs)'}</div>
     {estEnl ? dets.conteneurs.map((ct, i) => (
       <div key={i} className="row" style={{ marginBottom: 6 }}><span className="mono" style={{ minWidth: 130 }}>{ct.num}</span>
         <input value={nums[i]} onChange={(e) => setNums((a) => a.map((x, j) => j === i ? masks.upper(e.target.value) : x))} placeholder="N° T1" /></div>
-    )) : <input value={nums[0]} onChange={(e) => setNums([masks.upper(e.target.value)])} placeholder="N° T1" />}
+    )) : <>
+      {nums.map((v, i) => <div key={i} className="row" style={{ marginBottom: 6, alignItems: 'center' }}>
+        <input value={v} placeholder={nums.length > 1 ? `N° T1 ${i + 1}` : 'N° T1'}
+          onChange={(e) => setNums((a) => a.map((x, j) => j === i ? masks.upper(e.target.value) : x))} />
+        {nums.length > 1 && <button className="ghost xs" onClick={() => retirerT1(i)} title="Retirer cette ligne">Retirer</button>}
+      </div>)}
+      <button className="ghost xs" onClick={ajouterT1}><Icone nom="plus" taille={14} />Ajouter un T1</button>
+    </>}
     <div style={{ marginTop: 12 }}><button onClick={valider}>Enregistrer le T1</button></div>
+  </div>;
+}
+
+/**
+ * ÉTAPE PRÉCÉDENTE MANQUANTE (2026-09-24, demande utilisateur).
+ *
+ * Encadré posé à la place du panneau de saisie quand la chaîne n'est pas
+ * respectée : il nomme l'étape qui manque, la cellule qui doit la faire, et
+ * rappelle que le serveur refusera de toute façon. Rend `null` quand la voie
+ * est libre — le panneau de saisie s'affiche alors normalement.
+ */
+const CELLULE_DE_L_ETAPE: Record<string, string> = {
+  CFS: 'le CFS', VALIDATION: 'le chef de brigade', T1: 'la cellule T1',
+  BALISE: 'la cellule Balise', BS: 'la cellule Bon de sortie', PP: 'la Porte Principale',
+};
+
+function EtapeBloquee({ c, voulue }: { c: O; voulue: 'BALISE' | 'BS' }) {
+  const manquante = etapePrecedenteManquante(c as never, voulue);
+  if (!manquante) return null;
+  return <div className="card etape-bloquee">
+    <div className="eb-entete">
+      <span className="eb-pastille" aria-hidden="true"><Icone nom="attente" taille={18} /></span>
+      <div>
+        <b>{messageEtapePrecedente(manquante, voulue)}</b>
+        <div className="help" style={{ marginTop: 3 }}>
+          Ce camion attend {LIBELLE_ETAPE[manquante]}, qui revient à {CELLULE_DE_L_ETAPE[manquante]}.
+          Votre saisie sera refusée tant que ce n'est pas fait.
+        </div>
+      </div>
+    </div>
+    <div className="eb-chaine" aria-hidden="true">
+      {(['T1', 'BALISE', 'BS'] as const).map((e, i) => <span key={e}
+        className={`eb-maillon ${e === manquante ? 'manque' : e === voulue ? 'voulue' : ''}`}>
+        {i > 0 ? <span className="eb-fleche">→</span> : null}
+        {e === 'T1' ? 'T1' : e === 'BALISE' ? 'Balise' : 'Bon de sortie'}
+      </span>)}
+    </div>
   </div>;
 }
 
@@ -856,7 +917,7 @@ function PanneauBalise({ c, action }: { c: O; action: ActionFn }) {
      actif annule le choix, il faut donc pouvoir n'avoir RIEN de choisi. Le
      bouton de validation reste bloque tant que c'est le cas - sans quoi on
      enregistrerait une pose de balise par defaut, jamais decidee. */
-  const [pose, setPose] = useState<'' | 'pose' | 'dispense'>('pose');
+  const [pose, setPose] = useState<'' | 'pose' | 'dispense' | 'escorte'>('pose');
   const requise = pose === 'pose';
   const [t1ok, setT1ok] = useState(false);
   const [gps, setGps] = useState('');
@@ -868,15 +929,41 @@ function PanneauBalise({ c, action }: { c: O; action: ActionFn }) {
     <div className="segmente">
       <BoutonBascule actif={t1ok} onChange={setT1ok} libelle="Numéro T1 correct" icone="document" />
     </div>
-    <ChoixSegmente libelle="Pose balise ou dispense" valeur={pose}
-      options={[{ valeur: 'pose', libelle: 'Pose balise', icone: 'balise' },
-        { valeur: 'dispense', libelle: 'Dispense', icone: 'drapeau' }]}
-      onChange={(v) => setPose(v as '' | 'pose' | 'dispense')} />
-    {pose === '' ? <p className="help">Choisissez <b>Pose balise</b> ou <b>Dispense</b> pour continuer.</p>
+    {/* TROIS ISSUES, PAS DEUX (2026-09-24, demande utilisateur). Le camion qui
+        part sous escorte n'est pas dispensé : il est accompagné. Les agents
+        l'écrivaient déjà à la main dans la référence (« ESCORTE MILITAIRE »),
+        faute d'un endroit pour le dire. */}
+    <ChoixSegmente libelle="Baliser, dispenser ou escorter" valeur={pose}
+      options={[{ valeur: 'pose', libelle: 'Baliser', icone: 'balise' },
+        { valeur: 'dispense', libelle: 'Dispense', icone: 'drapeau' },
+        { valeur: 'escorte', libelle: 'Escorter', icone: 'escorte' }]}
+      onChange={(v) => setPose(v as '' | 'pose' | 'dispense' | 'escorte')} />
+    {pose === '' ? <p className="help">Choisissez <b>Baliser</b>, <b>Dispense</b> ou <b>Escorter</b> pour continuer.</p>
       : requise ? <Champ label="N° balise GPS" value={gps} onChange={(e) => setGps(e.target.value)} />
-        : <Champ label="N° autorisation de dispense" value={disp} onChange={(e) => setDisp(masks.upper(e.target.value))} />}
+        : <>
+          <Champ label={pose === 'escorte' ? "Référence de l'escorte (unité, ordre de mission…)" : 'N° autorisation de dispense'}
+            value={disp} onChange={(e) => setDisp(masks.upper(e.target.value))} />
+          {/* CE QUI COMPTE COMME DISPENSE (2026-09-25, décision utilisateur) :
+              le marquage ici, rien d'autre. La qualité de la référence n'est
+              plus un refus, seulement un conseil : le camion figurera au volet
+              dans tous les cas. */}
+          <p className="help">
+            La référence part au volet « Dispenses », qui distingue les <b>dispenses</b> des
+            <b> escortes</b>. Indiquez la <b>référence réelle</b> de l'exemption : le camion y
+            figurera de toute façon, autant qu'on sache au nom de quoi il est parti sans balise.
+          </p>
+          {disp.trim() !== '' && !numeroDispenseValide(disp) &&
+            <div className="help" style={{ color: 'var(--warn)' }}>
+              « {disp} » n'est pas une référence d'autorisation. L'exemption sera enregistrée,
+              mais elle apparaîtra au volet « Dispenses » sans justificatif.
+            </div>}
+        </>}
     <div style={{ marginTop: 12 }}><button disabled={pose === ''}
-      onClick={() => action(() => call('cargo.gps', { id, baliseRequise: requise ? 'Oui' : 'Non', t1Correct: t1ok ? 'Oui' : 'Non', numeroGPS: gps, numeroDispense: disp }), requise ? 'Balise posée.' : 'Dispense enregistrée.')}>Valider la balise</button></div>
+      onClick={() => action(() => call('cargo.gps', {
+        id, baliseRequise: requise ? 'Oui' : 'Non', t1Correct: t1ok ? 'Oui' : 'Non',
+        numeroGPS: gps, numeroDispense: disp, exemption: pose === 'escorte' ? 'escorte' : 'dispense',
+      }), requise ? 'Balise posée.' : pose === 'escorte' ? 'Escorte enregistrée.' : 'Dispense enregistrée.')}>
+      Valider la balise</button></div>
   </div>;
 }
 
@@ -1087,7 +1174,7 @@ function PanneauEditConteneurs({ c, dets, action, admin }: { c: O; dets: ReturnT
         <Champ label="Bureau" value={String(d['bureauDeclaration'])} onChange={(e) => setDd('bureauDeclaration', masks.upper(e.target.value))} />
         <div><label className="help">Type déclaration</label>
           <select value={String(d['typeDeclaration'])} onChange={(e) => setDd('typeDeclaration', e.target.value)}>
-            <option value="">Inchangé…</option>{TYPES_DECLARATION.map((t) => <option key={t}>{t}</option>)}
+            <option value="">Inchangé…</option>{TYPES_DECLARATION.map((t) => <option key={t} value={t}>{optionTypeDeclaration(t)}</option>)}
           </select></div>
       </div>
       <ChampMotifCorrection c={c} motif={motif} setMotif={setMotif} admin={admin} />
@@ -1168,7 +1255,7 @@ function PanneauEditDecl({ c, action, admin }: { c: O; action: ActionFn; admin: 
       <Champ label="Contact (téléphone)" value={String(d['contactDeclarant'])} onChange={(e) => setDd('contactDeclarant', masks.tel(e.target.value))} />
       <ChampDestination value={String(d['destinationMarchandise'])} onChange={(v) => setDd('destinationMarchandise', v)} />
       <Champ label="Bureau" value={String(d['bureauDeclaration'])} onChange={(e) => setDd('bureauDeclaration', masks.upper(e.target.value))} />
-      <div><label className="help">Type déclaration</label><select value={String(d['typeDeclaration'])} onChange={(e) => setDd('typeDeclaration', e.target.value)}>{TYPES_DECLARATION.map((t) => <option key={t}>{t}</option>)}</select></div>
+      <div><label className="help">Type déclaration</label><select value={String(d['typeDeclaration'])} onChange={(e) => setDd('typeDeclaration', e.target.value)}>{TYPES_DECLARATION.map((t) => <option key={t} value={t}>{optionTypeDeclaration(t)}</option>)}</select></div>
       {estConso && <div><label className="help">Type {String(d['typeDeclaration'])}, balise</label><select value={consoMode} onChange={(e) => setConsoMode(e.target.value)}><option value="balise">À baliser</option><option value="sansbalise">Non balisée (dispense)</option></select></div>}
       <Champ label="N° déclaration" value={String(d['numeroDeclaration'])} onChange={(e) => setDd('numeroDeclaration', masks.upper(e.target.value))} />
       <Champ label="Année" value={String(d['anneeDeclaration'])} onChange={(e) => setDd('anneeDeclaration', e.target.value)} />
@@ -1214,9 +1301,12 @@ function PanneauT1Edit({ c, dets, action }: { c: O; dets: ReturnType<typeof pars
   async function enregistrer() {
     const t1Numeros = estEnl
       ? dets.conteneurs.map((ct, i) => ({ conteneur: ct.num, numero: nums[i] })).filter((x) => x.numero)
-      : nums.filter(Boolean);
+      : nums.map((x) => x.trim()).filter(Boolean);
     await action(() => call('cargo.t1edit', { id, bureauDestination: bureau, t1Numeros }), 'T1 corrigé.');
   }
+  // La correction suit la saisie : en dépotage, on ajoute ou on retire un T1.
+  const ajouterT1 = () => setNums((a) => [...a, '']);
+  const retirerT1 = (i: number) => setNums((a) => (a.length > 1 ? a.filter((_, j) => j !== i) : ['']));
 
   return <details style={EDIT_ITEM}><summary style={{ cursor: 'pointer', fontWeight: 600 }}>Corriger le T1</summary>
     <p className="help" style={{ marginTop: 10 }}>
@@ -1230,10 +1320,14 @@ function PanneauT1Edit({ c, dets, action }: { c: O; dets: ReturnType<typeof pars
         <span className="mono" style={{ minWidth: 130 }}>{ct.num}</span>
         <input value={nums[i] ?? ''} onChange={(e) => setNums((o) => o.map((v, k) => k === i ? masks.upper(e.target.value) : v))} />
       </div>
-    )) : nums.map((v, i) => (
-      <input key={i} style={{ marginBottom: 6 }} value={v}
-        onChange={(e) => setNums((o) => o.map((x, k) => k === i ? masks.upper(e.target.value) : x))} />
-    ))}
+    )) : <>
+      {nums.map((v, i) => <div key={i} className="row" style={{ marginBottom: 6, alignItems: 'center' }}>
+        <input value={v} placeholder={nums.length > 1 ? `N° T1 ${i + 1}` : 'N° T1'}
+          onChange={(e) => setNums((o) => o.map((x, k) => k === i ? masks.upper(e.target.value) : x))} />
+        <button className="ghost xs" onClick={() => retirerT1(i)} title="Retirer cette ligne">Retirer</button>
+      </div>)}
+      <button className="ghost xs" onClick={ajouterT1}><Icone nom="plus" taille={14} />Ajouter un T1</button>
+    </>}
     <button style={{ marginTop: 8 }} onClick={enregistrer}>Enregistrer la correction</button>
   </details>;
 }

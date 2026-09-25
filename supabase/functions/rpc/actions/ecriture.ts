@@ -16,6 +16,7 @@ import {
   normaliserConteneur, normaliserDeclaration, parseConteneursDetails,
   declKey, typeDeRoutage, tailleBucket, construireCamion, verifierBinome, apercuConteneurs,
   etapesEnAttente, etatCellules, estOui, aFait, sautsTypeC,
+  etapePrecedenteManquante, messageEtapePrecedente,
 } from '../../_shared/domaine/src/index.ts';
 import {
   getCargo, patchCargo, nextId, nextRapportId, ajouterConteneurs, supprimerConteneursDe,
@@ -903,9 +904,24 @@ export async function gps(ctx: Ctx, p: Record<string, unknown>) {
   const t1Correct = p['t1Correct'] === true || String(p['t1Correct']).toLowerCase() === 'oui';
   const numeroGPS = txt(p['numeroGPS']);
   const numeroDispense = maj(p['numeroDispense'], 60);
+  /* DISPENSE OU ESCORTE (2026-09-24, demande utilisateur). Les deux exemptent
+     de balise, mais ce ne sont pas les mêmes faits : l'une repose sur une
+     autorisation, l'autre sur un accompagnement. La cellule le dit maintenant,
+     au lieu de l'écrire à la main dans la référence. */
+  const exemption = String(p['exemption'] ?? '').trim().toLowerCase() === 'escorte' ? 'escorte' : 'dispense';
   if (!t1Correct) throw new Error('Cochez « Numéro T1 correct » avant de valider la balise.');
   if (requise && !numeroGPS) throw new Error('Numéro de balise requis.');
-  if (!requise && !numeroDispense) throw new Error("Numéro d'autorisation de dispense requis.");
+  if (!requise && !numeroDispense)
+    throw new Error(exemption === 'escorte'
+      ? "Référence de l'escorte requise."
+      : "Numéro d'autorisation de dispense requis.");
+  /* LA RÉFÉRENCE DE COMPLAISANCE NE BLOQUE PLUS (2026-09-25, décision
+     utilisateur). Un refus sur « 0 » ou « sauté » empêchait la cellule
+     d'enregistrer une exemption qu'elle accordait pourtant. Le champ reste
+     obligatoire, l'écran conseille toujours la vraie référence, mais la
+     décision appartient à l'agent : ce qui est marqué dispense EST une
+     dispense, et le volet le montre. La saisie faible se voit alors dans la
+     colonne « Référence », au lieu de disparaître du comptage. */
 
   const cargo = await getCargo(ctx, id);
   const c = cargo.o;
@@ -942,6 +958,11 @@ export async function gps(ctx: Ctx, p: Record<string, unknown>) {
       );
   }
   if (c['estVehicule'] === true || c['estVehicule'] === 'Oui') throw new Error('Les véhicules ne passent pas par la cellule Balise.');
+  /* LA BALISE ATTEND LE T1 (2026-09-24, demande utilisateur). Le refus NOMME
+     ce qui manque : « impossible » sans raison renvoyait l'agent à l'aveugle. */
+  const manqueAvantBalise = etapePrecedenteManquante(c as never, 'BALISE');
+  if (ctx.session.role !== ROLES.ADMIN && manqueAvantBalise)
+    throw new ErreurMetier(messageEtapePrecedente(manqueAvantBalise, 'BALISE'));
   if (ctx.session.role !== ROLES.ADMIN && etapesEnAttente(c as never).indexOf('BALISE') < 0)
     throw new Error('Étape Balise impossible : chargement non terminé ou déjà balisée (statut « ' + c['statut'] + ' »).');
   const avancer = etapesEnAttente(c as never).indexOf('BALISE') >= 0;
@@ -950,10 +971,12 @@ export async function gps(ctx: Ctx, p: Record<string, unknown>) {
     agent_balise: ctx.session.nomComplet, agent_balise_id: ctx.session.userId,
     observations_balise: txt(p['observations'], 1000), balise_requise: requise, t1_correct: true,
     numero_dispense: requise ? '' : numeroDispense,
+    type_exemption: requise ? null : exemption,
   };
   if (avancer) patch['statut'] = STATUTS.GPS;
   await patchCargo(ctx, cargo, patch);
   if (requise) await ctx.log('Pose balise', id, 'Balise ' + numeroGPS);
+  else if (exemption === 'escorte') await ctx.log('Escorte (sans balise)', id, 'Escorte ' + numeroDispense);
   else await ctx.log('Dispense de balise', id, 'Dispense ' + numeroDispense);
   return { id, baliseRequise: requise ? 'Oui' : 'Non' };
 }
@@ -1003,6 +1026,10 @@ export async function bonsortie(ctx: Ctx, p: Record<string, unknown>) {
   }
   const cargo = await getCargo(ctx, id);
   const c = cargo.o;
+  /* LE BON DE SORTIE ATTEND LA BALISE (2026-09-24, demande utilisateur). */
+  const manqueAvantBS = etapePrecedenteManquante(c as never, 'BS');
+  if (ctx.session.role !== ROLES.ADMIN && manqueAvantBS)
+    throw new ErreurMetier(messageEtapePrecedente(manqueAvantBS, 'BS'));
   if (ctx.session.role !== ROLES.ADMIN && etapesEnAttente(c as never).indexOf('BS') < 0)
     throw new Error('Bon de sortie impossible : chargement non terminé ou bon déjà émis (statut « ' + c['statut'] + ' »).');
   const avancer = etapesEnAttente(c as never).indexOf('BS') >= 0;
@@ -1826,14 +1853,30 @@ export async function t1edit(ctx: Ctx, p: Record<string, unknown>) {
   const brut = Array.isArray(p['t1Numeros']) ? (p['t1Numeros'] as unknown[]) : null;
   if (!brut || !brut.length) throw new ErreurMetier('Indiquez au moins un numéro T1.');
 
+  /* MÊME NETTOYAGE QUE LA SAISIE (2026-09-24). La correction écrivait la charge
+     utile TELLE QUELLE : elle pouvait donc déposer des numéros en double, des
+     lignes vides, ou une forme différente de celle posée par `t1()`. Une
+     correction ne doit pas pouvoir écrire ce que la saisie refuse. */
+  const items = brut
+    .map((o) =>
+      o && typeof o === 'object'
+        ? { conteneur: maj((o as Record<string, unknown>)['conteneur'], 20), numero: maj((o as Record<string, unknown>)['numero'], 40) }
+        : { conteneur: '', numero: maj(o, 40) },
+    )
+    .filter((o) => o.numero);
+  if (!items.length) throw new ErreurMetier('Indiquez au moins un numéro T1.');
+  const numeros = items.map((o) => o.numero);
+  if (new Set(numeros).size !== numeros.length)
+    throw new ErreurMetier('Les numéros T1 doivent être distincts.');
+
   const avant = JSON.stringify(c['t1Numeros'] ?? []);
   await patchCargo(ctx, cargo, {
     bureau_destination: bureau,
-    t1_numeros: brut,
+    t1_numeros: items,
     observations_t1: p['observations'] !== undefined ? txt(p['observations'], 1000) : c['observationsT1'],
   });
   await ctx.log('Correction T1', id,
-    'Avant ' + avant.slice(0, 300) + ' → après ' + JSON.stringify(brut).slice(0, 300) + ' · bureau ' + bureau);
+    'Avant ' + avant.slice(0, 300) + ' → après ' + JSON.stringify(items).slice(0, 300) + ' · bureau ' + bureau);
   return { id };
 }
 
