@@ -547,12 +547,12 @@ test('paramètres : tout le monde les lit, seul l\'administrateur les modifie (2
 });
 
 test("type de déclaration : la lettre reste la valeur, le sens s'affiche", () => {
-  assert.equal(libelleTypeDeclaration('T'), 'Transit national');
+  assert.equal(libelleTypeDeclaration('T'), 'Transit');
   assert.equal(libelleTypeDeclaration('c'), 'Mise en conso');
   assert.equal(libelleTypeDeclaration('S'), 'Entrée en entrepôt');
   assert.equal(libelleTypeDeclaration('A'), 'Entrée en MAD');
   assert.equal(libelleTypeDeclaration('E'), 'Exportation');
-  assert.equal(optionTypeDeclaration('T'), 'T (Transit national)');
+  assert.equal(optionTypeDeclaration('T'), 'T (Transit)');
   // Une lettre inconnue (donnee migree) ne disparait pas : elle s'affiche telle quelle.
   assert.equal(optionTypeDeclaration('D'), 'D');
   assert.equal(libelleTypeDeclaration(''), '');
