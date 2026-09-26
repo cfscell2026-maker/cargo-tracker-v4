@@ -34,20 +34,24 @@ export const TYPES_DECLARATION = ['T', 'C', 'S', 'A', 'E'] as const;
  * l'affichage porte le sens.
  */
 export const LIBELLES_TYPE_DECLARATION: Record<string, string> = {
-  T: 'Transit national',
+  /* 'T' = TRANSIT, tout court (2026-09-26, correction de l'utilisateur). Le
+     « transit national » est un ENGAGEMENT, pas un type de declaration : les
+     deux se lisaient pareil dans les listes, ce qui melangeait deux notions
+     distinctes. Voir ENGAGEMENTS plus bas. */
+  T: 'Transit',
   C: 'Mise en conso',
   S: 'Entrée en entrepôt',
   A: 'Entrée en MAD',
   E: 'Exportation',
 };
 
-/** « Transit national » pour 'T'. Rend la lettre seule si elle est inconnue. */
+/** « Transit » pour 'T'. Rend la lettre seule si elle est inconnue. */
 export function libelleTypeDeclaration(t: unknown): string {
   const cle = String(t ?? '').trim().toUpperCase();
   return LIBELLES_TYPE_DECLARATION[cle] ?? cle;
 }
 
-/** « T (Transit national) » : ce qu'affiche une liste deroulante. */
+/** « T (Transit) » : ce qu'affiche une liste deroulante. */
 export function optionTypeDeclaration(t: unknown): string {
   const cle = String(t ?? '').trim().toUpperCase();
   const lib = LIBELLES_TYPE_DECLARATION[cle];
