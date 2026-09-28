@@ -72,9 +72,15 @@ export function EcranParking({ user, go }: Nav) {
      recherche du parking ne fouillait que son propre registre : elle ne les
      trouvait pas, et l'agent les ressaisissait a la main. On interroge donc
      AUSSI les cargaisons en cours, des deux caracteres tapes. */
-  const { data: cand, reload: reloadCand } = useAsync<{ lignes: O[] }>(
+  const { data: cand, error: errCand, reload: reloadCand } = useAsync<{ lignes: O[] }>(
     () => (q.length >= 2 ? call('parking.candidats', { recherche: q }) : Promise.resolve({ lignes: [] })), [q]);
   const candidats = ((cand?.['lignes'] as O[]) ?? []);
+  /* LE SERVEUR PEUT ETRE EN RETARD SUR L'ECRAN. Netlify publie le front des le
+     merge, la fonction rpc est deployee a part : entre les deux, cette action
+     n'existe pas encore. Sans ce test, une recherche qui ECHOUE s'affichait
+     comme une reponse - « ce camion n'est pas encore ajoute » - alors que le
+     camion existait bel et bien. Un echec doit se dire comme un echec. */
+  const rechercheIndisponible = /Action inconnue|Action non gérée/.test(errCand);
   const lignes = q ? recues.filter((l) => s(l['numeroCamionNorm']).indexOf(q) > -1) : recues;
   /* PAR PAGES (2026-09-25, demande utilisateur). Un parking bien rempli, ou une
      vue « Tous » sur plusieurs mois, deroulait des centaines de lignes d'un
@@ -279,12 +285,24 @@ export function EcranParking({ user, go }: Nav) {
         milieu, et on propose le seul geste possible : l'ajouter. */}
     {q.length >= 2 && !lignes.length && !candidats.length && !loading && <div className="card park-inconnu">
       <Icone nom="camionPlus" taille={30} />
-      <b>Ce camion n'est pas encore ajouté</b>
-      <p className="help">
-        <b className="mono">{recherche.trim()}</b> ne figure ni au parking, ni parmi les cargaisons en
-        cours. Ajoutez-le au parking : vous pourrez le pointer dans la foulée.
-      </p>
-      <button onClick={() => setAjout(true)}><Icone nom="camionPlus" />Ajouter ce camion</button>
+      {rechercheIndisponible ? <>
+        <b>Recherche des camions du circuit indisponible</b>
+        <p className="help">
+          Le serveur n'a pas encore été mis à jour : impossible de dire si
+          <b className="mono"> {recherche.trim()} </b> existe déjà dans le circuit. <b>N'ajoutez pas
+          ce camion à l'aveugle</b>, vous risqueriez un doublon.
+        </p>
+      </> : errCand ? <>
+        <b>La recherche a échoué</b>
+        <p className="help">{errCand}</p>
+      </> : <>
+        <b>Ce camion n'est pas encore ajouté</b>
+        <p className="help">
+          <b className="mono">{recherche.trim()}</b> ne figure ni au parking, ni parmi les cargaisons en
+          cours. Ajoutez-le au parking : vous pourrez le pointer dans la foulée.
+        </p>
+        <button onClick={() => setAjout(true)}><Icone nom="camionPlus" />Ajouter ce camion</button>
+      </>}
     </div>}
 
     {ajout && <ModaleAjoutParking plaque={recherche.trim()} onClose={() => setAjout(false)}
