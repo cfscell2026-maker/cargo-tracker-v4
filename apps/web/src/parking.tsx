@@ -115,8 +115,10 @@ export function EcranParking({ user, go }: Nav) {
 
   return <>
     <BandeauModule icone="parking" titre="Parking"
-      sous={<>Les camions présents au parking, pointés une fois par jour.
-        Un camion sort de la liste dès qu'il est signalé à la <b>Porte Principale</b>.</>}
+      /* UNE LIGNE, PAS TROIS (2026-09-28, demande utilisateur) : sur un ecran
+         etroit la phrase tenait sur trois lignes et repoussait les commandes
+         hors de vue. Les deux faits utiles tiennent en huit mots. */
+      sous={<>Pointage une fois par jour. Sortie automatique à la <b>Porte Principale</b>.</>}
       action={<div className="bm-outils">
         <input className="mono" value={recherche} onChange={(e) => setRecherche(e.target.value)}
           placeholder="N° camion" title="Tapez la plaque : la liste se réduit à chaque caractère"
