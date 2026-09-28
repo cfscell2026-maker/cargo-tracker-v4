@@ -45,6 +45,8 @@ export const PERMISSIONS: Record<string, Role[]> = {
   // Retrouver un camion du parking depuis n'importe quelle cellule : c'est une
   // LECTURE, et chaque cellule en a besoin pour continuer la saisie (28/09).
   'parking.saisie': TOUS_ROLES,
+  // L'inverse : depuis le parking, retrouver un camion deja dans le circuit.
+  'parking.candidats': TOUS_ROLES,
   'parking.add': TOUS_ROLES,
   'parking.point': TOUS_ROLES,
   // La CORRECTION est ouverte à tous (celui qui voit l'erreur la répare) ;

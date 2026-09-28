@@ -162,6 +162,7 @@ export const ACTIONS: Record<string, H> = {
   'parking.detail': d(prk.parkingDetail),
   'parking.check': d(prk.parkingCheck),
   'parking.saisie': d(prk.parkingSaisie),
+  'parking.candidats': d(prk.parkingCandidats),
   'parking.add': d(prk.parkingAdd),
   'parking.point': d(prk.parkingPointer),
   'parking.edit': d(prk.parkingEdit),

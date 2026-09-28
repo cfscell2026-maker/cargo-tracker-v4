@@ -32,7 +32,7 @@ const PARKING_PAR_PAGE = 50;
 
 /* ---------------------------------------------------------------- l'écran */
 
-export function EcranParking({ user }: Nav) {
+export function EcranParking({ user, go }: Nav) {
   const [recherche, setRecherche] = useState('');
   const [statut, setStatut] = useState('presents');
   const [page, setPage] = useState(1);
@@ -66,6 +66,21 @@ export function EcranParking({ user }: Nav) {
   const recues = (data?.['lignes'] as O[]) ?? [];
   const q = alphaNumMaj(recherche).replace(/[^A-Z0-9]/g, '');
   useEffect(() => { setPage(1); }, [q, statut, periode.du, periode.au]);
+
+  /* CAMIONS DEJA DANS LE SYSTEME (2026-09-28, demande utilisateur). Beaucoup
+     de camions sont crees au CFS, entrent sur le site, PUIS vont se garer. La
+     recherche du parking ne fouillait que son propre registre : elle ne les
+     trouvait pas, et l'agent les ressaisissait a la main. On interroge donc
+     AUSSI les cargaisons en cours, des deux caracteres tapes. */
+  const { data: cand, error: errCand, reload: reloadCand } = useAsync<{ lignes: O[] }>(
+    () => (q.length >= 2 ? call('parking.candidats', { recherche: q }) : Promise.resolve({ lignes: [] })), [q]);
+  const candidats = ((cand?.['lignes'] as O[]) ?? []);
+  /* LE SERVEUR PEUT ETRE EN RETARD SUR L'ECRAN. Netlify publie le front des le
+     merge, la fonction rpc est deployee a part : entre les deux, cette action
+     n'existe pas encore. Sans ce test, une recherche qui ECHOUE s'affichait
+     comme une reponse - « ce camion n'est pas encore ajoute » - alors que le
+     camion existait bel et bien. Un echec doit se dire comme un echec. */
+  const rechercheIndisponible = /Action inconnue|Action non gérée/.test(errCand);
   const lignes = q ? recues.filter((l) => s(l['numeroCamionNorm']).indexOf(q) > -1) : recues;
   /* PAR PAGES (2026-09-25, demande utilisateur). Un parking bien rempli, ou une
      vue « Tous » sur plusieurs mois, deroulait des centaines de lignes d'un
@@ -86,10 +101,30 @@ export function EcranParking({ user }: Nav) {
     } catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(''); }
   }
 
+  /**
+   * Pointer au parking un camion DEJA dans le circuit : on reprend sa plaque,
+   * son conteneur et son plomb tels qu'ils sont dans le dossier. Rien a
+   * retaper, donc aucune faute de frappe et aucun doublon.
+   */
+  async function pointerCandidat(c: O) {
+    const id = s(c['id']);
+    setBusy(id);
+    try {
+      await call('parking.add', {
+        numeroCamion: s(c['numeroCamion']), numeroConteneur: s(c['numeroConteneur']),
+        plomb: s(c['plomb']), pointer: true,
+      });
+      toast('Camion ajoute au parking et pointe.', 'ok');
+      reload(); reloadCand();
+    } catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(''); }
+  }
+
   return <>
     <BandeauModule icone="parking" titre="Parking"
-      sous={<>Les camions présents au parking, pointés une fois par jour.
-        Un camion sort de la liste dès qu'il est signalé à la <b>Porte Principale</b>.</>}
+      /* UNE LIGNE, PAS TROIS (2026-09-28, demande utilisateur) : sur un ecran
+         etroit la phrase tenait sur trois lignes et repoussait les commandes
+         hors de vue. Les deux faits utiles tiennent en huit mots. */
+      sous={<>Pointage une fois par jour. Sortie automatique à la <b>Porte Principale</b>.</>}
       action={<div className="bm-outils">
         <input className="mono" value={recherche} onChange={(e) => setRecherche(e.target.value)}
           placeholder="N° camion" title="Tapez la plaque : la liste se réduit à chaque caractère"
@@ -158,7 +193,9 @@ export function EcranParking({ user }: Nav) {
           {data?.['jour'] ? ` · pointage du ${fmtJour(data['jour'])}` : ''}
         </div>
         {!lignes.length ? <div className="empty">
-          {q ? 'Aucun camion ne correspond à cette recherche.'
+          {q ? (candidats.length
+            ? 'Aucun camion DU PARKING ne correspond. Voir les propositions ci-dessous.'
+            : 'Aucun camion ne correspond à cette recherche.')
             : statut === 'presents' ? 'Aucun camion au parking. Utilisez « Ajouter un camion ».'
               : 'Aucun camion dans cette vue.'}
         </div> : <div className="tbl"><table>
@@ -205,7 +242,71 @@ export function EcranParking({ user }: Nav) {
       </>}
     </div>
 
-    {ajout && <ModaleAjoutParking onClose={() => setAjout(false)} onFait={() => { setAjout(false); reload(); }} />}
+    {/* PROPOSITIONS (2026-09-28) : les camions deja crees que la recherche
+        rapproche, et qui ne sont pas encore au parking. Un seul geste les y
+        amene, plaque, conteneur et plomb repris du dossier. */}
+    {q.length >= 2 && candidats.length > 0 && <div className="card park-propose">
+      <div className="pt-entete">
+        <span className="pt-pastille" aria-hidden="true"><Icone nom="camion" taille={17} /></span>
+        <div>
+          <b>{candidats.length === 1 ? 'Ce camion est déjà dans le système' : `${candidats.length} camions déjà dans le système`}</b>
+          <div className="help" style={{ marginTop: 2 }}>
+            Créés au CFS et pas encore au parking. Pointez-les ici : leur conteneur et leur
+            plomb sont repris du dossier, vous n'avez rien à retaper.
+          </div>
+        </div>
+      </div>
+      {candidats.map((c) => <div key={s(c['id'])} className="pt-ligne">
+        <div className="pt-infos">
+          <span className="mono pt-plaque">{s(c['numeroCamion'])}</span>
+          <span className="help">
+            {s(c['numeroConteneur'])
+              ? <>conteneur <b className="mono">{s(c['numeroConteneur'])}</b>
+                {Number(c['nbConteneurs'] ?? 0) > 1 ? ` (+${Number(c['nbConteneurs']) - 1})` : ''}
+                {s(c['plomb']) ? <> · plomb <b className="mono">{s(c['plomb'])}</b></> : null} · </>
+              : null}
+            {s(c['typeOperation'])} · entré le {fmtJour(c['dateCreation'])}
+          </span>
+          <span className="help">
+            Dossier <b className="mono">{s(c['id'])}</b> · {s(c['statut'])}
+            {s(c['etape']) ? <> · attendu à <b>{s(c['etape'])}</b></> : null}
+          </span>
+        </div>
+        <div className="row" style={{ gap: 6 }}>
+          <button className="ghost xs" onClick={() => go('detail', s(c['id']))}>Voir la fiche</button>
+          <button className="xs" disabled={busy === s(c['id'])} onClick={() => pointerCandidat(c)}>
+            {busy === s(c['id']) ? 'Pointage…' : 'Pointer au parking'}
+          </button>
+        </div>
+      </div>)}
+    </div>}
+
+    {/* CAMION INCONNU : ni au parking, ni dans le circuit. On le dit, au
+        milieu, et on propose le seul geste possible : l'ajouter. */}
+    {q.length >= 2 && !lignes.length && !candidats.length && !loading && <div className="card park-inconnu">
+      <Icone nom="camionPlus" taille={30} />
+      {rechercheIndisponible ? <>
+        <b>Recherche des camions du circuit indisponible</b>
+        <p className="help">
+          Le serveur n'a pas encore été mis à jour : impossible de dire si
+          <b className="mono"> {recherche.trim()} </b> existe déjà dans le circuit. <b>N'ajoutez pas
+          ce camion à l'aveugle</b>, vous risqueriez un doublon.
+        </p>
+      </> : errCand ? <>
+        <b>La recherche a échoué</b>
+        <p className="help">{errCand}</p>
+      </> : <>
+        <b>Ce camion n'est pas encore ajouté</b>
+        <p className="help">
+          <b className="mono">{recherche.trim()}</b> ne figure ni au parking, ni parmi les cargaisons en
+          cours. Ajoutez-le au parking : vous pourrez le pointer dans la foulée.
+        </p>
+        <button onClick={() => setAjout(true)}><Icone nom="camionPlus" />Ajouter ce camion</button>
+      </>}
+    </div>}
+
+    {ajout && <ModaleAjoutParking plaque={recherche.trim()} onClose={() => setAjout(false)}
+      onFait={() => { setAjout(false); reload(); reloadCand(); }} />}
     {detail && <ModaleDetailParking id={detail} onClose={() => setDetail(null)} onFait={reload} />}
     {edite && <ModaleModifierParking ligne={edite} onClose={() => setEdite(null)}
       onFait={() => { setEdite(null); reload(); }} />}
@@ -291,8 +392,12 @@ function EnteteParkingAnime() {
   </div>;
 }
 
-export function ModaleAjoutParking({ onClose, onFait }: { onClose: () => void; onFait: () => void }) {
-  const [num, setNum] = useState('');
+export function ModaleAjoutParking({ onClose, onFait, plaque }: {
+  onClose: () => void; onFait: () => void;
+  /** Plaque deja tapee dans la recherche : on ne la fait pas retaper (28/09). */
+  plaque?: string;
+}) {
+  const [num, setNum] = useState(plaque ?? '');
   const [conteneur, setConteneur] = useState('');
   const [plomb, setPlomb] = useState('');
   // Pointer en même temps que l'ajout : l'agent qui saisit un camion l'a sous

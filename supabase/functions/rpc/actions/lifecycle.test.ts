@@ -3287,6 +3287,71 @@ test("parking : le camion repris depuis le parking suit la meme chaine", async (
   assert.equal(apres.present, false, 'la sortie a la PP ferme aussi le sejour au parking');
 });
 
+test("parking : les camions deja crees sont proposes, sauf ceux deja gares", async () => {
+  const db = new FakeDB();
+  db.store['stock'].push({ numero_tc: 'MSKU7770001', taille: "40'", statut: 'En stock' });
+  const cfs = ctxAvec(db);
+  const gardien = ctxRole(db, 'BALISE', 'Agent Balise');
+
+  // Un camion cree au CFS, avec son conteneur : il est sur le site, pas gare.
+  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'TG6438ES/RM03', routage: 'Enlèvement' })) as { id: string };
+  await ecr.cfs(cfs, { id, conteneur: { num: 'MSKU7770001', taille: "40'", type: 'DRY', plomb: 'PL-12' }, declaration: DECL_OK });
+
+  type Prop = { lignes: { id: string; numeroCamion: string; numeroConteneur: string; plomb: string; etape: string }[] };
+  const p1 = (await prk.parkingCandidats(gardien, { recherche: '6438' })) as Prop;
+  assert.equal(p1.lignes.length, 1, 'le camion du circuit est propose au parking');
+  assert.equal(p1.lignes[0]!.id, id);
+  assert.equal(p1.lignes[0]!.numeroConteneur, 'MSKU7770001', 'le conteneur du dossier est repris');
+  assert.equal(p1.lignes[0]!.plomb, 'PL-12', 'le plomb aussi : rien a retaper');
+  assert.ok(p1.lignes[0]!.etape, "l'etape attendue accompagne la proposition");
+
+  // Moins de deux caracteres : on ne propose rien, sinon tout le parc remonte.
+  assert.deepEqual(((await prk.parkingCandidats(gardien, { recherche: '6' })) as Prop).lignes, []);
+
+  /* POINTE, IL ENTRE DANS LE VOLET PARKING (rappel de l'utilisateur, 28/09).
+     C'est tout l'interet du geste : le camion n'etait pas au parking, il y est
+     desormais, compte parmi les presents et pointe du jour. */
+  await prk.parkingAdd(gardien, { numeroCamion: 'TG6438ES/RM03', numeroConteneur: 'MSKU7770001', plomb: 'PL-12' });
+  const volet = (await prk.parkingList(gardien, {})) as {
+    lignes: { numeroCamion: string; numeroConteneur: string; plomb: string; pointeAujourdhui: boolean }[];
+    compte: { presents: number; pointes: number; restants: number };
+  };
+  assert.equal(volet.lignes.length, 1, 'le camion pointe apparait au volet Parking');
+  assert.equal(volet.lignes[0]!.numeroCamion, 'TG6438ES/RM03');
+  assert.equal(volet.lignes[0]!.numeroConteneur, 'MSKU7770001', 'avec le conteneur repris du dossier');
+  assert.equal(volet.lignes[0]!.plomb, 'PL-12');
+  assert.equal(volet.lignes[0]!.pointeAujourdhui, true, 'et deja pointe du jour');
+  assert.deepEqual(volet.compte, { presents: 1, pointes: 1, restants: 0 });
+
+  // Et il n'est plus propose : il est desormais dans la liste au-dessus.
+  assert.deepEqual(((await prk.parkingCandidats(gardien, { recherche: '6438' })) as Prop).lignes, []);
+
+  // Et un numero inconnu ne propose rien : l'ecran invite alors a l'ajouter.
+  assert.deepEqual(((await prk.parkingCandidats(gardien, { recherche: 'XX9999' })) as Prop).lignes, []);
+
+  /* UN VIEUX DOSSIER RESTE TROUVABLE. Une premiere version lisait les 400
+     dossiers les plus RECENTS puis filtrait en memoire : au-dela, un camion
+     ancien devenait introuvable sans le moindre signe. On en fabrique 60,
+     tous plus recents, et on verifie que le doyen remonte quand meme. */
+  const vieux = 'TG0001AA/RM99';
+  db.store['cargaisons'].push({
+    id: 'CT-VIEUX', reference: 'CT-VIEUX', numero_camion: vieux, numero_camion_norm: 'TG0001AARM99',
+    statut: 'Créée', type_operation: 'Enlèvement', type_declaration: 'T',
+    date_creation: '2025-01-01T08:00:00Z', conteneurs_details: { conteneurs: [] },
+  });
+  for (let i = 0; i < 60; i++) {
+    db.store['cargaisons'].push({
+      id: 'CT-R' + i, reference: 'CT-R' + i, numero_camion: 'TG90' + i + 'ZZ/RM01',
+      numero_camion_norm: 'TG90' + i + 'ZZRM01', statut: 'Créée', type_operation: 'Enlèvement',
+      type_declaration: 'T', date_creation: '2026-09-2' + (i % 9) + 'T08:00:00Z',
+      conteneurs_details: { conteneurs: [] },
+    });
+  }
+  const doyen = (await prk.parkingCandidats(gardien, { recherche: '0001AA' })) as Prop;
+  assert.equal(doyen.lignes.length, 1, 'un dossier ancien reste trouvable');
+  assert.equal(doyen.lignes[0]!.numeroCamion, vieux);
+});
+
 test('parking : ajout sans pointer, puis pointage le lendemain', async () => {
   const db = new FakeDB();
   const agent = ctxRole(db, 'T1', 'Agent T1');

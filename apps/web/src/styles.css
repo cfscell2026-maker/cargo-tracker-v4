@@ -1759,6 +1759,17 @@ tr.clk{cursor:pointer} tr.clk:hover{background:var(--accent-soft)}
   .pt-ligne button{width:100%}
 }
 
+/* ---- Parking : propositions et camion inconnu (2026-09-28) ------------
+   Deux reponses a une recherche qui ne trouve rien DANS le parking : le
+   camion existe ailleurs (propositions, lisere camion), ou il n'existe nulle
+   part (bloc centre, qui ne laisse qu'un geste). */
+.park-propose{border-left:4px solid var(--accent);padding:14px 16px}
+.park-inconnu{display:flex;flex-direction:column;align-items:center;text-align:center;
+  gap:10px;padding:26px 18px;color:var(--muted)}
+.park-inconnu b{color:var(--txt,inherit);font-size:16px}
+.park-inconnu .help{margin:0;max-width:440px}
+.park-inconnu > svg{color:var(--accent);opacity:.75}
+
 /* ---- Dispenses et escortes (2026-09-24) -------------------------------
    Une barre par mois, coupee en deux : ce qui releve d'une autorisation et ce
    qui releve d'un accompagnement. La longueur compare les mois entre eux. */
@@ -1932,7 +1943,53 @@ button.ghost:hover:not(:disabled){
   background:#fff;border-color:var(--accent);
   transform:translateY(-1px);box-shadow:0 6px 18px rgba(15,35,55,.12);
 }
-button:active:not(:disabled){transform:translateY(0)}
+/* ---- Appui sur un bouton (2026-09-28, demande utilisateur) -------------
+   Le survol se voyait, l'APPUI non : sur telephone, ou il n'y a pas de
+   survol, rien ne disait que le doigt avait porte. Le bouton s'enfonce donc
+   legerement, son ombre se resserre, et un halo part du centre.
+
+   L'enfoncement est RAPIDE (60 ms), la remontee plus douce : un appui doit
+   repondre tout de suite, un relachement peut respirer. Le halo reste
+   discret, ces ecrans enchainent les pointages.
+
+   QUATRE EXCLUSIONS, chacune pour une raison precise :
+     · `.nm-onglet` fait deja scintiller son icone ;
+     · `.hubitem` a sa propre animation de carte ;
+     · `.seg-choix` porte un VOYANT qui DIFFUSE hors de son disque - un
+       `overflow:hidden` le rognerait - et s'enfonce deja de 1 px ;
+     · `.burger` et `.repli` sont des traits nus, sans fond a enfoncer.
+   Sans ces exclusions, l'effet general ecraserait des choix deja faits. */
+button:not(.nm-onglet):not(.hubitem):not(.seg-choix):not(.burger):not(.repli){
+  position:relative;overflow:hidden;
+}
+button:active:not(:disabled):not(.nm-onglet):not(.hubitem):not(.seg-choix):not(.burger):not(.repli){
+  transform:translateY(0) scale(.96);
+  box-shadow:0 1px 4px rgba(15,35,55,.16);
+  transition-duration:.06s;
+}
+/* Le halo vit dans ::after : rien a ajouter au HTML, et il ne capte jamais
+   le clic. */
+button:not(.nm-onglet):not(.hubitem):not(.seg-choix):not(.burger):not(.repli)::after{
+  content:'';position:absolute;inset:0;margin:auto;
+  width:8px;height:8px;border-radius:50%;
+  background:currentColor;opacity:0;transform:scale(1);
+  pointer-events:none;
+}
+button:active:not(:disabled):not(.nm-onglet):not(.hubitem):not(.seg-choix):not(.burger):not(.repli)::after{
+  animation:appui-halo .45s ease-out;
+}
+@keyframes appui-halo{
+  0%{opacity:.22;transform:scale(1)}
+  100%{opacity:0;transform:scale(26)}
+}
+/* Mouvement reduit : on garde le retour d'appui, sans le halo ni l'echelle.
+   L'information demeure, l'effet disparait. */
+@media (prefers-reduced-motion:reduce){
+  button:active:not(:disabled):not(.nm-onglet):not(.hubitem):not(.seg-choix):not(.burger):not(.repli){
+    transform:none;box-shadow:0 1px 3px rgba(15,35,55,.2);
+  }
+  button:not(.nm-onglet):not(.hubitem):not(.seg-choix):not(.burger):not(.repli)::after{display:none}
+}
 /* Une icone posee dans un bouton retombait sur la ligne de base du texte et
    pendait de 3 px. On la recale sans passer les boutons en flex (ce qui
    casserait les boutons deja en place). */

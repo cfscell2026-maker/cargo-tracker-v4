@@ -24,7 +24,7 @@ import { ErreurMetier } from '../ctx.ts';
 import { versCamel } from '../ctx.ts';
 import {
   alphaNumMaj, camionValide, messageCamionFormat, maj, normAlphaNum,
-  fileAttente, LIBELLE_ETAPE,
+  fileAttente, LIBELLE_ETAPE, STATUTS,
 } from '../../_shared/domaine/src/index.ts';
 import { nextRef } from './helpers.ts';
 
@@ -218,6 +218,80 @@ export async function parkingSaisie(ctx: Ctx, p: Record<string, unknown>) {
     };
   });
   return { lignes, active: true };
+}
+
+/**
+ * LES CAMIONS DEJA DANS LE SYSTEME (2026-09-28, demande utilisateur).
+ *
+ * Le parking ne recoit pas que des inconnus. Beaucoup de camions sont CREES au
+ * CFS, entrent sur le site, puis vont se garer. Le matin, l'agent qui fait sa
+ * tournee tape la plaque : jusqu'ici la recherche ne fouillait que le registre
+ * du parking, et ne trouvait rien, alors que le camion existait depuis trois
+ * jours dans le circuit. Il fallait le ressaisir a la main, avec son conteneur
+ * et son plomb, au risque d'une faute de frappe et d'un doublon.
+ *
+ * Cette action rend les cargaisons EN COURS dont la plaque correspond et qui ne
+ * sont PAS deja au parking. L'ecran en fait un bouton : pointer le camion au
+ * parking en reprenant son conteneur et son plomb, sans rien retaper.
+ *
+ * L'inverse de `parkingSaisie` : celle-la part du parking et cherche le
+ * dossier, celle-ci part du dossier et l'amene au parking.
+ */
+export async function parkingCandidats(ctx: Ctx, p: Record<string, unknown>) {
+  const recherche = normAlphaNum(p['recherche']);
+  if (recherche.length < 2) return { lignes: [] };
+
+  /* LE FILTRE PART EN SQL, PAS EN JS (corrige le 2026-09-28 avant la mise en
+     service). Une premiere version lisait les 400 dossiers les plus recents
+     puis filtrait en memoire : avec 601 dossiers en cours en production, les
+     plus anciens - justement ceux qui trainent au parc - n'auraient JAMAIS ete
+     proposes, sans le moindre signe que la liste etait tronquee. La plaque
+     normalisee est en majuscules, comme `recherche` : `like` suffit, et
+     l'index `cargaisons_camion_idx` sert la recherche. */
+  const { data, error } = await ctx.db.from('cargaisons')
+    .select('id, numero_camion, numero_camion_norm, statut, type_operation, type_declaration, '
+      + 'date_creation, date_sortie, date_validation, date_t1, date_pose_gps, bon_sortie_numero, '
+      + 'saute_t1, saute_balise, saute_bs, est_vehicule, conteneurs_details')
+    .is('date_sortie', null)
+    .neq('statut', STATUTS.SORTIE)
+    .like('numero_camion_norm', '%' + recherche + '%')
+    .order('date_creation', { ascending: false })
+    .limit(50);
+  if (error) throw new Error(error.message);
+
+  /* Deja au parking : on ne propose pas d'y remettre un camion qui y est. Le
+     rapprochement se fait sur la plaque normalisee, comme partout ici. */
+  const dejaGares = new Set<string>();
+  const { data: gares, error: eP } = await ctx.db.from('parking_camions')
+    .select('numero_camion_norm').eq('statut', PRESENT);
+  if (eP && !estTableAbsente(eP.message)) throw new Error(eP.message);
+  for (const r of (gares ?? []) as Record<string, unknown>[]) {
+    dejaGares.add(String(r['numero_camion_norm'] ?? ''));
+  }
+
+  const lignes = (data ?? [])
+    .map((r) => versCamel(r as Record<string, unknown>))
+    .filter((c) => !dejaGares.has(String(c['numeroCamionNorm'] ?? '')))
+    .slice(0, 15)
+    .map((c) => {
+      // Premier conteneur du dossier : ce que l'agent aurait retape a la main.
+      const det = (c['conteneursDetails'] ?? {}) as Record<string, unknown>;
+      const tcs = (det['conteneurs'] ?? []) as Record<string, unknown>[];
+      const premier = tcs[0] ?? {};
+      const etape = fileAttente(c as never);
+      return {
+        id: String(c['id']),
+        numeroCamion: String(c['numeroCamion'] ?? ''),
+        statut: String(c['statut'] ?? ''),
+        typeOperation: String(c['typeOperation'] ?? ''),
+        dateCreation: c['dateCreation'] ?? '',
+        numeroConteneur: String(premier['num'] ?? ''),
+        plomb: String(premier['plomb'] ?? ''),
+        nbConteneurs: tcs.length,
+        etape: etape ? LIBELLE_ETAPE[etape] : '',
+      };
+    });
+  return { lignes };
 }
 
 export async function parkingCheck(ctx: Ctx, p: Record<string, unknown>) {
