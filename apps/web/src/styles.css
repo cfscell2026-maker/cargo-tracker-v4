@@ -1759,6 +1759,17 @@ tr.clk{cursor:pointer} tr.clk:hover{background:var(--accent-soft)}
   .pt-ligne button{width:100%}
 }
 
+/* ---- Parking : propositions et camion inconnu (2026-09-28) ------------
+   Deux reponses a une recherche qui ne trouve rien DANS le parking : le
+   camion existe ailleurs (propositions, lisere camion), ou il n'existe nulle
+   part (bloc centre, qui ne laisse qu'un geste). */
+.park-propose{border-left:4px solid var(--accent);padding:14px 16px}
+.park-inconnu{display:flex;flex-direction:column;align-items:center;text-align:center;
+  gap:10px;padding:26px 18px;color:var(--muted)}
+.park-inconnu b{color:var(--txt,inherit);font-size:16px}
+.park-inconnu .help{margin:0;max-width:440px}
+.park-inconnu > svg{color:var(--accent);opacity:.75}
+
 /* ---- Dispenses et escortes (2026-09-24) -------------------------------
    Une barre par mois, coupee en deux : ce qui releve d'une autorisation et ce
    qui releve d'un accompagnement. La longueur compare les mois entre eux. */

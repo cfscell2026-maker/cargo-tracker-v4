@@ -3287,6 +3287,35 @@ test("parking : le camion repris depuis le parking suit la meme chaine", async (
   assert.equal(apres.present, false, 'la sortie a la PP ferme aussi le sejour au parking');
 });
 
+test("parking : les camions deja crees sont proposes, sauf ceux deja gares", async () => {
+  const db = new FakeDB();
+  db.store['stock'].push({ numero_tc: 'MSKU7770001', taille: "40'", statut: 'En stock' });
+  const cfs = ctxAvec(db);
+  const gardien = ctxRole(db, 'BALISE', 'Agent Balise');
+
+  // Un camion cree au CFS, avec son conteneur : il est sur le site, pas gare.
+  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'TG6438ES/RM03', routage: 'Enlèvement' })) as { id: string };
+  await ecr.cfs(cfs, { id, conteneur: { num: 'MSKU7770001', taille: "40'", type: 'DRY', plomb: 'PL-12' }, declaration: DECL_OK });
+
+  type Prop = { lignes: { id: string; numeroCamion: string; numeroConteneur: string; plomb: string; etape: string }[] };
+  const p1 = (await prk.parkingCandidats(gardien, { recherche: '6438' })) as Prop;
+  assert.equal(p1.lignes.length, 1, 'le camion du circuit est propose au parking');
+  assert.equal(p1.lignes[0]!.id, id);
+  assert.equal(p1.lignes[0]!.numeroConteneur, 'MSKU7770001', 'le conteneur du dossier est repris');
+  assert.equal(p1.lignes[0]!.plomb, 'PL-12', 'le plomb aussi : rien a retaper');
+  assert.ok(p1.lignes[0]!.etape, "l'etape attendue accompagne la proposition");
+
+  // Moins de deux caracteres : on ne propose rien, sinon tout le parc remonte.
+  assert.deepEqual(((await prk.parkingCandidats(gardien, { recherche: '6' })) as Prop).lignes, []);
+
+  // Une fois gare, il n'est plus propose : il est deja dans la liste au-dessus.
+  await prk.parkingAdd(gardien, { numeroCamion: 'TG6438ES/RM03', numeroConteneur: 'MSKU7770001', plomb: 'PL-12' });
+  assert.deepEqual(((await prk.parkingCandidats(gardien, { recherche: '6438' })) as Prop).lignes, []);
+
+  // Et un numero inconnu ne propose rien : l'ecran invite alors a l'ajouter.
+  assert.deepEqual(((await prk.parkingCandidats(gardien, { recherche: 'XX9999' })) as Prop).lignes, []);
+});
+
 test('parking : ajout sans pointer, puis pointage le lendemain', async () => {
   const db = new FakeDB();
   const agent = ctxRole(db, 'T1', 'Agent T1');
