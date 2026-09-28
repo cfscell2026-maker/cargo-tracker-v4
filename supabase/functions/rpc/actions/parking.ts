@@ -22,7 +22,10 @@
 import type { Ctx } from '../ctx.ts';
 import { ErreurMetier } from '../ctx.ts';
 import { versCamel } from '../ctx.ts';
-import { alphaNumMaj, camionValide, messageCamionFormat, maj, normAlphaNum } from '../../_shared/domaine/src/index.ts';
+import {
+  alphaNumMaj, camionValide, messageCamionFormat, maj, normAlphaNum,
+  fileAttente, LIBELLE_ETAPE,
+} from '../../_shared/domaine/src/index.ts';
 import { nextRef } from './helpers.ts';
 
 const PRESENT = 'Présent';
@@ -185,7 +188,11 @@ export async function parkingSaisie(ctx: Ctx, p: Record<string, unknown>) {
   const parPlaque = new Map<string, Record<string, unknown>>();
   if (plaques.length) {
     const { data: cargos, error: eC } = await ctx.db.from('cargaisons')
-      .select('id, numero_camion, numero_camion_norm, statut, type_operation, type_declaration, date_creation, date_sortie')
+      /* On lit de quoi calculer l'ETAPE ATTENDUE, pas seulement le statut : ce
+         que l'agent veut savoir, c'est quelle cellule doit agir maintenant. */
+      .select('id, numero_camion, numero_camion_norm, statut, type_operation, type_declaration, '
+        + 'date_creation, date_sortie, date_validation, date_t1, date_pose_gps, bon_sortie_numero, '
+        + 'saute_t1, saute_balise, saute_bs, est_vehicule')
       .in('numero_camion_norm', plaques)
       .is('date_sortie', null)
       .order('date_creation', { ascending: false });
@@ -198,12 +205,16 @@ export async function parkingSaisie(ctx: Ctx, p: Record<string, unknown>) {
 
   const lignes = trouves.map((l) => {
     const dossier = parPlaque.get(String(l['numeroCamionNorm'] ?? '')) ?? null;
+    const etape = dossier ? fileAttente(dossier as never) : null;
     return {
       ...l,
       dureeMinutes: dureeSejour(l),
       cargaisonId: dossier ? String(dossier['id']) : '',
       cargaisonStatut: dossier ? String(dossier['statut'] ?? '') : '',
       cargaisonOperation: dossier ? String(dossier['typeOperation'] ?? '') : '',
+      // « le bon de sortie », « la pose de la balise »… la MEME phrase que les
+      // refus des cellules : l'agent lit partout le meme vocabulaire.
+      cargaisonEtape: etape ? LIBELLE_ETAPE[etape] : '',
     };
   });
   return { lignes, active: true };

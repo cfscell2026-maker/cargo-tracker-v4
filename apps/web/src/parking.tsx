@@ -561,6 +561,7 @@ export function ResultatsParking({ recherche, go, exclureIds }: {
           </span>
           {id ? <span className="help">
             Dossier <b className="mono">{id}</b> · {s(l['cargaisonStatut'])}
+            {s(l['cargaisonEtape']) ? <> · attendu à <b>{s(l['cargaisonEtape'])}</b></> : null}
           </span> : <span className="help pt-sans">Aucun dossier ouvert pour ce camion.</span>}
         </div>
         {id
