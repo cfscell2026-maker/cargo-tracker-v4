@@ -3194,6 +3194,39 @@ test('parking : ajout + pointage du jour, un seul par jour', async () => {
   await assert.rejects(() => prk.parkingAdd(agent, { numeroCamion: 'tg1234ab/rm01' }), /DÉJÀ au parking/);
 });
 
+test("parking : le camion gare se retrouve a n'importe quelle etape", async () => {
+  const db = new FakeDB();
+  db.store['stock'].push({ numero_tc: 'MSKU5550001', taille: "40'", statut: 'En stock' });
+  const agent = ctxRole(db, 'BALISE', 'Agent Balise');
+  await prk.parkingAdd(agent, { numeroCamion: 'TG9090ZZ/RM09', numeroConteneur: 'MSKU5550001', plomb: 'PL-90' });
+
+  type Trouve = { lignes: { numeroCamion: string; numeroConteneur: string; cargaisonId: string; cargaisonStatut: string }[] };
+  // Une recherche partielle suffit : l'agent tape ce qu'il lit sur la plaque.
+  const a1 = (await prk.parkingSaisie(agent, { recherche: '9090' })) as Trouve;
+  assert.equal(a1.lignes.length, 1);
+  assert.equal(a1.lignes[0]!.numeroConteneur, 'MSKU5550001', 'le conteneur saisi au parking remonte');
+  assert.equal(a1.lignes[0]!.cargaisonId, '', 'aucun dossier ouvert : il reste a creer');
+
+  // Moins de deux caracteres : on ne repond pas, sinon tout le parking remonte.
+  assert.deepEqual(((await prk.parkingSaisie(agent, { recherche: '9' })) as Trouve).lignes, []);
+
+  // Le CFS ouvre le dossier : la meme recherche le donne desormais a suivre.
+  const cfs = ctxAvec(db);
+  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'TG9090ZZ/RM09', routage: 'Enlèvement' })) as { id: string };
+  const a2 = (await prk.parkingSaisie(agent, { recherche: 'tg9090' })) as Trouve;
+  assert.equal(a2.lignes[0]!.cargaisonId, id, 'le dossier est rattache par la plaque normalisee');
+  assert.equal(a2.lignes[0]!.cargaisonStatut, STATUTS.CAMION);
+
+  // Un camion sorti ne se continue pas : le rapprochement l'ecarte.
+  await ecr.cfs(cfs, { id, conteneur: { num: 'MSKU5550001', taille: "40'", type: 'DRY', plomb: 'S1' }, declaration: DECL_OK });
+  await ecr.t1(ctxRole(db, 'T1', 'T1'), { id, bureauDestination: 'TG120', t1Numeros: [{ conteneur: 'MSKU5550001', numero: 'T1-90' }] });
+  await ecr.bonsortie(ctxRole(db, 'BON_SORTIE', 'BS'), { id, bonSortieNumero: 'BS-90' });
+  await ecr.gps(agent, { id, baliseRequise: 'Oui', t1Correct: 'Oui', numeroGPS: 'G-90' });
+  await ecr.sortie(ctxRole(db, 'PP', 'PP'), { id, ckCfs: true, ckT1: true, ckBalise: true, ckBs: true });
+  // La sortie a la PP ferme aussi le sejour au parking : plus rien a proposer.
+  assert.deepEqual(((await prk.parkingSaisie(agent, { recherche: 'tg9090' })) as Trouve).lignes, []);
+});
+
 test('parking : ajout sans pointer, puis pointage le lendemain', async () => {
   const db = new FakeDB();
   const agent = ctxRole(db, 'T1', 'Agent T1');

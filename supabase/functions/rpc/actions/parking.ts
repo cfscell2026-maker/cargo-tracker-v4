@@ -141,6 +141,74 @@ export async function parkingDetail(ctx: Ctx, p: Record<string, unknown>) {
  * est prévenu, et décide lui-même de continuer ou non. Elle n'interdit RIEN,
  * un camion au parking a parfaitement le droit d'être enregistré.
  */
+/**
+ * LE PARKING SUIT LE CAMION DANS TOUT LE PARCOURS (2026-09-28, demande
+ * utilisateur).
+ *
+ * Un camion ajoute au parking n'a PAS de dossier : le parking est un registre
+ * de presence, pas une etape du circuit. L'agent qui tapait sa plaque a la
+ * cellule T1 ou Balise ne trouvait donc rien, et n'avait aucun moyen de savoir
+ * que le camion etait la, pointe, depuis trois jours.
+ *
+ * Cette action repond a la question posee a n'importe quelle etape : « ce
+ * numero, je le connais ? ». Elle rend les camions du parking dont la plaque
+ * CONTIENT ce qui est tape, et pour chacun le dossier en cours s'il existe,
+ * avec l'etape ou il est attendu. L'ecran en tire deux gestes : ouvrir le
+ * dossier pour continuer la saisie, ou le creer s'il n'existe pas encore, en
+ * reprenant le conteneur et le plomb deja saisis au parking.
+ *
+ * Le rapprochement se fait sur la plaque NORMALISEE (`numero_camion_norm`),
+ * comme la sortie automatique du parking : c'est le seul lien entre les deux
+ * tables, aucune cle etrangere ne les relie.
+ */
+export async function parkingSaisie(ctx: Ctx, p: Record<string, unknown>) {
+  const recherche = normAlphaNum(p['recherche']);
+  if (recherche.length < 2) return { lignes: [], active: true };
+
+  const { data, error } = await ctx.db.from('parking_camions').select('*')
+    .eq('statut', PRESENT).order('date_entree', { ascending: false });
+  if (error) {
+    if (estTableAbsente(error.message)) return { lignes: [], active: false };
+    throw new Error(error.message);
+  }
+
+  const trouves = (data ?? [])
+    .map((r) => versCamel(r as Record<string, unknown>) as LigneParking)
+    .filter((l) => String(l['numeroCamionNorm'] ?? '').indexOf(recherche) > -1)
+    .slice(0, 20);
+  if (!trouves.length) return { lignes: [], active: true };
+
+  /* Le dossier en cours de chaque camion trouve. On interroge par plaque
+     normalisee, une seule requete pour toute la liste, et on ecarte les
+     dossiers sortis : un camion sorti ne se continue pas. */
+  const plaques = [...new Set(trouves.map((l) => String(l['numeroCamionNorm'] ?? '')).filter(Boolean))];
+  const parPlaque = new Map<string, Record<string, unknown>>();
+  if (plaques.length) {
+    const { data: cargos, error: eC } = await ctx.db.from('cargaisons')
+      .select('id, numero_camion, numero_camion_norm, statut, type_operation, type_declaration, date_creation, date_sortie')
+      .in('numero_camion_norm', plaques)
+      .is('date_sortie', null)
+      .order('date_creation', { ascending: false });
+    if (eC) throw new Error(eC.message);
+    for (const r of (cargos ?? []) as Record<string, unknown>[]) {
+      const cle = String(r['numero_camion_norm'] ?? '');
+      if (cle && !parPlaque.has(cle)) parPlaque.set(cle, versCamel(r));
+    }
+  }
+
+  const lignes = trouves.map((l) => {
+    const dossier = parPlaque.get(String(l['numeroCamionNorm'] ?? '')) ?? null;
+    return {
+      ...l,
+      dureeMinutes: dureeSejour(l),
+      cargaisonId: dossier ? String(dossier['id']) : '',
+      cargaisonStatut: dossier ? String(dossier['statut'] ?? '') : '',
+      cargaisonOperation: dossier ? String(dossier['typeOperation'] ?? '') : '',
+    };
+  });
+  return { lignes, active: true };
+}
+
 export async function parkingCheck(ctx: Ctx, p: Record<string, unknown>) {
   const norm = normAlphaNum(p['numeroCamion']);
   if (!norm) return { present: false };

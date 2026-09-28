@@ -1740,6 +1740,25 @@ tr.clk{cursor:pointer} tr.clk:hover{background:var(--accent-soft)}
 .liste-outils .champ-loupe{min-width:180px}
 .liste-compte{margin:8px 0}
 
+/* ---- Camion retrouve au parking (2026-09-28) --------------------------
+   Un bloc d'APPOINT, pose sous une liste de recherche : il doit se distinguer
+   des resultats sans leur voler la vedette. D'ou le liséré parking a gauche et
+   la pastille, qui disent d'ou vient l'information. */
+.park-trouve{border-left:4px solid var(--etape-parking,var(--accent));padding:14px 16px}
+.pt-entete{display:flex;gap:10px;align-items:flex-start;margin-bottom:10px}
+.pt-pastille{display:inline-flex;align-items:center;justify-content:center;
+  width:30px;height:30px;border-radius:9px;flex:0 0 auto;
+  background:color-mix(in srgb,var(--accent) 14%,transparent);color:var(--accent)}
+.pt-ligne{display:flex;gap:12px;align-items:center;flex-wrap:wrap;
+  padding:9px 0;border-top:1px solid var(--bord,rgba(0,0,0,.08))}
+.pt-infos{flex:1;min-width:180px;display:flex;flex-direction:column;gap:2px}
+.pt-infos .help{margin:0}
+.pt-plaque{font-weight:600;font-size:15px}
+.pt-sans{color:var(--warn)}
+@media (max-width:520px){
+  .pt-ligne button{width:100%}
+}
+
 /* ---- Dispenses et escortes (2026-09-24) -------------------------------
    Une barre par mois, coupee en deux : ce qui releve d'une autorisation et ce
    qui releve d'un accompagnement. La longueur compare les mois entre eux. */
