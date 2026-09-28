@@ -3308,8 +3308,22 @@ test("parking : les camions deja crees sont proposes, sauf ceux deja gares", asy
   // Moins de deux caracteres : on ne propose rien, sinon tout le parc remonte.
   assert.deepEqual(((await prk.parkingCandidats(gardien, { recherche: '6' })) as Prop).lignes, []);
 
-  // Une fois gare, il n'est plus propose : il est deja dans la liste au-dessus.
+  /* POINTE, IL ENTRE DANS LE VOLET PARKING (rappel de l'utilisateur, 28/09).
+     C'est tout l'interet du geste : le camion n'etait pas au parking, il y est
+     desormais, compte parmi les presents et pointe du jour. */
   await prk.parkingAdd(gardien, { numeroCamion: 'TG6438ES/RM03', numeroConteneur: 'MSKU7770001', plomb: 'PL-12' });
+  const volet = (await prk.parkingList(gardien, {})) as {
+    lignes: { numeroCamion: string; numeroConteneur: string; plomb: string; pointeAujourdhui: boolean }[];
+    compte: { presents: number; pointes: number; restants: number };
+  };
+  assert.equal(volet.lignes.length, 1, 'le camion pointe apparait au volet Parking');
+  assert.equal(volet.lignes[0]!.numeroCamion, 'TG6438ES/RM03');
+  assert.equal(volet.lignes[0]!.numeroConteneur, 'MSKU7770001', 'avec le conteneur repris du dossier');
+  assert.equal(volet.lignes[0]!.plomb, 'PL-12');
+  assert.equal(volet.lignes[0]!.pointeAujourdhui, true, 'et deja pointe du jour');
+  assert.deepEqual(volet.compte, { presents: 1, pointes: 1, restants: 0 });
+
+  // Et il n'est plus propose : il est desormais dans la liste au-dessus.
   assert.deepEqual(((await prk.parkingCandidats(gardien, { recherche: '6438' })) as Prop).lignes, []);
 
   // Et un numero inconnu ne propose rien : l'ecran invite alors a l'ajouter.
