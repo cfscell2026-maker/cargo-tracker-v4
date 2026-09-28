@@ -3194,6 +3194,99 @@ test('parking : ajout + pointage du jour, un seul par jour', async () => {
   await assert.rejects(() => prk.parkingAdd(agent, { numeroCamion: 'tg1234ab/rm01' }), /DÉJÀ au parking/);
 });
 
+test("parking : le camion gare se retrouve a n'importe quelle etape", async () => {
+  const db = new FakeDB();
+  db.store['stock'].push({ numero_tc: 'MSKU5550001', taille: "40'", statut: 'En stock' });
+  const agent = ctxRole(db, 'BALISE', 'Agent Balise');
+  await prk.parkingAdd(agent, { numeroCamion: 'TG9090ZZ/RM09', numeroConteneur: 'MSKU5550001', plomb: 'PL-90' });
+
+  type Trouve = { lignes: { numeroCamion: string; numeroConteneur: string; cargaisonId: string; cargaisonStatut: string; cargaisonEtape: string }[] };
+  // Une recherche partielle suffit : l'agent tape ce qu'il lit sur la plaque.
+  const a1 = (await prk.parkingSaisie(agent, { recherche: '9090' })) as Trouve;
+  assert.equal(a1.lignes.length, 1);
+  assert.equal(a1.lignes[0]!.numeroConteneur, 'MSKU5550001', 'le conteneur saisi au parking remonte');
+  assert.equal(a1.lignes[0]!.cargaisonId, '', 'aucun dossier ouvert : il reste a creer');
+
+  // Moins de deux caracteres : on ne repond pas, sinon tout le parking remonte.
+  assert.deepEqual(((await prk.parkingSaisie(agent, { recherche: '9' })) as Trouve).lignes, []);
+
+  // Le CFS ouvre le dossier : la meme recherche le donne desormais a suivre.
+  const cfs = ctxAvec(db);
+  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'TG9090ZZ/RM09', routage: 'Enlèvement' })) as { id: string };
+  const a2 = (await prk.parkingSaisie(agent, { recherche: 'tg9090' })) as Trouve;
+  assert.equal(a2.lignes[0]!.cargaisonId, id, 'le dossier est rattache par la plaque normalisee');
+  assert.equal(a2.lignes[0]!.cargaisonStatut, STATUTS.CAMION);
+  // L'agent lit AUSSI quelle cellule doit agir maintenant (28/09).
+  assert.equal(a2.lignes[0]!.cargaisonEtape, 'la saisie CFS (fin de chargement)');
+
+  // Un camion sorti ne se continue pas : le rapprochement l'ecarte.
+  await ecr.cfs(cfs, { id, conteneur: { num: 'MSKU5550001', taille: "40'", type: 'DRY', plomb: 'S1' }, declaration: DECL_OK });
+  await ecr.t1(ctxRole(db, 'T1', 'T1'), { id, bureauDestination: 'TG120', t1Numeros: [{ conteneur: 'MSKU5550001', numero: 'T1-90' }] });
+  await ecr.bonsortie(ctxRole(db, 'BON_SORTIE', 'BS'), { id, bonSortieNumero: 'BS-90' });
+  await ecr.gps(agent, { id, baliseRequise: 'Oui', t1Correct: 'Oui', numeroGPS: 'G-90' });
+  await ecr.sortie(ctxRole(db, 'PP', 'PP'), { id, ckCfs: true, ckT1: true, ckBalise: true, ckBs: true });
+  // La sortie a la PP ferme aussi le sejour au parking : plus rien a proposer.
+  assert.deepEqual(((await prk.parkingSaisie(agent, { recherche: 'tg9090' })) as Trouve).lignes, []);
+});
+
+/**
+ * LE PARKING N'OUVRE AUCUN RACCOURCI (2026-09-28, precision de l'utilisateur).
+ *
+ * Un camion retrouve au parking se reprend par le bouton « Creer le dossier »,
+ * puis par les cellules, comme n'importe quel autre. La crainte legitime etait
+ * qu'il entre par cette porte au milieu du circuit. Ce test fixe la reponse :
+ * la chaine se tient dans les HANDLERS des cellules, jamais dans l'ecran qui
+ * amene l'agent jusqu'a eux. Le chemin du parking ne peut donc rien sauter.
+ */
+test("parking : le camion repris depuis le parking suit la meme chaine", async () => {
+  const db = new FakeDB();
+  db.store['stock'].push({ numero_tc: 'MSKU6660001', taille: "40'", statut: 'En stock' });
+  const gardien = ctxRole(db, 'BALISE', 'Agent Balise');
+  const plaque = 'TG7070YY/RM07';
+  await prk.parkingAdd(gardien, { numeroCamion: plaque, numeroConteneur: 'MSKU6660001', plomb: 'PL-70' });
+
+  // L'agent retrouve le camion, puis cree son dossier : on entre au DEBUT.
+  type Trouve = { lignes: { numeroCamion: string; cargaisonId: string }[] };
+  assert.equal(((await prk.parkingSaisie(gardien, { recherche: '7070' })) as Trouve).lignes[0]!.cargaisonId, '');
+  const cfs = ctxAvec(db);
+  const { id } = (await ecr.createcamion(cfs, { numeroCamion: plaque, routage: 'Enlèvement' })) as { id: string };
+  assert.equal(statutDe(db, id), STATUTS.CAMION);
+
+  // Chargement pas termine : AUCUNE cellule n'est ouverte, pas meme le T1.
+  for (const tentative of [
+    () => ecr.t1(ctxRole(db, 'T1', 'T1'), { id, bureauDestination: 'TG120', t1Numeros: [{ conteneur: 'MSKU6660001', numero: 'T1-70' }] }),
+    () => ecr.bonsortie(ctxRole(db, 'BON_SORTIE', 'BS'), { id, bonSortieNumero: 'BS-70' }),
+    () => ecr.gps(gardien, { id, baliseRequise: 'Oui', t1Correct: 'Oui', numeroGPS: 'G-70' }),
+  ]) await assert.rejects(tentative);
+
+  await ecr.cfs(cfs, { id, conteneur: { num: 'MSKU6660001', taille: "40'", type: 'DRY', plomb: 'S1' }, declaration: DECL_OK });
+
+  // SANS T1 : ni bon de sortie, ni balise. Le refus nomme l'etape manquante.
+  await assert.rejects(
+    () => ecr.bonsortie(ctxRole(db, 'BON_SORTIE', 'BS'), { id, bonSortieNumero: 'BS-70' }),
+    /le T1 doit être fait avant le bon de sortie/);
+  await assert.rejects(
+    () => ecr.gps(gardien, { id, baliseRequise: 'Oui', t1Correct: 'Oui', numeroGPS: 'G-70' }),
+    /le T1 doit être fait avant la pose de la balise/);
+
+  // T1 fait : le bon s'ouvre, la balise attend encore ce bon.
+  await ecr.t1(ctxRole(db, 'T1', 'T1'), { id, bureauDestination: 'TG120', t1Numeros: [{ conteneur: 'MSKU6660001', numero: 'T1-70' }] });
+  await assert.rejects(
+    () => ecr.gps(gardien, { id, baliseRequise: 'Oui', t1Correct: 'Oui', numeroGPS: 'G-70' }),
+    /le bon de sortie doit être fait avant la pose de la balise/);
+  await assert.rejects(
+    () => ecr.sortie(ctxRole(db, 'PP', 'PP'), { id, ckCfs: true, ckT1: true, ckBalise: true, ckBs: true }),
+    /le bon de sortie doit être fait avant la sortie/);
+
+  // Chaine remontee dans l'ordre : le camion sort, et quitte le parking.
+  await ecr.bonsortie(ctxRole(db, 'BON_SORTIE', 'BS'), { id, bonSortieNumero: 'BS-70' });
+  await ecr.gps(gardien, { id, baliseRequise: 'Oui', t1Correct: 'Oui', numeroGPS: 'G-70' });
+  await ecr.sortie(ctxRole(db, 'PP', 'PP'), { id, ckCfs: true, ckT1: true, ckBalise: true, ckBs: true });
+  assert.equal(statutDe(db, id), STATUTS.SORTIE);
+  const apres = (await prk.parkingCheck(cfs, { numeroCamion: plaque })) as { present: boolean };
+  assert.equal(apres.present, false, 'la sortie a la PP ferme aussi le sejour au parking');
+});
+
 test('parking : ajout sans pointer, puis pointage le lendemain', async () => {
   const db = new FakeDB();
   const agent = ctxRole(db, 'T1', 'Agent T1');

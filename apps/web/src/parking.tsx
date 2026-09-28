@@ -504,6 +504,74 @@ function ModaleSupprimerParking({ ligne, onClose, onFait }: { ligne: O; onClose:
  *  le camion en sortira à la Porte Principale, comme les autres.
  * ========================================================================== */
 
+/**
+ * LE CAMION DU PARKING, RETROUVE A CHAQUE ETAPE (2026-09-28, demande
+ * utilisateur).
+ *
+ * Un camion ajoute au parking n'a pas de dossier : le parking compte des
+ * presences, il n'ouvre pas le circuit. L'agent qui tapait la plaque a la
+ * cellule T1 ou Balise ne trouvait donc RIEN, sans savoir que le camion etait
+ * la, pointe depuis trois jours.
+ *
+ * Ce bloc se glisse sous toute liste de recherche. Des que la saisie fait deux
+ * caracteres, il montre les camions du parking qui correspondent et propose le
+ * seul geste utile :
+ *   · le dossier existe deja  -> l'ouvrir et continuer la saisie ;
+ *   · le dossier n'existe pas -> le creer, plaque deja remplie.
+ *
+ * Il ne s'affiche que s'il a quelque chose a dire : pas de camion trouve, pas
+ * de bloc. Une liste de recherche ordinaire n'est donc jamais alourdie.
+ */
+export function ResultatsParking({ recherche, go, exclureIds }: {
+  recherche: string;
+  go: (ecran: string, arg?: unknown) => void;
+  /** Dossiers deja montres par la liste au-dessus : on ne les repete pas. */
+  exclureIds?: string[];
+}) {
+  const q = recherche.trim();
+  const { data } = useAsync<{ lignes: O[]; active: boolean }>(
+    () => (q.length >= 2 ? call('parking.saisie', { recherche: q }) : Promise.resolve({ lignes: [], active: true })),
+    [q]);
+  const deja = new Set(exclureIds ?? []);
+  const lignes = ((data?.['lignes'] as O[]) ?? []).filter((l) => !deja.has(s(l['cargaisonId'])));
+  if (q.length < 2 || !lignes.length) return null;
+
+  return <div className="card park-trouve">
+    <div className="pt-entete">
+      <span className="pt-pastille" aria-hidden="true"><Icone nom="parking" taille={17} /></span>
+      <div>
+        <b>{lignes.length === 1 ? 'Ce camion est au parking' : `${lignes.length} camions au parking`}</b>
+        <div className="help" style={{ marginTop: 2 }}>
+          Trouvé dans le registre du parking, pas dans les cargaisons. Ouvrez son dossier pour
+          continuer la saisie, ou créez-le s'il n'existe pas encore.
+        </div>
+      </div>
+    </div>
+    {lignes.map((l) => {
+      const id = s(l['cargaisonId']);
+      const plaque = s(l['numeroCamion']);
+      return <div key={s(l['id'])} className="pt-ligne">
+        <div className="pt-infos">
+          <span className="mono pt-plaque">{plaque}</span>
+          <span className="help">
+            {s(l['numeroConteneur']) ? <>conteneur <b className="mono">{s(l['numeroConteneur'])}</b> · </> : null}
+            {s(l['plomb']) ? <>plomb <b className="mono">{s(l['plomb'])}</b> · </> : null}
+            au parking depuis {fmtJour(l['dateEntree'])} ({dureeLisible(Number(l['dureeMinutes'] ?? 0))})
+            {l['pointeAujourdhui'] === true ? ' · pointé aujourd\'hui' : ''}
+          </span>
+          {id ? <span className="help">
+            Dossier <b className="mono">{id}</b> · {s(l['cargaisonStatut'])}
+            {s(l['cargaisonEtape']) ? <> · attendu à <b>{s(l['cargaisonEtape'])}</b></> : null}
+          </span> : <span className="help pt-sans">Aucun dossier ouvert pour ce camion.</span>}
+        </div>
+        {id
+          ? <button className="xs" onClick={() => go('detail', id)}>Ouvrir le dossier</button>
+          : <button className="xs" onClick={() => go('creercamion', plaque)}>Créer le dossier</button>}
+      </div>;
+    })}
+  </div>;
+}
+
 export function useAlerteParking() {
   const [demande, setDemande] = useState<{ lignes: O[]; suite: (ok: boolean) => void } | null>(null);
 

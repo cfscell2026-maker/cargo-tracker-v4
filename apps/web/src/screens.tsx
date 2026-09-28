@@ -11,7 +11,7 @@ import { Spinner, StatCard, Tag, Modal, masks, toast, fmtDate, fmtJour, ChampDes
 import { bornesDe, isoDate, normaliserPlage, type ModePeriode, repartition } from './lib/periode.ts';
 import { trierEngagements, filtrerEngagements, type TriEngagement, type SensTri } from './lib/tri-engagements.ts';
 import { Detail, TitrePanneau } from './detail.tsx';
-import { EcranParking, useAlerteParking } from './parking.tsx';
+import { EcranParking, ResultatsParking, useAlerteParking } from './parking.tsx';
 import type { ReactNode } from 'react';
 import type { Nav } from './App.tsx';
 import { useNav } from './lib/contexte-nav.ts';
@@ -352,7 +352,14 @@ function CargoList({ go, screen, user, filtre, titre, barre }: Nav & { filtre: O
   const reset = () => setPage(1);
   // Écrit APRÈS le rendu (jamais pendant : le rendu doit rester sans effet de bord).
   useEffect(() => { if (barre) etatListe[screen] = { statut, search, page }; }, [barre, screen, statut, search, page]);
-  const eff = barre ? { ...filtre, statut, search, engagement } : filtre;
+  /* UNE RECHERCHE A CHAQUE ETAPE (2026-09-28, demande utilisateur). Seules les
+     listes « barre » (Cargaisons, Historique) avaient un champ de recherche ;
+     les files des cellules - T1, Balise, Bon de sortie, Sortie - n'en avaient
+     aucun. L'agent qui voulait reprendre UN camion precis devait le chercher a
+     l'oeil dans toute la file. Le champ est desormais partout ; les filtres
+     supplementaires (statut, engagement, export) restent reserves aux listes
+     completes, ils n'ont pas de sens dans une file d'une seule etape. */
+  const eff = barre ? { ...filtre, statut, search, engagement } : { ...filtre, search };
   const { data, loading, error, reload } = useAsync<{ rows: O[]; total: number; pages: number }>(
     () => call('cargo.list', { ...eff, page }), [JSON.stringify(filtre), statut, search, engagement, page]);
   /* En-tête illustré (2026-09-11). L'icône vient de `iconeDeLEcran`, la MÊME
@@ -367,9 +374,9 @@ function CargoList({ go, screen, user, filtre, titre, barre }: Nav & { filtre: O
       action={<div className="bm-outils">
         {/* LE TRI DANS L'ANGLE (2026-09-12) : ce qui commande la liste se range
             a droite du titre, au lieu de courir sur une ligne a part. */}
+        <input className="mono" value={search} onChange={(e) => { setSearch(e.target.value); reset(); }}
+          placeholder="N° camion, conteneur, ID…" style={{ width: 190 }} />
         {barre && <>
-          <input className="mono" value={search} onChange={(e) => { setSearch(e.target.value); reset(); }}
-            placeholder="Rechercher…" style={{ width: 190 }} />
           <select value={statut} onChange={(e) => { setStatut(e.target.value); reset(); }} style={{ maxWidth: 190 }}>
             <option value="tous">Tous les statuts</option>
             {STATUT_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
@@ -396,7 +403,12 @@ function CargoList({ go, screen, user, filtre, titre, barre }: Nav & { filtre: O
         <button className="ghost xs" disabled={page >= (data?.pages ?? 1)} onClick={() => setPage((p) => p + 1)}>›</button>
       </div>}
     </>}
-  </div></>;
+  </div>
+    {/* Le camion cherche est peut-etre au parking, sans dossier ou avec un
+        dossier qui n'appartient pas a CETTE file. Le bloc ne s'affiche que
+        s'il a quelque chose a dire. */}
+    <ResultatsParking recherche={search} go={go} exclureIds={(data?.rows ?? []).map((r) => String(r['id']))} />
+  </>;
 }
 
 /**
@@ -2256,8 +2268,11 @@ function SceneEntreePIA() {
   );
 }
 
-SCREENS.creercamion = ({ go }) => {
-  const [num, setNum] = useState('');
+SCREENS.creercamion = ({ go, arg }) => {
+  /* PLAQUE PRE-REMPLIE (2026-09-28) : on arrive souvent ici depuis la
+     recherche, apres y avoir vu que le camion est au parking sans dossier. La
+     retaper serait une occasion de se tromper. */
+  const [num, setNum] = useState(typeof arg === 'string' ? arg : '');
   const [routage, setRoutage] = useState(OPERATIONS.ENLEVEMENT as string);
   const [busy, setBusy] = useState(false);
   const verrou = useRef(false); // double clic : cf. useEnvoiUnique
@@ -2477,7 +2492,9 @@ SCREENS.search = ({ go, user }) => {
         rows={rows.map(avecEtape)} onRow={(r) => go('detail', r['id'])}
         actions={(r) => <ActionsDossier r={r} admin={user.role === ROLES.ADMIN} onFait={reload} />} />}
     </div>
-  </div></>;
+  </div>
+    <ResultatsParking recherche={q} go={go} exclureIds={rows.map((r) => String(r['id']))} />
+  </>;
 };
 
 /** Prochaine cellule qui doit traiter la cargaison, la réponse cherchée au guichet. */
