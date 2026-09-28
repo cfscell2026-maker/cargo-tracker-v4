@@ -42,6 +42,19 @@ function match(row: Row, filters: [string, string, unknown][]): boolean {
        Une colonne NULL est ecartee, comme en SQL : `null < x` n'est pas vrai. */
     if (op === 'lt') return v !== null && v !== undefined && String(v) < String(val);
     if (op === 'gt') return v !== null && v !== undefined && String(v) > String(val);
+    /* `like` ajoute le 2026-09-28, meme lecon que `lt` / `gt` ci-dessus : sans
+       lui, la recherche « contient » se faisait en JS APRES un `limit`, ce qui
+       tronquait silencieusement le parc. Seuls les jokers `%` en tete et en
+       queue sont traduits, les seuls que le code emploie. */
+    if (op === 'like') {
+      const motif = String(val);
+      const noyau = motif.replace(/^%/, '').replace(/%$/, '');
+      const s = String(v ?? '');
+      if (motif.startsWith('%') && motif.endsWith('%')) return s.indexOf(noyau) >= 0;
+      if (motif.endsWith('%')) return s.startsWith(noyau);
+      if (motif.startsWith('%')) return s.endsWith(noyau);
+      return s === noyau;
+    }
     return true;
   });
 }
@@ -70,6 +83,7 @@ class Query {
   delete() { this.opType = 'delete'; return this; }
   eq(c: string, v: unknown) { this.filters.push([c, 'eq', v]); return this; }
   neq(c: string, v: unknown) { this.filters.push([c, 'neq', v]); return this; }
+  like(c: string, v: string) { this.filters.push([c, 'like', v]); return this; }
   is(c: string, v: unknown) { this.filters.push([c, 'is', v]); return this; }
   in(c: string, v: unknown[]) { this.filters.push([c, 'in', v]); return this; }
   gte(c: string, v: unknown) { this.filters.push([c, 'gte', v]); return this; }

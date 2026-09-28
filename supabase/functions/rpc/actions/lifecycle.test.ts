@@ -3314,6 +3314,28 @@ test("parking : les camions deja crees sont proposes, sauf ceux deja gares", asy
 
   // Et un numero inconnu ne propose rien : l'ecran invite alors a l'ajouter.
   assert.deepEqual(((await prk.parkingCandidats(gardien, { recherche: 'XX9999' })) as Prop).lignes, []);
+
+  /* UN VIEUX DOSSIER RESTE TROUVABLE. Une premiere version lisait les 400
+     dossiers les plus RECENTS puis filtrait en memoire : au-dela, un camion
+     ancien devenait introuvable sans le moindre signe. On en fabrique 60,
+     tous plus recents, et on verifie que le doyen remonte quand meme. */
+  const vieux = 'TG0001AA/RM99';
+  db.store['cargaisons'].push({
+    id: 'CT-VIEUX', reference: 'CT-VIEUX', numero_camion: vieux, numero_camion_norm: 'TG0001AARM99',
+    statut: 'Créée', type_operation: 'Enlèvement', type_declaration: 'T',
+    date_creation: '2025-01-01T08:00:00Z', conteneurs_details: { conteneurs: [] },
+  });
+  for (let i = 0; i < 60; i++) {
+    db.store['cargaisons'].push({
+      id: 'CT-R' + i, reference: 'CT-R' + i, numero_camion: 'TG90' + i + 'ZZ/RM01',
+      numero_camion_norm: 'TG90' + i + 'ZZRM01', statut: 'Créée', type_operation: 'Enlèvement',
+      type_declaration: 'T', date_creation: '2026-09-2' + (i % 9) + 'T08:00:00Z',
+      conteneurs_details: { conteneurs: [] },
+    });
+  }
+  const doyen = (await prk.parkingCandidats(gardien, { recherche: '0001AA' })) as Prop;
+  assert.equal(doyen.lignes.length, 1, 'un dossier ancien reste trouvable');
+  assert.equal(doyen.lignes[0]!.numeroCamion, vieux);
 });
 
 test('parking : ajout sans pointer, puis pointage le lendemain', async () => {

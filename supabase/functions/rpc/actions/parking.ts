@@ -241,14 +241,22 @@ export async function parkingCandidats(ctx: Ctx, p: Record<string, unknown>) {
   const recherche = normAlphaNum(p['recherche']);
   if (recherche.length < 2) return { lignes: [] };
 
+  /* LE FILTRE PART EN SQL, PAS EN JS (corrige le 2026-09-28 avant la mise en
+     service). Une premiere version lisait les 400 dossiers les plus recents
+     puis filtrait en memoire : avec 601 dossiers en cours en production, les
+     plus anciens - justement ceux qui trainent au parc - n'auraient JAMAIS ete
+     proposes, sans le moindre signe que la liste etait tronquee. La plaque
+     normalisee est en majuscules, comme `recherche` : `like` suffit, et
+     l'index `cargaisons_camion_idx` sert la recherche. */
   const { data, error } = await ctx.db.from('cargaisons')
     .select('id, numero_camion, numero_camion_norm, statut, type_operation, type_declaration, '
       + 'date_creation, date_sortie, date_validation, date_t1, date_pose_gps, bon_sortie_numero, '
       + 'saute_t1, saute_balise, saute_bs, est_vehicule, conteneurs_details')
     .is('date_sortie', null)
     .neq('statut', STATUTS.SORTIE)
+    .like('numero_camion_norm', '%' + recherche + '%')
     .order('date_creation', { ascending: false })
-    .limit(400);
+    .limit(50);
   if (error) throw new Error(error.message);
 
   /* Deja au parking : on ne propose pas d'y remettre un camion qui y est. Le
@@ -263,10 +271,7 @@ export async function parkingCandidats(ctx: Ctx, p: Record<string, unknown>) {
 
   const lignes = (data ?? [])
     .map((r) => versCamel(r as Record<string, unknown>))
-    .filter((c) => {
-      const norm = String(c['numeroCamionNorm'] ?? '');
-      return norm.indexOf(recherche) > -1 && !dejaGares.has(norm);
-    })
+    .filter((c) => !dejaGares.has(String(c['numeroCamionNorm'] ?? '')))
     .slice(0, 15)
     .map((c) => {
       // Premier conteneur du dossier : ce que l'agent aurait retape a la main.
