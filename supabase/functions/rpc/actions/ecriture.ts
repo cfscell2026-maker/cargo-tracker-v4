@@ -815,6 +815,17 @@ export async function validerLot(ctx: Ctx, p: Record<string, unknown>) {
    * qu'elle reste lisible prise isolément. */
   const suiviEngagement = p['suiviEngagement'];
   const engagementType = p['engagementType'];
+  /* LE DELAI VOYAGE AVEC LE RESTE (corrige le 2026-09-29, signale par
+     l'utilisateur). Il MANQUAIT ici : le lot transmettait le suivi et le type,
+     jamais l'echeance. `engagementPatch` la trouvait donc vide et refusait
+     chaque camion - « indiquez le delai » - alors que le chef venait de la
+     saisir et lisait « echeance le 29/10/2026 » sous ses yeux.
+
+     La validation a l'unite, elle, passait le payload complet : le defaut ne
+     frappait QUE la signature en lot, c'est-a-dire le geste courant d'une
+     declaration a plusieurs camions. Le delai est devenu obligatoire apres
+     l'ecriture de ce lot, et cette ligne n'a pas suivi. */
+  const engagementDelai = p['engagementDelai'];
 
   const validees: string[] = [];
   const erreurs: Record<string, unknown>[] = [];
@@ -823,7 +834,7 @@ export async function validerLot(ctx: Ctx, p: Record<string, unknown>) {
       const ps = pesees[id] ?? {};
       await valider(ctx, {
         id, enSurcharge: ps.enSurcharge, poidsSurcharge: ps.poidsSurcharge,
-        suiviEngagement, engagementType,
+        suiviEngagement, engagementType, engagementDelai,
       });
       validees.push(id);
     } catch (e) {
