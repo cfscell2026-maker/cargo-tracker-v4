@@ -1338,6 +1338,57 @@ test('validation refusée sans pesée renseignée (dépotage)', async () => {
 /** Date ISO à N jours d'aujourd'hui, les délais d'engagement doivent être à venir. */
 const dansNJours = (n: number) => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10);
 
+/**
+ * REGRESSION DU 2026-09-29, signalee par l'utilisateur.
+ *
+ * « Valider et signer les 2 camions » refusait chaque camion avec « indiquez le
+ * delai », alors que le chef venait de saisir 30 jours et lisait « echeance le
+ * 29/10/2026 » sous ses yeux. `validerLot` transmettait le suivi et le type,
+ * mais PAS l'echeance : le delai est devenu obligatoire apres l'ecriture du
+ * lot, et cette ligne n'avait pas suivi.
+ *
+ * Aucun test ne l'avait vu : tous les tests du lot repondaient
+ * `suiviEngagement: false`, qui sort d'`engagementPatch` avant le controle du
+ * delai. Un chemin qu'aucun test n'emprunte n'est pas un chemin sur.
+ */
+test("lot : l'engagement et SON DELAI arrivent sur chaque camion du lot", async () => {
+  const db = new FakeDB();
+  db.store['stock'].push(
+    { numero_tc: 'MSKU4242001', taille: "40'", statut: 'En stock' },
+    { numero_tc: 'MSKU4242002', taille: "40'", statut: 'En stock' },
+  );
+  const cfs = ctxAvec(db);
+  const chef = ctxRole(db, 'CHEF_BRIGADE', 'Chef Brigade');
+  const monter = async (plaque: string, tc: string) => {
+    const { id } = (await ecr.createcamion(cfs, { numeroCamion: plaque, routage: 'Enlèvement' })) as { id: string };
+    await ecr.cfs(cfs, {
+      id, conteneur: { num: tc, taille: "40'", type: 'DRY', plomb: 'S1' },
+      declaration: { ...DECL_OK, numeroDeclaration: '28639' },
+    });
+    return id;
+  };
+  const a1 = await monter('ENGLOT1/RM01', 'MSKU4242001');
+  const a2 = await monter('ENGLOT2/RM02', 'MSKU4242002');
+
+  const echeance = dansNJours(30);
+  const res = (await ecr.validerLot(chef, {
+    ids: [a1, a2],
+    pesees: { [a1]: { enSurcharge: false }, [a2]: { enSurcharge: false } },
+    suiviEngagement: true, engagementType: 'Transit national', engagementDelai: echeance,
+  })) as { validees: string[]; erreurs: { message: string }[]; compte: Record<string, number> };
+
+  assert.deepEqual(res.erreurs, [], 'aucun camion ne doit etre refuse');
+  assert.equal(res.compte['validees'], 2);
+
+  // L'engagement est recopie sur CHAQUE fiche, echeance comprise.
+  for (const id of [a1, a2]) {
+    const c = versCamel(db.store['cargaisons'].find((x) => x['id'] === id)!);
+    assert.equal(c['suiviEngagement'], true, id);
+    assert.equal(c['engagementType'], 'Transit national', id);
+    assert.equal(String(c['engagementDelai']).slice(0, 10), echeance, id);
+  }
+});
+
 test('00180, suivi des engagements : OUI exige de préciser, puis enregistre', async () => {
   const db = new FakeDB();
   const id = await depotageAValider(db, 'ENG001/RM01', 'MSKU9999001');
