@@ -3403,6 +3403,39 @@ test("parking : les camions deja crees sont proposes, sauf ceux deja gares", asy
   assert.equal(doyen.lignes[0]!.numeroCamion, vieux);
 });
 
+test("parking : chaque ligne porte son dossier et l'etape attendue", async () => {
+  const db = new FakeDB();
+  db.store['stock'].push({ numero_tc: 'MSKU8880009', taille: "40'", statut: 'En stock' });
+  const cfs = ctxAvec(db);
+  const gardien = ctxRole(db, 'BALISE', 'Agent Balise');
+  const plaque = 'TG5111BM';
+  await prk.parkingAdd(gardien, { numeroCamion: plaque, numeroConteneur: 'MSKU8880009' });
+
+  type Vue = { lignes: { numeroCamion: string; cargaisonId: string; cargaisonEtape: string }[] };
+  // Gare sans dossier : la colonne invite a le creer.
+  const l1 = (await prk.parkingList(gardien, {})) as Vue;
+  assert.equal(l1.lignes[0]!.cargaisonId, '', 'aucun dossier : rien a ouvrir');
+
+  // Le CFS ouvre le dossier : la ligne du parking y mene, et dit l'etape.
+  const { id } = (await ecr.createcamion(cfs, { numeroCamion: plaque, routage: 'Enlèvement' })) as { id: string };
+  await ecr.cfs(cfs, { id, conteneur: { num: 'MSKU8880009', taille: "40'", type: 'DRY', plomb: 'S1' }, declaration: DECL_OK });
+  const l2 = (await prk.parkingList(gardien, {})) as Vue;
+  assert.equal(l2.lignes[0]!.cargaisonId, id, 'la ligne du parking porte le dossier');
+  assert.equal(l2.lignes[0]!.cargaisonEtape, 'la validation du chef de brigade');
+
+  // Le detail le porte aussi : meme information, meme vocabulaire.
+  const parkId = String((l2.lignes[0] as unknown as { id: string }).id);
+  const det = (await prk.parkingDetail(gardien, { id: parkId })) as { ligne: Record<string, unknown> };
+  assert.equal(det.ligne['cargaisonId'], id);
+  assert.equal(det.ligne['cargaisonEtape'], 'la validation du chef de brigade');
+
+  // L'etape SUIT le dossier : apres le T1, c'est le bon de sortie qu'on attend.
+  await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'), { id, enSurcharge: false, suiviEngagement: false });
+  await ecr.t1(ctxRole(db, 'T1', 'T1'), { id, bureauDestination: 'TG120', t1Numeros: [{ conteneur: 'MSKU8880009', numero: 'T1-51' }] });
+  const l3 = (await prk.parkingList(gardien, {})) as Vue;
+  assert.equal(l3.lignes[0]!.cargaisonEtape, 'le bon de sortie');
+});
+
 test('parking : ajout sans pointer, puis pointage le lendemain', async () => {
   const db = new FakeDB();
   const agent = ctxRole(db, 'T1', 'Agent T1');

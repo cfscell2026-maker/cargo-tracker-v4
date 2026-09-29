@@ -201,7 +201,8 @@ export function EcranParking({ user, go }: Nav) {
         </div> : <div className="tbl"><table>
           <thead><tr>
             <th>Camion</th><th>Conteneur</th><th>Plomb</th><th>Au parking depuis</th>
-            <th>Durée au parking</th><th>Dernier pointage</th><th>Aujourd'hui</th><th></th>
+            <th>Durée au parking</th><th>Dernier pointage</th><th>Aujourd'hui</th>
+            <th>Dossier</th><th></th>
           </tr></thead>
           <tbody>
             {visibles.map((l) => {
@@ -222,6 +223,25 @@ export function EcranParking({ user, go }: Nav) {
                 <td>{sorti ? <span className="help">Sorti le {fmtJour(l['dateSortie'])}</span>
                   : pointe ? <span className="park-ok"><Icone nom="valider" taille={14} />Pointé</span>
                     : <span className="help">Pas encore</span>}</td>
+                {/* LE DOSSIER, DEPUIS LE PARKING (2026-09-29, demande
+                    utilisateur). Le parking comptait des presences sans mener
+                    nulle part : l'agent qui voulait continuer la saisie devait
+                    retenir la plaque, quitter le volet et la retaper ailleurs.
+                    La colonne dit l'etape attendue et y mene d'un clic. */}
+                <td className="park-dossier">
+                  {s(l['cargaisonId']) ? <>
+                    <button className="ghost xs" onClick={() => go('detail', s(l['cargaisonId']))}
+                      title={'Ouvrir le dossier ' + s(l['cargaisonId']) + ' et continuer la saisie'}>
+                      Ouvrir
+                    </button>
+                    {s(l['cargaisonEtape'])
+                      ? <span className="help">attendu à {s(l['cargaisonEtape'])}</span>
+                      : <span className="help">{s(l['cargaisonStatut'])}</span>}
+                  </> : <button className="ghost xs" onClick={() => go('creercamion', s(l['numeroCamion']))}
+                    title="Ce camion n'a pas encore de dossier : le créer">
+                    Créer
+                  </button>}
+                </td>
                 <td className="acts">
                   {/* Le bouton DISPARAÎT une fois le camion pointé. */}
                   {!sorti && !pointe && <button className="xs" disabled={busy === id} onClick={() => pointer(id)}>
@@ -307,7 +327,7 @@ export function EcranParking({ user, go }: Nav) {
 
     {ajout && <ModaleAjoutParking plaque={recherche.trim()} onClose={() => setAjout(false)}
       onFait={() => { setAjout(false); reload(); reloadCand(); }} />}
-    {detail && <ModaleDetailParking id={detail} onClose={() => setDetail(null)} onFait={reload} />}
+    {detail && <ModaleDetailParking id={detail} go={go} onClose={() => setDetail(null)} onFait={reload} />}
     {edite && <ModaleModifierParking ligne={edite} onClose={() => setEdite(null)}
       onFait={() => { setEdite(null); reload(); }} />}
     {supprime && <ModaleSupprimerParking ligne={supprime} onClose={() => setSupprime(null)}
@@ -456,7 +476,10 @@ export function ModaleAjoutParking({ onClose, onFait, plaque }: {
 
 /* ------------------------------------------------------------ le détail */
 
-function ModaleDetailParking({ id, onClose, onFait }: { id: string; onClose: () => void; onFait: () => void }) {
+function ModaleDetailParking({ id, onClose, onFait, go }: {
+  id: string; onClose: () => void; onFait: () => void;
+  go: (ecran: string, arg?: unknown) => void;
+}) {
   const { data, loading, error, reload } = useAsync<O>(() => call('parking.detail', { id }), [id]);
   const [busy, setBusy] = useState(false);
   const l = (data?.['ligne'] as O) ?? {};
@@ -487,6 +510,16 @@ function ModaleDetailParking({ id, onClose, onFait }: { id: string; onClose: () 
         <div><label className="help">Durée au parking</label>
           <div><b>{dureeLisible(dureeMinutesDe(l))}</b> <span className="help">({dureeTitre(l)})</span></div>
         </div>
+        <div><label className="help">Dossier</label>
+          {s(l['cargaisonId'])
+            ? <div>
+              <span className="mono">{s(l['cargaisonId'])}</span>
+              <div className="help">{s(l['cargaisonStatut'])}
+                {s(l['cargaisonEtape']) ? <> · attendu à <b>{s(l['cargaisonEtape'])}</b></> : null}
+              </div>
+            </div>
+            : <div className="help">Aucun dossier ouvert pour ce camion.</div>}
+        </div>
       </div>
       <div className="section-title" style={{ marginTop: 12 }}>Pointages ({pointages.length})</div>
       {!pointages.length ? <div className="empty">Ce camion n'a pas encore été pointé.</div>
@@ -500,6 +533,15 @@ function ModaleDetailParking({ id, onClose, onFait }: { id: string; onClose: () 
         </table></div>}
       <div className="row" style={{ marginTop: 12, justifyContent: 'flex-end' }}>
         <button className="ghost" onClick={onClose}>Fermer</button>
+        {/* Continuer la saisie sans quitter le parking de tete : le bouton
+            emmene a la fiche, a l'etape ou le camion est attendu. */}
+        {s(l['cargaisonId'])
+          ? <button className="ghost" onClick={() => { onClose(); go('detail', s(l['cargaisonId'])); }}>
+            Ouvrir le dossier
+          </button>
+          : !sorti ? <button className="ghost" onClick={() => { onClose(); go('creercamion', s(l['numeroCamion'])); }}>
+            Créer le dossier
+          </button> : null}
         {!sorti && l['pointeAujourdhui'] !== true &&
           <button disabled={busy} onClick={pointer}>{busy ? 'Pointage…' : 'Pointer aujourd\'hui'}</button>}
       </div>

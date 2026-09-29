@@ -26,6 +26,11 @@ export function Detail({ user, arg, go, retour, ecranPrecedent }: Nav) {
   const a = arg && typeof arg === 'object' ? (arg as { id?: unknown; prefillDecl?: O }) : { id: arg };
   const id = String(a.id ?? '');
   const { data: c, loading, error, reload } = useAsync<O>(() => call('cargo.get', { id }), [id]);
+  /* BINOME 20' : le second conteneur s'ajoute SUR DEMANDE (2026-09-29, demande
+     du lieutenant AYIVI). Le panneau de saisie se rouvrait tout seul apres un
+     20', sans un mot : l'agent voyait revenir un formulaire complet et ne
+     savait pas qu'il valait pour un SECOND conteneur, facultatif. */
+  const [ajoutBinome, setAjoutBinome] = useState(false);
   if (loading) return <Spinner />;
   if (error) return <div className="card err-msg">{error}</div>;
   if (!c) return <div className="card">Introuvable.</div>;
@@ -75,8 +80,30 @@ export function Detail({ user, arg, go, retour, ecranPrecedent }: Nav) {
       {/* Sortie Magasin/MAD : pas de conteneurs, on ne « finalise » que les
           scellés du camion (vrac). Les autres opérations passent par PanneauCFS. */}
       {c['typeOperation'] !== OPERATIONS.MAGASIN
-        && (c['statut'] === STATUTS.CAMION || c['statut'] === STATUTS.CHARGEMENT || (c['statut'] === STATUTS.CREEE && binomePossible)) && can(ROLES.CFS, A) &&
+        && (c['statut'] === STATUTS.CAMION || c['statut'] === STATUTS.CHARGEMENT) && can(ROLES.CFS, A) &&
         <PanneauCFS c={c} dets={dets} action={action} prefillDecl={a.prefillDecl} />}
+      {/* LE SECOND 20' S'AJOUTE PAR UN BOUTON (2026-09-29, demande du
+          lieutenant AYIVI). Un camion d'enlevement porte soit UN 40'/45', soit
+          DEUX 20'. Apres un 40' ou un 45' : aucun bouton, la place est prise.
+          Apres un 20' : le bouton parait, et n'ouvre le formulaire que si
+          l'agent le demande - un camion peut fort bien repartir avec un seul
+          conteneur. La regle dure reste au serveur (`verifierBinome`). */}
+      {c['typeOperation'] !== OPERATIONS.MAGASIN && c['statut'] === STATUTS.CREEE
+        && binomePossible && can(ROLES.CFS, A) && (ajoutBinome
+        ? <PanneauCFS c={c} dets={dets} action={action} prefillDecl={a.prefillDecl} />
+        : <div className="card binome20">
+          <span className="b20-pastille" aria-hidden="true"><Icone nom="conteneur" taille={17} /></span>
+          <div className="b20-texte">
+            <b>Un second conteneur 20' peut être ajouté</b>
+            <div className="help">
+              Ce camion porte un <b>20'</b> : il peut en emporter un deuxième. Avec un 40' ou un 45',
+              la place serait prise et ce bouton n'apparaîtrait pas.
+            </div>
+          </div>
+          <button onClick={() => setAjoutBinome(true)}>
+            <Icone nom="plus" taille={15} />Ajouter un conteneur
+          </button>
+        </div>)}
       {c['typeOperation'] === OPERATIONS.MAGASIN && c['statut'] === STATUTS.CHARGEMENT && can(ROLES.CFS, A) &&
         <FinaliserMagasin id={id} action={action} />}
       {c['statut'] === STATUTS.VEHICULE_OUILLAGE && can(ROLES.CFS, A) && <PanneauOuillage c={c} action={action} />}

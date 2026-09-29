@@ -56,6 +56,43 @@ function dureeSejour(l: Record<string, unknown>): number | null {
   return Math.max(0, Math.round((fin - debut) / 60000));
 }
 
+/**
+ * LE DOSSIER DE CHAQUE CAMION GARE (2026-09-29, demande utilisateur).
+ *
+ * Le parking et le circuit sont deux tables sans cle etrangere : le seul lien
+ * est la plaque NORMALISEE, celle qui sert deja a faire sortir le camion du
+ * parking quand il passe la Porte Principale. On l'etablit ici, une fois, pour
+ * la liste comme pour le detail - au lieu de le reecrire a chaque endroit.
+ *
+ * Un dossier SORTI est ignore : il ne se continue pas. Quand un camion a
+ * plusieurs dossiers ouverts (rare, mais la base en contient), on garde le plus
+ * recent, celui sur lequel l'agent travaille.
+ */
+async function dossiersParPlaque(ctx: Ctx, plaques: string[]) {
+  const par = new Map<string, { id: string; statut: string; etape: string }>();
+  const cles = [...new Set(plaques.filter(Boolean))];
+  if (!cles.length) return par;
+  const { data, error } = await ctx.db.from('cargaisons')
+    .select('id, numero_camion_norm, statut, type_declaration, date_creation, date_sortie, '
+      + 'date_validation, date_t1, date_pose_gps, bon_sortie_numero, '
+      + 'saute_t1, saute_balise, saute_bs, est_vehicule')
+    .in('numero_camion_norm', cles)
+    .is('date_sortie', null)
+    .order('date_creation', { ascending: false });
+  if (error) throw new Error(error.message);
+  for (const r of (data ?? []) as Record<string, unknown>[]) {
+    const c = versCamel(r);
+    const cle = String(c['numeroCamionNorm'] ?? '');
+    if (!cle || par.has(cle)) continue;
+    const etape = fileAttente(c as never);
+    par.set(cle, {
+      id: String(c['id']), statut: String(c['statut'] ?? ''),
+      etape: etape ? LIBELLE_ETAPE[etape] : '',
+    });
+  }
+  return par;
+}
+
 /* --------------------------------- lecture -------------------------------- */
 
 interface LigneParking extends Record<string, unknown> {
@@ -106,8 +143,16 @@ export async function parkingList(ctx: Ctx, p: Record<string, unknown>) {
     if (!dernier.has(id) || j > dernier.get(id)!) dernier.set(id, j);
   }
 
+  /* Chaque ligne porte SON dossier : depuis le parking, l'agent doit pouvoir
+     ouvrir la fiche et continuer la saisie a l'etape ou il a l'information. */
+  const dossiers = await dossiersParPlaque(ctx, lignes.map((l) => String(l['numeroCamionNorm'] ?? '')));
+
   const compte = { presents: 0, pointes: 0, restants: 0 };
   for (const l of lignes) {
+    const d = dossiers.get(String(l['numeroCamionNorm'] ?? ''));
+    l['cargaisonId'] = d?.id ?? '';
+    l['cargaisonStatut'] = d?.statut ?? '';
+    l['cargaisonEtape'] = d?.etape ?? '';
     l.pointeAujourdhui = pointesAujourdhui.has(l.id);
     l['dernierPointage'] = dernier.get(l.id) ?? '';
     l['dureeMinutes'] = dureeSejour(l);
@@ -134,6 +179,11 @@ export async function parkingDetail(ctx: Ctx, p: Record<string, unknown>) {
   const pointages = (pts ?? []).map((r) => versCamel(r as Record<string, unknown>));
   ligne.pointeAujourdhui = pointages.some((x) => String(x['jour'] ?? '').slice(0, 10) === jour());
   ligne['dureeMinutes'] = dureeSejour(ligne);
+  const d = (await dossiersParPlaque(ctx, [String(ligne['numeroCamionNorm'] ?? '')]))
+    .get(String(ligne['numeroCamionNorm'] ?? ''));
+  ligne['cargaisonId'] = d?.id ?? '';
+  ligne['cargaisonStatut'] = d?.statut ?? '';
+  ligne['cargaisonEtape'] = d?.etape ?? '';
   return { ligne, pointages };
 }
 
@@ -184,37 +234,17 @@ export async function parkingSaisie(ctx: Ctx, p: Record<string, unknown>) {
   /* Le dossier en cours de chaque camion trouve. On interroge par plaque
      normalisee, une seule requete pour toute la liste, et on ecarte les
      dossiers sortis : un camion sorti ne se continue pas. */
-  const plaques = [...new Set(trouves.map((l) => String(l['numeroCamionNorm'] ?? '')).filter(Boolean))];
-  const parPlaque = new Map<string, Record<string, unknown>>();
-  if (plaques.length) {
-    const { data: cargos, error: eC } = await ctx.db.from('cargaisons')
-      /* On lit de quoi calculer l'ETAPE ATTENDUE, pas seulement le statut : ce
-         que l'agent veut savoir, c'est quelle cellule doit agir maintenant. */
-      .select('id, numero_camion, numero_camion_norm, statut, type_operation, type_declaration, '
-        + 'date_creation, date_sortie, date_validation, date_t1, date_pose_gps, bon_sortie_numero, '
-        + 'saute_t1, saute_balise, saute_bs, est_vehicule')
-      .in('numero_camion_norm', plaques)
-      .is('date_sortie', null)
-      .order('date_creation', { ascending: false });
-    if (eC) throw new Error(eC.message);
-    for (const r of (cargos ?? []) as Record<string, unknown>[]) {
-      const cle = String(r['numero_camion_norm'] ?? '');
-      if (cle && !parPlaque.has(cle)) parPlaque.set(cle, versCamel(r));
-    }
-  }
-
+  const dossiers = await dossiersParPlaque(ctx, trouves.map((l) => String(l['numeroCamionNorm'] ?? '')));
   const lignes = trouves.map((l) => {
-    const dossier = parPlaque.get(String(l['numeroCamionNorm'] ?? '')) ?? null;
-    const etape = dossier ? fileAttente(dossier as never) : null;
+    const d = dossiers.get(String(l['numeroCamionNorm'] ?? ''));
     return {
       ...l,
       dureeMinutes: dureeSejour(l),
-      cargaisonId: dossier ? String(dossier['id']) : '',
-      cargaisonStatut: dossier ? String(dossier['statut'] ?? '') : '',
-      cargaisonOperation: dossier ? String(dossier['typeOperation'] ?? '') : '',
+      cargaisonId: d?.id ?? '',
+      cargaisonStatut: d?.statut ?? '',
       // « le bon de sortie », « la pose de la balise »… la MEME phrase que les
       // refus des cellules : l'agent lit partout le meme vocabulaire.
-      cargaisonEtape: etape ? LIBELLE_ETAPE[etape] : '',
+      cargaisonEtape: d?.etape ?? '',
     };
   });
   return { lignes, active: true };
