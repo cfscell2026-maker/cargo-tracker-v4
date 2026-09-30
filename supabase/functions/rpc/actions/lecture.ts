@@ -8,7 +8,7 @@
 import type { Ctx } from '../ctx.ts';
 import { chargerParametres } from './parametres.ts';
 import { versCamel } from '../ctx.ts';
-import { fetchAll } from './helpers.ts';
+import { compter, fetchAll } from './helpers.ts';
 import {
   STATUTS,
   APP,
@@ -434,7 +434,70 @@ export async function dashboardStats(ctx: Ctx, opts: { du?: string; au?: string 
     if (f['date_fin_chargement']) finsChargement.set(String(f['id']), f['date_fin_chargement']);
   }
 
-  const data = await chargerResume(ctx);
+  /* =====================================================================
+   *  CE QUE LE TABLEAU DE BORD CHARGE, ET POURQUOI (2026-09-30).
+   *
+   *  Il rapatriait la vue ENTIERE - 17 435 lignes, 4 Mo, dix-huit
+   *  allers-retours - pour des compteurs qui, mesure faite, ne regardent que
+   *  319 dossiers non sortis et ceux dont une date tombe dans la periode. Le
+   *  cout ne dependait pas de ce qu'on affiche mais de l'age de la base : il
+   *  grandissait tout seul, chaque jour.
+   *
+   *  LE FILTRE EST DELIBEREMENT PLUS LARGE QUE NECESSAIRE. Il ne pose qu'une
+   *  BORNE BASSE et aucune borne haute : une ligne de trop ne coute qu'un peu
+   *  de memoire, une ligne manquante disparait EN SILENCE d'une file
+   *  d'attente. Le tri JS qui suit reste seul juge de ce qui compte.
+   *
+   *  L'EQUIVALENCE, terme a terme :
+   *   · files d'attente, statuts, vehicules en attente -> `fileAttente` rend
+   *     null des qu'un dossier est sorti : seuls les NON SORTIS comptent ;
+   *   · tuiles de periode et fleches de flux -> tous les instants calcules
+   *     par `passagesDesFiles` sont des dates de la ligne elle-meme, et
+   *     chacune est posterieure a la creation. Une ligne dont TOUTES les
+   *     dates precedent `du` ne peut donc rien apporter ; on garde malgre
+   *     tout chaque colonne de date dans le OR, pour resister aux donnees
+   *     anormales (un bon de sortie date apres la sortie, par exemple) ;
+   *   · « aujourd'hui » -> la borne descend a MINUIT si la periode consultee
+   *     est passee, sinon ce compteur perdrait le jour en cours.
+   *
+   *  DEUX EXCEPTIONS, qui ne se deduisent d'aucune date :
+   *   · les ENGAGEMENTS A TRANSMETTRE survivent a la sortie du camion - un
+   *     dossier sorti il y a six mois compte encore tant qu'il n'est pas
+   *     solde. D'ou la seconde requete, et non un terme du OR ;
+   *   · `total` compte toute la base : on le DEMANDE a PostgreSQL au lieu de
+   *     rapatrier des lignes pour les compter.
+   * ===================================================================== */
+  /* SANS PERIODE, PAS DE BORNE, DONC PAS DE FILTRE. Quand l'appelant ne donne
+     ni `du` ni `au`, `dansPeriode` accepte TOUTES les dates : les tuiles
+     comptent alors l'historique entier. Filtrer les sous-compterait en
+     silence - exactement la faute qu'on cherche a eviter. On charge donc tout,
+     comme avant. L'ecran, lui, envoie toujours une periode. */
+  const minuit = new Date(); minuit.setHours(0, 0, 0, 0);
+  const borne = du ? new Date(Math.min(du.getTime(), minuit.getTime())).toISOString() : '';
+  const COLONNES_DATE = [
+    'date_creation', 'date_validation', 'date_t1', 'date_pose_gps',
+    'date_bon_sortie', 'date_sortie', 'engagement_effectue_le',
+  ];
+  const ouFiltre = borne
+    ? ['date_sortie.is.null', ...COLONNES_DATE.map((c) => c + '.gte.' + borne)].join(',')
+    : '';
+
+  const [utiles, engagements] = await Promise.all([
+    // deno-lint-ignore no-explicit-any
+    chargerResume(ctx, ouFiltre ? (q: any) => q.or(ouFiltre) : undefined),
+    // Engagements encore dus, quel que soit l'age du dossier.
+    // deno-lint-ignore no-explicit-any
+    chargerResume(ctx, (q: any) => q.eq('suivi_engagement', true).is('engagement_effectue_le', null)),
+  ]);
+  const parId = new Map<string, Record<string, unknown>>();
+  for (const r of utiles) parId.set(String(r['id']), r);
+  for (const r of engagements) parId.set(String(r['id']), r);
+  const data = [...parId.values()];
+
+  /* `total` compte TOUTE la base, il ne se deduit pas des lignes chargees.
+     `compter` interroge PostgreSQL sans rapatrier une seule ligne. */
+  // deno-lint-ignore no-explicit-any
+  stats.total = await compter(ctx, 'v_cargaisons_resume', (q: any) => q.neq('est_vehicule', true));
   const today = new Date();
   for (const r of data) {
     const veh = estOui(r['estVehicule']);
@@ -460,7 +523,7 @@ export async function dashboardStats(ctx: Ctx, opts: { du?: string; au?: string 
       if (dansPeriode(r['dateSortie'])) stats.flux['VEHICULES']!.sortis++;
       continue;
     }
-    stats.total++;
+    // `stats.total` vient de SQL (voir plus haut) : ne pas le recompter ici.
     if (r['suiviEngagement'] === true && !aFait(r['engagementEffectueLe'])) stats.engagementsEnCours++;
     /* ARRIVÉES / DÉPARTS DES ENGAGEMENTS sur la période (2026-09-21, demande
        utilisateur), mêmes indicateurs que les tuiles d'étape. Un engagement
