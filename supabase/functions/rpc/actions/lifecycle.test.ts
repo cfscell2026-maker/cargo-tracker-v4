@@ -1389,6 +1389,120 @@ test("lot : l'engagement et SON DELAI arrivent sur chaque camion du lot", async 
   }
 });
 
+/**
+ * LE FILTRE DU TABLEAU DE BORD NE PERD RIEN (2026-09-30).
+ *
+ * `dashboardStats` ne charge plus la vue entiere mais un SOUS-ENSEMBLE. Le
+ * danger n'est pas la lenteur, c'est le silence : une ligne oubliee disparait
+ * d'une file d'attente sans que personne ne s'en apercoive.
+ *
+ * Ce test pose donc, cote a cote, des dossiers de toutes les formes - dont
+ * ceux que le filtre est le plus susceptible d'oublier - et verifie CHAQUE
+ * compteur affiche. Il echouerait si le filtre SQL s'ecartait d'un cran de ce
+ * que le calcul JS attend.
+ */
+test("tableau de bord : le filtre de chargement ne perd aucun dossier", async () => {
+  const db = new FakeDB();
+  const jour = (n: number) => {
+    const d = new Date(); d.setDate(d.getDate() + n); return d.toISOString();
+  };
+  const j = (n: number) => jour(n).slice(0, 10);
+  let n = 0;
+  const ligne = (r: Record<string, unknown>) => {
+    n += 1;
+    db.store['cargaisons'].push({
+      id: 'CT-D' + n, reference: 'CT-D' + n, numero_camion: 'TG' + (1000 + n) + 'DB/RM01',
+      numero_camion_norm: 'TG' + (1000 + n) + 'DBRM01', type_operation: 'Enlèvement',
+      type_declaration: 'T', statut: 'Créée', date_creation: jour(-400),
+      conteneurs_details: { conteneurs: [] }, nb_conteneurs: 0, ...r,
+    });
+  };
+
+  // 1. Dossiers EN COURS, un par file d'attente. Crees il y a plus d'un an :
+  //    aucune de leurs dates ne tombe dans la periode, seul « non sorti » les sauve.
+  ligne({ statut: 'Camion créé' });                                   // file CFS
+  ligne({ statut: 'Créée' });                                          // file VALIDATION
+  ligne({ statut: 'Créée', date_validation: jour(-399) });             // file T1
+  ligne({ statut: 'T1 saisi', date_validation: jour(-399), date_t1: jour(-398) }); // file BS
+  ligne({ statut: 'Bon de sortie émis', date_validation: jour(-399), date_t1: jour(-398), bon_sortie_numero: 'BS-1', date_bon_sortie: jour(-397) }); // file BALISE
+  ligne({ statut: 'GPS Installé', date_validation: jour(-399), date_t1: jour(-398), bon_sortie_numero: 'BS-2', date_bon_sortie: jour(-397), date_pose_gps: jour(-396) }); // file PP
+  ligne({ est_vehicule: true, statut: 'Créée' });                      // vehicule en attente
+
+  // 2. Le piege : SORTI il y a longtemps, mais son engagement n'est pas solde.
+  //    Aucune date ne tombe dans la periode, et il est sorti : seule la seconde
+  //    requete le rattrape.
+  ligne({ statut: 'Sortie Enregistrée', date_sortie: jour(-300), suivi_engagement: true,
+    engagement_type: 'Transit national', engagement_delai: j(-270) });
+
+  // 3. Sorti il y a longtemps, engagement SOLDE : il ne doit peser nulle part.
+  ligne({ statut: 'Sortie Enregistrée', date_sortie: jour(-300), suivi_engagement: true,
+    engagement_type: 'Transit national', engagement_effectue_le: jour(-299) });
+
+  // 4. Dossiers de la PERIODE (hier), a tous les stades.
+  ligne({ statut: 'Sortie Enregistrée', date_creation: jour(-1), date_validation: jour(-1),
+    date_t1: jour(-1), bon_sortie_numero: 'BS-3', date_bon_sortie: jour(-1),
+    date_pose_gps: jour(-1), date_sortie: jour(-1) });
+  ligne({ est_vehicule: true, date_creation: jour(-1), date_sortie: jour(-1), statut: 'Sortie Enregistrée' });
+
+  // 5. Donnee ANORMALE : sorti avant la periode, mais bon de sortie date DANS
+  //    la periode. Le OR garde chaque colonne de date pour ce genre de cas.
+  ligne({ statut: 'Sortie Enregistrée', date_sortie: jour(-200), bon_sortie_numero: 'BS-4',
+    date_bon_sortie: jour(-1) });
+
+  // 6. Bruit : cent dossiers sortis il y a longtemps, que le filtre doit ecarter.
+  for (let i = 0; i < 100; i++) ligne({ statut: 'Sortie Enregistrée', date_sortie: jour(-350) });
+
+  const ctx = ctxRole(db, 'ADMIN', 'Admin');
+  const periode = { du: j(-1), au: j(0) };
+  const filtre = (await lec.dashboardStats(ctx, periode)) as Record<string, unknown>;
+
+  /* REFERENCE : le meme calcul, SANS filtre. On neutralise `or` et le couple
+     eq/is de la seconde requete pour que FakeDB rende toute la vue - le JS qui
+     suit est, lui, rigoureusement le meme. */
+  const vraiFrom = db.from.bind(db);
+  // deno-lint-ignore no-explicit-any
+  (db as any).from = (table: string) => {
+    const q = vraiFrom(table);
+    if (table !== 'v_cargaisons_resume') return q;
+    // deno-lint-ignore no-explicit-any
+    const nu = q as any;
+    nu.or = () => nu; nu.eq = () => nu; nu.is = () => nu;
+    return nu;
+  };
+  const complet = (await lec.dashboardStats(ctx, periode)) as Record<string, unknown>;
+  // deno-lint-ignore no-explicit-any
+  (db as any).from = vraiFrom;
+
+  const AFFICHES = ['attCFS', 'attValidation', 'attT1', 'attBalise', 'attBs', 'attPP',
+    'vehiculesAttente', 'creesPeriode', 't1Periode', 'balisesPeriode', 'bonsPeriode',
+    'sortiePeriode', 'engagementsEnCours', 'total'];
+  for (const cle of AFFICHES) {
+    assert.equal(filtre[cle], complet[cle], 'compteur « ' + cle +' » fausse par le filtre');
+  }
+  assert.deepEqual(filtre['flux'], complet['flux'], 'les fleches de tendance sont faussees');
+
+  // Quelques valeurs tenues a la main, pour que le test ne se contente pas de
+  // comparer deux calculs qui pourraient etre faux ensemble.
+  assert.equal(filtre['attCFS'], 1);
+  assert.equal(filtre['attValidation'], 1);
+  assert.equal(filtre['attT1'], 1);
+  assert.equal(filtre['attBs'], 1);
+  assert.equal(filtre['attBalise'], 1);
+  assert.equal(filtre['attPP'], 1);
+  assert.equal(filtre['vehiculesAttente'], 1);
+  assert.equal(filtre['engagementsEnCours'], 1, "le dossier sorti non solde compte encore");
+  assert.equal(filtre['sortiePeriode'], 1);
+  assert.equal(filtre['bonsPeriode'], 2, 'y compris le bon date apres la sortie');
+  assert.equal(filtre['total'], 110, '112 dossiers moins les 2 vehicules, compte en SQL');
+
+  /* SANS PERIODE : les tuiles comptent l'historique ENTIER, donc aucun filtre
+     ne doit s'appliquer. Les 100 dossiers de bruit, sortis il y a un an,
+     doivent alors reapparaitre dans « sortis ». */
+  const sansPeriode = (await lec.dashboardStats(ctx, {})) as Record<string, number>;
+  assert.equal(sansPeriode['sortiePeriode'], 104,
+    "sans periode, toutes les sorties comptent : 100 de bruit, 3 anciennes, 1 d'hier");
+});
+
 test('00180, suivi des engagements : OUI exige de préciser, puis enregistre', async () => {
   const db = new FakeDB();
   const id = await depotageAValider(db, 'ENG001/RM01', 'MSKU9999001');

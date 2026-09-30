@@ -42,6 +42,25 @@ function match(row: Row, filters: [string, string, unknown][]): boolean {
        Une colonne NULL est ecartee, comme en SQL : `null < x` n'est pas vrai. */
     if (op === 'lt') return v !== null && v !== undefined && String(v) < String(val);
     if (op === 'gt') return v !== null && v !== undefined && String(v) > String(val);
+    if (op === 'or') {
+      return String(val).split(',').some((terme) => {
+        const bout = terme.split('.');
+        if (bout.length < 3) throw new Error('FakeDB.or : terme illisible « ' + terme + ' »');
+        const col = bout[0]!;
+        const operateur = bout[1]!;
+        const valeur = bout.slice(2).join('.');
+        const x = row[col];
+        if (operateur === 'is') {
+          if (valeur === 'null') return x === null || x === undefined;
+          if (valeur === 'true') return x === true;
+          if (valeur === 'false') return x === false;
+          throw new Error('FakeDB.or : « is.' + valeur + ' » non gere');
+        }
+        if (operateur === 'gte') return x !== null && x !== undefined && String(x) >= valeur;
+        if (operateur === 'eq') return String(x) === valeur;
+        throw new Error('FakeDB.or : operateur « ' + operateur + ' » non gere');
+      });
+    }
     /* `like` ajoute le 2026-09-28, meme lecon que `lt` / `gt` ci-dessus : sans
        lui, la recherche « contient » se faisait en JS APRES un `limit`, ce qui
        tronquait silencieusement le parc. Seuls les jokers `%` en tete et en
@@ -84,6 +103,13 @@ class Query {
   eq(c: string, v: unknown) { this.filters.push([c, 'eq', v]); return this; }
   neq(c: string, v: unknown) { this.filters.push([c, 'neq', v]); return this; }
   like(c: string, v: string) { this.filters.push([c, 'like', v]); return this; }
+  /* `or` ajoute le 2026-09-30, meme lecon que `like` et `lt`/`gt` avant lui :
+     sans lui, le double ne sait pas exprimer ce que le code fait, et un test
+     qui passe ne prouve rien. On accepte la syntaxe PostgREST reellement
+     employee - des termes « colonne.operateur.valeur » separes par des
+     virgules - et rien de plus : pas de parentheses, pas d'imbrication. Un
+     terme inconnu leve, plutot que de filtrer a cote en silence. */
+  or(expr: string) { this.filters.push(['', 'or', expr]); return this; }
   is(c: string, v: unknown) { this.filters.push([c, 'is', v]); return this; }
   in(c: string, v: unknown[]) { this.filters.push([c, 'in', v]); return this; }
   gte(c: string, v: unknown) { this.filters.push([c, 'gte', v]); return this; }
