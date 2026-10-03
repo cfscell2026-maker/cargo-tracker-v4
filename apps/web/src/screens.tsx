@@ -4735,7 +4735,17 @@ SCREENS.users = ({ user }) => {
     try { await call('user.create', f); toast('Compte créé.', 'ok'); setForm(null); reload(); }
     catch (e) { toast((e as Error).message, 'err'); }
   }
-  const comptes = data ?? [];
+  const tous = data ?? [];
+  /* RECHERCHE (2026-10-03, demande utilisateur). Vingt-neuf comptes tiennent
+     encore à l'écran, mais plus on en ajoute, plus retrouver un agent devient
+     un exercice de patience. La recherche porte sur l'identifiant, le nom ET le
+     rôle : on cherche parfois « qui est balise ? » autant que « où est Kossi ? ».
+     Accents et ponctuation ignorés, comme partout ailleurs. */
+  const [q, setQ] = useState('');
+  const terme = cleRecherche(q);
+  const comptes = terme
+    ? tous.filter((u) => ['username', 'nomComplet', 'role'].some((k) => cleRecherche(u[k]).includes(terme)))
+    : tous;
   const [acces, setAcces] = useState<O | null>(null);
   const [edition, setEdition] = useState<O | null>(null);
 
@@ -4789,14 +4799,27 @@ SCREENS.users = ({ user }) => {
       <span className="bm-pastille" aria-hidden="true"><Icone nom="utilisateurs" taille={24} /></span>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div className="bm-titre">Gestion des utilisateurs</div>
-        <div className="bm-sous">{comptes.length} compte(s), rôles et accès aux modules</div>
+        <div className="bm-sous">
+          {terme ? `${comptes.length} compte(s) sur ${tous.length}` : `${tous.length} compte(s)`}, rôles et accès aux modules
+        </div>
       </div>
-      <button className="bm-action" onClick={() => setForm({ username: '', nomComplet: '', role: 'CFS', password: '' })}>
-        <Icone nom="plus" taille={15} />Nouvel utilisateur
-      </button>
+      <div className="bm-outils">
+        <span className="champ-loupe">
+          <Icone nom="loupe" taille={15} />
+          <input value={q} onChange={(e) => setQ(e.target.value)}
+            placeholder="Identifiant, nom, rôle…" style={{ width: 200 }}
+            title="Filtre la liste à chaque caractère saisi" />
+        </span>
+        <button className="bm-action" onClick={() => setForm({ username: '', nomComplet: '', role: 'CFS', password: '' })}>
+          <Icone nom="plus" taille={15} />Nouvel utilisateur
+        </button>
+      </div>
     </div>
     <div className="card">
-    {loading ? <Spinner /> : <TableUtilisateurs rows={comptes} onAction={agir} />}
+    {loading ? <Spinner />
+      : !comptes.length
+        ? <div className="empty">Aucun compte ne correspond à « {q.trim()} ».</div>
+        : <TableUtilisateurs rows={comptes} onAction={agir} />}
     </div>
     {/* FENÊTRE D'AJOUT · refaite le 2026-09-11 sur le modèle fourni : un bandeau
         coloré en tête, qui annonce ce qu'on est en train de créer et reflète le
