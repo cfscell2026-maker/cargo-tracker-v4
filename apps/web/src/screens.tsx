@@ -16,7 +16,7 @@ import type { ReactNode } from 'react';
 import type { Nav } from './App.tsx';
 import { useNav } from './lib/contexte-nav.ts';
 import { ROLES, OPERATIONS, VEHICULE_DESTINATIONS, TYPES_DECLARATION, optionTypeDeclaration, STATUTS, SUIVENT_ENGAGEMENTS, dateDansNJours, tcValide, fileAttente, estTypeSansT1, libelleTypeSansT1, exigeControlePoids, dureeLisible,
-  estRoleTechnique } from '../../../supabase/functions/_shared/domaine/src/index.ts';
+  ROLES_TECHNIQUES, rangTechnique } from '../../../supabase/functions/_shared/domaine/src/index.ts';
 
 const STATUT_OPTIONS = Object.values(STATUTS);
 
@@ -4718,14 +4718,17 @@ SCREENS.stockdwell = () => {
 const ROLES_LISTE = ['CFS', 'CHEF_BRIGADE', 'CHEF_BRIGADE_ADJOINT', 'CBPI', 'CHEF_VISITE', 'CHEF_DIVISION', 'T1', 'BALISE', 'BON_SORTIE', 'PP', 'ADMIN'];
 /* LES DEUX RÔLES TECHNIQUES NE S'AFFICHENT PAS POUR TOUT LE MONDE (2026-10-03,
    demande utilisateur). Un ADMIN ne doit pas même savoir qu'ils existent en
-   ouvrant la liste, et un titulaire ne voit QUE LE SIEN : un INFO voit INFO,
-   un SUPER_ADMIN voit SUPER_ADMIN, aucun des deux ne voit celui de l'autre.
-   Ce masquage est un CONFORT, pas une sécurité : rien
+   ouvrant la liste, et un titulaire ne voit que les titres de RANG INFERIEUR
+   OU EGAL au sien : un INFO voit SUPER_ADMIN et INFO, un SUPER_ADMIN ne voit
+   que SUPER_ADMIN. Ce masquage est un CONFORT, pas une sécurité : rien
    n'empêche de forger la requête à la main, et c'est le serveur qui refuse
    vraiment (refuserAttributionInterdite, actions/utilisateurs.ts). */
-const rolesProposes = (role: string) => (estRoleTechnique(role)
-  ? [...ROLES_LISTE, role] // chacun ne voit QUE le sien
-  : ROLES_LISTE);
+const rolesProposes = (role: string) => [
+  ...ROLES_LISTE,
+  // Chacun voit les titres techniques de rang INFERIEUR OU EGAL au sien :
+  // un INFO voit SUPER_ADMIN et INFO, un SUPER_ADMIN ne voit que SUPER_ADMIN.
+  ...ROLES_TECHNIQUES.filter((t) => rangTechnique(t) <= rangTechnique(role) && rangTechnique(role) > 0),
+];
 
 SCREENS.users = ({ user }) => {
   const { data, loading, reload } = useAsync<O[]>(() => call('user.list'), []);
@@ -4735,7 +4738,17 @@ SCREENS.users = ({ user }) => {
     try { await call('user.create', f); toast('Compte créé.', 'ok'); setForm(null); reload(); }
     catch (e) { toast((e as Error).message, 'err'); }
   }
-  const comptes = data ?? [];
+  const tous = data ?? [];
+  /* RECHERCHE (2026-10-03, demande utilisateur). Vingt-neuf comptes tiennent
+     encore à l'écran, mais plus on en ajoute, plus retrouver un agent devient
+     un exercice de patience. La recherche porte sur l'identifiant, le nom ET le
+     rôle : on cherche parfois « qui est balise ? » autant que « où est Kossi ? ».
+     Accents et ponctuation ignorés, comme partout ailleurs. */
+  const [q, setQ] = useState('');
+  const terme = cleRecherche(q);
+  const comptes = terme
+    ? tous.filter((u) => ['username', 'nomComplet', 'role'].some((k) => cleRecherche(u[k]).includes(terme)))
+    : tous;
   const [acces, setAcces] = useState<O | null>(null);
   const [edition, setEdition] = useState<O | null>(null);
 
@@ -4789,14 +4802,27 @@ SCREENS.users = ({ user }) => {
       <span className="bm-pastille" aria-hidden="true"><Icone nom="utilisateurs" taille={24} /></span>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div className="bm-titre">Gestion des utilisateurs</div>
-        <div className="bm-sous">{comptes.length} compte(s), rôles et accès aux modules</div>
+        <div className="bm-sous">
+          {terme ? `${comptes.length} compte(s) sur ${tous.length}` : `${tous.length} compte(s)`}, rôles et accès aux modules
+        </div>
       </div>
-      <button className="bm-action" onClick={() => setForm({ username: '', nomComplet: '', role: 'CFS', password: '' })}>
-        <Icone nom="plus" taille={15} />Nouvel utilisateur
-      </button>
+      <div className="bm-outils">
+        <span className="champ-loupe">
+          <Icone nom="loupe" taille={15} />
+          <input value={q} onChange={(e) => setQ(e.target.value)}
+            placeholder="Identifiant, nom, rôle…" style={{ width: 200 }}
+            title="Filtre la liste à chaque caractère saisi" />
+        </span>
+        <button className="bm-action" onClick={() => setForm({ username: '', nomComplet: '', role: 'CFS', password: '' })}>
+          <Icone nom="plus" taille={15} />Nouvel utilisateur
+        </button>
+      </div>
     </div>
     <div className="card">
-    {loading ? <Spinner /> : <TableUtilisateurs rows={comptes} onAction={agir} />}
+    {loading ? <Spinner />
+      : !comptes.length
+        ? <div className="empty">Aucun compte ne correspond à « {q.trim()} ».</div>
+        : <TableUtilisateurs rows={comptes} onAction={agir} />}
     </div>
     {/* FENÊTRE D'AJOUT · refaite le 2026-09-11 sur le modèle fourni : un bandeau
         coloré en tête, qui annonce ce qu'on est en train de créer et reflète le

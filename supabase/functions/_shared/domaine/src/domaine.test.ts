@@ -13,7 +13,7 @@ import {
   tcValide, maj, alphaNumMaj, normAlphaNum, declKey, normaliserDeclaration,
   parseConteneursDetails, parseDateImport, tailleBucket, evpDeTaille, trancheAge,
   verifierPermission, PERMISSIONS, TYPES_DECLARATION, estRoleTechnique,
-  motifRefusHierarchie, motifRefusAttribution,
+  motifRefusHierarchie, motifRefusAttribution, rangTechnique,
   groupesDeclaration, estChargementMixte, libelleDeclaration,
   sautsTypeC, estTypeSansT1, DESTINATION_CODES, estDispenseBalise, codeDestination,
   distanceOSA, similariteNum, numeroQuasiDoublon,
@@ -370,21 +370,33 @@ test("hierarchie : un compte technique reste intouchable depuis l'application", 
   }
 });
 
-test("hierarchie : chacun n'attribue QUE son propre role technique", () => {
+test("hierarchie : chacun attribue jusqu'a son rang, jamais au-dessus", () => {
   for (const vise of [ROLES.SUPER_ADMIN, ROLES.INFO]) {
     // L'ecran les masque ; le serveur, lui, REFUSE - une requete se forge.
-    assert.match(String(motifRefusAttribution(ROLES.ADMIN, vise)), /reservee aux comptes/, vise);
-    assert.match(String(motifRefusAttribution(ROLES.CFS, vise)), /reservee/, vise);
+    assert.match(String(motifRefusAttribution(ROLES.ADMIN, vise)), /rang superieur ou egal/, vise);
+    assert.match(String(motifRefusAttribution(ROLES.CFS, vise)), /rang superieur/, vise);
     // Son propre titre : oui.
     assert.equal(motifRefusAttribution(vise, vise), null, vise);
   }
-  /* Celui de l'autre : NON. Aucun des deux ne se donne le titre du second -
-     sans quoi le cloisonnement ne tiendrait qu'une manipulation. */
-  assert.match(String(motifRefusAttribution(ROLES.SUPER_ADMIN, ROLES.INFO)), /reservee aux comptes INFO/);
-  assert.match(String(motifRefusAttribution(ROLES.INFO, ROLES.SUPER_ADMIN)), /reservee aux comptes SUPER_ADMIN/);
+  /* L'INFO est AU-DESSUS du SUPER_ADMIN : l'informatique amorce les comptes de
+     direction, la direction ne peut pas se donner d'acces technique. Sans ce
+     sens unique, il suffirait de se creer le titre manquant. */
+  assert.equal(motifRefusAttribution(ROLES.INFO, ROLES.SUPER_ADMIN), null,
+    "l'INFO attribue SUPER_ADMIN");
+  assert.match(String(motifRefusAttribution(ROLES.SUPER_ADMIN, ROLES.INFO)), /rang superieur ou egal/,
+    "le SUPER_ADMIN n'attribue PAS INFO");
   // Les roles ordinaires restent attribuables par un ADMIN, sans changement.
   for (const ordinaire of [ROLES.CFS, ROLES.BALISE, ROLES.PP, ROLES.ADMIN, ROLES.CBPI]) {
     assert.equal(motifRefusAttribution(ROLES.ADMIN, ordinaire), null, ordinaire);
+  }
+});
+
+test('rangTechnique : INFO au-dessus de SUPER_ADMIN, le reste a zero', () => {
+  assert.equal(rangTechnique(ROLES.INFO), 2);
+  assert.equal(rangTechnique(ROLES.SUPER_ADMIN), 1);
+  assert.ok(rangTechnique(ROLES.INFO) > rangTechnique(ROLES.SUPER_ADMIN));
+  for (const r of [ROLES.ADMIN, ROLES.CFS, ROLES.PP, '', null, undefined]) {
+    assert.equal(rangTechnique(r), 0, String(r));
   }
 });
 
