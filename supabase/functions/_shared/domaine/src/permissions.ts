@@ -324,14 +324,20 @@ export function motifRefusHierarchie(
 /**
  * Qui peut ATTRIBUER tel role ? Rend le motif du refus, ou `null`.
  *
- * L'ecran masque deja SUPER_ADMIN et INFO aux administrateurs, mais un
- * masquage n'est qu'un confort : rien n'empeche de forger la requete a la
- * main. Le refus doit tenir cote serveur, et c'est ici qu'il se decide.
+ * CHACUN N'ATTRIBUE QUE LE SIEN (2026-10-03, precision utilisateur). Un role
+ * technique n'apparait dans la liste QUE pour son propre titulaire : un INFO
+ * voit INFO, un SUPER_ADMIN voit SUPER_ADMIN, et aucun des deux ne voit celui
+ * de l'autre. Les POUVOIRS, eux, restent identiques - tous deux peuvent tout,
+ * y compris reclasser un ADMIN ; c'est la seule FABRICATION de leurs pairs qui
+ * est cloisonnee, pour qu'aucun des deux ne puisse se donner l'autre titre.
+ *
+ * L'ecran applique deja ce masquage, mais un masquage n'est qu'un confort :
+ * rien n'empeche de forger la requete a la main. Le refus tient donc ici.
  */
 export function motifRefusAttribution(roleActeur: unknown, roleVoulu: unknown): string | null {
-  if (estRoleTechnique(roleVoulu) && !estRoleTechnique(roleActeur))
-    return `Attribution du role ${String(roleVoulu)} reservee aux comptes SUPER_ADMIN et INFO.`;
-  return null;
+  if (!estRoleTechnique(roleVoulu)) return null;
+  if (String(roleActeur) === String(roleVoulu)) return null;
+  return `Attribution du role ${String(roleVoulu)} reservee aux comptes ${String(roleVoulu)}.`;
 }
 
 export function verifierPermission(role: Role | string, action: string): void {

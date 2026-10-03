@@ -16,7 +16,7 @@ import type { ReactNode } from 'react';
 import type { Nav } from './App.tsx';
 import { useNav } from './lib/contexte-nav.ts';
 import { ROLES, OPERATIONS, VEHICULE_DESTINATIONS, TYPES_DECLARATION, optionTypeDeclaration, STATUTS, SUIVENT_ENGAGEMENTS, dateDansNJours, tcValide, fileAttente, estTypeSansT1, libelleTypeSansT1, exigeControlePoids, dureeLisible,
-  ROLES_TECHNIQUES, estRoleTechnique } from '../../../supabase/functions/_shared/domaine/src/index.ts';
+  estRoleTechnique } from '../../../supabase/functions/_shared/domaine/src/index.ts';
 
 const STATUT_OPTIONS = Object.values(STATUTS);
 
@@ -4718,11 +4718,13 @@ SCREENS.stockdwell = () => {
 const ROLES_LISTE = ['CFS', 'CHEF_BRIGADE', 'CHEF_BRIGADE_ADJOINT', 'CBPI', 'CHEF_VISITE', 'CHEF_DIVISION', 'T1', 'BALISE', 'BON_SORTIE', 'PP', 'ADMIN'];
 /* LES DEUX RÔLES TECHNIQUES NE S'AFFICHENT PAS POUR TOUT LE MONDE (2026-10-03,
    demande utilisateur). Un ADMIN ne doit pas même savoir qu'ils existent en
-   ouvrant la liste. Ce masquage est un CONFORT, pas une sécurité : rien
+   ouvrant la liste, et un titulaire ne voit QUE LE SIEN : un INFO voit INFO,
+   un SUPER_ADMIN voit SUPER_ADMIN, aucun des deux ne voit celui de l'autre.
+   Ce masquage est un CONFORT, pas une sécurité : rien
    n'empêche de forger la requête à la main, et c'est le serveur qui refuse
    vraiment (refuserAttributionInterdite, actions/utilisateurs.ts). */
 const rolesProposes = (role: string) => (estRoleTechnique(role)
-  ? [...ROLES_LISTE, ...ROLES_TECHNIQUES]
+  ? [...ROLES_LISTE, role] // chacun ne voit QUE le sien
   : ROLES_LISTE);
 
 SCREENS.users = ({ user }) => {

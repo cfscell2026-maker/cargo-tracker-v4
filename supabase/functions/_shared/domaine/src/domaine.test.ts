@@ -370,16 +370,18 @@ test("hierarchie : un compte technique reste intouchable depuis l'application", 
   }
 });
 
-test("hierarchie : un ADMIN ne peut pas attribuer un role technique", () => {
+test("hierarchie : chacun n'attribue QUE son propre role technique", () => {
   for (const vise of [ROLES.SUPER_ADMIN, ROLES.INFO]) {
     // L'ecran les masque ; le serveur, lui, REFUSE - une requete se forge.
-    assert.match(String(motifRefusAttribution(ROLES.ADMIN, vise)),
-      /reservee aux comptes SUPER_ADMIN et INFO/, vise);
+    assert.match(String(motifRefusAttribution(ROLES.ADMIN, vise)), /reservee aux comptes/, vise);
     assert.match(String(motifRefusAttribution(ROLES.CFS, vise)), /reservee/, vise);
-    // Un role technique, lui, les attribue.
-    assert.equal(motifRefusAttribution(ROLES.SUPER_ADMIN, vise), null, vise);
-    assert.equal(motifRefusAttribution(ROLES.INFO, vise), null, vise);
+    // Son propre titre : oui.
+    assert.equal(motifRefusAttribution(vise, vise), null, vise);
   }
+  /* Celui de l'autre : NON. Aucun des deux ne se donne le titre du second -
+     sans quoi le cloisonnement ne tiendrait qu'une manipulation. */
+  assert.match(String(motifRefusAttribution(ROLES.SUPER_ADMIN, ROLES.INFO)), /reservee aux comptes INFO/);
+  assert.match(String(motifRefusAttribution(ROLES.INFO, ROLES.SUPER_ADMIN)), /reservee aux comptes SUPER_ADMIN/);
   // Les roles ordinaires restent attribuables par un ADMIN, sans changement.
   for (const ordinaire of [ROLES.CFS, ROLES.BALISE, ROLES.PP, ROLES.ADMIN, ROLES.CBPI]) {
     assert.equal(motifRefusAttribution(ROLES.ADMIN, ordinaire), null, ordinaire);
