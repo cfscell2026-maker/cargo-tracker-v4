@@ -36,6 +36,33 @@ const PARAM = 'maj';
  */
 const DELAI_AUTO_MS = 5000;
 
+/**
+ * ON NE RECHARGE PAS SOUS LES DOIGTS D'UN AGENT (2026-10-03).
+ *
+ * Un agent qui saisit les numeros T1 de dix conteneurs, ou une declaration
+ * complete au CFS, perdrait tout si le rechargement tombait au milieu. Il ne
+ * regarde pas le bandeau : il regarde son clavier et sa feuille.
+ *
+ * Le compte a rebours se SUSPEND donc tant qu'un champ de saisie a le focus ET
+ * qu'une touche a ete frappee recemment. Il repart des que l'agent quitte le
+ * champ - la mise a jour reste automatique, elle attend seulement le bon
+ * moment.
+ *
+ * LA DEUXIEME CONDITION EST ESSENTIELLE : sans elle, un champ laisse en focus
+ * par quelqu'un parti boire un cafe bloquerait la mise a jour indefiniment, et
+ * on retomberait dans le probleme qu'on vient de resoudre.
+ */
+const INACTIVITE_MS = 60_000;
+
+function saisieEnCours(derniereFrappe: number): boolean {
+  const e = document.activeElement;
+  if (!e) return false;
+  const balise = e.tagName;
+  const champ = balise === 'INPUT' || balise === 'TEXTAREA' || balise === 'SELECT'
+    || (e as HTMLElement).isContentEditable === true;
+  return champ && Date.now() - derniereFrappe < INACTIVITE_MS;
+}
+
 /** Version publiée sur le serveur, ou '' si elle est illisible (hors ligne, dev…). */
 export async function versionPubliee(): Promise<string> {
   try {
@@ -114,13 +141,20 @@ export function BandeauMiseAJour() {
   const nouvelle = useNouvelleVersion();
   const [enCours, setEnCours] = useState(false);
   const [reste, setReste] = useState(Math.round(DELAI_AUTO_MS / 1000));
+  const [attendSaisie, setAttendSaisie] = useState(false);
 
   /* LE COMPTE A REBOURS. Il ne demarre qu'à l'apparition du bandeau, et un
      seul minuteur vit à la fois : sans le nettoyage, un changement d'écran
      en empilerait plusieurs et le rechargement partirait trop tôt. */
   useEffect(() => {
     if (!nouvelle || enCours) return;
+    let derniereFrappe = 0;
+    const frappe = () => { derniereFrappe = Date.now(); };
+    document.addEventListener('keydown', frappe, true);
     const t = window.setInterval(() => {
+      // Tant que l'agent écrit, on patiente : son travail passe avant.
+      if (saisieEnCours(derniereFrappe)) { setAttendSaisie(true); return; }
+      setAttendSaisie(false);
       setReste((n) => {
         if (n <= 1) {
           window.clearInterval(t);
@@ -131,7 +165,10 @@ export function BandeauMiseAJour() {
         return n - 1;
       });
     }, 1000);
-    return () => window.clearInterval(t);
+    return () => {
+      window.clearInterval(t);
+      document.removeEventListener('keydown', frappe, true);
+    };
   }, [nouvelle, enCours]);
 
   if (!nouvelle) return null;
@@ -139,7 +176,9 @@ export function BandeauMiseAJour() {
     <Icone nom="miseAJour" />
     <span>
       Une nouvelle version de l'application est disponible.
-      {!enCours && <> Mise à jour automatique dans <b>{reste} s</b>.</>}
+      {!enCours && (attendSaisie
+        ? <> Mise à jour <b>en attente</b> : elle partira dès que vous aurez fini votre saisie.</>
+        : <> Mise à jour automatique dans <b>{reste} s</b>.</>)}
     </span>
     <button type="button" disabled={enCours} onClick={() => { setEnCours(true); void rechargerApplication(); }}>
       {enCours ? 'Mise à jour…' : 'Mettre à jour maintenant'}
