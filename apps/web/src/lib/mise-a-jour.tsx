@@ -22,6 +22,20 @@ export const VERSION_APP: string = String(import.meta.env['VITE_VERSION_APP'] ??
 
 const PARAM = 'maj';
 
+/**
+ * DELAI AVANT LA MISE A JOUR AUTOMATIQUE (2026-10-03, demande utilisateur).
+ *
+ * Le bandeau attendait un clic, et sur telephone ce clic ne venait jamais :
+ * l'agent voyait le message, continuait son travail, et restait des jours sur
+ * une version depassee. Le rechargement part donc SEUL, cinq secondes apres
+ * l'apparition du bandeau.
+ *
+ * Cinq secondes, et pas zero : le compte a rebours s'affiche, l'agent VOIT ce
+ * qui va se passer au lieu de subir un ecran qui se recharge sans raison
+ * apparente. Et le bouton reste la pour partir tout de suite.
+ */
+const DELAI_AUTO_MS = 5000;
+
 /** Version publiée sur le serveur, ou '' si elle est illisible (hors ligne, dev…). */
 export async function versionPubliee(): Promise<string> {
   try {
@@ -99,12 +113,36 @@ export function BoutonMiseAJour({ className }: { className?: string }) {
 export function BandeauMiseAJour() {
   const nouvelle = useNouvelleVersion();
   const [enCours, setEnCours] = useState(false);
+  const [reste, setReste] = useState(Math.round(DELAI_AUTO_MS / 1000));
+
+  /* LE COMPTE A REBOURS. Il ne demarre qu'à l'apparition du bandeau, et un
+     seul minuteur vit à la fois : sans le nettoyage, un changement d'écran
+     en empilerait plusieurs et le rechargement partirait trop tôt. */
+  useEffect(() => {
+    if (!nouvelle || enCours) return;
+    const t = window.setInterval(() => {
+      setReste((n) => {
+        if (n <= 1) {
+          window.clearInterval(t);
+          setEnCours(true);
+          void rechargerApplication();
+          return 0;
+        }
+        return n - 1;
+      });
+    }, 1000);
+    return () => window.clearInterval(t);
+  }, [nouvelle, enCours]);
+
   if (!nouvelle) return null;
   return <div className="maj-bandeau" role="status">
     <Icone nom="miseAJour" />
-    <span>Une nouvelle version de l'application est disponible.</span>
+    <span>
+      Une nouvelle version de l'application est disponible.
+      {!enCours && <> Mise à jour automatique dans <b>{reste} s</b>.</>}
+    </span>
     <button type="button" disabled={enCours} onClick={() => { setEnCours(true); void rechargerApplication(); }}>
-      {enCours ? 'Mise à jour…' : 'Mettre à jour'}
+      {enCours ? 'Mise à jour…' : 'Mettre à jour maintenant'}
     </button>
   </div>;
 }
