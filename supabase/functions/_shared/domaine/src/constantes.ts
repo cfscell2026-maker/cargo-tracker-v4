@@ -80,13 +80,42 @@ export const ROLES = {
   BON_SORTIE: 'BON_SORTIE',
   PP: 'PP',
   ADMIN: 'ADMIN',
+  /* DEUX ROLES TECHNIQUES AU-DESSUS DE L'ADMIN (2026-10-03, demande
+     utilisateur).
+
+     L'ADMIN administre l'EXPLOITATION : il cree les comptes d'agents, les
+     reclasse, reinitialise un mot de passe. Il ne touche pas a ses pairs.
+
+     SUPER_ADMIN et INFO administrent L'ADMINISTRATION : eux seuls voient ces
+     deux roles dans la liste, eux seuls les attribuent, et eux seuls peuvent
+     reclasser un ADMIN. Les deux ont exactement les memes pouvoirs ; ils
+     existent en double pour distinguer QUI agit dans le journal d'audit - la
+     direction d'un cote, l'informatique de l'autre. */
+  SUPER_ADMIN: 'SUPER_ADMIN',
+  INFO: 'INFO',
 } as const;
 export type Role = (typeof ROLES)[keyof typeof ROLES];
+
+/**
+ * LES DEUX ROLES TECHNIQUES, ensemble.
+ *
+ * Partout ou le code demande « est-ce un administrateur ? », il faut desormais
+ * se demander AUSSI s'il s'agit d'un role technique. Cette liste existe pour
+ * qu'on n'oublie jamais l'un des deux : on teste l'appartenance, jamais une
+ * egalite avec SUPER_ADMIN seul.
+ */
+export const ROLES_TECHNIQUES: Role[] = [ROLES.SUPER_ADMIN, ROLES.INFO];
+
+/** Ce profil administre-t-il les administrateurs ? */
+export function estRoleTechnique(role: unknown): boolean {
+  return ROLES_TECHNIQUES.indexOf(String(role ?? '') as Role) >= 0;
+}
 
 /** Tous les rôles (lecture/recherche/tableau de bord/compte courant). */
 export const TOUS_ROLES: Role[] = [
   ROLES.CFS, ROLES.CHEF_BRIGADE, ROLES.CHEF_BRIGADE_ADJOINT, ROLES.CHEF_VISITE,
   ROLES.CHEF_DIVISION, ROLES.T1, ROLES.BALISE, ROLES.BON_SORTIE, ROLES.PP, ROLES.ADMIN,
+  ROLES.SUPER_ADMIN, ROLES.INFO,
 ];
 
 /** v3.0, Profils « chefs » habilités à saisir le champ confidentiel « Hors gabarit ». */
@@ -407,6 +436,8 @@ export const ROLE_LABELS: Record<string, string> = {
   BON_SORTIE: 'Agent Bon de Sortie',
   PP: 'Agent Porte Principale',
   ADMIN: 'Administrateur',
+  SUPER_ADMIN: 'Super administrateur',
+  INFO: 'Informatique',
 };
 
 /** Clés du résumé de liste (RESUME_KEYS v3.6), champs exposés par les listes/files. */

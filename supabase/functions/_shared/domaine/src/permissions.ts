@@ -12,7 +12,7 @@
  * ============================================================================
  */
 
-import { ROLES, TOUS_ROLES, SUIVENT_ENGAGEMENTS, VOIENT_HORSGABARIT, type Role } from './constantes.ts';
+import { ROLES, TOUS_ROLES, SUIVENT_ENGAGEMENTS, VOIENT_HORSGABARIT, estRoleTechnique, type Role } from './constantes.ts';
 
 /**
  * CBPI (chef brigade par intérim, 2026-08-19) : profil VOLONTAIREMENT ÉTROIT. Il
@@ -282,8 +282,69 @@ export const PERMISSIONS: Record<string, Role[]> = {
 };
 
 /** Vérifie une permission ; messages identiques à Auth.gs _exigerPermission_. */
+/* ===== HIERARCHIE DES COMPTES : 2026-10-03, decision utilisateur ==========
+ *
+ * Le controle etait MUTUEL : dix administrateurs qui se surveillaient, et
+ * reprendre la main sur l'un d'eux passait par la console Supabase, a deux
+ * personnes. Il devient HIERARCHIQUE : SUPER_ADMIN et INFO administrent les
+ * administrateurs, depuis l'application, et chaque geste part au journal
+ * d'audit. Ce qui se gagne en praticite se perd en separation des pouvoirs :
+ * la trace ecrite remplace desormais la presence d'un second temoin.
+ *
+ * CES DEUX FONCTIONS VIVENT DANS LE DOMAINE, pas dans le handler, pour deux
+ * raisons. D'abord ce sont des regles d'ACCES, elles ont leur place aupres de
+ * la matrice des droits. Ensuite actions/utilisateurs.ts importe un module
+ * Deno que le lanceur de tests ne sait pas charger : la regle y serait restee
+ * SANS AUCUN TEST, ce qui est inacceptable pour du controle d'acces.
+ *
+ * Elles rendent un MESSAGE ou `null` plutot que de lever : le domaine decide,
+ * l'appelant choisit la forme de l'erreur.
+ * ======================================================================== */
+
+/** Qui peut TOUCHER a qui ? Rend le motif du refus, ou `null` si la voie est libre. */
+export function motifRefusHierarchie(
+  roleActeur: unknown,
+  cible: { role?: unknown; username?: unknown },
+  operation: string,
+): string | null {
+  const roleCible = String(cible.role ?? '');
+  const nom = String(cible.username ?? '');
+  /* Un compte technique reste intouchable depuis l'application, meme par son
+     pair : sinon la hierarchie n'aurait plus de sommet, et deux titulaires
+     pourraient se declasser l'un l'autre. */
+  if (estRoleTechnique(roleCible))
+    return `${operation} impossible sur un compte ${roleCible} (« ${nom} »). `
+      + 'Ces comptes ne se modifient que depuis la console Supabase, voir EXPLOITATION.md.';
+  if (roleCible === ROLES.ADMIN && !estRoleTechnique(roleActeur))
+    return `${operation} impossible sur un compte ADMIN (« ${nom} »). `
+      + 'Seul un SUPER_ADMIN peut le faire.';
+  return null;
+}
+
+/**
+ * Qui peut ATTRIBUER tel role ? Rend le motif du refus, ou `null`.
+ *
+ * L'ecran masque deja SUPER_ADMIN et INFO aux administrateurs, mais un
+ * masquage n'est qu'un confort : rien n'empeche de forger la requete a la
+ * main. Le refus doit tenir cote serveur, et c'est ici qu'il se decide.
+ */
+export function motifRefusAttribution(roleActeur: unknown, roleVoulu: unknown): string | null {
+  if (estRoleTechnique(roleVoulu) && !estRoleTechnique(roleActeur))
+    return `Attribution du role ${String(roleVoulu)} reservee aux comptes SUPER_ADMIN et INFO.`;
+  return null;
+}
+
 export function verifierPermission(role: Role | string, action: string): void {
   const allowed = PERMISSIONS[action];
   if (!allowed) throw new Error('Action inconnue : ' + action);
-  if (allowed.indexOf(role as Role) === -1) throw new Error('Accès refusé pour votre profil.');
+  if (allowed.indexOf(role as Role) >= 0) return;
+  /* SUPER_ADMIN et INFO HÉRITENT DE L'ADMIN (2026-10-03, demande utilisateur).
+     On ne recopie pas ces deux rôles dans les deux cents lignes de la matrice :
+     une seule ligne oubliée créerait un trou silencieux, et chaque action
+     ajoutée plus tard rouvrirait le risque. On dérive donc leur droit de celui
+     de l'ADMIN, une fois pour toutes. Leurs pouvoirs PROPRES - reclasser un
+     ADMIN, attribuer un rôle technique - ne sont pas ici : ils vivent dans
+     actions/utilisateurs.ts, là où ils s'exercent. */
+  if (estRoleTechnique(role) && allowed.indexOf(ROLES.ADMIN) >= 0) return;
+  throw new Error('Accès refusé pour votre profil.');
 }

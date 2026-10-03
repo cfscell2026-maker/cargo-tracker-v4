@@ -15,7 +15,8 @@ import { EcranParking, ResultatsParking, useAlerteParking } from './parking.tsx'
 import type { ReactNode } from 'react';
 import type { Nav } from './App.tsx';
 import { useNav } from './lib/contexte-nav.ts';
-import { ROLES, OPERATIONS, VEHICULE_DESTINATIONS, TYPES_DECLARATION, optionTypeDeclaration, STATUTS, SUIVENT_ENGAGEMENTS, dateDansNJours, tcValide, fileAttente, estTypeSansT1, libelleTypeSansT1, exigeControlePoids, dureeLisible } from '../../../supabase/functions/_shared/domaine/src/index.ts';
+import { ROLES, OPERATIONS, VEHICULE_DESTINATIONS, TYPES_DECLARATION, optionTypeDeclaration, STATUTS, SUIVENT_ENGAGEMENTS, dateDansNJours, tcValide, fileAttente, estTypeSansT1, libelleTypeSansT1, exigeControlePoids, dureeLisible,
+  ROLES_TECHNIQUES, estRoleTechnique } from '../../../supabase/functions/_shared/domaine/src/index.ts';
 
 const STATUT_OPTIONS = Object.values(STATUTS);
 
@@ -4715,8 +4716,18 @@ SCREENS.stockdwell = () => {
 
 /* ---------------------------- Utilisateurs ----------------------------- */
 const ROLES_LISTE = ['CFS', 'CHEF_BRIGADE', 'CHEF_BRIGADE_ADJOINT', 'CBPI', 'CHEF_VISITE', 'CHEF_DIVISION', 'T1', 'BALISE', 'BON_SORTIE', 'PP', 'ADMIN'];
-SCREENS.users = () => {
+/* LES DEUX RÔLES TECHNIQUES NE S'AFFICHENT PAS POUR TOUT LE MONDE (2026-10-03,
+   demande utilisateur). Un ADMIN ne doit pas même savoir qu'ils existent en
+   ouvrant la liste. Ce masquage est un CONFORT, pas une sécurité : rien
+   n'empêche de forger la requête à la main, et c'est le serveur qui refuse
+   vraiment (refuserAttributionInterdite, actions/utilisateurs.ts). */
+const rolesProposes = (role: string) => (estRoleTechnique(role)
+  ? [...ROLES_LISTE, ...ROLES_TECHNIQUES]
+  : ROLES_LISTE);
+
+SCREENS.users = ({ user }) => {
   const { data, loading, reload } = useAsync<O[]>(() => call('user.list'), []);
+  const roles = rolesProposes(user.role);
   const [form, setForm] = useState<O | null>(null);
   async function creer(f: O) {
     try { await call('user.create', f); toast('Compte créé.', 'ok'); setForm(null); reload(); }
@@ -4807,7 +4818,7 @@ SCREENS.users = () => {
             onChange={(e) => setForm({ ...form, nomComplet: e.target.value })} /></div>
         <div><label className="help">Rôle</label>
           <select value={String(form['role'])} onChange={(e) => setForm({ ...form, role: e.target.value })}>
-            {ROLES_LISTE.map((r) => <option key={r}>{r}</option>)}</select></div>
+            {roles.map((r) => <option key={r}>{r}</option>)}</select></div>
         <div><label className="help">Mot de passe provisoire</label>
           <input value={String(form['password'])} minLength={12} placeholder="12 caractères minimum"
             onChange={(e) => setForm({ ...form, password: e.target.value })} />
@@ -4853,7 +4864,7 @@ SCREENS.users = () => {
           <input value={String(edition['nomComplet'] ?? '')} onChange={(e) => setEdition({ ...edition, nomComplet: e.target.value })} /></div>
         <div><label className="help">Rôle</label>
           <select value={String(edition['role'])} onChange={(e) => setEdition({ ...edition, role: e.target.value })}>
-            {ROLES_LISTE.map((r) => <option key={r}>{r}</option>)}</select></div>
+            {roles.map((r) => <option key={r}>{r}</option>)}</select></div>
       </div>
       <p className="help">L'identifiant n'est pas modifiable : il identifie le compte dans tout le journal d'audit.</p>
       <div className="row" style={{ marginTop: 12 }}>

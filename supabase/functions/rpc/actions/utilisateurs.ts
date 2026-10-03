@@ -15,7 +15,9 @@
  */
 import { ErreurMetier, type Ctx } from '../ctx.ts';
 import { createClient } from 'npm:@supabase/supabase-js@2';
-import { ROLES, type Role } from '../../_shared/domaine/src/index.ts';
+import {
+  ROLES, estRoleTechnique, motifRefusHierarchie, motifRefusAttribution, type Role,
+} from '../../_shared/domaine/src/index.ts';
 
 const DOMAINE_TECH = 'agents.cargo-pia.local';
 const emailDe = (username: string) => `${username}@${DOMAINE_TECH}`;
@@ -65,23 +67,23 @@ export function verifierMotDePasse(pwd: string, username = ''): void {
 /* ------------------------ SEC-09 · cloisonnement ------------------------ */
 
 /**
- * Un ADMIN peut réinitialiser le mot de passe et le 2FA de n'importe qui, puis
- * se connecter sous cette identité et poser une signature de validation, un T1
- * ou une balise. Tant que la cible est un agent de cellule, c'est le prix de
- * l'exploitation courante, et la réinitialisation est tracée, l'agent s'en
- * aperçoit à sa prochaine connexion.
- *
- * Entre ADMIN, en revanche, l'opération est refusée : elle permettrait à un
- * administrateur d'effacer discrètement le contrôle exercé par son pair. La
- * reprise en main d'un compte ADMIN passe par la console Supabase, un autre
- * chemin, d'autres droits, une autre trace (voir EXPLOITATION.md).
+ * LA REGLE EST DANS LE DOMAINE (permissions.ts), ces deux fonctions ne font que
+ * la lever. On evite ainsi deux copies qui divergeraient, et la regle y est
+ * testee - ce fichier, lui, importe un module Deno que le lanceur de tests ne
+ * sait pas charger.
  */
-function refuserSiAdmin(cible: { role?: unknown; username?: unknown }, operation: string): void {
-  if (String(cible.role) === ROLES.ADMIN)
-    throw new ErreurMetier(
-      `${operation} impossible sur un compte ADMIN (« ${String(cible.username)} »). ` +
-        'Cette opération relève de la console Supabase, avec double contrôle, voir EXPLOITATION.md.',
-    );
+function refuserSelonHierarchie(
+  ctx: Ctx,
+  cible: { role?: unknown; username?: unknown },
+  operation: string,
+): void {
+  const motif = motifRefusHierarchie(ctx.session.role, cible, operation);
+  if (motif) throw new ErreurMetier(motif);
+}
+
+function refuserAttributionInterdite(ctx: Ctx, roleVoulu: string): void {
+  const motif = motifRefusAttribution(ctx.session.role, roleVoulu);
+  if (motif) throw new ErreurMetier(motif);
 }
 
 /* --------------------------------- liste -------------------------------- */
@@ -111,6 +113,7 @@ export async function userCreate(ctx: Ctx, p: Record<string, unknown>) {
   const { data: exist } = await ctx.db.from('profils').select('username').eq('username', username).maybeSingle();
   if (exist) throw new ErreurMetier('Cet identifiant existe déjà.');
   if (ROLES_VALIDES.indexOf(String(p['role'])) === -1) throw new ErreurMetier('Rôle invalide.');
+  refuserAttributionInterdite(ctx, String(p['role']));
   const pwd = String(p['password'] ?? '');
   verifierMotDePasse(pwd, username);
   const nom = String(p['nomComplet'] ?? '').trim() || username;
@@ -146,13 +149,19 @@ export async function userUpdate(ctx: Ctx, p: Record<string, unknown>) {
 
   if (p['role'] !== undefined && String(p['role']) !== String(u.role)) {
     if (ROLES_VALIDES.indexOf(String(p['role'])) === -1) throw new ErreurMetier('Rôle invalide.');
-    // SEC-09 : on ne reclasse pas un pair administrateur, ni soi-même.
-    refuserSiAdmin(u, 'Changement de rôle');
+    // SEC-09 : la hiérarchie dit qui peut reclasser qui ; jamais soi-même.
+    refuserAttributionInterdite(ctx, String(p['role']));
+    refuserSelonHierarchie(ctx, u, 'Changement de rôle');
     if (u.id === ctx.session.userId) throw new ErreurMetier('Vous ne pouvez pas changer votre propre rôle.');
     // Promouvoir quelqu'un ADMIN reste possible, mais c'est un acte majeur :
     // il est tracé distinctement pour être repérable dans l'historique.
-    if (String(p['role']) === ROLES.ADMIN)
-      await ctx.log('⚠ PROMOTION ADMIN', '', `${u.username} : ${u.role} → ADMIN`);
+    /* Les actes majeurs se repèrent d'un coup d'œil dans l'historique : promouvoir
+       quelqu'un, ou déclasser un administrateur, n'est pas une modification de
+       routine. */
+    if (String(p['role']) === ROLES.ADMIN || estRoleTechnique(String(p['role'])))
+      await ctx.log('⚠ PROMOTION ' + String(p['role']), '', `${u.username} : ${u.role} → ${String(p['role'])}`);
+    else if (String(u.role) === ROLES.ADMIN)
+      await ctx.log('⚠ DÉCLASSEMENT ADMIN', '', `${u.username} : ADMIN → ${String(p['role'])}`);
     patch['role'] = p['role'];
   }
 
@@ -177,7 +186,7 @@ export async function userToggle(ctx: Ctx, p: Record<string, unknown>) {
   // SEC-09 : désactiver un pair administrateur reviendrait à évincer le contrôle
   // mutuel. Réactiver reste possible (c'est un retour à la normale, jamais une
   // prise de pouvoir).
-  if (!nouveau) refuserSiAdmin(u, 'Désactivation');
+  if (!nouveau) refuserSelonHierarchie(ctx, u, 'Désactivation');
 
   const { error: eMaj } = await ctx.db.from('profils').update({ actif: nouveau }).eq('id', u.id);
   if (eMaj) throw new Error(eMaj.message);
@@ -194,7 +203,7 @@ export async function userResetpwd(ctx: Ctx, p: Record<string, unknown>) {
   const { data: u, error } = await ctx.db.from('profils').select('id, username, role').eq('username', username).maybeSingle();
   if (error) throw new Error(error.message);
   if (!u) throw new ErreurMetier('Utilisateur introuvable.');
-  refuserSiAdmin(u, 'Réinitialisation du mot de passe'); // SEC-09
+  refuserSelonHierarchie(ctx, u, 'Réinitialisation du mot de passe'); // SEC-09
   const pwd = String(p['password'] ?? '');
   verifierMotDePasse(pwd, u.username);
 
@@ -214,7 +223,7 @@ export async function userResetmfa(ctx: Ctx, p: Record<string, unknown>) {
   const { data: u, error } = await ctx.db.from('profils').select('id, username, role').eq('username', username).maybeSingle();
   if (error) throw new Error(error.message);
   if (!u) throw new ErreurMetier('Utilisateur introuvable.');
-  refuserSiAdmin(u, 'Réinitialisation du 2FA'); // SEC-09
+  refuserSelonHierarchie(ctx, u, 'Réinitialisation du 2FA'); // SEC-09
   const { data: facteurs } = await ctx.db.auth.admin.mfa.listFactors({ userId: u.id });
   for (const f of facteurs?.factors ?? []) {
     await ctx.db.auth.admin.mfa.deleteFactor({ id: f.id, userId: u.id });
