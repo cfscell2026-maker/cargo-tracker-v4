@@ -2866,7 +2866,7 @@ test('balise, un numéro déjà posé sur un camion non sorti est refusé, en le
   await assert.rejects(
     () => ecr.gps(ctxRole(db, 'BALISE', 'Agent Balise'),
       { id, baliseRequise: 'Oui', t1Correct: 'Oui', numeroGPS: 'GPS-777' }),
-    (e: Error) => /BAL001\/RM01/.test(e.message) && /d\u00e9j\u00e0 pos\u00e9e/i.test(e.message),
+    (e: Error) => /BAL001\/RM01/.test(e.message) && /déj\u00e0 posée/i.test(e.message),
   );
 });
 

@@ -114,6 +114,15 @@ export const MENUS: Record<string, MenuItem[]> = {
   ],
 };
 
+/* LES ROLES TECHNIQUES VOIENT CE QUE VOIT L'ADMIN (2026-10-03, demande
+   utilisateur). On RECOPIE le menu de l'ADMIN plutot que d'en ecrire deux
+   autres : ce qui s'ajoutera demain a l'ADMIN leur arrivera tout seul, sans
+   qu'on ait a y penser. Leurs pouvoirs propres - reclasser un ADMIN, attribuer
+   un role technique - ne sont pas des ECRANS mais des droits, ils vivent dans
+   la matrice des permissions et dans actions/utilisateurs.ts. */
+MENUS['SUPER_ADMIN'] = MENUS['ADMIN']!;
+MENUS['INFO'] = MENUS['ADMIN']!;
+
 /* ============ DEUX BLOCS DE MENU : 2026-09-10 ============================
  *
  * Le bloc GÉNÉRAL, juste sous le logo, rassemble ce qui ne relève d'aucune

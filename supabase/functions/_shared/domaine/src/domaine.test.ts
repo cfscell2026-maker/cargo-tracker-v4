@@ -12,7 +12,8 @@ import {
   numeroDispenseValide,
   tcValide, maj, alphaNumMaj, normAlphaNum, declKey, normaliserDeclaration,
   parseConteneursDetails, parseDateImport, tailleBucket, evpDeTaille, trancheAge,
-  verifierPermission, PERMISSIONS, TYPES_DECLARATION,
+  verifierPermission, PERMISSIONS, TYPES_DECLARATION, estRoleTechnique,
+  motifRefusHierarchie, motifRefusAttribution,
   groupesDeclaration, estChargementMixte, libelleDeclaration,
   sautsTypeC, estTypeSansT1, DESTINATION_CODES, estDispenseBalise, codeDestination,
   distanceOSA, similariteNum, numeroQuasiDoublon,
@@ -313,6 +314,87 @@ test('trancheAge', () => {
 });
 
 /* ------------------------------ Permissions ---------------------------- */
+
+test("SUPER_ADMIN et INFO heritent des droits de l'ADMIN", () => {
+  /* Les deux roles techniques ne sont PAS recopies dans les deux cents lignes
+     de la matrice : leur droit se derive de celui de l'ADMIN. Ce test vaut pour
+     TOUTE la matrice, y compris les actions ajoutees plus tard. */
+  for (const technique of [ROLES.SUPER_ADMIN, ROLES.INFO]) {
+    for (const [action, autorises] of Object.entries(PERMISSIONS)) {
+      if (autorises.indexOf(ROLES.ADMIN) >= 0) {
+        assert.doesNotThrow(() => verifierPermission(technique, action),
+          technique + " devrait heriter de l'ADMIN sur " + action);
+      }
+    }
+  }
+  /* CONSTAT ETABLI PAR CE TEST, et qui merite d'etre su : l'ADMIN figure dans
+     les 128 actions de la matrice, sans exception. L'heritage donne donc aux
+     deux roles techniques l'acces INTEGRAL - ce qui est l'intention, mais ne
+     doit pas rester implicite. Si une action venait un jour a exclure l'ADMIN,
+     l'assertion ci-dessous tomberait, et il faudrait alors decider
+     explicitement si les roles techniques y ont droit. */
+  const sansAdmin = Object.entries(PERMISSIONS)
+    .filter(([, r]) => r.indexOf(ROLES.ADMIN) < 0).map(([a]) => a);
+  assert.deepEqual(sansAdmin, [],
+    'une action exclut desormais l ADMIN : trancher le cas des roles techniques');
+
+  // Une action inconnue reste inconnue, pour eux comme pour les autres.
+  assert.throws(() => verifierPermission(ROLES.SUPER_ADMIN, 'action.inexistante'), /Action inconnue/);
+});
+
+test("hierarchie : seul un role technique touche a un ADMIN", () => {
+  const admin = { role: ROLES.ADMIN, username: 'chef' };
+  const agent = { role: ROLES.CFS, username: 'agent' };
+
+  // UN ADMIN ne touche pas a son pair : la regle d'origine tient toujours.
+  assert.match(String(motifRefusHierarchie(ROLES.ADMIN, admin, 'Changement de role')),
+    /Seul un SUPER_ADMIN/);
+  // ... mais il touche aux agents de cellule, comme avant.
+  assert.equal(motifRefusHierarchie(ROLES.ADMIN, agent, 'Changement de role'), null);
+
+  // SUPER_ADMIN et INFO, a egalite, touchent a l'ADMIN. C'est le pouvoir neuf.
+  for (const technique of [ROLES.SUPER_ADMIN, ROLES.INFO]) {
+    assert.equal(motifRefusHierarchie(technique, admin, 'Changement de role'), null, technique);
+    assert.equal(motifRefusHierarchie(technique, agent, 'Changement de role'), null, technique);
+  }
+});
+
+test("hierarchie : un compte technique reste intouchable depuis l'application", () => {
+  /* Sinon la hierarchie n'aurait plus de sommet : deux titulaires pourraient se
+     declasser l'un l'autre. Pour ceux-la, la console reste le seul chemin. */
+  for (const cible of [ROLES.SUPER_ADMIN, ROLES.INFO]) {
+    for (const acteur of [ROLES.ADMIN, ROLES.SUPER_ADMIN, ROLES.INFO]) {
+      assert.match(String(motifRefusHierarchie(acteur, { role: cible, username: 'x' }, 'Desactivation')),
+        /console Supabase/, acteur + ' -> ' + cible);
+    }
+  }
+});
+
+test("hierarchie : chacun n'attribue QUE son propre role technique", () => {
+  for (const vise of [ROLES.SUPER_ADMIN, ROLES.INFO]) {
+    // L'ecran les masque ; le serveur, lui, REFUSE - une requete se forge.
+    assert.match(String(motifRefusAttribution(ROLES.ADMIN, vise)), /reservee aux comptes/, vise);
+    assert.match(String(motifRefusAttribution(ROLES.CFS, vise)), /reservee/, vise);
+    // Son propre titre : oui.
+    assert.equal(motifRefusAttribution(vise, vise), null, vise);
+  }
+  /* Celui de l'autre : NON. Aucun des deux ne se donne le titre du second -
+     sans quoi le cloisonnement ne tiendrait qu'une manipulation. */
+  assert.match(String(motifRefusAttribution(ROLES.SUPER_ADMIN, ROLES.INFO)), /reservee aux comptes INFO/);
+  assert.match(String(motifRefusAttribution(ROLES.INFO, ROLES.SUPER_ADMIN)), /reservee aux comptes SUPER_ADMIN/);
+  // Les roles ordinaires restent attribuables par un ADMIN, sans changement.
+  for (const ordinaire of [ROLES.CFS, ROLES.BALISE, ROLES.PP, ROLES.ADMIN, ROLES.CBPI]) {
+    assert.equal(motifRefusAttribution(ROLES.ADMIN, ordinaire), null, ordinaire);
+  }
+});
+
+test('estRoleTechnique : SUPER_ADMIN et INFO, et eux seuls', () => {
+  assert.equal(estRoleTechnique(ROLES.SUPER_ADMIN), true);
+  assert.equal(estRoleTechnique(ROLES.INFO), true);
+  for (const r of [ROLES.ADMIN, ROLES.CFS, ROLES.CHEF_BRIGADE, ROLES.PP, '', null, undefined]) {
+    assert.equal(estRoleTechnique(r), false, String(r));
+  }
+});
 
 test('verifierPermission : accès refusé pour un rôle non listé', () => {
   assert.throws(() => verifierPermission(ROLES.T1, 'cargo.cfs'), /Accès refusé pour votre profil\./);
