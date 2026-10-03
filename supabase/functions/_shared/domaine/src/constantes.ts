@@ -111,6 +111,30 @@ export function estRoleTechnique(role: unknown): boolean {
   return ROLES_TECHNIQUES.indexOf(String(role ?? '') as Role) >= 0;
 }
 
+/**
+ * RANG D'UN ROLE TECHNIQUE (2026-10-03, precision utilisateur).
+ *
+ * Les deux roles techniques ne sont PAS a egalite : l'INFO est au-dessus du
+ * SUPER_ADMIN. L'informatique amorce les comptes de direction ; la direction
+ * ne peut pas se donner d'acces technique.
+ *
+ * On exprime cela par un RANG plutot que par une liste de cas : chacun voit et
+ * attribue les roles de rang INFERIEUR OU EGAL au sien. Un troisieme etage, s'il
+ * en fallait un un jour, s'ajouterait ici sans toucher au reste.
+ *
+ *   INFO (2) > SUPER_ADMIN (1) > tout le reste (0)
+ *
+ * ⚠ Les POUVOIRS d'exploitation, eux, restent IDENTIQUES : les deux ouvrent
+ * tous les ecrans et reclassent un ADMIN. Le rang ne regit que l'attribution
+ * des titres techniques.
+ */
+export function rangTechnique(role: unknown): number {
+  const r = String(role ?? '');
+  if (r === ROLES.INFO) return 2;
+  if (r === ROLES.SUPER_ADMIN) return 1;
+  return 0;
+}
+
 /** Tous les rôles (lecture/recherche/tableau de bord/compte courant). */
 export const TOUS_ROLES: Role[] = [
   ROLES.CFS, ROLES.CHEF_BRIGADE, ROLES.CHEF_BRIGADE_ADJOINT, ROLES.CHEF_VISITE,

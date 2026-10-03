@@ -12,7 +12,10 @@
  * ============================================================================
  */
 
-import { ROLES, TOUS_ROLES, SUIVENT_ENGAGEMENTS, VOIENT_HORSGABARIT, estRoleTechnique, type Role } from './constantes.ts';
+import {
+  ROLES, TOUS_ROLES, SUIVENT_ENGAGEMENTS, VOIENT_HORSGABARIT,
+  estRoleTechnique, rangTechnique, type Role,
+} from './constantes.ts';
 
 /**
  * CBPI (chef brigade par intérim, 2026-08-19) : profil VOLONTAIREMENT ÉTROIT. Il
@@ -324,20 +327,24 @@ export function motifRefusHierarchie(
 /**
  * Qui peut ATTRIBUER tel role ? Rend le motif du refus, ou `null`.
  *
- * CHACUN N'ATTRIBUE QUE LE SIEN (2026-10-03, precision utilisateur). Un role
- * technique n'apparait dans la liste QUE pour son propre titulaire : un INFO
- * voit INFO, un SUPER_ADMIN voit SUPER_ADMIN, et aucun des deux ne voit celui
- * de l'autre. Les POUVOIRS, eux, restent identiques - tous deux peuvent tout,
- * y compris reclasser un ADMIN ; c'est la seule FABRICATION de leurs pairs qui
- * est cloisonnee, pour qu'aucun des deux ne puisse se donner l'autre titre.
+ * CHACUN ATTRIBUE JUSQU'A SON RANG (2026-10-03, precision utilisateur) :
+ *   · un INFO voit et attribue INFO, SUPER_ADMIN, et tout le reste ;
+ *   · un SUPER_ADMIN attribue SUPER_ADMIN et le reste, mais PAS INFO - il ne
+ *     voit meme pas ce titre dans sa liste ;
+ *   · un ADMIN n'attribue aucun titre technique.
+ *
+ * L'informatique amorce les comptes de direction ; la direction ne peut pas se
+ * donner d'acces technique. Sans ce sens unique, la separation ne tiendrait
+ * qu'une manipulation : il suffirait de se creer le titre manquant.
  *
  * L'ecran applique deja ce masquage, mais un masquage n'est qu'un confort :
  * rien n'empeche de forger la requete a la main. Le refus tient donc ici.
  */
 export function motifRefusAttribution(roleActeur: unknown, roleVoulu: unknown): string | null {
-  if (!estRoleTechnique(roleVoulu)) return null;
-  if (String(roleActeur) === String(roleVoulu)) return null;
-  return `Attribution du role ${String(roleVoulu)} reservee aux comptes ${String(roleVoulu)}.`;
+  const voulu = rangTechnique(roleVoulu);
+  if (voulu === 0) return null; // role ordinaire : aucune restriction de rang
+  if (rangTechnique(roleActeur) >= voulu) return null;
+  return `Attribution du role ${String(roleVoulu)} reservee aux comptes de rang superieur ou egal.`;
 }
 
 export function verifierPermission(role: Role | string, action: string): void {
