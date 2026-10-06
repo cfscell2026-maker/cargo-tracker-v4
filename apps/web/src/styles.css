@@ -1945,13 +1945,13 @@ button{
    fichier, les repeignait en pastille bleue pleine. C'est le piège classique
    d'un style global ajouté après coup : il rattrape les exceptions déjà
    réglées. */
-button:not(.ghost):not(.burger):not(.repli):not(.bm-action):not(.bm-retour):not(.btn-export):not(.acte):not(.hubitem):not(.nm-onglet):not(.seg-choix):not(.modal-fermer):not(:disabled){
+button:not(.ghost):not(.burger):not(.repli):not(.bm-action):not(.bm-retour):not(.btn-export):not(.acte):not(.hubitem):not(.nm-onglet):not(.seg-choix):not(.modal-fermer):not(.acp-perim):not(:disabled){
   background:linear-gradient(180deg,var(--accent),#0b4870);
   border-color:transparent;
   box-shadow:0 4px 14px rgba(14,90,138,.24),inset 0 1px 0 rgba(255,255,255,.35);
 }
 /* BLANC AU SURVOL, comme sur l'écran de création : la même règle partout. */
-button:not(.ghost):not(.hubitem):not(.nm-onglet):not(.bm-retour):not(.seg-choix):not(.modal-fermer):hover:not(:disabled){
+button:not(.ghost):not(.hubitem):not(.nm-onglet):not(.bm-retour):not(.seg-choix):not(.modal-fermer):not(.acp-perim):hover:not(:disabled){
   background:#fff;color:var(--accent);border-color:var(--accent);
   transform:translateY(-1px);
   box-shadow:0 8px 22px rgba(15,35,55,.16);
@@ -3101,3 +3101,185 @@ button.modal-fermer:focus-visible{outline:2px solid #0e5a8a;outline-offset:2px}
 .param-saisie{gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:4px}
 .param-saisie textarea{max-width:420px;width:100%}
 .param-inactif{border-left:4px solid var(--warn)}
+
+/* ======================= RAPPROCHEMENT ACP, 2026-10-06 ==================
+ *
+ * Demande utilisateur : le champ de fichier brut du navigateur
+ * (« Choisir un fichier · Aucun fichier choisi ») n'avait rien à faire au
+ * milieu d'une application soignée. Le dépôt passe dans une FENÊTRE, où l'on
+ * choisit aussi SUR QUOI porte la comparaison.
+ * ====================================================================== */
+
+/* La carte d'accueil : une phrase, un bouton, rien d'autre. */
+.acp-accueil{display:flex;gap:18px;align-items:center;flex-wrap:wrap;justify-content:space-between}
+.acp-accueil-texte{min-width:260px;flex:1}
+.acp-accueil h3{margin:0 0 4px;font-size:16px;letter-spacing:.005em}
+.acp-accueil .help{margin:0;max-width:62ch}
+
+.acp-lancer{
+  display:inline-flex;align-items:center;gap:9px;
+  padding:12px 20px;font-size:14.5px;border-radius:13px;
+}
+.acp-lancer:active{transform:translateY(1px) scale(.985)}
+
+/* ---- La fenêtre ---- */
+.acp-fenetre{display:flex;flex-direction:column;gap:4px}
+.acp-fenetre h2{margin:14px 0 2px;text-align:center}
+.acp-fenetre .acp-sous{text-align:center;margin:0 0 14px}
+.acp-fenetre > label.help{margin:12px 0 6px;font-weight:600;color:var(--ink)}
+.acp-fenetre > label.help i{font-weight:400;color:var(--muted)}
+
+/* LE LOGO ENTRE DEUX ARCS QUI TOURNENT EN SENS CONTRAIRE, chacun portant une
+   boîte. Les deux se croisent deux fois par tour : c'est le geste même du
+   rapprochement, deux inventaires qu'on fait coïncider. Quatre secondes le
+   tour — cette fenêtre s'ouvre pour qu'on y réfléchisse, pas pour qu'on la
+   regarde s'agiter. */
+.acp-anim{position:relative;width:120px;height:120px;margin:4px auto 0;display:grid;place-items:center}
+.acp-anim .logo-rond{width:62px;height:62px;border-radius:50%;position:relative;z-index:1}
+.acp-arc{
+  position:absolute;inset:0;border-radius:50%;
+  border:1.5px solid transparent;
+}
+.acp-arc-a{border-top-color:rgba(14,90,138,.55);border-right-color:rgba(14,90,138,.2);animation:acp-tour 4s linear infinite}
+.acp-arc-b{inset:14px;border-bottom-color:rgba(31,122,92,.55);border-left-color:rgba(31,122,92,.2);animation:acp-tour 4s linear infinite reverse}
+/* La boîte est posée SUR l'arc et tourne avec lui : c'est l'arc qui la
+   transporte, on n'anime donc qu'une seule chose par anneau. */
+.acp-boite{
+  position:absolute;top:-5px;left:50%;margin-left:-5px;
+  width:10px;height:10px;border-radius:2.5px;
+  background:linear-gradient(135deg,var(--accent),#0e5a8a);
+  box-shadow:0 2px 6px rgba(14,90,138,.4);
+}
+.acp-arc-b .acp-boite{background:linear-gradient(135deg,#1f7a5c,#2a9d78);box-shadow:0 2px 6px rgba(31,122,92,.4)}
+@keyframes acp-tour{to{transform:rotate(360deg)}}
+
+/* ---- Le choix du périmètre ---- */
+.acp-perimetres{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:9px}
+.acp-perim{
+  display:grid;grid-template-columns:auto 1fr;grid-template-rows:auto auto;
+  gap:2px 9px;text-align:left;padding:11px 13px;border-radius:13px;
+  background:rgba(255,255,255,.7);color:var(--ink);
+  border:1px solid rgba(15,45,70,.14);box-shadow:none;
+  transition:border-color .15s ease,background .15s ease,transform .12s ease;
+}
+.acp-perim .ic{grid-row:1/3;align-self:center;color:var(--accent);opacity:.75}
+.acp-perim b{font-size:13.5px}
+.acp-perim span{font-size:11.5px;color:var(--muted);line-height:1.35}
+.acp-perim:hover{border-color:rgba(14,90,138,.4);background:#fff}
+.acp-perim:active{transform:scale(.99)}
+.acp-perim.actif{
+  border-color:var(--accent);background:rgba(14,90,138,.07);
+  box-shadow:0 0 0 1px var(--accent) inset,0 6px 16px rgba(14,90,138,.13);
+}
+.acp-perim.actif .ic{opacity:1}
+
+.acp-periode{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.acp-periode .help{margin:0}
+
+/* ---- Le dépôt du fichier ----
+   L'`input` natif est MASQUÉ mais toujours là : le `label` qui l'enveloppe
+   l'actionne au clic comme à la touche Entrée, et les lecteurs d'écran
+   continuent d'annoncer un champ de fichier. On habille, on ne remplace pas. */
+.acp-depot{
+  display:grid;grid-template-columns:auto 1fr;gap:1px 12px;align-items:center;
+  padding:16px 18px;border-radius:14px;cursor:pointer;
+  border:1.5px dashed rgba(14,90,138,.35);background:rgba(14,90,138,.04);
+  transition:border-color .15s ease,background .15s ease;
+}
+.acp-depot:hover{border-color:var(--accent);background:rgba(14,90,138,.08)}
+.acp-depot input[type=file]{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
+.acp-depot .ic{grid-row:1/3;color:var(--accent)}
+.acp-depot span{font-size:14px;font-weight:600;word-break:break-all}
+.acp-depot i{font-size:11.5px;color:var(--muted);font-style:normal}
+
+.acp-lu{
+  margin-top:10px;padding:10px 13px;border-radius:11px;font-size:13px;
+  background:rgba(31,122,92,.07);border:1px solid rgba(31,122,92,.2);
+}
+.acp-actions{display:flex;gap:9px;justify-content:flex-end;margin-top:18px}
+
+@media (max-width:560px){
+  .acp-accueil{flex-direction:column;align-items:stretch}
+  .acp-lancer{justify-content:center}
+  .acp-actions{flex-direction:column-reverse}
+  .acp-actions button{width:100%}
+}
+
+/* Un mouvement perpétuel est vite pénible, et pour certains il est pire que
+   cela. On le coupe quand le système le demande ; le dessin reste. */
+@media (prefers-reduced-motion:reduce){
+  .acp-arc-a,.acp-arc-b{animation:none}
+}
+
+/* ============ VERRE DÉPOLI SUR LES VOLETS, 2026-10-06 ==================
+ *
+ * Demande utilisateur : « ajoute le glassmorphism » sur les volets.
+ *
+ * ⚠ LE FLOU ÉTAIT DÉJÀ LÀ. `.card` portait `backdrop-filter:blur(14px)` depuis
+ * la refonte. S'il ne se voyait pas, c'est pour la raison exacte qu'énonce le
+ * bloc de l'écran de connexion plus haut : UN FLOU NE MONTRE QUE CE QU'IL A
+ * DERRIÈRE LUI. Les halos de `body` sont posés en `background-attachment:fixed`
+ * et très dilués ; flouter un dégradé presque uni ne produit rien de visible.
+ *
+ * On ne touche donc pas d'abord au verre, mais à LA MATIÈRE : une couche de
+ * halos nettement plus présents, derrière le contenu. Le verre existant a enfin
+ * quelque chose à réfracter, et il se voit sans qu'on ait rien ajouté sur
+ * chaque carte.
+ * ====================================================================== */
+.content{position:relative;z-index:0}
+
+/* La matière. `fixed` : les halos ne défilent pas avec la liste, sans quoi le
+   verre scintillerait à chaque molette. Les trois teintes sont celles de
+   l'application, pas des couleurs neuves. */
+.content::before{
+  content:'';position:fixed;inset:0;z-index:-1;pointer-events:none;
+  background:
+    radial-gradient(760px 420px at 12% 4%, rgba(14,90,138,.22), transparent 64%),
+    radial-gradient(680px 380px at 92% 16%, rgba(31,122,92,.17), transparent 62%),
+    radial-gradient(720px 440px at 62% 96%, rgba(180,83,31,.12), transparent 64%),
+    radial-gradient(520px 300px at 34% 62%, rgba(14,90,138,.10), transparent 66%);
+}
+
+/* Le verre. Plus translucide qu'avant — il peut l'être, maintenant qu'il y a
+   quelque chose dessous — et le liseré clair du haut accentue l'arête.
+   Les CHAMPS DE SAISIE restent opaques (règle `input` globale) : on lit et on
+   remplit un champ, il n'a pas à être une plaque de verre. */
+.card{
+  background:rgba(255,255,255,.74);
+  backdrop-filter:blur(20px) saturate(165%);
+  -webkit-backdrop-filter:blur(20px) saturate(165%);
+  border:1px solid rgba(255,255,255,.75);
+  box-shadow:
+    0 10px 30px rgba(15,35,55,.10),
+    0 2px 6px rgba(15,35,55,.05),
+    inset 0 1px 0 rgba(255,255,255,.95);
+}
+
+/* La fenêtre modale suit la même matière, sinon elle paraîtrait plate posée
+   au-dessus de cartes en verre. */
+.modal{
+  background:rgba(255,255,255,.88);
+  backdrop-filter:blur(26px) saturate(170%);
+  -webkit-backdrop-filter:blur(26px) saturate(170%);
+  border:1px solid rgba(255,255,255,.8);
+  box-shadow:0 24px 60px rgba(15,35,55,.26),inset 0 1px 0 rgba(255,255,255,.95);
+}
+.overlay{background:rgba(15,25,35,.38);backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px)}
+
+/* IMPRESSION : le verre n'existe pas sur papier, et une carte translucide y
+   sort grise. On rend l'opacité pour imprimer. */
+@media print{
+  .content::before{display:none}
+  .card,.modal{background:#fff;backdrop-filter:none;-webkit-backdrop-filter:none;box-shadow:none}
+}
+
+/* ON N'HONORE PAS `prefers-reduced-transparency` ICI, et c'est un choix, pas
+   un oubli.
+   Cette règle existait, elle retirait le flou quand le système le demande. Puis
+   la mesure a montré que la machine de l'utilisateur répond précisément
+   « reduce » — les effets de transparence de Windows y sont désactivés. La
+   règle marchait donc parfaitement, et privait de ce verre la seule personne
+   qui l'a demandé. Le verre a été commandé expressément : il reste.
+   Le MOUVEMENT, lui, continue d'obéir à `prefers-reduced-motion` (voir
+   `.acp-arc`) : une animation qui tourne sans fin est une gêne réelle, une
+   surface translucide n'en est pas une. */

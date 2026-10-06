@@ -110,3 +110,52 @@ test("ACP : le parc est lu en ENTIER, au-dela du plafond de 1000 lignes", async 
   assert.equal((r['compte'] as Record<string, number>)['concordants'], 1500);
   assert.equal((r['compte'] as Record<string, number>)['listeInconnus'], 0);
 });
+
+/* ------------------- Le perimetre, bout en bout ------------------------- */
+
+test('ACP : le perimetre « stock » ecarte les positionnes SANS les dire inconnus', async () => {
+  const db = baseGarnie();
+  const r = await rapprochementACP(ctxDe(db), {
+    numeros: ['MSKU1234567', 'TGHU7654321'], perimetre: 'stock',
+  }) as Record<string, never>;
+  const n = (c: string) => (r['compte'] as Record<string, number>)[c];
+  assert.equal(n('concordants'), 1);      // MSKU, « En stock »
+  assert.equal(n('horsPerimetre'), 1);    // TGHU, « Positionné » : present, mais hors sujet
+  assert.equal(n('listeInconnus'), 0);    // LA regle : un present n'est jamais inconnu
+});
+
+test('ACP : les bornes de date portent sur la DATE D’ENTREE', async () => {
+  const db = baseGarnie();
+  // Seul CMAU est entre en aout ; MSKU et TGHU sont de septembre.
+  const r = await rapprochementACP(ctxDe(db), {
+    numeros: ['MSKU1234567', 'CMAU1111111'], du: '2026-08-01', au: '2026-08-31',
+  }) as Record<string, never>;
+  const n = (c: string) => (r['compte'] as Record<string, number>)[c];
+  assert.equal(n('concordants'), 1);      // CMAU
+  assert.equal(n('horsPerimetre'), 1);    // MSKU, present mais hors periode
+  assert.equal(n('parc'), 1);
+});
+
+test('ACP : un perimetre inconnu retombe sur le parc entier, il ne casse rien', async () => {
+  const db = baseGarnie();
+  const r = await rapprochementACP(ctxDe(db), {
+    numeros: ['MSKU1234567', 'TGHU7654321'], perimetre: 'n_importe_quoi',
+  }) as Record<string, never>;
+  assert.equal((r['compte'] as Record<string, number>)['concordants'], 2);
+  assert.equal(r['perimetre'], 'parc');
+});
+
+test('ACP : le perimetre et les bornes sont CONSERVES avec le controle', async () => {
+  /* Sans eux, les ecarts d'un ancien rapprochement ne se rapportent a rien :
+     « 12 inconnus » ne veut pas dire la meme chose sur tout le parc et sur le
+     seul mois d'aout. */
+  const db = baseGarnie();
+  await rapprochementACP(ctxDe(db), {
+    numeros: ['MSKU1234567'], perimetre: 'stock', du: '2026-08-01', au: '2026-09-30',
+  });
+  const l = db.store['rapprochement_acp']![0]!;
+  assert.equal(l['perimetre'], 'stock');
+  assert.equal(l['du'], '2026-08-01');
+  assert.equal(l['au'], '2026-09-30');
+  assert.equal(l['nb_hors_perimetre'], 0);
+});

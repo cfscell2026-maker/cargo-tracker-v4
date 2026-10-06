@@ -35,6 +35,18 @@ create table if not exists rapprochement_acp (
   nb_au_parc_hors_liste integer not null default 0,
   nb_deja_depotes     integer not null default 0,
   nb_inconnus         integer not null default 0,
+  -- Présents au parc mais hors du périmètre demandé. Cette colonne n'existe que
+  -- parce qu'on peut restreindre la comparaison : sans elle, comparer sur
+  -- « En stock » ferait déclarer « inconnu » un conteneur simplement
+  -- « Positionné », et l'on réclamerait à l'ACP un conteneur qu'on a sous les yeux.
+  nb_hors_perimetre   integer not null default 0,
+
+  -- Sur quoi a porté la comparaison : « parc » (défaut), « stock »,
+  -- « positionne » ou « alerte », et les bornes de date d'entrée s'il y en a.
+  -- Sans cela, les écarts d'un ancien rapprochement ne se rapportent à rien.
+  perimetre           text    not null default 'parc',
+  du                  date,
+  au                  date,
   -- Taille du parc au moment du contrôle : sans elle, les écarts d'un ancien
   -- rapprochement ne se rapportent à rien.
   nb_parc             integer not null default 0,

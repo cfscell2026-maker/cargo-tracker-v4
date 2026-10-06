@@ -13,7 +13,26 @@
 import type { Ctx } from '../ctx.ts';
 import { ErreurMetier } from '../ctx.ts';
 import { fetchAll, nextRef } from './helpers.ts';
+import { chargerParametres } from './parametres.ts';
 import { rapprocher, STOCK_STATUTS, normAlphaNum, type LigneParc } from '../../_shared/domaine/src/index.ts';
+
+/**
+ * LES PÉRIMÈTRES DE COMPARAISON (2026-10-06, demande utilisateur).
+ *
+ * « Tout le parc » reste le défaut, et c'est le bon pour une liste ACP
+ * ordinaire. Les autres répondent à des questions plus étroites : « de ta
+ * liste, lesquels traînent depuis plus de 90 jours ? »
+ *
+ * Un périmètre NE RETIRE RIEN DE LA BASE : il dit seulement ce qu'on compare.
+ * Les conteneurs présents mais hors périmètre ont leur propre case, pour
+ * qu'aucun conteneur présent ne soit jamais déclaré « inconnu ».
+ */
+const PERIMETRES = ['parc', 'stock', 'positionne', 'alerte'] as const;
+type Perimetre = (typeof PERIMETRES)[number];
+const estPerimetre = (v: unknown): v is Perimetre =>
+  PERIMETRES.indexOf(String(v) as Perimetre) >= 0;
+
+const jours = (a: Date, b: Date) => Math.max(0, Math.floor((b.getTime() - a.getTime()) / 86400000));
 
 /** Message unique quand la table manque : l'agent doit savoir quoi demander. */
 const TABLE_ABSENTE =
@@ -39,6 +58,15 @@ export async function rapprochementACP(ctx: Ctx, p: Record<string, unknown>) {
   const recus = Array.isArray(p['numeros']) ? (p['numeros'] as unknown[]).map((n) => normAlphaNum(n)).filter(Boolean) : [];
   if (!recus.length) throw new ErreurMetier('Aucun numéro de conteneur lisible dans ce fichier.');
 
+  const perimetre: Perimetre = estPerimetre(p['perimetre']) ? p['perimetre'] as Perimetre : 'parc';
+  const du = String(p['du'] ?? '').slice(0, 10);
+  const au = String(p['au'] ?? '').slice(0, 10);
+  const seuil = perimetre === 'alerte' ? (await chargerParametres(ctx)).sejourAlerteJours : 0;
+
+  /* TOUTE la base est lue, périmètre ou non, et le filtre ne part PAS en SQL.
+     C'est volontaire : sans les dépotés on ne distinguerait plus « déjà sorti
+     chez nous » de « jamais vu », et sans les présents hors périmètre on
+     déclarerait « inconnu » un conteneur qu'on a sous les yeux. */
   const lignes = await fetchAll(ctx, 'stock', 'numero_tc, statut, taille, date_entree');
   const base: LigneParc[] = lignes.map((r) => ({
     numeroTC: String(r['numero_tc'] ?? ''),
@@ -48,7 +76,25 @@ export async function rapprochementACP(ctx: Ctx, p: Record<string, unknown>) {
     depote: r['statut'] === STOCK_STATUTS.DEPOTE,
   }));
 
-  const r = rapprocher(recus, base);
+  const maintenant = new Date();
+  const dansPerimetre = (l: LigneParc): boolean => {
+    // Les bornes portent sur la DATE D'ENTRÉE, comme partout ailleurs.
+    if (du || au) {
+      const d = l.dateEntree ? String(l.dateEntree).slice(0, 10) : '';
+      if (!d) return false;              // sans date, elle n'appartient à aucune période
+      if (du && d < du) return false;
+      if (au && d > au) return false;
+    }
+    if (perimetre === 'stock') return l.statut === STOCK_STATUTS.STOCK;
+    if (perimetre === 'positionne') return l.statut === STOCK_STATUTS.POSITIONNE;
+    if (perimetre === 'alerte') {
+      if (!l.dateEntree) return false;
+      return jours(new Date(String(l.dateEntree)), maintenant) >= seuil;
+    }
+    return true;                         // 'parc' : tout ce qui n'est pas dépoté
+  };
+
+  const r = rapprocher(recus, base, dansPerimetre);
   const illisibles = Array.isArray(p['illisibles']) ? (p['illisibles'] as unknown[]).map(String) : [];
   const doublons = Array.isArray(p['doublons']) ? (p['doublons'] as unknown[]).map(String) : [];
   const nomFichier = String(p['nomFichier'] ?? '').slice(0, 200);
@@ -59,13 +105,14 @@ export async function rapprochementACP(ctx: Ctx, p: Record<string, unknown>) {
     nb_lus: r.compte.lus, nb_illisibles: illisibles.length, nb_doublons: doublons.length,
     nb_concordants: r.compte.concordants, nb_au_parc_hors_liste: r.compte.auParcHorsListe,
     nb_deja_depotes: r.compte.listeDejaDepotes, nb_inconnus: r.compte.listeInconnus,
-    nb_parc: r.compte.parc,
+    nb_hors_perimetre: r.compte.horsPerimetre, nb_parc: r.compte.parc,
+    perimetre, du: du || null, au: au || null,
     // Les concordants ne sont PAS gardés : ils ne posent aucune question, et
     // ils pèsent à eux seuls plus que les trois autres listes réunies.
     detail: {
       auParcHorsListe: borner(r.auParcHorsListe),
       listeDejaDepotes: borner(r.listeDejaDepotes),
-      listeInconnus: borner(r.listeInconnus),
+      listeInconnus: borner(r.listeInconnus), horsPerimetre: borner(r.horsPerimetre),
       illisibles: borner(illisibles), doublons: borner(doublons),
     },
   });
@@ -76,14 +123,15 @@ export async function rapprochementACP(ctx: Ctx, p: Record<string, unknown>) {
     + `${r.compte.auParcHorsListe} hors liste · ${r.compte.listeDejaDepotes} déjà dépoté(s) · `
     + `${r.compte.listeInconnus} inconnu(s)`);
 
-  return { id, ...r, illisibles, doublons, nomFichier };
+  return { id, ...r, illisibles, doublons, nomFichier, perimetre, du, au, seuil };
 }
 
 /** Les rapprochements passés, du plus récent au plus ancien, sans leur détail. */
 export async function rapprochementHistorique(ctx: Ctx, _p: Record<string, unknown> = {}) {
   const { data, error } = await ctx.db.from('rapprochement_acp')
     .select('id, fait_le, fait_par, nom_fichier, nb_lus, nb_illisibles, nb_doublons,'
-      + ' nb_concordants, nb_au_parc_hors_liste, nb_deja_depotes, nb_inconnus, nb_parc')
+      + ' nb_concordants, nb_au_parc_hors_liste, nb_deja_depotes, nb_inconnus,'
+      + ' nb_hors_perimetre, nb_parc, perimetre, du, au')
     .order('fait_le', { ascending: false }).limit(100);
   if (error) {
     // La table absente n'est pas une panne : l'écran s'ouvre, simplement vide.

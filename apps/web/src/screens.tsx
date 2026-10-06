@@ -4877,11 +4877,23 @@ SCREENS.stockdwell = ({ user }) => {
  * son propre constat, dans sa propre table. Aucun conteneur n'est créé, déplacé
  * ni dépoté : on peut le rejouer autant de fois qu'on veut, sans risque.
  * ====================================================================== */
+/* Les cases du rapprochement. La cinquième ne s'affiche que si elle contient
+   quelque chose : sur le périmètre par défaut, elle est toujours vide, et une
+   tuile à zéro en permanence n'apprendrait rien à personne. */
 const VUES_ACP: [string, string, string][] = [
-  ['concordants', 'Concordants', 'Annoncés par l’ACP et bien présents au parc. Rien à faire.'],
+  ['concordants', 'Concordants', 'Annoncés par l’ACP et bien présents. Rien à faire.'],
   ['auParcHorsListe', 'Au parc, hors liste', 'Chez nous, absents de la liste reçue. À signaler à l’ACP.'],
   ['listeDejaDepotes', 'Déjà dépotés', 'Annoncés par l’ACP, mais déjà sortis chez nous. Leur liste est en retard, ou nous avons dépoté à tort.'],
   ['listeInconnus', 'Inconnus', 'Annoncés par l’ACP, jamais vus dans notre base. À réclamer.'],
+  ['horsPerimetre', 'Hors périmètre', 'Présents au parc, mais hors de ce que vous avez demandé de comparer. Ni concordants, ni inconnus.'],
+];
+
+/** Les périmètres proposés, et ce que chacun demande au juste. */
+const PERIMETRES_ACP: { valeur: string; libelle: string; aide: string; icone: string }[] = [
+  { valeur: 'parc', libelle: 'Tout le parc', icone: 'conteneur', aide: 'Tout ce qui n’est pas dépoté : « En stock » et « Positionné ». Le bon choix dans presque tous les cas.' },
+  { valeur: 'stock', libelle: 'En stock', icone: 'boites', aide: 'Le stock seul, sans les conteneurs pointés pour le dépotage du jour.' },
+  { valeur: 'positionne', libelle: 'Positionnés', icone: 'presse', aide: 'Uniquement les conteneurs pointés pour le dépotage.' },
+  { valeur: 'alerte', libelle: 'En alerte', icone: 'sablier', aide: 'Ceux qui dépassent le seuil de séjour. « De votre liste, lesquels traînent ? »' },
 ];
 
 function exporterACP(lignes: O[], vue: string) {
@@ -4899,11 +4911,34 @@ function exporterACP(lignes: O[], vue: string) {
   toast(rows.length + ' ligne(s) extraite(s).', 'ok');
 }
 
+/**
+ * LE LOGO ENTRE DEUX ARCS QUI TOURNENT EN SENS CONTRAIRE, chacun portant une
+ * boîte. Les deux font le tour et se croisent : c'est le geste même du
+ * rapprochement, deux inventaires qu'on fait coïncider.
+ *
+ * Le mouvement reste LENT (4 s le tour). Cette fenêtre s'ouvre pour qu'on y
+ * réfléchisse — choisir un périmètre, une période — et une animation pressée y
+ * serait un bruit de fond, pas une illustration.
+ */
+function LogoComparaison() {
+  return <div className="acp-anim" aria-hidden="true">
+    <span className="acp-arc acp-arc-a"><span className="acp-boite" /></span>
+    <span className="acp-arc acp-arc-b"><span className="acp-boite" /></span>
+    <img className="logo-rond" src="/logo.png" alt=""
+      onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />
+  </div>;
+}
+
 function PanneauRapprochementACP() {
+  const [ouvert, setOuvert] = useState(false);
   const [lu, setLu] = useState<{ numeros: string[]; illisibles: string[]; doublons: string[]; nom: string } | null>(null);
   const [res, setRes] = useState<O | null>(null);
   const [vue, setVue] = useState('auParcHorsListe');
   const [busy, setBusy] = useState(false);
+  const [perimetre, setPerimetre] = useState('parc');
+  // Aucune borne au départ : la question ordinaire porte sur tout le parc, pas
+  // sur un mois. On ne restreint que si on le demande.
+  const c = useChoixPeriode('mois', true);
   const { data: hist, loading: histEnCours, reload } = useAsync<{ lignes: O[]; active: boolean }>(
     () => call('acp.historique'), []);
 
@@ -4921,7 +4956,6 @@ function PanneauRapprochementACP() {
         }
         const x = extraireNumerosTC(cellules);
         setLu({ ...x, nom: f.name });
-        setRes(null);
         if (!x.numeros.length) toast('Aucun numéro de conteneur lisible dans ce fichier.', 'err');
       } catch { toast('Fichier illisible : attendu .xlsx, .xls ou .csv.', 'err'); }
     };
@@ -4933,9 +4967,10 @@ function PanneauRapprochementACP() {
     setBusy(true);
     try {
       const r = await call<O>('acp.rapprocher', {
-        numeros: lu.numeros, illisibles: lu.illisibles, doublons: lu.doublons, nomFichier: lu.nom,
+        numeros: lu.numeros, illisibles: lu.illisibles, doublons: lu.doublons,
+        nomFichier: lu.nom, perimetre, du: c.du, au: c.au,
       });
-      setRes(r); setVue('auParcHorsListe'); reload();
+      setRes(r); setVue('auParcHorsListe'); setOuvert(false); reload();
       toast('Rapprochement enregistré.', 'ok');
     } catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(false); }
   }
@@ -4943,45 +4978,96 @@ function PanneauRapprochementACP() {
   const cpt = (res?.['compte'] ?? {}) as Record<string, number>;
   const lignes = ((res?.[vue] ?? []) as O[]);
   const titreVue = VUES_ACP.find((v) => v[0] === vue);
+  const libellePerimetre = (v: unknown) => PERIMETRES_ACP.find((x) => x.valeur === v)?.libelle ?? 'Tout le parc';
 
   return <>
-    <div className="card">
-      <div className="help" style={{ marginBottom: 8 }}>
-        {res
-          ? <>Liste « {String(res['nomFichier'] ?? lu?.nom ?? '')} » · {cpt['lus']} conteneur(s) reçus, {cpt['parc']} au parc.</>
-          : <>Déposez la liste reçue de l'ACP : l'application la compare au parc. Rien n'est modifié dans le stock.</>}
+    <div className="card acp-accueil">
+      <div className="acp-accueil-texte">
+        <h3>Comparer une liste de l’ACP avec le parc</h3>
+        <p className="help">
+          Déposez le fichier tel qu’il arrive — peu importe les colonnes, l’ordre, les
+          lignes de titre ou le nombre de feuilles. <b>Rien n’est modifié dans le stock.</b>
+        </p>
       </div>
-      <input type="file" accept=".xlsx,.xls,.csv" onChange={(e) => e.target.files?.[0] && lire(e.target.files[0]!)} />
-      {lu && <>
-        <div className="help" style={{ marginTop: 8 }}>
-          <b>{lu.numeros.length}</b> numéro(s) de conteneur lus dans « {lu.nom} ».
-          {lu.doublons.length > 0 && <> · {lu.doublons.length} répété(s) dans le fichier, compté(s) une fois.</>}
-        </div>
-        {/* Ce qui ressemblait à un numéro sans en être un est ANNONCÉ : écarté
-            en silence, il ferait un total qui ne tombe jamais juste. */}
-        {lu.illisibles.length > 0 && <div className="help" style={{ color: 'var(--warn)' }}>
-          {lu.illisibles.length} cellule(s) ressemblent à un n° de conteneur sans en être un :
-          {' '}{lu.illisibles.slice(0, 8).join(', ')}{lu.illisibles.length > 8 ? '…' : ''}
-        </div>}
-        <div style={{ marginTop: 10 }}>
-          <button disabled={busy || !lu.numeros.length} onClick={lancer}>
-            {busy ? 'Rapprochement…' : 'Comparer ' + lu.numeros.length + ' conteneur(s) au parc'}
-          </button>
-        </div>
-      </>}
+      <button className="acp-lancer" onClick={() => setOuvert(true)}>
+        <Icone nom="balance" taille={17} />Nouveau rapprochement
+      </button>
     </div>
 
+    {ouvert && <Modal onClose={() => !busy && setOuvert(false)}>
+      <div className="acp-fenetre">
+        <LogoComparaison />
+        <h2>Nouveau rapprochement</h2>
+        <p className="help acp-sous">Choisissez ce que la liste doit affronter, puis déposez-la.</p>
+
+        <label className="help">Sur quoi comparer ?</label>
+        <div className="acp-perimetres">
+          {PERIMETRES_ACP.map((p) => <button key={p.valeur} type="button"
+            className={`acp-perim ${perimetre === p.valeur ? 'actif' : ''}`}
+            aria-pressed={perimetre === p.valeur}
+            onClick={() => setPerimetre(p.valeur)} title={p.aide}>
+            <Icone nom={p.icone} taille={16} />
+            <b>{p.libelle}</b>
+            <span>{p.aide}</span>
+          </button>)}
+        </div>
+
+        {/* La période est FACULTATIVE, et c'est le bon défaut : une liste ACP
+            porte sur ce qui est là, pas sur ce qui est entré en septembre. */}
+        <label className="help">Restreindre à une période d’entrée ? <i>(facultatif)</i></label>
+        <div className="acp-periode">
+          <SelecteurPeriode c={c} titre="Période d’entrée au parc" />
+          <span className="help">
+            {c.du || c.au ? <>Du {fmtJour(c.du)} au {fmtJour(c.au)}</> : <>Toutes périodes</>}
+          </span>
+        </div>
+
+        <label className="help">La liste reçue</label>
+        <label className="acp-depot">
+          <input type="file" accept=".xlsx,.xls,.csv"
+            onChange={(e) => e.target.files?.[0] && lire(e.target.files[0]!)} />
+          <Icone nom="televerser" taille={18} />
+          <span>{lu ? lu.nom : 'Choisir le fichier reçu de l’ACP'}</span>
+          <i>.xlsx, .xls ou .csv</i>
+        </label>
+
+        {lu && <div className="acp-lu">
+          <b>{lu.numeros.length}</b> numéro(s) de conteneur lus.
+          {lu.doublons.length > 0 && <> · {lu.doublons.length} répété(s), compté(s) une fois.</>}
+          {/* Ce qui ressemblait à un numéro sans en être un est ANNONCÉ :
+              écarté en silence, il ferait un total qui ne tombe jamais juste. */}
+          {lu.illisibles.length > 0 && <div style={{ color: 'var(--warn)', marginTop: 4 }}>
+            {lu.illisibles.length} cellule(s) ressemblent à un n° sans en être un :
+            {' '}{lu.illisibles.slice(0, 6).join(', ')}{lu.illisibles.length > 6 ? '…' : ''}
+          </div>}
+        </div>}
+
+        <div className="acp-actions">
+          <button className="ghost" disabled={busy} onClick={() => setOuvert(false)}>Annuler</button>
+          <button disabled={busy || !lu?.numeros.length} onClick={lancer}>
+            {busy ? 'Rapprochement…' : `Comparer avec « ${libellePerimetre(perimetre)} »`}
+          </button>
+        </div>
+      </div>
+    </Modal>}
+
     {res && <div className="card">
+      <div className="help" style={{ marginBottom: 8 }}>
+        Liste « {String(res['nomFichier'] ?? '')} » · {cpt['lus']} conteneur(s) reçus,
+        comparés à <b>{libellePerimetre(res['perimetre'])}</b> ({cpt['parc']} conteneur(s))
+        {res['du'] || res['au'] ? <> · du {fmtJour(String(res['du']))} au {fmtJour(String(res['au']))}</> : null}.
+      </div>
       <div className="stats compacts">
-        {VUES_ACP.map(([cle, libelle]) => <StatCard key={cle} n={Number(cpt[cle] ?? 0)} l={libelle}
-          tone={cle === 'listeInconnus' || cle === 'listeDejaDepotes' ? 'warn' : undefined}
-          icone="conteneur" onClick={() => setVue(cle)} />)}
+        {VUES_ACP.filter(([cle]) => cle !== 'horsPerimetre' || Number(cpt['horsPerimetre'] ?? 0) > 0)
+          .map(([cle, libelle]) => <StatCard key={cle} n={Number(cpt[cle] ?? 0)} l={libelle}
+            tone={cle === 'listeInconnus' || cle === 'listeDejaDepotes' ? 'warn' : undefined}
+            icone="conteneur" onClick={() => setVue(cle)} />)}
       </div>
       {titreVue && <div className="help" style={{ margin: '8px 0' }}><b>{titreVue[1]}</b> · {titreVue[2]}</div>}
       <ListeLongue
         /* « entreLe » et non « dateEntree » : le tableau REFORMATE tout seul
-           les colonnes dont la cle commence par « date », et relisait a
-           l'anglaise la date qu'on venait de mettre en forme - le 1er aout
+           les colonnes dont la clé commence par « date », et relisait à
+           l'anglaise la date qu'on venait de mettre en forme — le 1er août
            s'affichait « 08/01/2026 00:00 ». Ici on veut le jour seul. */
         cols={[['numeroTC', 'Conteneur'], ['taille', 'Taille'], ['statut', 'Statut chez nous'], ['entreLe', 'Entré le']]}
         rows={lignes.map((r) => ({ ...r, entreLe: r['dateEntree'] ? fmtJour(r['dateEntree']) : '—', statut: r['statut'] || '—' }))}
@@ -5001,11 +5087,12 @@ function PanneauRapprochementACP() {
         ? <div className="help">Aucun rapprochement enregistré pour l'instant.</div>
         : <ListeLongue
           cols={[['fait_le', 'Fait le'], ['fait_par', 'Par'], ['nom_fichier', 'Fichier'],
-            ['nb_lus', 'Reçus'], ['nb_concordants', 'Concordants'],
+            ['surQuoi', 'Comparé à'], ['nb_lus', 'Reçus'], ['nb_concordants', 'Concordants'],
             ['nb_au_parc_hors_liste', 'Hors liste'], ['nb_deja_depotes', 'Dépotés'], ['nb_inconnus', 'Inconnus']]}
           // « fait_le » ne commence pas par « date » : aucune remise en forme
           // automatique ne s'y ajoute, celle-ci est la seule.
-          rows={hist.lignes.map((l) => ({ ...l, fait_le: fmtDate(l['fait_le']) }))}
+          rows={hist.lignes.map((l) => ({ ...l, fait_le: fmtDate(l['fait_le']),
+            surQuoi: libellePerimetre(l['perimetre']) }))}
           nom="rapprochement(s)" placeholder="fichier, auteur" parPage={10} />}
     </div>
   </>;

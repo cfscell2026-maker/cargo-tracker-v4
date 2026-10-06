@@ -142,3 +142,38 @@ test("ACP : aucune cellule d'etape n'a le rapprochement", () => {
   for (const r of ['T1', 'BALISE', 'BON_SORTIE', 'PP', 'CHEF_VISITE', 'CBPI'])
     assert.equal(aLeDroit(r, 'acp.rapprocher'), false, r);
 });
+
+/* --------------------- Restreindre le perimetre ------------------------- */
+
+test('perimetre : restreint, le rapprochement ne juge que ce qui en releve', () => {
+  const r = rapprocher(['MSKU1234567', 'TGHU7654321'], parc(),
+    (l) => l.statut === 'En stock');
+  // TGHU est « Positionné » : hors perimetre, donc NI concordant NI inconnu.
+  assert.deepEqual(r.concordants.map((l) => l.numeroTC), ['MSKU1234567']);
+  assert.deepEqual(r.horsPerimetre.map((l) => l.numeroTC), ['TGHU7654321']);
+  assert.equal(r.listeInconnus.length, 0);
+  assert.equal(r.compte.parc, 2);   // les deux « En stock » seulement
+});
+
+test("perimetre : UN CONTENEUR PRESENT N'EST JAMAIS DECLARE INCONNU", () => {
+  /* La raison d'etre de la cinquieme case. Sans elle, comparer sur « En
+     stock » ferait reclamer a l'ACP un conteneur simplement « Positionné »,
+     qu'on a sous les yeux. */
+  const r = rapprocher(['TGHU7654321'], parc(), (l) => l.statut === 'En stock');
+  assert.equal(r.listeInconnus.length, 0);
+  assert.deepEqual(r.horsPerimetre.map((l) => l.numeroTC), ['TGHU7654321']);
+});
+
+test('perimetre : par defaut il ne restreint rien, et la cinquieme case reste vide', () => {
+  const r = rapprocher(['MSKU1234567', 'TGHU7654321'], parc());
+  assert.equal(r.horsPerimetre.length, 0);
+  assert.equal(r.compte.concordants, 2);
+});
+
+test('perimetre : le depote reste depote, meme hors perimetre', () => {
+  /* Un conteneur sorti ne doit jamais glisser dans « hors perimetre » : la
+     question qu'il pose (leur liste est-elle en retard ?) est tout autre. */
+  const r = rapprocher(['HLXU2222222'], parc(), (l) => l.statut === 'En stock');
+  assert.deepEqual(r.listeDejaDepotes.map((l) => l.numeroTC), ['HLXU2222222']);
+  assert.equal(r.horsPerimetre.length, 0);
+});

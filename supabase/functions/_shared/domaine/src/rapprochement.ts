@@ -126,9 +126,19 @@ export interface Rapprochement {
   listeDejaDepotes: LigneRapprochee[];
   /** Dans la liste reçue, inconnu de la base. */
   listeInconnus: LigneRapprochee[];
+  /**
+   * Dans la liste reçue, PRÉSENT au parc, mais hors du périmètre demandé.
+   *
+   * Cette case n'existe que parce qu'on peut restreindre la comparaison. Sans
+   * elle, comparer sur « En stock » ferait déclarer « inconnu » un conteneur
+   * simplement « Positionné » - on réclamerait à l'ACP un conteneur qu'on a
+   * sous les yeux. Sur le périmètre par défaut (tout le parc) elle reste vide.
+   */
+  horsPerimetre: LigneRapprochee[];
   compte: {
     lus: number; concordants: number; auParcHorsListe: number;
-    listeDejaDepotes: number; listeInconnus: number; parc: number;
+    listeDejaDepotes: number; listeInconnus: number;
+    horsPerimetre: number; parc: number;
   };
 }
 
@@ -140,12 +150,20 @@ export interface Rapprochement {
  * encore sur le site ; le compter absent parce que son statut a changé ferait
  * apparaître chaque matin des écarts qui n'existent pas.
  *
- * `parc` doit porter TOUTE la base, dépotés compris : c'est ce qui permet de
+ * `base` doit porter TOUTE la base, dépotés compris : c'est ce qui permet de
  * distinguer « déjà sorti chez nous » (leur liste est en retard, ou nous avons
  * dépoté à tort) de « jamais vu » (il n'est jamais entré). Mélanger les deux
  * reviendrait à réclamer à l'ACP des conteneurs qu'on a nous-mêmes traités.
+ *
+ * `dansPerimetre` RESTREINT la comparaison sans amputer la base : on peut
+ * vouloir ne confronter la liste qu'aux conteneurs en alerte, ou à ceux entrés
+ * en septembre. Les conteneurs présents mais hors de ce périmètre ne sont ni
+ * concordants ni inconnus : ils ont leur propre case.
  */
-export function rapprocher(numerosRecus: string[], base: LigneParc[]): Rapprochement {
+export function rapprocher(
+  numerosRecus: string[], base: LigneParc[],
+  dansPerimetre: (l: LigneParc) => boolean = () => true,
+): Rapprochement {
   const recus = new Set(numerosRecus.map((n) => normAlphaNum(n)).filter(Boolean));
   const parNumero = new Map<string, LigneParc>();
   for (const l of base) {
@@ -157,25 +175,29 @@ export function rapprocher(numerosRecus: string[], base: LigneParc[]): Rapproche
   const auParcHorsListe: LigneRapprochee[] = [];
   const listeDejaDepotes: LigneRapprochee[] = [];
   const listeInconnus: LigneRapprochee[] = [];
+  const horsPerimetre: LigneRapprochee[] = [];
 
   for (const [tc, ligne] of parNumero) {
     if (ligne.depote) continue;             // les dépotés se jugent depuis la liste reçue
+    if (!dansPerimetre(ligne)) continue;    // présent, mais pas de ceux qu'on compare
     (recus.has(tc) ? concordants : auParcHorsListe).push(ligne);
   }
   for (const tc of recus) {
     const ligne = parNumero.get(tc);
     if (!ligne) { listeInconnus.push({ numeroTC: tc, statut: '', depote: false, inconnu: true }); continue; }
     if (ligne.depote) listeDejaDepotes.push(ligne);
+    else if (!dansPerimetre(ligne)) horsPerimetre.push(ligne);
   }
 
   const parc = concordants.length + auParcHorsListe.length;
   return {
-    concordants, auParcHorsListe, listeDejaDepotes, listeInconnus,
+    concordants, auParcHorsListe, listeDejaDepotes, listeInconnus, horsPerimetre,
     compte: {
       lus: recus.size, concordants: concordants.length,
       auParcHorsListe: auParcHorsListe.length,
       listeDejaDepotes: listeDejaDepotes.length,
-      listeInconnus: listeInconnus.length, parc,
+      listeInconnus: listeInconnus.length,
+      horsPerimetre: horsPerimetre.length, parc,
     },
   };
 }
