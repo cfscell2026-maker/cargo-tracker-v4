@@ -4917,7 +4917,7 @@ function exporterACP(lignes: O[], vue: string) {
  * rapprochement, deux inventaires qu'on fait coïncider.
  *
  * Le mouvement reste LENT (4 s le tour). Cette fenêtre s'ouvre pour qu'on y
- * réfléchisse — choisir un périmètre, une période — et une animation pressée y
+ * réfléchisse, choisir un périmètre et une période ; une animation pressée y
  * serait un bruit de fond, pas une illustration.
  */
 function LogoComparaison() {
@@ -4983,11 +4983,7 @@ function PanneauRapprochementACP() {
   return <>
     <div className="card acp-accueil">
       <div className="acp-accueil-texte">
-        <h3>Comparer une liste de l’ACP avec le parc</h3>
-        <p className="help">
-          Déposez le fichier tel qu’il arrive — peu importe les colonnes, l’ordre, les
-          lignes de titre ou le nombre de feuilles. <b>Rien n’est modifié dans le stock.</b>
-        </p>
+        <p className="help">Le fichier est pris tel qu’il arrive, quelles que soient ses colonnes.</p>
       </div>
       <button className="acp-lancer" onClick={() => setOuvert(true)}>
         <Icone nom="balance" taille={17} />Nouveau rapprochement
@@ -5067,12 +5063,12 @@ function PanneauRapprochementACP() {
       <ListeLongue
         /* « entreLe » et non « dateEntree » : le tableau REFORMATE tout seul
            les colonnes dont la clé commence par « date », et relisait à
-           l'anglaise la date qu'on venait de mettre en forme — le 1er août
+           l'anglaise la date qu'on venait de mettre en forme : le 1er août
            s'affichait « 08/01/2026 00:00 ». Ici on veut le jour seul. */
         cols={[['numeroTC', 'Conteneur'], ['taille', 'Taille'], ['statut', 'Statut chez nous'], ['entreLe', 'Entré le']]}
         rows={lignes.map((r) => ({ ...r, entreLe: r['dateEntree'] ? fmtJour(r['dateEntree']) : '—', statut: r['statut'] || '—' }))}
         nom="conteneur(s)" placeholder="N° de conteneur" reinit={vue}
-        vide="Aucun conteneur dans cette vue — c'est le bon résultat pour les écarts."
+        vide="Aucun conteneur dans cette vue : c'est le bon résultat pour les écarts."
         filtres={<button className="btn-export" disabled={!lignes.length} onClick={() => exporterACP(lignes, vue)}
           title="Extraire en Excel la vue affichée, dans son entier">
           <Icone nom="telecharger" taille={15} />Excel

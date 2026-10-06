@@ -1,5 +1,5 @@
 -- ============================================================================
---  00204 — RAPPROCHEMENT DES LISTES ACP (2026-10-06, demande utilisateur)
+--  00204, RAPPROCHEMENT DES LISTES ACP (2026-10-06, demande utilisateur)
 --
 --  L'ACP envoie régulièrement la liste des conteneurs qu'elle nous attribue.
 --  La comparaison avec le parc se faisait à l'œil. Elle devient un geste de
@@ -52,7 +52,7 @@ create table if not exists rapprochement_acp (
   nb_parc             integer not null default 0,
 
   -- { auParcHorsListe: [...], listeDejaDepotes: [...], listeInconnus: [...],
-  --   illisibles: [...] } — les CONCORDANTS n'y sont pas : ils ne posent aucune
+  --   illisibles: [...] }. Les CONCORDANTS n'y sont pas : ils ne posent aucune
   --   question, et ils pèsent à eux seuls plus que les trois autres réunis.
   detail          jsonb       not null default '{}'::jsonb
 );

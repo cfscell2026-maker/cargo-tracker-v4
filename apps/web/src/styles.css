@@ -3113,7 +3113,6 @@ button.modal-fermer:focus-visible{outline:2px solid #0e5a8a;outline-offset:2px}
 /* La carte d'accueil : une phrase, un bouton, rien d'autre. */
 .acp-accueil{display:flex;gap:18px;align-items:center;flex-wrap:wrap;justify-content:space-between}
 .acp-accueil-texte{min-width:260px;flex:1}
-.acp-accueil h3{margin:0 0 4px;font-size:16px;letter-spacing:.005em}
 .acp-accueil .help{margin:0;max-width:62ch}
 
 .acp-lancer{
@@ -3132,7 +3131,7 @@ button.modal-fermer:focus-visible{outline:2px solid #0e5a8a;outline-offset:2px}
 /* LE LOGO ENTRE DEUX ARCS QUI TOURNENT EN SENS CONTRAIRE, chacun portant une
    boîte. Les deux se croisent deux fois par tour : c'est le geste même du
    rapprochement, deux inventaires qu'on fait coïncider. Quatre secondes le
-   tour — cette fenêtre s'ouvre pour qu'on y réfléchisse, pas pour qu'on la
+   tour : cette fenêtre s'ouvre pour qu'on y réfléchisse, pas pour qu'on la
    regarde s'agiter. */
 .acp-anim{position:relative;width:120px;height:120px;margin:4px auto 0;display:grid;place-items:center}
 .acp-anim .logo-rond{width:62px;height:62px;border-radius:50%;position:relative;z-index:1}
@@ -3240,8 +3239,8 @@ button.modal-fermer:focus-visible{outline:2px solid #0e5a8a;outline-offset:2px}
     radial-gradient(520px 300px at 34% 62%, rgba(14,90,138,.10), transparent 66%);
 }
 
-/* Le verre. Plus translucide qu'avant — il peut l'être, maintenant qu'il y a
-   quelque chose dessous — et le liseré clair du haut accentue l'arête.
+/* Le verre. Plus translucide qu'avant, il peut l'être maintenant qu'il y a
+   quelque chose dessous, et le liseré clair du haut accentue l'arête.
    Les CHAMPS DE SAISIE restent opaques (règle `input` globale) : on lit et on
    remplit un champ, il n'a pas à être une plaque de verre. */
 .card{
@@ -3277,7 +3276,7 @@ button.modal-fermer:focus-visible{outline:2px solid #0e5a8a;outline-offset:2px}
    un oubli.
    Cette règle existait, elle retirait le flou quand le système le demande. Puis
    la mesure a montré que la machine de l'utilisateur répond précisément
-   « reduce » — les effets de transparence de Windows y sont désactivés. La
+   « reduce » : les effets de transparence de Windows y sont désactivés. La
    règle marchait donc parfaitement, et privait de ce verre la seule personne
    qui l'a demandé. Le verre a été commandé expressément : il reste.
    Le MOUVEMENT, lui, continue d'obéir à `prefers-reduced-motion` (voir
