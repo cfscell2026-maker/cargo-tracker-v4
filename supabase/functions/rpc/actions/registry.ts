@@ -100,7 +100,7 @@ export const ACTIONS: Record<string, H> = {
   'stock.import': d(stk.stockImport),
   'stock.pointage': d(stk.stockPointage),
   'stock.entreemagasin': d(stk.stockEntreeMagasin),
-  'report.stock': d((ctx) => stk.rapportStock(ctx)),
+  'report.stock': d(stk.rapportStock),
   'stockannonce.import': d(stk.annonceImport),
   'stockannonce.list': d(stk.annonceList),
   'stockannonce.pointage': d(stk.annoncePointage),

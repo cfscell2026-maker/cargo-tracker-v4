@@ -3550,6 +3550,32 @@ test("parking : chaque ligne porte son dossier et l'etape attendue", async () =>
   assert.equal(l3.lignes[0]!.cargaisonEtape, 'le bon de sortie');
 });
 
+test("sejour conteneurs : la periode filtre sur la date d'entree", async () => {
+  const db = new FakeDB();
+  const jour = (n: number) => { const d = new Date(); d.setDate(d.getDate() + n); return d.toISOString(); };
+  const j = (n: number) => jour(n).slice(0, 10);
+  db.store['stock'].push(
+    { numero_tc: 'MSKU0000001', taille: "40'", statut: 'En stock', date_entree: jour(-2) },
+    { numero_tc: 'MSKU0000002', taille: "20'", statut: 'En stock', date_entree: jour(-1) },
+    { numero_tc: 'MSKU0000003', taille: "40'", statut: 'En stock', date_entree: jour(-400) },
+    // Sans date d'entree : appartient a « toute la periode », a aucune bornee.
+    { numero_tc: 'MSKU0000004', taille: "40'", statut: 'En stock' },
+  );
+  const ctx = ctxRole(db, 'ADMIN', 'Admin');
+  type R = { compte: { total: number; stock: number } };
+
+  // Sans borne : tout le parc, comme avant.
+  assert.equal(((await stk.rapportStock(ctx, {})) as R).compte.total, 4);
+
+  // Bornee aux deux derniers jours : les deux recents seulement.
+  const recent = (await stk.rapportStock(ctx, { du: j(-2), au: j(0) })) as R;
+  assert.equal(recent.compte.total, 2, 'la periode ecarte l ancien ET le sans-date');
+  assert.equal(recent.compte.stock, 2);
+
+  // Une periode ou rien n'est entre : zero, et non « tout ».
+  assert.equal(((await stk.rapportStock(ctx, { du: j(-10), au: j(-5) })) as R).compte.total, 0);
+});
+
 test('parking : ajout sans pointer, puis pointage le lendemain', async () => {
   const db = new FakeDB();
   const agent = ctxRole(db, 'T1', 'Agent T1');

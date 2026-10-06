@@ -536,10 +536,28 @@ export async function annonceConfirmerLot(ctx: Ctx, p: Record<string, unknown>) 
 
 /* ----------------------- report.stock (séjour conteneurs) -------------- */
 
-export async function rapportStock(ctx: Ctx) {
+export async function rapportStock(ctx: Ctx, p: Record<string, unknown> = {}) {
   // Seuil d'alerte de séjour : réglage du volet Paramètres (90 jours par défaut).
   const seuilSejour = (await chargerParametres(ctx)).sejourAlerteJours;
-  const data = await fetchAll(ctx, 'stock', '*');
+  /* PERIODE SUR LA DATE D'ENTREE (2026-10-06, demande utilisateur). Jour, mois,
+     annee ou plage, comme partout ailleurs. Par defaut AUCUNE borne : la
+     question courante est « qu'est-ce qui est au parc ? », pas « qu'est-ce qui
+     est entre en septembre ? ». L'ecran neutralise donc le filtre tant qu'on ne
+     choisit rien, et le comportement reste celui d'avant.
+
+     Le filtre part en SQL : inutile de rapatrier quinze mille lignes pour en
+     garder mille. Une ligne SANS date d'entree est ecartee des qu'une borne est
+     posee - elle n'appartient a aucune periode, et la garder gonflerait tous
+     les totaux sans qu'on sache de quand elle date. */
+  const du = String(p['du'] ?? '').slice(0, 10);
+  const au = String(p['au'] ?? '').slice(0, 10);
+  const data = await fetchAll(ctx, 'stock', '*', undefined, (q: unknown) => {
+    // deno-lint-ignore no-explicit-any
+    let r = q as any;
+    if (du) r = r.gte('date_entree', du + 'T00:00:00');
+    if (au) r = r.lte('date_entree', au + 'T23:59:59.999');
+    return r;
+  });
   const now = new Date();
   const dist: Record<string, { tranche: string; n: number }> = {};
   TRANCHES_SEJOUR.forEach((t) => (dist[t] = { tranche: t, n: 0 }));
@@ -571,12 +589,12 @@ export async function rapportStock(ctx: Ctx) {
     }
     instance.push({
       numeroTC: o['numeroTc'], taille: o['taille'], statut: o['statut'],
-      provenance: o['provenance'], joursSejour: j, depote,
+      provenance: o['provenance'], joursSejour: j, depote, dateEntree: o['dateEntree'],
     });
   }
   compte.sejourMoyen = nJ ? Math.round(sommeJ / nJ) : 0;
   instance.sort((a, b) => (b as { joursSejour: number }).joursSejour - (a as { joursSejour: number }).joursSejour);
-  return { compte, tranches: TRANCHES_SEJOUR.map((t) => dist[t]), instance, seuil: seuilSejour };
+  return { compte, tranches: TRANCHES_SEJOUR.map((t) => dist[t]), instance, seuil: seuilSejour, du, au };
 }
 
 

@@ -4604,6 +4604,7 @@ function exporterSejour(lignes: O[], vue: string) {
     'Taille': String(r['taille'] ?? ''),
     'Statut': String(r['statut'] ?? ''),
     'Provenance': String(r['provenance'] ?? ''),
+    'Entré le': r['dateEntree'] ? fmtJour(r['dateEntree']) : '',
     'Séjour (jours)': Number(r['joursSejour'] ?? 0),
   }));
   const feuille = XLSX.utils.json_to_sheet(rows);
@@ -4624,7 +4625,14 @@ function exporterSejour(lignes: O[], vue: string) {
  * Aucun aller-retour au serveur : tout se joue sur les lignes déjà reçues.
  */
 SCREENS.stockdwell = () => {
-  const { data, loading } = useAsync<{ compte: O; tranches: O[]; instance: O[]; seuil?: number }>(() => call('report.stock'), []);
+  /* PERIODE SUR LA DATE D'ENTREE (2026-10-06, demande utilisateur), avec le
+     MEME couple que les autres volets : `PeriodeLue` en sous-titre,
+     `PeriodPicker` dans l'angle. Une premiere version empruntait la liste du
+     Parking (« Toute la periode », « Ce mois »…) : deux presentations pour un
+     meme geste, c'est une de trop. */
+  const p = useReportRange('annee');
+  const { data, loading } = useAsync<{ compte: O; tranches: O[]; instance: O[]; seuil?: number }>(
+    () => call('report.stock', { du: p.du, au: p.au }), [p.du, p.au]);
   const [vue, setVue] = useState('tous');
   const [q, setQ] = useState('');
   const [page, setPage] = useState(1);
@@ -4662,8 +4670,9 @@ SCREENS.stockdwell = () => {
         cela, App.tsx posait un bandeau automatique, muet, et le titre se
         répétait juste en dessous. */}
     <BandeauModule icone="horloge" titre="Séjour &amp; instances conteneurs"
-      sous={<>Le parc conteneur par conteneur. <b>Cliquez un chiffre</b> pour ne voir que ce qu'il compte.</>}
+      sous={<PeriodeLue p={p} />}
       action={<div className="bm-outils">
+        <PeriodPicker p={p} />
         <button className="btn-export" disabled={!lignes.length} onClick={() => exporterSejour(lignes, vue)}
           title="Extraire en Excel la vue affichée, dans son entier">
           <Icone nom="telecharger" taille={15} />Excel
