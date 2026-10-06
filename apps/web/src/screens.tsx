@@ -3830,22 +3830,49 @@ export function useChoixPeriode(initiale: GranulariteP = 'mois', vide = false) {
 
 export type ChoixPeriode = ReturnType<typeof useChoixPeriode>;
 
-export function SelecteurPeriode({ c, titre }: { c: ChoixPeriode; titre?: string }) {
+/**
+ * `extras` : des options qui ne sont PAS des periodes, ajoutees au meme menu.
+ *
+ * Le volet « Séjour conteneurs » en a besoin (2026-10-06, demande utilisateur) :
+ * la vue « encore au parc » ne s'obtenait qu'en cliquant la tuile « Séjour
+ * moyen », ce que rien n'indiquait. Elle rejoint donc le menu, la ou l'on
+ * cherche deja de quoi restreindre la liste.
+ *
+ * ELLES RESTENT FACULTATIVES, et aucun autre volet n'en passe : le menu ne
+ * montre Jour / Mois / Annee / Plage que partout ailleurs. Choisir un extra
+ * EFFACE la periode - un sous-ensemble et un intervalle de dates sont deux
+ * questions differentes, et les melanger dans un seul menu produirait des
+ * reponses qu'on ne saurait plus lire.
+ */
+export type OptionExtra = { valeur: string; libelle: string };
+
+export function SelecteurPeriode({ c, titre, extras, extraActif, onExtra }: {
+  c: ChoixPeriode; titre?: string;
+  extras?: OptionExtra[]; extraActif?: string; onExtra?: (v: string) => void;
+}) {
+  const estExtra = (v: string) => (extras ?? []).some((o) => o.valeur === v);
+  const courant = extraActif && estExtra(extraActif) ? extraActif : c.g;
+  const changer = (v: string) => {
+    if (estExtra(v)) { c.changerG('perso'); c.setDuP(''); c.setAuP(''); onExtra?.(v); return; }
+    onExtra?.('');                       // on quitte l'extra : la liste redevient entiere
+    c.changerG(v as GranulariteP);
+  };
   return <>
-    <select value={c.g} onChange={(e) => c.changerG(e.target.value as GranulariteP)}
-      title={titre ?? 'Granularite de la periode'} style={{ maxWidth: 110 }}>
+    <select value={courant} onChange={(e) => changer(e.target.value)}
+      title={titre ?? 'Granularite de la periode'} style={{ maxWidth: 130 }}>
       <option value="jour">Jour</option>
       <option value="mois">Mois</option>
       <option value="annee">Année</option>
       <option value="perso">Plage…</option>
+      {(extras ?? []).map((o) => <option key={o.valeur} value={o.valeur}>{o.libelle}</option>)}
     </select>
-    {c.g === 'jour' && <input type="date" value={c.valeur} onChange={(e) => c.setValeur(e.target.value)}
+    {courant === 'jour' && <input type="date" value={c.valeur} onChange={(e) => c.setValeur(e.target.value)}
       title="Choisissez le jour" style={{ maxWidth: 160 }} />}
-    {c.g === 'mois' && <input type="month" value={c.valeur} onChange={(e) => c.setValeur(e.target.value)}
+    {courant === 'mois' && <input type="month" value={c.valeur} onChange={(e) => c.setValeur(e.target.value)}
       title="Choisissez le mois" style={{ maxWidth: 160 }} />}
-    {c.g === 'annee' && <input type="number" value={c.valeur} onChange={(e) => c.setValeur(e.target.value)}
+    {courant === 'annee' && <input type="number" value={c.valeur} onChange={(e) => c.setValeur(e.target.value)}
       placeholder="Année" min={2000} max={2100} title="Choisissez l'année" style={{ maxWidth: 110 }} />}
-    {c.g === 'perso' && <>
+    {courant === 'perso' && <>
       <input type="date" value={c.duP} onChange={(e) => c.setDuP(e.target.value)}
         title="À partir du" style={{ maxWidth: 160 }} />
       <input type="date" value={c.auP} onChange={(e) => c.setAuP(e.target.value)}
@@ -4730,9 +4757,24 @@ SCREENS.stockdwell = () => {
         cela, App.tsx posait un bandeau automatique, muet, et le titre se
         répétait juste en dessous. */}
     <BandeauModule icone="horloge" titre="Séjour &amp; instances conteneurs"
-      sous={<PeriodeChoisieLue c={c} tout="Tout le parc, conteneur par conteneur. Cliquez un chiffre pour ne voir que ce qu'il compte." />}
+      sous={vue === 'parc'
+        ? <>Encore au parc : tout ce qui n'est pas dépoté, quelle que soit la date d'entrée.</>
+        : <PeriodeChoisieLue c={c} tout="Tout le parc, conteneur par conteneur. Cliquez un chiffre pour ne voir que ce qu'il compte." />}
       action={<div className="bm-outils">
-        <SelecteurPeriode c={c} titre="Période d'entrée au parc" />
+        {/* « Séjour moyen » rejoint le menu des periodes (2026-10-06, demande
+            utilisateur) : la vue « encore au parc » ne s'atteignait qu'en
+            cliquant la tuile, et rien ne le disait. Le menu et la tuile
+            commandent le MEME etat, ils restent donc toujours d'accord. */}
+        <SelecteurPeriode c={c} titre="Période d'entrée, ou vue du parc"
+          extras={[{ valeur: 'parc', libelle: 'Séjour moyen' }]}
+          extraActif={vue === 'parc' ? 'parc' : ''}
+          onExtra={(v) => {
+            // Quitter l'extra ne touche PAS a un filtre pose par une autre
+            // tuile : seule la vue « au parc » est rendue.
+            if (v === 'parc') setVue('parc');
+            else if (vue === 'parc') setVue('tous');
+            setPage(1);
+          }} />
         <button className="btn-export" disabled={!lignes.length} onClick={() => exporterSejour(lignes, vue)}
           title="Extraire en Excel la vue affichée, dans son entier">
           <Icone nom="telecharger" taille={15} />Excel
