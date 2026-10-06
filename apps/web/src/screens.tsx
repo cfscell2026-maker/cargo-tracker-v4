@@ -16,7 +16,7 @@ import type { ReactNode } from 'react';
 import type { Nav } from './App.tsx';
 import { useNav } from './lib/contexte-nav.ts';
 import { ROLES, OPERATIONS, VEHICULE_DESTINATIONS, TYPES_DECLARATION, optionTypeDeclaration, STATUTS, SUIVENT_ENGAGEMENTS, dateDansNJours, tcValide, fileAttente, estTypeSansT1, libelleTypeSansT1, exigeControlePoids, dureeLisible,
-  ROLES_TECHNIQUES, rangTechnique } from '../../../supabase/functions/_shared/domaine/src/index.ts';
+  ROLES_TECHNIQUES, rangTechnique, extraireNumerosTC } from '../../../supabase/functions/_shared/domaine/src/index.ts';
 
 const STATUT_OPTIONS = Object.values(STATUTS);
 
@@ -4821,6 +4821,156 @@ SCREENS.stockdwell = () => {
         </div>}
       </>}
     </>}
+    </div>
+  </>;
+};
+
+/* ===== RAPPROCHEMENT DES LISTES ACP (2026-10-06, demande utilisateur) =====
+ *
+ * L'ACP envoie régulièrement la liste des conteneurs qu'elle nous attribue, et
+ * la comparaison avec le parc se faisait à l'œil, ligne à ligne.
+ *
+ * ON NE DICTE PAS SON FORMAT À CELUI QUI ENVOIE. Les deux imports existants
+ * (stock, annonce) lisent les colonnes PAR POSITION : tenable pour un fichier
+ * qu'on prépare soi-même, intenable pour un fichier qu'on reçoit. Ici on balaie
+ * TOUTES les feuilles et TOUTES les cellules, et on ramasse ce qui a la forme
+ * d'un numéro de conteneur. Colonne, ordre, entêtes, lignes de titre, feuilles
+ * multiples : rien de tout cela n'a d'importance.
+ *
+ * RIEN N'EST ÉCRIT DANS LE STOCK. Le rapprochement LIT le parc et enregistre
+ * son propre constat, dans sa propre table. Aucun conteneur n'est créé, déplacé
+ * ni dépoté : on peut le rejouer autant de fois qu'on veut, sans risque.
+ * ====================================================================== */
+const VUES_ACP: [string, string, string][] = [
+  ['concordants', 'Concordants', 'Annoncés par l’ACP et bien présents au parc. Rien à faire.'],
+  ['auParcHorsListe', 'Au parc, hors liste', 'Chez nous, absents de la liste reçue. À signaler à l’ACP.'],
+  ['listeDejaDepotes', 'Déjà dépotés', 'Annoncés par l’ACP, mais déjà sortis chez nous. Leur liste est en retard, ou nous avons dépoté à tort.'],
+  ['listeInconnus', 'Inconnus', 'Annoncés par l’ACP, jamais vus dans notre base. À réclamer.'],
+];
+
+function exporterACP(lignes: O[], vue: string) {
+  if (!lignes.length) { toast('Rien à extraire.', 'err'); return; }
+  const rows = lignes.map((r) => ({
+    'N° conteneur': String(r['numeroTC'] ?? ''),
+    'Taille': String(r['taille'] ?? ''),
+    'Statut chez nous': String(r['statut'] ?? '—'),
+    'Entré le': r['dateEntree'] ? fmtJour(r['dateEntree']) : '',
+  }));
+  const feuille = XLSX.utils.json_to_sheet(rows);
+  const classeur = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(classeur, feuille, 'Rapprochement');
+  XLSX.writeFile(classeur, 'rapprochement-acp-' + vue + '-' + new Date().toISOString().slice(0, 10) + '.xlsx');
+  toast(rows.length + ' ligne(s) extraite(s).', 'ok');
+}
+
+SCREENS.rapprochement = () => {
+  const [lu, setLu] = useState<{ numeros: string[]; illisibles: string[]; doublons: string[]; nom: string } | null>(null);
+  const [res, setRes] = useState<O | null>(null);
+  const [vue, setVue] = useState('auParcHorsListe');
+  const [busy, setBusy] = useState(false);
+  const { data: hist, loading: histEnCours, reload } = useAsync<{ lignes: O[]; active: boolean }>(
+    () => call('acp.historique'), []);
+
+  /** Toutes les feuilles, toutes les cellules : le fichier est pris tel quel. */
+  function lire(f: File) {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const wb = XLSX.read(e.target?.result, { type: 'binary' });
+        const cellules: unknown[] = [];
+        for (const nom of wb.SheetNames) {
+          const feuille = wb.Sheets[nom];
+          if (!feuille) continue;
+          for (const ligne of XLSX.utils.sheet_to_json(feuille, { header: 1 }) as unknown[][]) cellules.push(...ligne);
+        }
+        const x = extraireNumerosTC(cellules);
+        setLu({ ...x, nom: f.name });
+        setRes(null);
+        if (!x.numeros.length) toast('Aucun numéro de conteneur lisible dans ce fichier.', 'err');
+      } catch { toast('Fichier illisible : attendu .xlsx, .xls ou .csv.', 'err'); }
+    };
+    reader.readAsBinaryString(f);
+  }
+
+  async function lancer() {
+    if (!lu) return;
+    setBusy(true);
+    try {
+      const r = await call<O>('acp.rapprocher', {
+        numeros: lu.numeros, illisibles: lu.illisibles, doublons: lu.doublons, nomFichier: lu.nom,
+      });
+      setRes(r); setVue('auParcHorsListe'); reload();
+      toast('Rapprochement enregistré.', 'ok');
+    } catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(false); }
+  }
+
+  const cpt = (res?.['compte'] ?? {}) as Record<string, number>;
+  const lignes = ((res?.[vue] ?? []) as O[]);
+  const titreVue = VUES_ACP.find((v) => v[0] === vue);
+
+  return <>
+    <BandeauModule icone="balance" titre="Rapprochement ACP"
+      sous={res
+        ? <>Liste « {String(res['nomFichier'] ?? lu?.nom ?? '')} » · {cpt['lus']} conteneur(s) reçus, {cpt['parc']} au parc</>
+        : <>Déposez la liste reçue de l'ACP : l'application la compare au parc. Rien n'est modifié dans le stock.</>} />
+
+    <div className="card">
+      <input type="file" accept=".xlsx,.xls,.csv" onChange={(e) => e.target.files?.[0] && lire(e.target.files[0]!)} />
+      {lu && <>
+        <div className="help" style={{ marginTop: 8 }}>
+          <b>{lu.numeros.length}</b> numéro(s) de conteneur lus dans « {lu.nom} ».
+          {lu.doublons.length > 0 && <> · {lu.doublons.length} répété(s) dans le fichier, compté(s) une fois.</>}
+        </div>
+        {/* Ce qui ressemblait à un numéro sans en être un est ANNONCÉ : écarté
+            en silence, il ferait un total qui ne tombe jamais juste. */}
+        {lu.illisibles.length > 0 && <div className="help" style={{ color: 'var(--warn)' }}>
+          {lu.illisibles.length} cellule(s) ressemblent à un n° de conteneur sans en être un :
+          {' '}{lu.illisibles.slice(0, 8).join(', ')}{lu.illisibles.length > 8 ? '…' : ''}
+        </div>}
+        <div style={{ marginTop: 10 }}>
+          <button disabled={busy || !lu.numeros.length} onClick={lancer}>
+            {busy ? 'Rapprochement…' : 'Comparer ' + lu.numeros.length + ' conteneur(s) au parc'}
+          </button>
+        </div>
+      </>}
+    </div>
+
+    {res && <div className="card">
+      <div className="stats compacts">
+        {VUES_ACP.map(([cle, libelle]) => <StatCard key={cle} n={Number(cpt[cle] ?? 0)} l={libelle}
+          tone={cle === 'listeInconnus' || cle === 'listeDejaDepotes' ? 'warn' : undefined}
+          icone="conteneur" onClick={() => setVue(cle)} />)}
+      </div>
+      {titreVue && <div className="help" style={{ margin: '8px 0' }}><b>{titreVue[1]}</b> · {titreVue[2]}</div>}
+      <ListeLongue
+        /* « entreLe » et non « dateEntree » : le tableau REFORMATE tout seul
+           les colonnes dont la cle commence par « date », et relisait a
+           l'anglaise la date qu'on venait de mettre en forme - le 1er aout
+           s'affichait « 08/01/2026 00:00 ». Ici on veut le jour seul. */
+        cols={[['numeroTC', 'Conteneur'], ['taille', 'Taille'], ['statut', 'Statut chez nous'], ['entreLe', 'Entré le']]}
+        rows={lignes.map((r) => ({ ...r, entreLe: r['dateEntree'] ? fmtJour(r['dateEntree']) : '—', statut: r['statut'] || '—' }))}
+        nom="conteneur(s)" placeholder="N° de conteneur" reinit={vue}
+        vide="Aucun conteneur dans cette vue — c'est le bon résultat pour les écarts."
+        filtres={<button className="btn-export" disabled={!lignes.length} onClick={() => exporterACP(lignes, vue)}
+          title="Extraire en Excel la vue affichée, dans son entier">
+          <Icone nom="telecharger" taille={15} />Excel
+        </button>} />
+    </div>}
+
+    {/* L'HISTORIQUE. Savoir qu'un écart avait déjà été signalé le mois dernier
+        vaut mieux que de le redécouvrir aujourd'hui. */}
+    <div className="card">
+      <TitrePanneau icone="historique">Rapprochements précédents</TitrePanneau>
+      {histEnCours ? <Spinner /> : !hist?.lignes.length
+        ? <div className="help">Aucun rapprochement enregistré pour l'instant.</div>
+        : <ListeLongue
+          cols={[['fait_le', 'Fait le'], ['fait_par', 'Par'], ['nom_fichier', 'Fichier'],
+            ['nb_lus', 'Reçus'], ['nb_concordants', 'Concordants'],
+            ['nb_au_parc_hors_liste', 'Hors liste'], ['nb_deja_depotes', 'Dépotés'], ['nb_inconnus', 'Inconnus']]}
+          // « fait_le » ne commence pas par « date » : aucune remise en forme
+          // automatique ne s'y ajoute, celle-ci est la seule.
+          rows={hist.lignes.map((l) => ({ ...l, fait_le: fmtDate(l['fait_le']) }))}
+          nom="rapprochement(s)" placeholder="fichier, auteur" parPage={10} />}
     </div>
   </>;
 };

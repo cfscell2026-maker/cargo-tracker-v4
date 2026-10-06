@@ -39,7 +39,7 @@ export const MENUS: Record<string, MenuItem[]> = {
   ],
   // v4, le chef brigade lit TOUS les rapports de TOUTES les cellules (lecture seule).
   CHEF_BRIGADE: [
-    ['dash', 'Tableau de bord', 'tableau'], ['wait_valid', 'À valider', 'valider'],
+    ['dash', 'Tableau de bord', 'tableau'], ['rapprochement', 'Rapprochement ACP', 'balance'], ['wait_valid', 'À valider', 'valider'],
     // 2026-09-17 : le volet des engagements, tous les camions engages, et les
     // trois gestes (solder, corriger, retirer) au meme endroit.
     ['engagements', 'Engagements', 'echeance'], ['parking', 'Parking', 'parking'], ['search', 'Recherche (en cours)', 'loupe'],
@@ -68,7 +68,7 @@ export const MENUS: Record<string, MenuItem[]> = {
     ['temps', 'Temps de passage', 'sablier'], ['horodatage', 'Heures d\'activité', 'horloge'], ['account', 'Mon compte', 'compte'],
   ],
   CHEF_DIVISION: [
-    ['dash', 'Tableau de bord', 'tableau'], ['engagements', 'Engagements', 'echeance'], ['parking', 'Parking', 'parking'],
+    ['dash', 'Tableau de bord', 'tableau'], ['rapprochement', 'Rapprochement ACP', 'balance'], ['engagements', 'Engagements', 'echeance'], ['parking', 'Parking', 'parking'],
     ['search', 'Recherche (en cours)', 'loupe'], ['list', 'Cargaisons', 'liste'],
     ['vehicules', 'Véhicules', 'voiture'], ['controles', 'Contrôles (gabarit/surcharge)', 'balance'],
     ['temps', 'Temps de passage', 'sablier'], ['horodatage', 'Heures d\'activité', 'horloge'], ['account', 'Mon compte', 'compte'],
@@ -95,7 +95,7 @@ export const MENUS: Record<string, MenuItem[]> = {
     ['destinations', 'Par destination', 'carte'], ['horodatage', 'Heures d\'activité', 'horloge'], ['parking', 'Parking', 'parking'], ['account', 'Mon compte', 'compte'],
   ],
   ADMIN: [
-    ['dash', 'Tableau de bord', 'tableau'], ['creercamion', 'Créer un camion', 'camionPlus'],
+    ['dash', 'Tableau de bord', 'tableau'], ['rapprochement', 'Rapprochement ACP', 'balance'], ['creercamion', 'Créer un camion', 'camionPlus'],
     ['completer', 'Saisir / compléter', 'crayon'], ['wait_valid', 'À valider', 'valider'],
     ['engagements', 'Engagements', 'echeance'], ['parking', 'Parking', 'parking'],
     ['search', 'Recherche (en cours)', 'loupe'], ['list', 'Cargaisons', 'liste'], ['vehicules', 'Véhicules', 'voiture'],

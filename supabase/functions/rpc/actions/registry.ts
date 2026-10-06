@@ -15,6 +15,7 @@ import * as rap from './rapports.ts';
 import * as entrepot from './entrepots.ts';
 import * as prm from './parametres.ts';
 import * as prk from './parking.ts';
+import * as acp from './rapprochement.ts';
 
 type H = (ctx: Ctx, data: never) => Promise<unknown>;
 const d = <T>(fn: (ctx: Ctx, data: T) => Promise<unknown>): H => fn as H;
@@ -158,6 +159,11 @@ export const ACTIONS: Record<string, H> = {
 
   /* ----- Paramètres (2026-09-21) ----- */
   // PARKING (2026-09-24) : camions stationnés, pointés une fois par jour.
+  /* ----- Rapprochement des listes ACP (2026-10-06) ----- */
+  'acp.rapprocher': d(acp.rapprochementACP),
+  'acp.historique': d(acp.rapprochementHistorique),
+  'acp.detail': d(acp.rapprochementDetail),
+
   'parking.list': d(prk.parkingList),
   'parking.detail': d(prk.parkingDetail),
   'parking.check': d(prk.parkingCheck),

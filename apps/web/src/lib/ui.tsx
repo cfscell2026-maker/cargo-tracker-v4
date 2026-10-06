@@ -37,7 +37,7 @@ export const TITLES: Record<string, string> = {
   vehicules: 'Véhicules', stock: 'Stock conteneurs', pointage: 'Pointage matinal', import: 'Stock initial : import',
   magasin: 'Entrée Magasin / MAD', importannonce: 'Annonce de transfert : import', annonce: 'Stock annoncé',
   pointentree: 'Pointage entrée (stock annoncé)', confentree: "Confirmer l'entrée au stock (annoncé)",
-  kpi: 'KPI / EVP', dispenses: 'Suivi des dispenses', stockdwell: 'Séjour & instances conteneurs',
+  kpi: 'KPI / EVP', dispenses: 'Suivi des dispenses', stockdwell: 'Séjour & instances conteneurs', rapprochement: 'Rapprochement ACP',
   temps: 'Temps de passage par poste',
   conteneurs: 'Opérations sur conteneurs', mad: 'Magasin / MAD', madsortie: 'Sortie Magasin / MAD',
   vehnew: 'Dépotage de véhicules', conso: 'Conso (type C)', destinations: 'Répartition par destination',
