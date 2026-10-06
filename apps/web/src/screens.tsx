@@ -419,7 +419,7 @@ function CargoList({ go, screen, user, filtre, titre, barre }: Nav & { filtre: O
  * pas la main pour le faire », pour les capitaines).
  */
 function ExportCargaisons({ statutListe, searchListe }: { statutListe?: string; searchListe?: string }) {
-  const p = useReportRange('mois');
+  const p = useChoixPeriode('mois');
   // v4.2, 2026-08-19 : l'extraction PART du filtre AFFICHÉ dans la liste (statut
   // + recherche). Avant, elle avait ses propres sélecteurs indépendants et
   // sortait « toute la base » quand on venait d'une liste filtrée. Désormais :
@@ -480,7 +480,7 @@ function ExportCargaisons({ statutListe, searchListe }: { statutListe?: string; 
             <input type="checkbox" checked={limiterPeriode} onChange={(e) => setLimiterPeriode(e.target.checked)} />
             Limiter à une période
           </label>
-          {limiterPeriode ? <div style={{ marginTop: 8 }}><PeriodPicker p={p} /><PeriodeLue p={p} /></div>
+          {limiterPeriode ? <div style={{ marginTop: 8 }}><SelecteurPeriode c={p} /><PeriodeChoisieLue c={p} /></div>
             : <p className="help" style={{ margin: '6px 0 0' }}>Toute la base, cochez pour restreindre.</p>}
         </div>
       </div>
@@ -712,7 +712,7 @@ const nav_go = (go: Nav['go'], id: string) => go('detail', { id });
 
 SCREENS.dash = (nav) => {
   // Même sélecteur de période que les rapports, plage personnalisée comprise.
-  const p = useReportRange();
+  const p = useChoixPeriode('mois');
   const { du, au } = p;
   /* ACTUALISATION AUTOMATIQUE (2026-09-12) : un camion qui passe du CFS au T1
      doit se voir quitter une tuile et rejoindre la suivante sans que le chef
@@ -768,7 +768,7 @@ SCREENS.dash = (nav) => {
       </>}
       action={<div className="bm-outils">
         <label className="help">Période</label>
-        <PeriodPicker p={p} />
+        <SelecteurPeriode c={p} />
       </div>} />
     {/* GRILLE BENTO (2026-09-11) : toutes les tuiles n'ont pas le même poids.
         Les cinq compteurs d'ÉVÉNEMENTS occupent deux colonnes, ce sont eux qui
@@ -878,7 +878,7 @@ function FicheTailles({ lignes }: { lignes: [string, O][] }) {
   </table></div>;
 }
 
-function FicheBord({ p }: { p: Periode }) {
+function FicheBord({ p }: { p: ChoixPeriode }) {
   const [ouvert, setOuvert] = useState(false);
   const { du, au } = p;
   const { data, loading, error } = useAsync<O | null>(
@@ -2820,12 +2820,12 @@ SCREENS.stockjour = () => <StockJournalier />;
  */
 SCREENS.depotstats = () => <StatsDepotage />;
 function StatsDepotage() {
-  const p = useReportRange('semaine');
+  const p = useChoixPeriode('mois');
   const { data, loading, error } = useAsync<{ rows: O[]; compte: O }>(
     () => call('report.depotage', { du: p.du, au: p.au }), [p.du, p.au]);
   const c = (data?.compte ?? {}) as O;
-  return <><BandeauModule icone="conteneur" titre="Statistiques de dépotage" sous={<PeriodeLue p={p} />}
-    action={<div className="bm-outils"><PeriodPicker p={p} /></div>} />
+  return <><BandeauModule icone="conteneur" titre="Statistiques de dépotage" sous={<PeriodeChoisieLue c={p} />}
+    action={<div className="bm-outils"><SelecteurPeriode c={p} /></div>} />
   <div className="card">
     {/* Netlify déploie le front dès le push, l'Edge Function quelques minutes
         plus tard : entre les deux, cette action n'existe pas encore côté
@@ -2941,7 +2941,7 @@ function StockJournalier() {
 
 /** v4.1, Extraction de la liste des conteneurs (statut + période, Excel/PDF). */
 function ExportConteneurs({ statutDefaut }: { statutDefaut: string }) {
-  const p = useReportRange('mois');
+  const p = useChoixPeriode('mois');
   const [statut, setStatut] = useState(statutDefaut);
   const [busy, setBusy] = useState(false);
   async function exporter(fmt: 'xlsx' | 'pdf') {
@@ -2960,7 +2960,7 @@ function ExportConteneurs({ statutDefaut }: { statutDefaut: string }) {
         <option value="Positionné">Positionné (non dépoté)</option>
         <option value="Dépoté">Dépoté</option>
       </select>
-      <PeriodPicker p={p} />
+      <SelecteurPeriode c={p} />
       <button className="ghost xs" disabled={busy} onClick={() => exporter('xlsx')}>⤓ Excel</button>
       <button className="ghost xs" disabled={busy} onClick={() => exporter('pdf')}>⤓ PDF</button>
     </div>
@@ -3755,51 +3755,12 @@ function LigneValidation({ r, go, pesee, onPesee }: { r: O; go: Nav['go']; pesee
 }
 
 /* ------------------------------ Rapports ------------------------------- */
-/**
- * Période d'un rapport, les 4 périodes glissantes usuelles PLUS une PLAGE
- * PERSONNALISÉE (décision utilisateur) : les périodes calendaires ne couvrent
- * pas les questions réelles (« du 3 au 17 », une campagne, un mois écoulé à
- * cheval sur deux mois). Un seul hook pour tous les rapports et le tableau de
- * bord, afin que la période se choisisse partout de la même façon.
- */
-export function useReportRange(initial: ModePeriode = 'semaine') {
-  const [m, setM] = useState<ModePeriode>(initial);
-  // Plage personnalisée amorcée sur le mois en cours : basculer en
-  // « Personnalisée » part de ce que l'agent a sous les yeux au lieu de vider
-  // l'écran ou de le réduire à une seule journée.
-  const [duP, setDuP] = useState(() => bornesDe('mois')[0]);
-  const [auP, setAuP] = useState(() => isoDate(new Date()));
-  const brut = m === 'perso' ? { du: duP, au: auP } : (() => { const [du, au] = bornesDe(m); return { du, au }; })();
-  const { du, au, inversee } = normaliserPlage(brut.du, brut.au);
-  return { m, setM, du, au, duP, setDuP, auP, setAuP, inversee };
-}
-
-export type Periode = ReturnType<typeof useReportRange>;
-
-export function PeriodPicker({ p }: { p: Periode }) {
-  return <>
-    <select value={p.m} onChange={(e) => p.setM(e.target.value as ModePeriode)} style={{ maxWidth: 170 }}>
-      <option value="jour">Journalier</option>
-      <option value="semaine">Hebdomadaire</option>
-      <option value="mois">Mensuel</option>
-      <option value="annee">Annuel</option>
-      <option value="perso">Plage personnalisée…</option>
-    </select>
-    {p.m === 'perso' && <span className="row" style={{ gap: 6, alignItems: 'center' }}>
-      <label className="help" style={{ margin: 0 }}>du</label>
-      <input type="date" value={p.duP} onChange={(e) => p.setDuP(e.target.value)} style={{ maxWidth: 155 }} />
-      <label className="help" style={{ margin: 0 }}>au</label>
-      <input type="date" value={p.auP} onChange={(e) => p.setAuP(e.target.value)} style={{ maxWidth: 155 }} />
-    </span>}
-  </>;
-}
-
-/** Rappel de la période effectivement interrogée, sous le titre du rapport. */
 /* ===== CHOISIR LA PERIODE, ET PAS SEULEMENT SA LONGUEUR =================
  *
- * `PeriodPicker` ne sait montrer que la periode EN COURS : ce mois-ci, cette
- * annee. Pour regarder septembre, ou 2025, il fallait passer par « Plage
- * personnalisee » et saisir deux dates a la main.
+ * L'ancien `PeriodPicker` ne savait montrer que la periode EN COURS : ce
+ * mois-ci, cette annee. Pour regarder septembre, ou 2025, il fallait passer par
+ * « Plage personnalisee » et saisir deux dates a la main. Il a ete supprime :
+ * deux selecteurs pour un meme geste, c'etait une de trop.
  *
  * Celui-ci separe les deux questions : le menu dit la GRANULARITE (jour, mois,
  * annee), le champ voisin dit LAQUELLE. Choisir « Mois » puis « 2026-09 » tient
@@ -3812,9 +3773,28 @@ export function PeriodPicker({ p }: { p: Periode }) {
  * ====================================================================== */
 export type GranulariteP = 'jour' | 'mois' | 'annee' | 'perso';
 
-export function useChoixPeriode(initiale: GranulariteP = 'mois') {
+/** La période EN COURS, dans l'écriture qu'attend le champ de cette granularité. */
+function valeurCourante(g: GranulariteP): string {
+  const d = new Date();
+  const z = (n: number) => String(n).padStart(2, '0');
+  if (g === 'jour') return isoDate(d);
+  if (g === 'mois') return `${d.getFullYear()}-${z(d.getMonth() + 1)}`;
+  if (g === 'annee') return String(d.getFullYear());
+  return '';
+}
+
+/**
+ * `vide` : l'écran s'ouvre-t-il SANS borne ?
+ *
+ * Les RAPPORTS doivent démarrer remplis - sans borne, ils interrogeraient tout
+ * l'historique à chaque ouverture, ce qui est lent et rarement ce qu'on veut.
+ * Les écrans d'ÉTAT (stock, parking) démarrent vides : la question courante y
+ * est « qu'y a-t-il en ce moment ? », pas « qu'est-ce qui est entré ce
+ * mois-ci ? ».
+ */
+export function useChoixPeriode(initiale: GranulariteP = 'mois', vide = false) {
   const [g, setG] = useState<GranulariteP>(initiale);
-  const [valeur, setValeur] = useState('');   // 'YYYY-MM-DD' | 'YYYY-MM' | 'YYYY'
+  const [valeur, setValeur] = useState(() => (vide ? '' : valeurCourante(initiale)));
   const [duP, setDuP] = useState('');
   const [auP, setAuP] = useState('');
 
@@ -3835,10 +3815,17 @@ export function useChoixPeriode(initiale: GranulariteP = 'mois') {
 
   /* Changer de granularite VIDE la valeur : « 2026-09 » n'est pas un jour, et
      la reinterpreter silencieusement donnerait une periode fausse sans que
-     personne s'en apercoive. */
-  const changerG = (v: GranulariteP) => { setG(v); setValeur(''); setDuP(''); setAuP(''); };
+     personne s'en apercoive. Sur un ecran de rapport, on la remplace aussitot
+     par la periode COURANTE : le laisser vide y supprimerait toute borne. */
+  const changerG = (v: GranulariteP) => {
+    setG(v);
+    setValeur(vide || v === 'perso' ? '' : valeurCourante(v));
+    setDuP(''); setAuP('');
+  };
 
-  return { g, changerG, valeur, setValeur, duP, setDuP, auP, setAuP, du, au, inversee };
+  // `m` : alias de `g`, pour les rapports qui transmettent la granularite au
+  // serveur (`periode: m`). Les valeurs sont les memes qu'avant, moins la semaine.
+  return { g, m: g, changerG, valeur, setValeur, duP, setDuP, auP, setAuP, du, au, inversee };
 }
 
 export type ChoixPeriode = ReturnType<typeof useChoixPeriode>;
@@ -3868,17 +3855,11 @@ export function SelecteurPeriode({ c, titre }: { c: ChoixPeriode; titre?: string
 }
 
 /** Ce que la période choisie recouvre, ou le fait qu'elle ne borne rien. */
-export function PeriodeChoisieLue({ c, tout }: { c: ChoixPeriode; tout: string }) {
-  if (!c.du && !c.au) return <>{tout}</>;
+export function PeriodeChoisieLue({ c, tout }: { c: ChoixPeriode; tout?: string }) {
+  if (!c.du && !c.au) return <>{tout ?? 'Toutes périodes'}</>;
   return <>Du {fmtJour(c.du)} au {fmtJour(c.au)}
     {c.inversee && <span style={{ color: 'var(--warn)' }}>, dates inversées, remises à l'endroit</span>}
   </>;
-}
-
-function PeriodeLue({ p }: { p: Periode }) {
-  return <div className="help">Du {fmtJour(p.du)} au {fmtJour(p.au)}
-    {p.inversee && <span style={{ color: 'var(--warn)' }}>, dates inversées, remises à l'endroit</span>}
-  </div>;
 }
 
 /**
@@ -3903,7 +3884,7 @@ function RapportCellule({ action, detail, titre, twins, camLabel, go, etape, ico
   action: string; detail: string; titre: string; twins?: boolean; camLabel: string; go: Nav['go'];
   etape?: string; icone?: string;
 }) {
-  const p = useReportRange();
+  const p = useChoixPeriode('mois');
   const { m, du, au } = p;
   const [op, setOp] = useState('');
   const { data, loading } = useAsync<O>(() => call(action, { du, au, periode: m, operation: op }), [du, au, op]);
@@ -3948,12 +3929,12 @@ function RapportCellule({ action, detail, titre, twins, camLabel, go, etape, ico
 
   return <>
     <BandeauModule icone={icone ?? 'rapport'} titre={titre}
-      sous={<PeriodeLue p={p} />}
+      sous={<PeriodeChoisieLue c={p} />}
       action={<div className="bm-outils">
         <select value={op} onChange={(e) => setOp(e.target.value)} style={{ maxWidth: 190 }}>
           <option value="">Toutes opérations</option><option>{OPERATIONS.ENLEVEMENT}</option><option>{OPERATIONS.DEPOTAGE}</option>
         </select>
-        <PeriodPicker p={p} />
+        <SelecteurPeriode c={p} />
         <button onClick={() => exporter('xlsx')}><Icone nom="telecharger" taille={14} />Excel</button>
         <button onClick={() => exporter('pdf')}><Icone nom="telecharger" taille={14} />PDF</button>
       </div>} />
@@ -3997,12 +3978,12 @@ SCREENS.t1report = ({ go }) => <RapportCellule action="report.t1" detail="report
 SCREENS.bonsortiereport = ({ go }) => <RapportCellule action="report.bonsortie" detail="report.bonsortiedetail" titre="Rapport Bon de sortie (bons émis)" camLabel="Camions (bons émis)" go={go} etape="bs" icone="bonSortie" />;
 
 SCREENS.vehreport = () => {
-  const p = useReportRange();
+  const p = useChoixPeriode('mois');
   const { m, du, au } = p;
   const { data, loading } = useAsync<O>(() => call('report.vehicule', { du, au, periode: m }), [du, au]);
   const cp = (data?.['compte'] ?? {}) as O; const pd = (data?.['parDest'] ?? {}) as O;
-  return <><BandeauModule icone="voiture" titre="Rapport véhicules" sous={<PeriodeLue p={p} />}
-    action={<div className="bm-outils"><PeriodPicker p={p} /></div>} />
+  return <><BandeauModule icone="voiture" titre="Rapport véhicules" sous={<PeriodeChoisieLue c={p} />}
+    action={<div className="bm-outils"><SelecteurPeriode c={p} /></div>} />
   <div className="card">
     {loading ? <Spinner /> : <div className="stats">
       <StatCard n={Number(cp['total'] ?? 0)} l="Total" /><StatCard n={Number(cp['attente'] ?? 0)} l="En attente" /><StatCard n={Number(cp['sortis'] ?? 0)} l="Sortis" tone="ok" />
@@ -4158,7 +4139,7 @@ SCREENS.flux = () => {
   // Deux filtres DISTINCTS : la PÉRIODE borne l'analyse (plage personnalisée
   // comprise), le REGROUPEMENT (« répartition de la période ») décide de la
   // maille, un point par semaine, par mois ou par an.
-  const p = useReportRange('annee');
+  const p = useChoixPeriode('annee');
   const { du, au } = p;
   const [gran, setGran] = useState('mois');
   const { data, loading } = useAsync<{ rows: O[]; totaux: O }>(
@@ -4174,14 +4155,14 @@ SCREENS.flux = () => {
   ];
   return <>
     <div className="card">
-      <BandeauModule icone="flux" titre="Analyse des flux" sous={<PeriodeLue p={p} />}
-        action={<div className="bm-outils"><PeriodPicker p={p} /></div>} />
+      <BandeauModule icone="flux" titre="Analyse des flux" sous={<PeriodeChoisieLue c={p} />}
+        action={<div className="bm-outils"><SelecteurPeriode c={p} /></div>} />
       <div className="row" style={{ alignItems: 'center', marginTop: 6 }}>
         <label className="help" style={{ margin: 0 }}>Répartition de la période</label>
         <select value={gran} onChange={(e) => setGran(e.target.value)} style={{ maxWidth: 160 }}>
           <option value="semaine">Hebdomadaire</option><option value="mois">Mensuelle</option><option value="annee">Annuelle</option>
         </select>
-        <span style={{ flex: 1 }} /><PeriodeLue p={p} />
+        <span style={{ flex: 1 }} /><PeriodeChoisieLue c={p} />
       </div>
     </div>
     {loading ? <Spinner /> : <>
@@ -4207,7 +4188,7 @@ SCREENS.flux = () => {
 
 /* ------- v4.1 : Statistiques de contrôle (hors gabarit / surcharge / transit) */
 SCREENS.controles = () => {
-  const p = useReportRange('mois');
+  const p = useChoixPeriode('mois');
   const { m, du, au } = p;
   const { data, loading } = useAsync<O>(() => call('report.controles', { du, au, periode: m }), [du, au]);
   const hg = (data?.['horsGabarit'] ?? {}) as O;
@@ -4229,8 +4210,8 @@ SCREENS.controles = () => {
       </div>
     </div>;
   return <>
-    <BandeauModule icone="balance" titre="Statistiques de contrôle" sous={<PeriodeLue p={p} />}
-      action={<div className="bm-outils"><PeriodPicker p={p} /></div>} />
+    <BandeauModule icone="balance" titre="Statistiques de contrôle" sous={<PeriodeChoisieLue c={p} />}
+      action={<div className="bm-outils"><SelecteurPeriode c={p} /></div>} />
     {loading ? <Spinner /> : <>
       {/* Trois blocs de cartes se lisent isolément mais ne se COMPARENT pas :
           on ne voit pas lequel pèse le plus, ni dans quelle proportion. */}
@@ -4255,7 +4236,7 @@ SCREENS.controles = () => {
 
 /* ------- v4.1 : Répartition des cargaisons par destination ------------- */
 SCREENS.destinations = () => {
-  const p = useReportRange('annee');
+  const p = useChoixPeriode('annee');
   const { du, au } = p;
   const [gran, setGran] = useState('mois');
   const { data, loading } = useAsync<O>(() => call('report.destinations', { du, au, granularite: gran }), [du, au, gran]);
@@ -4268,14 +4249,14 @@ SCREENS.destinations = () => {
   const series = (actifs.length ? actifs : codes).map((c) => ({ nom: c, valeurs: seriesData.map((s) => Number(s[c] ?? 0)) }));
   return <>
     <div className="card">
-      <BandeauModule icone="carte" titre="Répartition par destination" sous={<PeriodeLue p={p} />}
-        action={<div className="bm-outils"><PeriodPicker p={p} /></div>} />
+      <BandeauModule icone="carte" titre="Répartition par destination" sous={<PeriodeChoisieLue c={p} />}
+        action={<div className="bm-outils"><SelecteurPeriode c={p} /></div>} />
       <div className="row" style={{ alignItems: 'center', marginTop: 6 }}>
         <label className="help" style={{ margin: 0 }}>Répartition de la période</label>
         <select value={gran} onChange={(e) => setGran(e.target.value)} style={{ maxWidth: 160 }}>
           <option value="semaine">Hebdomadaire</option><option value="mois">Mensuelle</option><option value="annee">Annuelle</option>
         </select>
-        <span style={{ flex: 1 }} /><PeriodeLue p={p} />
+        <span style={{ flex: 1 }} /><PeriodeChoisieLue c={p} />
       </div>
     </div>
     {loading ? <Spinner /> : <>
@@ -4305,7 +4286,7 @@ SCREENS.destinations = () => {
  * combien de temps a mis la marchandise à chaque poste ».
  */
 SCREENS.temps = ({ go }) => {
-  const p = useReportRange('semaine');
+  const p = useChoixPeriode('mois');
   const { du, au } = p;
   const [avecVeh, setAvecVeh] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -4340,9 +4321,9 @@ SCREENS.temps = ({ go }) => {
     <div className="card">
       {/* Extraction DANS LE BANDEAU (2026-09-24, demande utilisateur), à côté
           du choix de période qu'elle reprend. */}
-      <BandeauModule icone="sablier" titre="Temps de passage par poste" sous={<PeriodeLue p={p} />}
+      <BandeauModule icone="sablier" titre="Temps de passage par poste" sous={<PeriodeChoisieLue c={p} />}
         action={<div className="bm-outils">
-          <PeriodPicker p={p} />
+          <SelecteurPeriode c={p} />
           <button className="btn-export" disabled={busy} onClick={() => exporter('xlsx')}
             title="Extraire la période affichée en Excel">
             <Icone nom="telecharger" taille={15} />Excel
@@ -4358,7 +4339,7 @@ SCREENS.temps = ({ go }) => {
           <span>Inclure les véhicules</span>
         </label>
       </div>
-      <PeriodeLue p={p} />
+      <PeriodeChoisieLue c={p} />
       <p className="help" style={{ marginBottom: 0 }}>
         Un dossier est rattaché au <b>jour d'entrée du camion</b>. Pour la journée en cours,
         les moyennes ne portent donc que sur les dossiers <b>déjà sortis</b>, l'effectif
@@ -4455,7 +4436,7 @@ const CELLULES_HORODATAGE: [string, string][] = [
   ['T1', 'Cellule T1'], ['BS', 'Bon de sortie'], ['BALISE', 'Cellule Balise'], ['PP', 'Porte principale (sortie)'],
 ];
 SCREENS.horodatage = () => {
-  const p = useReportRange('jour'); // par défaut : la journée d'aujourd'hui
+  const p = useChoixPeriode('jour'); // par défaut : la journée d'aujourd'hui
   const { du, au } = p;
   const [cellule, setCellule] = useState('');
   const { data, loading } = useAsync<O>(() => call('report.horodatage', { du, au, cellule }), [du, au, cellule]);
@@ -4468,8 +4449,8 @@ SCREENS.horodatage = () => {
     try { telecharger(await call<O>('report.horodatage', { du, au, cellule, format: 'xlsx' })); }
     catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(false); }
   }
-  return <><BandeauModule icone="horloge" titre="Plage d'activité par cellule" sous={<PeriodeLue p={p} />}
-    action={<div className="bm-outils"><PeriodPicker p={p} /></div>} />
+  return <><BandeauModule icone="horloge" titre="Plage d'activité par cellule" sous={<PeriodeChoisieLue c={p} />}
+    action={<div className="bm-outils"><SelecteurPeriode c={p} /></div>} />
   <div className="card">
     <p className="help" style={{ marginTop: 0 }}>
       Pour chaque cellule et chaque agent, PAR JOUR : heure de <b>début</b> (première action),
@@ -4705,12 +4686,11 @@ function exporterSejour(lignes: O[], vue: string) {
  * Aucun aller-retour au serveur : tout se joue sur les lignes déjà reçues.
  */
 SCREENS.stockdwell = () => {
-  /* PERIODE SUR LA DATE D'ENTREE (2026-10-06, demande utilisateur), avec le
-     MEME couple que les autres volets : `PeriodeLue` en sous-titre,
-     `PeriodPicker` dans l'angle. Une premiere version empruntait la liste du
-     Parking (« Toute la periode », « Ce mois »…) : deux presentations pour un
-     meme geste, c'est une de trop. */
-  const c = useChoixPeriode('mois');
+  /* PERIODE SUR LA DATE D'ENTREE (2026-10-06, demande utilisateur). Cet ecran
+     a essuye les platres : d'abord la liste du Parking, puis l'ancien
+     `PeriodPicker`, enfin ce selecteur-ci, desormais partage par TOUS les
+     volets. Deux presentations pour un meme geste, c'etait une de trop. */
+  const c = useChoixPeriode('mois', true); // ecran d'etat : aucune borne au depart
   const { data, loading } = useAsync<{ compte: O; tranches: O[]; instance: O[]; seuil?: number }>(
     () => call('report.stock', { du: c.du, au: c.au }), [c.du, c.au]);
   const [vue, setVue] = useState('tous');
