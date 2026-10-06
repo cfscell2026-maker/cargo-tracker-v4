@@ -3795,6 +3795,86 @@ export function PeriodPicker({ p }: { p: Periode }) {
 }
 
 /** Rappel de la période effectivement interrogée, sous le titre du rapport. */
+/* ===== CHOISIR LA PERIODE, ET PAS SEULEMENT SA LONGUEUR =================
+ *
+ * `PeriodPicker` ne sait montrer que la periode EN COURS : ce mois-ci, cette
+ * annee. Pour regarder septembre, ou 2025, il fallait passer par « Plage
+ * personnalisee » et saisir deux dates a la main.
+ *
+ * Celui-ci separe les deux questions : le menu dit la GRANULARITE (jour, mois,
+ * annee), le champ voisin dit LAQUELLE. Choisir « Mois » puis « 2026-09 » tient
+ * en deux gestes.
+ *
+ * TANT QUE LE CHAMP EST VIDE, AUCUN FILTRE. C'est l'etat de depart, et il
+ * compte : sur un ecran de stock, la question courante est « qu'y a-t-il au
+ * parc ? », pas « qu'est-ce qui est entre en octobre ? ». L'ecran s'ouvre donc
+ * sur la totalite, et se restreint seulement si on le lui demande.
+ * ====================================================================== */
+export type GranulariteP = 'jour' | 'mois' | 'annee' | 'perso';
+
+export function useChoixPeriode(initiale: GranulariteP = 'mois') {
+  const [g, setG] = useState<GranulariteP>(initiale);
+  const [valeur, setValeur] = useState('');   // 'YYYY-MM-DD' | 'YYYY-MM' | 'YYYY'
+  const [duP, setDuP] = useState('');
+  const [auP, setAuP] = useState('');
+
+  const bornes = (): { du: string; au: string } => {
+    if (g === 'perso') return { du: duP, au: auP };
+    if (!valeur) return { du: '', au: '' };
+    if (g === 'jour') return { du: valeur, au: valeur };
+    if (g === 'mois') {
+      const [a, m] = valeur.split('-').map(Number);
+      if (!a || !m) return { du: '', au: '' };
+      return { du: isoDate(new Date(a, m - 1, 1)), au: isoDate(new Date(a, m, 0)) };
+    }
+    const a = Number(valeur);
+    if (!a) return { du: '', au: '' };
+    return { du: isoDate(new Date(a, 0, 1)), au: isoDate(new Date(a, 11, 31)) };
+  };
+  const { du, au, inversee } = normaliserPlage(bornes().du, bornes().au);
+
+  /* Changer de granularite VIDE la valeur : « 2026-09 » n'est pas un jour, et
+     la reinterpreter silencieusement donnerait une periode fausse sans que
+     personne s'en apercoive. */
+  const changerG = (v: GranulariteP) => { setG(v); setValeur(''); setDuP(''); setAuP(''); };
+
+  return { g, changerG, valeur, setValeur, duP, setDuP, auP, setAuP, du, au, inversee };
+}
+
+export type ChoixPeriode = ReturnType<typeof useChoixPeriode>;
+
+export function SelecteurPeriode({ c, titre }: { c: ChoixPeriode; titre?: string }) {
+  return <>
+    <select value={c.g} onChange={(e) => c.changerG(e.target.value as GranulariteP)}
+      title={titre ?? 'Granularite de la periode'} style={{ maxWidth: 110 }}>
+      <option value="jour">Jour</option>
+      <option value="mois">Mois</option>
+      <option value="annee">Année</option>
+      <option value="perso">Plage…</option>
+    </select>
+    {c.g === 'jour' && <input type="date" value={c.valeur} onChange={(e) => c.setValeur(e.target.value)}
+      title="Choisissez le jour" style={{ maxWidth: 160 }} />}
+    {c.g === 'mois' && <input type="month" value={c.valeur} onChange={(e) => c.setValeur(e.target.value)}
+      title="Choisissez le mois" style={{ maxWidth: 160 }} />}
+    {c.g === 'annee' && <input type="number" value={c.valeur} onChange={(e) => c.setValeur(e.target.value)}
+      placeholder="Année" min={2000} max={2100} title="Choisissez l'année" style={{ maxWidth: 110 }} />}
+    {c.g === 'perso' && <>
+      <input type="date" value={c.duP} onChange={(e) => c.setDuP(e.target.value)}
+        title="À partir du" style={{ maxWidth: 160 }} />
+      <input type="date" value={c.auP} onChange={(e) => c.setAuP(e.target.value)}
+        title="Jusqu'au" style={{ maxWidth: 160 }} />
+    </>}
+  </>;
+}
+
+/** Ce que la période choisie recouvre, ou le fait qu'elle ne borne rien. */
+export function PeriodeChoisieLue({ c, tout }: { c: ChoixPeriode; tout: string }) {
+  if (!c.du && !c.au) return <>{tout}</>;
+  return <>Du {fmtJour(c.du)} au {fmtJour(c.au)}
+    {c.inversee && <span style={{ color: 'var(--warn)' }}>, dates inversées, remises à l'endroit</span>}
+  </>;
+}
+
 function PeriodeLue({ p }: { p: Periode }) {
   return <div className="help">Du {fmtJour(p.du)} au {fmtJour(p.au)}
     {p.inversee && <span style={{ color: 'var(--warn)' }}>, dates inversées, remises à l'endroit</span>}
@@ -4630,9 +4710,9 @@ SCREENS.stockdwell = () => {
      `PeriodPicker` dans l'angle. Une premiere version empruntait la liste du
      Parking (« Toute la periode », « Ce mois »…) : deux presentations pour un
      meme geste, c'est une de trop. */
-  const p = useReportRange('annee');
+  const c = useChoixPeriode('mois');
   const { data, loading } = useAsync<{ compte: O; tranches: O[]; instance: O[]; seuil?: number }>(
-    () => call('report.stock', { du: p.du, au: p.au }), [p.du, p.au]);
+    () => call('report.stock', { du: c.du, au: c.au }), [c.du, c.au]);
   const [vue, setVue] = useState('tous');
   const [q, setQ] = useState('');
   const [page, setPage] = useState(1);
@@ -4670,9 +4750,9 @@ SCREENS.stockdwell = () => {
         cela, App.tsx posait un bandeau automatique, muet, et le titre se
         répétait juste en dessous. */}
     <BandeauModule icone="horloge" titre="Séjour &amp; instances conteneurs"
-      sous={<PeriodeLue p={p} />}
+      sous={<PeriodeChoisieLue c={c} tout="Tout le parc, conteneur par conteneur. Cliquez un chiffre pour ne voir que ce qu'il compte." />}
       action={<div className="bm-outils">
-        <PeriodPicker p={p} />
+        <SelecteurPeriode c={c} titre="Période d'entrée au parc" />
         <button className="btn-export" disabled={!lignes.length} onClick={() => exporterSejour(lignes, vue)}
           title="Extraire en Excel la vue affichée, dans son entier">
           <Icone nom="telecharger" taille={15} />Excel
