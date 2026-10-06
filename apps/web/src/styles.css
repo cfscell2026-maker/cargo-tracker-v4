@@ -3282,3 +3282,9 @@ button.modal-fermer:focus-visible{outline:2px solid #0e5a8a;outline-offset:2px}
    Le MOUVEMENT, lui, continue d'obéir à `prefers-reduced-motion` (voir
    `.acp-arc`) : une animation qui tourne sans fin est une gêne réelle, une
    surface translucide n'en est pas une. */
+
+/* L'en-tête d'un résultat de rapprochement : le résumé à gauche, l'extraction
+   du constat ENTIER à droite. Sur un écran étroit le bouton passe dessous
+   plutôt que de comprimer la phrase. */
+.acp-entete{display:flex;gap:12px;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;margin-bottom:10px}
+.acp-entete .help{flex:1;min-width:240px}

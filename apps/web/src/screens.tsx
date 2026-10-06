@@ -4911,6 +4911,58 @@ function exporterACP(lignes: O[], vue: string) {
   toast(rows.length + ' ligne(s) extraite(s).', 'ok');
 }
 
+const lignesACPVersFeuille = (lignes: O[]) => lignes.map((r) => ({
+  'N° conteneur': String(r['numeroTC'] ?? ''),
+  'Taille': String(r['taille'] ?? ''),
+  'Statut chez nous': String(r['statut'] ?? ''),
+  'Entré le': r['dateEntree'] ? fmtJour(r['dateEntree']) : '',
+}));
+
+/**
+ * UN RAPPROCHEMENT ENTIER DANS UN SEUL CLASSEUR, un onglet par cas.
+ *
+ * L'export par vue oblige à cliquer chaque tuile et produit autant de fichiers
+ * séparés. Or ce qu'on envoie à l'ACP est UN constat, pas quatre. Le premier
+ * onglet porte l'en-tête : date, auteur, périmètre, totaux. Sans lui, une liste
+ * de numéros reçue par courriel ne dit ni de quand elle date ni sur quoi elle
+ * portait.
+ */
+function exporterRapprochement(r: O) {
+  const cpt = (r['compte'] ?? {}) as Record<string, number>;
+  const classeur = XLSX.utils.book_new();
+  const entete = [
+    ['Rapprochement ACP'],
+    ['Fichier reçu', String(r['nomFichier'] ?? '')],
+    ['Fait le', r['faitLe'] ? fmtDate(r['faitLe']) : fmtDate(new Date().toISOString())],
+    ['Par', String(r['faitPar'] ?? '')],
+    ['Comparé à', String(r['libellePerimetre'] ?? '')],
+    ['Période d’entrée', r['du'] || r['au'] ? `du ${fmtJour(String(r['du']))} au ${fmtJour(String(r['au']))}` : 'toutes périodes'],
+    [],
+    ['Conteneurs reçus', Number(cpt['lus'] ?? 0)],
+    ['Conteneurs comparés', Number(cpt['parc'] ?? 0)],
+    ['Concordants', Number(cpt['concordants'] ?? 0)],
+    ['Au parc, hors liste', Number(cpt['auParcHorsListe'] ?? 0)],
+    ['Déjà dépotés', Number(cpt['listeDejaDepotes'] ?? 0)],
+    ['Inconnus', Number(cpt['listeInconnus'] ?? 0)],
+    ['Hors périmètre', Number(cpt['horsPerimetre'] ?? 0)],
+  ];
+  XLSX.utils.book_append_sheet(classeur, XLSX.utils.aoa_to_sheet(entete), 'Synthèse');
+  // Un onglet par cas, et SEULEMENT ceux qui contiennent quelque chose : un
+  // onglet vide dans un classeur envoyé fait douter de tout le reste.
+  for (const [cle, libelle] of [
+    ['auParcHorsListe', 'Au parc hors liste'], ['listeDejaDepotes', 'Déjà dépotés'],
+    ['listeInconnus', 'Inconnus'], ['horsPerimetre', 'Hors périmètre'],
+    ['concordants', 'Concordants'],
+  ] as [string, string][]) {
+    const lignes = (r[cle] ?? []) as O[];
+    if (!lignes.length) continue;
+    XLSX.utils.book_append_sheet(classeur, XLSX.utils.json_to_sheet(lignesACPVersFeuille(lignes)), libelle);
+  }
+  const jour = r['faitLe'] ? String(r['faitLe']).slice(0, 10) : new Date().toISOString().slice(0, 10);
+  XLSX.writeFile(classeur, 'rapprochement-acp-' + jour + '.xlsx');
+  toast('Rapprochement extrait.', 'ok');
+}
+
 /**
  * LE LOGO ENTRE DEUX ARCS QUI TOURNENT EN SENS CONTRAIRE, chacun portant une
  * boîte. Les deux font le tour et se croisent : c'est le geste même du
@@ -4975,10 +5027,52 @@ function PanneauRapprochementACP() {
     } catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(false); }
   }
 
+  const libellePerimetre = (v: unknown) => PERIMETRES_ACP.find((x) => x.valeur === v)?.libelle ?? 'Tout le parc';
+
+  /**
+   * Un contrôle passé, remis dans la forme d'un résultat frais.
+   *
+   * `archive` dit la seule différence qui compte : LES CONCORDANTS NE SONT PAS
+   * CONSERVÉS. On garde leur NOMBRE, pas leur liste. Sans ce drapeau, cliquer
+   * « Concordants » sur un ancien contrôle afficherait « aucun conteneur » et
+   * ferait croire à une perte de données.
+   */
+  const enResultat = (d: O): O => {
+    const det = (d['detail'] ?? {}) as Record<string, O[]>;
+    return {
+      archive: true, faitLe: d['fait_le'], faitPar: d['fait_par'],
+      nomFichier: d['nom_fichier'], perimetre: d['perimetre'], du: d['du'], au: d['au'],
+      libellePerimetre: libellePerimetre(d['perimetre']),
+      compte: {
+        lus: d['nb_lus'], parc: d['nb_parc'], concordants: d['nb_concordants'],
+        auParcHorsListe: d['nb_au_parc_hors_liste'], listeDejaDepotes: d['nb_deja_depotes'],
+        listeInconnus: d['nb_inconnus'], horsPerimetre: d['nb_hors_perimetre'],
+      },
+      concordants: [],
+      auParcHorsListe: det['auParcHorsListe'] ?? [],
+      listeDejaDepotes: det['listeDejaDepotes'] ?? [],
+      listeInconnus: det['listeInconnus'] ?? [],
+      horsPerimetre: det['horsPerimetre'] ?? [],
+    };
+  };
+
+  async function ouvrir(id: string) {
+    try {
+      const d = await call<O>('acp.detail', { id });
+      setRes(enResultat(d)); setVue('auParcHorsListe');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    } catch (e) { toast((e as Error).message, 'err'); }
+  }
+
+  async function extraire(id: string) {
+    try { exporterRapprochement(enResultat(await call<O>('acp.detail', { id }))); }
+    catch (e) { toast((e as Error).message, 'err'); }
+  }
+
   const cpt = (res?.['compte'] ?? {}) as Record<string, number>;
+  const archive = res?.['archive'] === true;
   const lignes = ((res?.[vue] ?? []) as O[]);
   const titreVue = VUES_ACP.find((v) => v[0] === vue);
-  const libellePerimetre = (v: unknown) => PERIMETRES_ACP.find((x) => x.valeur === v)?.libelle ?? 'Tout le parc';
 
   return <>
     <div className="card acp-accueil">
@@ -5048,10 +5142,17 @@ function PanneauRapprochementACP() {
     </Modal>}
 
     {res && <div className="card">
-      <div className="help" style={{ marginBottom: 8 }}>
-        Liste « {String(res['nomFichier'] ?? '')} » · {cpt['lus']} conteneur(s) reçus,
-        comparés à <b>{libellePerimetre(res['perimetre'])}</b> ({cpt['parc']} conteneur(s))
-        {res['du'] || res['au'] ? <> · du {fmtJour(String(res['du']))} au {fmtJour(String(res['au']))}</> : null}.
+      <div className="acp-entete">
+        <div className="help" style={{ margin: 0 }}>
+          Liste « {String(res['nomFichier'] ?? '')} » · {cpt['lus']} conteneur(s) reçus,
+          comparés à <b>{libellePerimetre(res['perimetre'])}</b> ({cpt['parc']} conteneur(s))
+          {res['du'] || res['au'] ? <> · du {fmtJour(String(res['du']))} au {fmtJour(String(res['au']))}</> : null}.
+          {archive && <> Contrôle du {fmtDate(res['faitLe'])}, par {String(res['faitPar'] ?? '')}.</>}
+        </div>
+        <button className="btn-export" onClick={() => exporterRapprochement({ ...res, libellePerimetre: libellePerimetre(res['perimetre']) })}
+          title="Extraire tout le rapprochement : un onglet par cas">
+          <Icone nom="telecharger" taille={15} />Tout extraire
+        </button>
       </div>
       <div className="stats compacts">
         {VUES_ACP.filter(([cle]) => cle !== 'horsPerimetre' || Number(cpt['horsPerimetre'] ?? 0) > 0)
@@ -5060,6 +5161,11 @@ function PanneauRapprochementACP() {
             icone="conteneur" onClick={() => setVue(cle)} />)}
       </div>
       {titreVue && <div className="help" style={{ margin: '8px 0' }}><b>{titreVue[1]}</b> · {titreVue[2]}</div>}
+      {archive && vue === 'concordants' && <div className="help" style={{ color: 'var(--warn)' }}>
+        Seul leur NOMBRE est conservé avec le contrôle, pas leur liste : les
+        concordants ne posent aucune question, et ils pèsent à eux seuls plus
+        que les trois autres listes réunies. Refaites le rapprochement pour les voir.
+      </div>}
       <ListeLongue
         /* « entreLe » et non « dateEntree » : le tableau REFORMATE tout seul
            les colonnes dont la clé commence par « date », et relisait à
@@ -5082,6 +5188,14 @@ function PanneauRapprochementACP() {
       {histEnCours ? <Spinner /> : !hist?.lignes.length
         ? <div className="help">Aucun rapprochement enregistré pour l'instant.</div>
         : <ListeLongue
+          // La ligne s'OUVRE (le constat fige remonte en haut de l'ecran) et
+          // porte son propre bouton d'extraction. `Table` isole deja la colonne
+          // d'actions du clic sur la ligne.
+          onRow={(r) => ouvrir(String(r['id']))}
+          actions={(r) => <button className="btn-export" onClick={() => extraire(String(r['id']))}
+            title="Extraire ce rapprochement en Excel">
+            <Icone nom="telecharger" taille={14} />Excel
+          </button>}
           cols={[['fait_le', 'Fait le'], ['fait_par', 'Par'], ['nom_fichier', 'Fichier'],
             ['surQuoi', 'Comparé à'], ['nb_lus', 'Reçus'], ['nb_concordants', 'Concordants'],
             ['nb_au_parc_hors_liste', 'Hors liste'], ['nb_deja_depotes', 'Dépotés'], ['nb_inconnus', 'Inconnus']]}
