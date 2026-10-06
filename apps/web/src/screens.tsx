@@ -16,7 +16,7 @@ import type { ReactNode } from 'react';
 import type { Nav } from './App.tsx';
 import { useNav } from './lib/contexte-nav.ts';
 import { ROLES, OPERATIONS, VEHICULE_DESTINATIONS, TYPES_DECLARATION, optionTypeDeclaration, STATUTS, SUIVENT_ENGAGEMENTS, dateDansNJours, tcValide, fileAttente, estTypeSansT1, libelleTypeSansT1, exigeControlePoids, dureeLisible,
-  ROLES_TECHNIQUES, rangTechnique, extraireNumerosTC } from '../../../supabase/functions/_shared/domaine/src/index.ts';
+  ROLES_TECHNIQUES, rangTechnique, extraireNumerosTC, aLeDroit } from '../../../supabase/functions/_shared/domaine/src/index.ts';
 
 const STATUT_OPTIONS = Object.values(STATUTS);
 
@@ -4712,14 +4712,30 @@ function exporterSejour(lignes: O[], vue: string) {
  *   · la liste se lit par pages de 50, avec une recherche par N° de conteneur.
  * Aucun aller-retour au serveur : tout se joue sur les lignes déjà reçues.
  */
-SCREENS.stockdwell = () => {
+SCREENS.stockdwell = ({ user }) => {
+  /* DEUX ONGLETS (2026-10-06, demande utilisateur) : l'etat du PARC, et le
+     RAPPROCHEMENT des listes recues de l'ACP. Les deux parlent du meme parc,
+     et le rapprochement n'avait pas de quoi occuper un volet entier.
+
+     CHAQUE ONGLET EST SOUMIS A SON PROPRE DROIT, et ce n'est pas decoratif :
+     le CFS lit le stock mais n'a pas le rapprochement (on ne fait pas
+     controler le parc par celui qui le tient), tandis que le CHEF DE DIVISION
+     a le rapprochement sans avoir le rapport de stock. Aucun des deux ne doit
+     voir un onglet que le serveur lui refusera. */
+  const peutParc = aLeDroit(user.role, 'report.stock');
+  const peutACP = aLeDroit(user.role, 'acp.rapprocher');
+  const [onglet, setOnglet] = useState(peutParc ? 'parc' : 'acp');
+
   /* PERIODE SUR LA DATE D'ENTREE (2026-10-06, demande utilisateur). Cet ecran
      a essuye les platres : d'abord la liste du Parking, puis l'ancien
      `PeriodPicker`, enfin ce selecteur-ci, desormais partage par TOUS les
      volets. Deux presentations pour un meme geste, c'etait une de trop. */
   const c = useChoixPeriode('mois', true); // ecran d'etat : aucune borne au depart
-  const { data, loading } = useAsync<{ compte: O; tranches: O[]; instance: O[]; seuil?: number }>(
-    () => call('report.stock', { du: c.du, au: c.au }), [c.du, c.au]);
+  const { data, loading } = useAsync<{ compte: O; tranches: O[]; instance: O[]; seuil?: number } | null>(
+    // Demande UNE SEULE FOIS, et seulement a qui y a droit. On ne la relance
+    // pas en changeant d'onglet : revenir au parc doit etre instantane.
+    () => (peutParc ? call('report.stock', { du: c.du, au: c.au }) : Promise.resolve(null)),
+    [c.du, c.au, peutParc]);
   const [vue, setVue] = useState('tous');
   const [q, setQ] = useState('');
   const [page, setPage] = useState(1);
@@ -4756,11 +4772,19 @@ SCREENS.stockdwell = () => {
         d'extraction y prend place, à droite, comme sur les autres volets. Sans
         cela, App.tsx posait un bandeau automatique, muet, et le titre se
         répétait juste en dessous. */}
-    <BandeauModule icone="horloge" titre="Séjour &amp; instances conteneurs"
-      sous={vue === 'parc'
-        ? <>Encore au parc : tout ce qui n'est pas dépoté, quelle que soit la date d'entrée.</>
-        : <PeriodeChoisieLue c={c} tout="Tout le parc, conteneur par conteneur. Cliquez un chiffre pour ne voir que ce qu'il compte." />}
-      action={<div className="bm-outils">
+    {/* Les outils de période ne concernent QUE le parc : les laisser sous
+        l'onglet ACP laisserait croire qu'ils bornent le rapprochement. */}
+    {/* Le bandeau suit l'onglet. Sans cela, le chef de division - qui n'a
+        QUE le rapprochement - atterrirait sur un ecran intitule
+        « Séjour & instances conteneurs » sans jamais voir de sejour. */}
+    <BandeauModule icone={onglet === 'acp' ? 'balance' : 'horloge'}
+      titre={onglet === 'acp' ? 'Rapprochement ACP' : 'Séjour & instances conteneurs'}
+      sous={onglet === 'acp'
+        ? <>Comparez une liste reçue de l'ACP avec le parc. Rien n'est modifié dans le stock.</>
+        : vue === 'parc'
+          ? <>Encore au parc : tout ce qui n'est pas dépoté, quelle que soit la date d'entrée.</>
+          : <PeriodeChoisieLue c={c} tout="Tout le parc, conteneur par conteneur. Cliquez un chiffre pour ne voir que ce qu'il compte." />}
+      action={onglet !== 'parc' ? undefined : <div className="bm-outils">
         {/* « Séjour moyen » rejoint le menu des periodes (2026-10-06, demande
             utilisateur) : la vue « encore au parc » ne s'atteignait qu'en
             cliquant la tuile, et rien ne le disait. Le menu et la tuile
@@ -4780,6 +4804,17 @@ SCREENS.stockdwell = () => {
           <Icone nom="telecharger" taille={15} />Excel
         </button>
       </div>} />
+
+    {/* La barre n'apparaît QUE si l'on a droit aux deux : un seul onglet
+        visible ne serait pas un choix, juste un bouton inerte. */}
+    {peutParc && peutACP && <div className="card" style={{ paddingBottom: 10 }}>
+      <ChoixSegmente libelle="Onglet" valeur={onglet}
+        options={[{ valeur: 'parc', libelle: 'Parc', icone: 'conteneurHorloge' },
+          { valeur: 'acp', libelle: 'Rapprochement ACP', icone: 'balance' }]}
+        onChange={(v) => v && setOnglet(v)} />
+    </div>}
+
+    {onglet === 'acp' ? <PanneauRapprochementACP /> : <>
     <div className="card">
     {loading ? <Spinner /> : <>
       <div className="stats compacts">
@@ -4822,6 +4857,7 @@ SCREENS.stockdwell = () => {
       </>}
     </>}
     </div>
+    </>}
   </>;
 };
 
@@ -4863,7 +4899,7 @@ function exporterACP(lignes: O[], vue: string) {
   toast(rows.length + ' ligne(s) extraite(s).', 'ok');
 }
 
-SCREENS.rapprochement = () => {
+function PanneauRapprochementACP() {
   const [lu, setLu] = useState<{ numeros: string[]; illisibles: string[]; doublons: string[]; nom: string } | null>(null);
   const [res, setRes] = useState<O | null>(null);
   const [vue, setVue] = useState('auParcHorsListe');
@@ -4909,12 +4945,12 @@ SCREENS.rapprochement = () => {
   const titreVue = VUES_ACP.find((v) => v[0] === vue);
 
   return <>
-    <BandeauModule icone="balance" titre="Rapprochement ACP"
-      sous={res
-        ? <>Liste « {String(res['nomFichier'] ?? lu?.nom ?? '')} » · {cpt['lus']} conteneur(s) reçus, {cpt['parc']} au parc</>
-        : <>Déposez la liste reçue de l'ACP : l'application la compare au parc. Rien n'est modifié dans le stock.</>} />
-
     <div className="card">
+      <div className="help" style={{ marginBottom: 8 }}>
+        {res
+          ? <>Liste « {String(res['nomFichier'] ?? lu?.nom ?? '')} » · {cpt['lus']} conteneur(s) reçus, {cpt['parc']} au parc.</>
+          : <>Déposez la liste reçue de l'ACP : l'application la compare au parc. Rien n'est modifié dans le stock.</>}
+      </div>
       <input type="file" accept=".xlsx,.xls,.csv" onChange={(e) => e.target.files?.[0] && lire(e.target.files[0]!)} />
       {lu && <>
         <div className="help" style={{ marginTop: 8 }}>
@@ -4973,7 +5009,7 @@ SCREENS.rapprochement = () => {
           nom="rapprochement(s)" placeholder="fichier, auteur" parPage={10} />}
     </div>
   </>;
-};
+}
 
 /* ---------------------------- Utilisateurs ----------------------------- */
 const ROLES_LISTE = ['CFS', 'CHEF_BRIGADE', 'CHEF_BRIGADE_ADJOINT', 'CBPI', 'CHEF_VISITE', 'CHEF_DIVISION', 'T1', 'BALISE', 'BON_SORTIE', 'PP', 'ADMIN'];

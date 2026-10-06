@@ -355,6 +355,17 @@ export function motifRefusAttribution(roleActeur: unknown, roleVoulu: unknown): 
   return `Attribution du role ${String(roleVoulu)} reservee aux comptes de rang superieur ou egal.`;
 }
 
+/**
+ * La même question, mais en OUI/NON : sert à l'interface, pour ne pas montrer
+ * un onglet ou un bouton que le serveur refusera.
+ *
+ * C'est un CONFORT, jamais une sécurité : rien n'empêche de forger la requête à
+ * la main, et c'est `verifierPermission` côté serveur qui refuse vraiment.
+ */
+export function aLeDroit(role: Role | string, action: string): boolean {
+  try { verifierPermission(role, action); return true; } catch { return false; }
+}
+
 export function verifierPermission(role: Role | string, action: string): void {
   const allowed = PERMISSIONS[action];
   if (!allowed) throw new Error('Action inconnue : ' + action);

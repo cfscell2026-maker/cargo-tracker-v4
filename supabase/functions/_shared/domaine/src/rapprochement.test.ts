@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { extraireNumerosTC, rapprocher, type LigneParc } from './rapprochement.ts';
+import { aLeDroit } from './permissions.ts';
 
 /* ------------------------- Lire le fichier reçu ------------------------- */
 
@@ -103,4 +104,41 @@ test('rapprochement : un doublon dans la liste recue ne compte pas deux fois', (
   const r = rapprocher(['MSKU1234567', 'MSKU1234567'], parc());
   assert.equal(r.compte.lus, 1);
   assert.equal(r.concordants.length, 1);
+});
+
+/* ---------------- Qui voit quel onglet (volet Sejour conteneurs) --------- */
+
+test('ACP : le CFS tient le parc, il ne le controle pas', () => {
+  /* L'interet d'un controle tient a ce qu'il ne soit pas fait par le controle.
+     Le CFS garde le rapport de stock, mais pas le rapprochement : il verra
+     donc l'onglet « Parc » seul, sans barre d'onglets. */
+  assert.equal(aLeDroit('CFS', 'report.stock'), true);
+  assert.equal(aLeDroit('CFS', 'acp.rapprocher'), false);
+});
+
+test("ACP : le chef de division a le rapprochement SANS le rapport de stock", () => {
+  /* C'est ce qui justifie de ne demander `report.stock` qu'a qui y a droit :
+     sans cette precaution, ouvrir le volet lui renverrait une erreur avant
+     meme qu'il ait vu un onglet. */
+  assert.equal(aLeDroit('CHEF_DIVISION', 'acp.rapprocher'), true);
+  assert.equal(aLeDroit('CHEF_DIVISION', 'report.stock'), false);
+});
+
+test('ACP : le chef de brigade et ADMIN voient les DEUX onglets', () => {
+  for (const r of ['CHEF_BRIGADE', 'ADMIN']) {
+    assert.equal(aLeDroit(r, 'report.stock'), true, r);
+    assert.equal(aLeDroit(r, 'acp.rapprocher'), true, r);
+  }
+});
+
+test('ACP : les roles techniques heritent de l’ADMIN, ici comme ailleurs', () => {
+  for (const r of ['SUPER_ADMIN', 'INFO']) {
+    assert.equal(aLeDroit(r, 'acp.rapprocher'), true, r);
+    assert.equal(aLeDroit(r, 'acp.historique'), true, r);
+  }
+});
+
+test("ACP : aucune cellule d'etape n'a le rapprochement", () => {
+  for (const r of ['T1', 'BALISE', 'BON_SORTIE', 'PP', 'CHEF_VISITE', 'CBPI'])
+    assert.equal(aLeDroit(r, 'acp.rapprocher'), false, r);
 });
