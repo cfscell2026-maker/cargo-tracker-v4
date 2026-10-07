@@ -16,8 +16,7 @@ import {
   normaliserConteneur, normaliserDeclaration, parseConteneursDetails,
   declKey, typeDeRoutage, tailleBucket, construireCamion, verifierBinome, apercuConteneurs,
   etapesEnAttente, etatCellules, estOui, aFait, sautsTypeC,
-  etapePrecedenteManquante, messageEtapePrecedente,
-} from '../../_shared/domaine/src/index.ts';
+  etapePrecedenteManquante, messageEtapePrecedente, aPouvoirAdmin} from '../../_shared/domaine/src/index.ts';
 import {
   getCargo, patchCargo, nextId, nextRapportId, ajouterConteneurs, supprimerConteneursDe,
   renommerCamionConteneurs, lierStock, delierStock, stockDisponible, stockFiche, lookupDeclaration, majApurement,
@@ -452,7 +451,7 @@ export async function declaration(ctx: Ctx, p: Record<string, unknown>) {
   const cargo = await getCargo(ctx, id);
   const c = cargo.o;
   if (c['typeOperation'] !== OPERATIONS.DEPOTAGE) throw new Error('Action réservée au dépotage.');
-  if (ctx.session.role !== ROLES.ADMIN && c['statut'] !== STATUTS.CHARGEMENT)
+  if (!aPouvoirAdmin(ctx.session.role) && c['statut'] !== STATUTS.CHARGEMENT)
     throw new Error('Finalisation impossible : le camion doit être « En cours de chargement » (statut « ' + c['statut'] + ' »).');
 
   const sc = (Array.isArray(p['scellesCamion']) ? (p['scellesCamion'] as unknown[]) : []).map((s) => maj(s, 30)).filter(Boolean);
@@ -503,7 +502,7 @@ export async function finChargement(ctx: Ctx, p: Record<string, unknown>) {
   const id = String(p['id'] ?? '').trim();
   const cargo = await getCargo(ctx, id);
   const c = cargo.o;
-  const estAdmin = ctx.session.role === ROLES.ADMIN;
+  const estAdmin = aPouvoirAdmin(ctx.session.role);
 
   if (c['typeOperation'] === OPERATIONS.DEPOTAGE)
     throw new Error('Dépotage : terminez par la finalisation (hauteur, colis et scellés camion).');
@@ -538,7 +537,7 @@ export async function sceller(ctx: Ctx, p: Record<string, unknown>) {
   const id = String(p['id'] ?? '').trim();
   const cargo = await getCargo(ctx, id);
   const c = cargo.o;
-  if (ctx.session.role !== ROLES.ADMIN && c['statut'] !== STATUTS.CHARGEMENT)
+  if (!aPouvoirAdmin(ctx.session.role) && c['statut'] !== STATUTS.CHARGEMENT)
     throw new Error("Pose de scellés impossible : la cargaison n'est pas « En cours de chargement ».");
   const type = c['typeOperation'];
   const pd = parseConteneursDetails(c['conteneursDetails']);
@@ -749,7 +748,7 @@ export async function valider(ctx: Ctx, p: Record<string, unknown>) {
   if (c['statut'] === STATUTS.CAMION || c['statut'] === STATUTS.CHARGEMENT || c['statut'] === STATUTS.VEHICULE_OUILLAGE)
     throw new ErreurMetier("Validation impossible : le CFS doit d'abord terminer (statut « " + c['statut'] + " »).");
   const dejaValidee = aFait(c['dateValidation']);
-  if (dejaValidee && ctx.session.role !== ROLES.ADMIN)
+  if (dejaValidee && !aPouvoirAdmin(ctx.session.role))
     throw new ErreurMetier('Cargaison déjà validée le ' + fmtDate(c['dateValidation']) + '.');
   // Pesée exigée uniquement en dépotage (2026-08-19).
   const pesee = peseePatch(p, exigeControlePoids(c['typeOperation']));
@@ -878,7 +877,7 @@ export async function t1(ctx: Ctx, p: Record<string, unknown>) {
 
   const cargo = await getCargo(ctx, id);
   const c = cargo.o;
-  if (ctx.session.role !== ROLES.ADMIN && etapesEnAttente(c as never).indexOf('T1') < 0)
+  if (!aPouvoirAdmin(ctx.session.role) && etapesEnAttente(c as never).indexOf('T1') < 0)
     throw new Error('Cellule T1 impossible : étape non attendue (statut « ' + c['statut'] + ' »).');
   if (c['typeOperation'] === OPERATIONS.ENLEVEMENT) {
     const nb = Number(c['nbConteneurs'] || 0) || 1;
@@ -972,9 +971,9 @@ export async function gps(ctx: Ctx, p: Record<string, unknown>) {
   /* LA BALISE ATTEND LE T1 (2026-09-24, demande utilisateur). Le refus NOMME
      ce qui manque : « impossible » sans raison renvoyait l'agent à l'aveugle. */
   const manqueAvantBalise = etapePrecedenteManquante(c as never, 'BALISE');
-  if (ctx.session.role !== ROLES.ADMIN && manqueAvantBalise)
+  if (!aPouvoirAdmin(ctx.session.role) && manqueAvantBalise)
     throw new ErreurMetier(messageEtapePrecedente(manqueAvantBalise, 'BALISE'));
-  if (ctx.session.role !== ROLES.ADMIN && etapesEnAttente(c as never).indexOf('BALISE') < 0)
+  if (!aPouvoirAdmin(ctx.session.role) && etapesEnAttente(c as never).indexOf('BALISE') < 0)
     throw new Error('Étape Balise impossible : chargement non terminé ou déjà balisée (statut « ' + c['statut'] + ' »).');
   const avancer = etapesEnAttente(c as never).indexOf('BALISE') >= 0;
   const patch: Record<string, unknown> = {
@@ -1039,9 +1038,9 @@ export async function bonsortie(ctx: Ctx, p: Record<string, unknown>) {
   const c = cargo.o;
   /* LE BON DE SORTIE ATTEND LA BALISE (2026-09-24, demande utilisateur). */
   const manqueAvantBS = etapePrecedenteManquante(c as never, 'BS');
-  if (ctx.session.role !== ROLES.ADMIN && manqueAvantBS)
+  if (!aPouvoirAdmin(ctx.session.role) && manqueAvantBS)
     throw new ErreurMetier(messageEtapePrecedente(manqueAvantBS, 'BS'));
-  if (ctx.session.role !== ROLES.ADMIN && etapesEnAttente(c as never).indexOf('BS') < 0)
+  if (!aPouvoirAdmin(ctx.session.role) && etapesEnAttente(c as never).indexOf('BS') < 0)
     throw new Error('Bon de sortie impossible : chargement non terminé ou bon déjà émis (statut « ' + c['statut'] + ' »).');
   const avancer = etapesEnAttente(c as never).indexOf('BS') >= 0;
   const patch: Record<string, unknown> = {
@@ -1066,9 +1065,9 @@ export async function sortie(ctx: Ctx, p: Record<string, unknown>) {
      bon de sortie, balise. Le refus NOMME la piece qui manque, au lieu d'une
      phrase generique que l'agent du portail ne peut pas exploiter. */
   const manqueAvantPP = etapePrecedenteManquante(c as never, 'PP');
-  if (ctx.session.role !== ROLES.ADMIN && manqueAvantPP)
+  if (!aPouvoirAdmin(ctx.session.role) && manqueAvantPP)
     throw new ErreurMetier(messageEtapePrecedente(manqueAvantPP, 'PP'));
-  if (ctx.session.role !== ROLES.ADMIN && etapesEnAttente(c as never).indexOf('PP') < 0)
+  if (!aPouvoirAdmin(ctx.session.role) && etapesEnAttente(c as never).indexOf('PP') < 0)
     throw new Error('Sortie impossible : étape non attendue (statut « ' + c['statut'] + ' »).');
   let checklist: Record<string, unknown> = {};
   let derogation = '';
@@ -1202,7 +1201,7 @@ export async function editcamion(ctx: Ctx, p: Record<string, unknown>) {
   const ancien = String(c['numeroCamion'] || '');
   if (nouveau === ancien) return { id, numeroCamion: nouveau, inchange: true };
 
-  const estAdmin = ctx.session.role === ROLES.ADMIN;
+  const estAdmin = aPouvoirAdmin(ctx.session.role);
   if (c['statut'] === STATUTS.SORTIE)
     throw new ErreurMetier(
       'Camion déjà sorti : le N° d\'immatriculation ne peut plus être corrigé. ' +
@@ -1404,7 +1403,7 @@ export async function edittype(ctx: Ctx, p: Record<string, unknown>) {
     throw new Error("Type d'opération invalide (Dépotage ou Enlèvement).");
   const cargo = await getCargo(ctx, id);
   const c = cargo.o;
-  const estAdmin = ctx.session.role === ROLES.ADMIN;
+  const estAdmin = aPouvoirAdmin(ctx.session.role);
   if (!estAdmin && [STATUTS.CAMION, STATUTS.CHARGEMENT, STATUTS.CREEE].indexOf(c['statut'] as never) === -1)
     throw new Error('Correction du type impossible : la cargaison a déjà avancé (statut « ' + c['statut'] + ' »).');
   if (!estAdmin && aFait(c['dateValidation']))
@@ -1469,7 +1468,7 @@ function exigerMotifSiAvancee(ctx: Ctx, c: Record<string, unknown>, p: Record<st
   const avancee = [STATUTS.CAMION, STATUTS.CHARGEMENT, STATUTS.CREEE].indexOf(c['statut'] as never) === -1;
   if (!avancee) return '';
   const motif = txt(p['motif'], 200).trim();
-  if (ctx.session.role !== ROLES.ADMIN && !motif) {
+  if (!aPouvoirAdmin(ctx.session.role) && !motif) {
     throw new ErreurMetier(
       'Cette cargaison a déjà avancé (statut « ' + c['statut'] + ' ») : indiquez le MOTIF de la '
       + "correction dans le champ prévu, puis enregistrez. Le motif est inscrit au journal d'audit.");
@@ -1496,7 +1495,7 @@ export async function editconteneur(ctx: Ctx, p: Record<string, unknown>) {
   const supprimer = p['supprimer'] === true;
   const cargo = await getCargo(ctx, id);
   const c = cargo.o;
-  const estAdmin = ctx.session.role === ROLES.ADMIN;
+  const estAdmin = aPouvoirAdmin(ctx.session.role);
   /* MOTIF OBLIGATOIRE AVANT TOUTE SUPPRESSION (2026-09-24, demande
      utilisateur). La regle valait deja pour l'annulation d'un dossier, la
      suppression d'un compte, d'un magasin, d'une ligne de declaration et d'une
@@ -1645,7 +1644,7 @@ export async function editdecl(ctx: Ctx, p: Record<string, unknown>) {
   const id = String(p['id'] ?? '').trim();
   const cargo = await getCargo(ctx, id);
   const c = cargo.o;
-  const estAdmin = ctx.session.role === ROLES.ADMIN;
+  const estAdmin = aPouvoirAdmin(ctx.session.role);
   const motifAvance = exigerMotifSiAvancee(ctx, c, p);
   const type = String(c['typeOperation'] || '');
   // CORRECTION, pas création : contact / destination / désignation absents des
@@ -1766,7 +1765,7 @@ export async function update(ctx: Ctx, p: Record<string, unknown>) {
   );
   const cargo = await getCargo(ctx, id);
   const c = cargo.o;
-  if (ctx.session.role !== ROLES.ADMIN && c['statut'] !== STATUTS.CREEE)
+  if (!aPouvoirAdmin(ctx.session.role) && c['statut'] !== STATUTS.CREEE)
     throw new Error("Modification impossible : la cargaison n'est plus au statut « Créée ».");
   const rapportId = String(c['rapportId'] || '');
   await patchCargo(ctx, cargo, {

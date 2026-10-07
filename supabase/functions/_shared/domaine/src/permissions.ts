@@ -182,6 +182,27 @@ export const PERMISSIONS: Record<string, Role[]> = {
   'report.stock': [ROLES.CFS, ROLES.CHEF_BRIGADE, ROLES.ADMIN],
   // v4.2, statistiques de dépotage : positionnés / dépotés / restant par jour.
   'report.depotage': [ROLES.CFS, ROLES.CHEF_BRIGADE, ROLES.CHEF_VISITE, ROLES.CHEF_DIVISION, ROLES.ADMIN],
+  /* RAPPROCHEMENT DES LISTES ACP (2026-10-06, decision utilisateur).
+     Ouvert au CHEF DE BRIGADE, au CHEF DE DIVISION et a l'ADMIN - donc aussi
+     a SUPER_ADMIN et INFO, qui tiennent leurs droits de l'ADMIN.
+     PAS a la cellule CFS : c'est un controle du parc tenu par le CFS, et
+     l'interet d'un controle tient a ce qu'il ne soit pas fait par le controle. */
+  'acp.rapprocher': [ROLES.CHEF_BRIGADE, ROLES.CHEF_DIVISION, ROLES.ADMIN],
+  'acp.historique': [ROLES.CHEF_BRIGADE, ROLES.CHEF_DIVISION, ROLES.ADMIN],
+  'acp.detail': [ROLES.CHEF_BRIGADE, ROLES.CHEF_DIVISION, ROLES.ADMIN],
+
+  /* VERROU DE L'APPLICATION (2026-10-07, decision utilisateur) : L'INFO SEUL.
+     Pas le SUPER_ADMIN, pas l'ADMIN. C'est la seule entree de cette matrice
+     qui ne mentionne PAS l'ADMIN, et ce n'est pas un oubli : l'heritage des
+     roles techniques passe par `allowed.indexOf(ROLES.ADMIN)`, de sorte que
+     ne pas l'inscrire ici ferme la porte au SUPER_ADMIN aussi. Bloquer l'outil
+     de travail de tout le port n'est pas un pouvoir d'administration
+     ordinaire. `exigerInfo`, cote action, redit la meme chose : deux barrieres
+     valent mieux qu'une pour un bouton de cette portee. */
+  'verrou.etat': [ROLES.INFO],
+  'verrou.definir': [ROLES.INFO],
+  'verrou.bloquer': [ROLES.INFO],
+  'verrou.ouvrir': [ROLES.INFO],
   // Stock ANNONCÉ (v2.8)
   'stockannonce.import': [ROLES.ADMIN],
   'stockannonce.list': TOUS_ROLES,
@@ -345,6 +366,17 @@ export function motifRefusAttribution(roleActeur: unknown, roleVoulu: unknown): 
   if (voulu === 0) return null; // role ordinaire : aucune restriction de rang
   if (rangTechnique(roleActeur) >= voulu) return null;
   return `Attribution du role ${String(roleVoulu)} reservee aux comptes de rang superieur ou egal.`;
+}
+
+/**
+ * La même question, mais en OUI/NON : sert à l'interface, pour ne pas montrer
+ * un onglet ou un bouton que le serveur refusera.
+ *
+ * C'est un CONFORT, jamais une sécurité : rien n'empêche de forger la requête à
+ * la main, et c'est `verifierPermission` côté serveur qui refuse vraiment.
+ */
+export function aLeDroit(role: Role | string, action: string): boolean {
+  try { verifierPermission(role, action); return true; } catch { return false; }
 }
 
 export function verifierPermission(role: Role | string, action: string): void {

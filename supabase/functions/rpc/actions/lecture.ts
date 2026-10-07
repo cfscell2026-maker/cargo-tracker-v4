@@ -25,8 +25,7 @@ import {
   normAlphaNum,
   numeroQuasiDoublon,
   similariteNum,
-  type Role,
-} from '../../_shared/domaine/src/index.ts';
+  type Role, aPouvoirAdmin} from '../../_shared/domaine/src/index.ts';
 
 /** Résumé (v_cargaisons_resume) en camelCase, équivalent RESUME_KEYS. */
 async function chargerResume(
@@ -126,7 +125,7 @@ export async function cargoGet(ctx: Ctx, data: { id?: string }) {
   if (!row) throw new Error('Cargaison introuvable : ' + id);
   // SEC-12 · une cargaison annulée n'est plus une écriture vivante : elle reste
   // en base (on ne détruit pas de pièce) mais n'est plus servie aux cellules.
-  if (row['annule'] === true && ctx.session.role !== ROLES.ADMIN)
+  if (row['annule'] === true && !aPouvoirAdmin(ctx.session.role))
     throw new Error('Cargaison introuvable : ' + id);
   return filtrerConfidentiel(versCamel(row), ctx.session.role);
 }

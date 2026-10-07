@@ -1945,13 +1945,13 @@ button{
    fichier, les repeignait en pastille bleue pleine. C'est le piège classique
    d'un style global ajouté après coup : il rattrape les exceptions déjà
    réglées. */
-button:not(.ghost):not(.burger):not(.repli):not(.bm-action):not(.bm-retour):not(.btn-export):not(.acte):not(.hubitem):not(.nm-onglet):not(.seg-choix):not(.modal-fermer):not(:disabled){
+button:not(.ghost):not(.burger):not(.repli):not(.bm-action):not(.bm-retour):not(.btn-export):not(.acte):not(.hubitem):not(.nm-onglet):not(.seg-choix):not(.modal-fermer):not(.acp-perim):not(:disabled){
   background:linear-gradient(180deg,var(--accent),#0b4870);
   border-color:transparent;
   box-shadow:0 4px 14px rgba(14,90,138,.24),inset 0 1px 0 rgba(255,255,255,.35);
 }
 /* BLANC AU SURVOL, comme sur l'écran de création : la même règle partout. */
-button:not(.ghost):not(.hubitem):not(.nm-onglet):not(.bm-retour):not(.seg-choix):not(.modal-fermer):hover:not(:disabled){
+button:not(.ghost):not(.hubitem):not(.nm-onglet):not(.bm-retour):not(.seg-choix):not(.modal-fermer):not(.acp-perim):hover:not(:disabled){
   background:#fff;color:var(--accent);border-color:var(--accent);
   transform:translateY(-1px);
   box-shadow:0 8px 22px rgba(15,35,55,.16);
@@ -3101,3 +3101,441 @@ button.modal-fermer:focus-visible{outline:2px solid #0e5a8a;outline-offset:2px}
 .param-saisie{gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:4px}
 .param-saisie textarea{max-width:420px;width:100%}
 .param-inactif{border-left:4px solid var(--warn)}
+
+/* ======================= RAPPROCHEMENT ACP, 2026-10-06 ==================
+ *
+ * Demande utilisateur : le champ de fichier brut du navigateur
+ * (« Choisir un fichier · Aucun fichier choisi ») n'avait rien à faire au
+ * milieu d'une application soignée. Le dépôt passe dans une FENÊTRE, où l'on
+ * choisit aussi SUR QUOI porte la comparaison.
+ * ====================================================================== */
+
+/* La carte d'accueil : une phrase, un bouton, rien d'autre. */
+.acp-accueil{display:flex;gap:18px;align-items:center;flex-wrap:wrap;justify-content:space-between}
+.acp-accueil-texte{min-width:260px;flex:1}
+.acp-accueil .help{margin:0;max-width:62ch}
+
+.acp-lancer{
+  display:inline-flex;align-items:center;gap:9px;
+  padding:12px 20px;font-size:14.5px;border-radius:13px;
+}
+.acp-lancer:active{transform:translateY(1px) scale(.985)}
+
+/* ---- La fenêtre ---- */
+.acp-fenetre{display:flex;flex-direction:column;gap:4px}
+.acp-fenetre h2{margin:14px 0 2px;text-align:center}
+.acp-fenetre .acp-sous{text-align:center;margin:0 0 14px}
+.acp-fenetre > label.help{margin:12px 0 6px;font-weight:600;color:var(--ink)}
+.acp-fenetre > label.help i{font-weight:400;color:var(--muted)}
+
+/* LE LOGO ENTRE DEUX ARCS QUI TOURNENT EN SENS CONTRAIRE, chacun portant une
+   boîte. Les deux se croisent deux fois par tour : c'est le geste même du
+   rapprochement, deux inventaires qu'on fait coïncider. Quatre secondes le
+   tour : cette fenêtre s'ouvre pour qu'on y réfléchisse, pas pour qu'on la
+   regarde s'agiter. */
+.acp-anim{position:relative;width:120px;height:120px;margin:4px auto 0;display:grid;place-items:center}
+.acp-anim .logo-rond{width:62px;height:62px;border-radius:50%;position:relative;z-index:1}
+.acp-arc{
+  position:absolute;inset:0;border-radius:50%;
+  border:1.5px solid transparent;
+}
+.acp-arc-a{border-top-color:rgba(14,90,138,.55);border-right-color:rgba(14,90,138,.2);animation:acp-tour 4s linear infinite}
+.acp-arc-b{inset:14px;border-bottom-color:rgba(31,122,92,.55);border-left-color:rgba(31,122,92,.2);animation:acp-tour 4s linear infinite reverse}
+/* La boîte est posée SUR l'arc et tourne avec lui : c'est l'arc qui la
+   transporte, on n'anime donc qu'une seule chose par anneau. */
+.acp-boite{
+  position:absolute;top:-5px;left:50%;margin-left:-5px;
+  width:10px;height:10px;border-radius:2.5px;
+  background:linear-gradient(135deg,var(--accent),#0e5a8a);
+  box-shadow:0 2px 6px rgba(14,90,138,.4);
+}
+.acp-arc-b .acp-boite{background:linear-gradient(135deg,#1f7a5c,#2a9d78);box-shadow:0 2px 6px rgba(31,122,92,.4)}
+@keyframes acp-tour{to{transform:rotate(360deg)}}
+
+/* ---- Le choix du périmètre ---- */
+.acp-perimetres{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:9px}
+.acp-perim{
+  display:grid;grid-template-columns:auto 1fr;grid-template-rows:auto auto;
+  gap:2px 9px;text-align:left;padding:11px 13px;border-radius:13px;
+  background:rgba(255,255,255,.7);color:var(--ink);
+  border:1px solid rgba(15,45,70,.14);box-shadow:none;
+  transition:border-color .15s ease,background .15s ease,transform .12s ease;
+}
+.acp-perim .ic{grid-row:1/3;align-self:center;color:var(--accent);opacity:.75}
+.acp-perim b{font-size:13.5px}
+.acp-perim span{font-size:11.5px;color:var(--muted);line-height:1.35}
+.acp-perim:hover{border-color:rgba(14,90,138,.4);background:#fff}
+.acp-perim:active{transform:scale(.99)}
+.acp-perim.actif{
+  border-color:var(--accent);background:rgba(14,90,138,.07);
+  box-shadow:0 0 0 1px var(--accent) inset,0 6px 16px rgba(14,90,138,.13);
+}
+.acp-perim.actif .ic{opacity:1}
+
+.acp-periode{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.acp-periode .help{margin:0}
+
+/* ---- Le dépôt du fichier ----
+   L'`input` natif est MASQUÉ mais toujours là : le `label` qui l'enveloppe
+   l'actionne au clic comme à la touche Entrée, et les lecteurs d'écran
+   continuent d'annoncer un champ de fichier. On habille, on ne remplace pas. */
+.acp-depot{
+  display:grid;grid-template-columns:auto 1fr;gap:1px 12px;align-items:center;
+  padding:16px 18px;border-radius:14px;cursor:pointer;
+  border:1.5px dashed rgba(14,90,138,.35);background:rgba(14,90,138,.04);
+  transition:border-color .15s ease,background .15s ease;
+}
+.acp-depot:hover{border-color:var(--accent);background:rgba(14,90,138,.08)}
+.acp-depot input[type=file]{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
+.acp-depot .ic{grid-row:1/3;color:var(--accent)}
+.acp-depot span{font-size:14px;font-weight:600;word-break:break-all}
+.acp-depot i{font-size:11.5px;color:var(--muted);font-style:normal}
+
+.acp-lu{
+  margin-top:10px;padding:10px 13px;border-radius:11px;font-size:13px;
+  background:rgba(31,122,92,.07);border:1px solid rgba(31,122,92,.2);
+}
+.acp-actions{display:flex;gap:9px;justify-content:flex-end;margin-top:18px}
+
+@media (max-width:560px){
+  .acp-accueil{flex-direction:column;align-items:stretch}
+  .acp-lancer{justify-content:center}
+  .acp-actions{flex-direction:column-reverse}
+  .acp-actions button{width:100%}
+}
+
+/* Un mouvement perpétuel est vite pénible, et pour certains il est pire que
+   cela. On le coupe quand le système le demande ; le dessin reste. */
+@media (prefers-reduced-motion:reduce){
+  .acp-arc-a,.acp-arc-b{animation:none}
+}
+
+/* ============ VERRE DÉPOLI SUR LES VOLETS, 2026-10-06 ==================
+ *
+ * Demande utilisateur : « ajoute le glassmorphism » sur les volets.
+ *
+ * ⚠ LE FLOU ÉTAIT DÉJÀ LÀ. `.card` portait `backdrop-filter:blur(14px)` depuis
+ * la refonte. S'il ne se voyait pas, c'est pour la raison exacte qu'énonce le
+ * bloc de l'écran de connexion plus haut : UN FLOU NE MONTRE QUE CE QU'IL A
+ * DERRIÈRE LUI. Les halos de `body` sont posés en `background-attachment:fixed`
+ * et très dilués ; flouter un dégradé presque uni ne produit rien de visible.
+ *
+ * On ne touche donc pas d'abord au verre, mais à LA MATIÈRE : une couche de
+ * halos nettement plus présents, derrière le contenu. Le verre existant a enfin
+ * quelque chose à réfracter, et il se voit sans qu'on ait rien ajouté sur
+ * chaque carte.
+ * ====================================================================== */
+.content{position:relative;z-index:0}
+
+/* La matière. `fixed` : les halos ne défilent pas avec la liste, sans quoi le
+   verre scintillerait à chaque molette. Les trois teintes sont celles de
+   l'application, pas des couleurs neuves. */
+.content::before{
+  content:'';position:fixed;inset:0;z-index:-1;pointer-events:none;
+  background:
+    radial-gradient(760px 420px at 12% 4%, rgba(14,90,138,.22), transparent 64%),
+    radial-gradient(680px 380px at 92% 16%, rgba(31,122,92,.17), transparent 62%),
+    radial-gradient(720px 440px at 62% 96%, rgba(180,83,31,.12), transparent 64%),
+    radial-gradient(520px 300px at 34% 62%, rgba(14,90,138,.10), transparent 66%);
+}
+
+/* Le verre. Plus translucide qu'avant, il peut l'être maintenant qu'il y a
+   quelque chose dessous, et le liseré clair du haut accentue l'arête.
+   Les CHAMPS DE SAISIE restent opaques (règle `input` globale) : on lit et on
+   remplit un champ, il n'a pas à être une plaque de verre. */
+.card{
+  background:rgba(255,255,255,.74);
+  backdrop-filter:blur(20px) saturate(165%);
+  -webkit-backdrop-filter:blur(20px) saturate(165%);
+  border:1px solid rgba(255,255,255,.75);
+  box-shadow:
+    0 10px 30px rgba(15,35,55,.10),
+    0 2px 6px rgba(15,35,55,.05),
+    inset 0 1px 0 rgba(255,255,255,.95);
+}
+
+/* La fenêtre modale suit la même matière, sinon elle paraîtrait plate posée
+   au-dessus de cartes en verre. */
+.modal{
+  background:rgba(255,255,255,.88);
+  backdrop-filter:blur(26px) saturate(170%);
+  -webkit-backdrop-filter:blur(26px) saturate(170%);
+  border:1px solid rgba(255,255,255,.8);
+  box-shadow:0 24px 60px rgba(15,35,55,.26),inset 0 1px 0 rgba(255,255,255,.95);
+}
+.overlay{background:rgba(15,25,35,.38);backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px)}
+
+/* IMPRESSION : le verre n'existe pas sur papier, et une carte translucide y
+   sort grise. On rend l'opacité pour imprimer. */
+@media print{
+  .content::before{display:none}
+  .card,.modal{background:#fff;backdrop-filter:none;-webkit-backdrop-filter:none;box-shadow:none}
+}
+
+/* ON N'HONORE PAS `prefers-reduced-transparency` ICI, et c'est un choix, pas
+   un oubli.
+   Cette règle existait, elle retirait le flou quand le système le demande. Puis
+   la mesure a montré que la machine de l'utilisateur répond précisément
+   « reduce » : les effets de transparence de Windows y sont désactivés. La
+   règle marchait donc parfaitement, et privait de ce verre la seule personne
+   qui l'a demandé. Le verre a été commandé expressément : il reste.
+   Le MOUVEMENT, lui, continue d'obéir à `prefers-reduced-motion` (voir
+   `.acp-arc`) : une animation qui tourne sans fin est une gêne réelle, une
+   surface translucide n'en est pas une. */
+
+/* L'en-tête d'un résultat de rapprochement : le résumé à gauche, l'extraction
+   du constat ENTIER à droite. Sur un écran étroit le bouton passe dessous
+   plutôt que de comprimer la phrase. */
+.acp-entete{display:flex;gap:12px;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;margin-bottom:10px}
+.acp-entete .help{flex:1;min-width:240px}
+
+/* ================== VERROU DE L'APPLICATION, 2026-10-07 ================
+ *
+ * Demande utilisateur : un bloc en verre dépoli, blanc dégradé vers le rouge.
+ *
+ * LE ROUGE EST EN BAS, pas partout. Un panneau entièrement rouge crierait en
+ * permanence dans un volet qu'on ouvre pour régler des seuils ; la teinte monte
+ * depuis le bas, assez pour qu'on sache que ce bloc n'est pas comme les autres,
+ * assez peu pour que le texte s'y lise sans effort.
+ * ====================================================================== */
+.verrou-panneau{
+  background:
+    linear-gradient(170deg,
+      rgba(255,255,255,.90) 0%,
+      rgba(255,255,255,.82) 42%,
+      rgba(214,69,69,.16) 82%,
+      rgba(196,48,48,.26) 100%);
+  backdrop-filter:blur(22px) saturate(170%);
+  -webkit-backdrop-filter:blur(22px) saturate(170%);
+  border:1px solid rgba(255,255,255,.75);
+  box-shadow:
+    0 12px 34px rgba(150,30,30,.14),
+    inset 0 1px 0 rgba(255,255,255,.95);
+}
+/* Verrou ARMÉ : le rouge remonte et le liseré gauche le dit de loin, pour que
+   l'état se lise sans avoir à relire la phrase. */
+.verrou-panneau.arme{
+  background:
+    linear-gradient(170deg,
+      rgba(255,255,255,.86) 0%,
+      rgba(214,69,69,.18) 38%,
+      rgba(196,48,48,.30) 100%);
+  border-left:4px solid var(--err);
+}
+
+/* LE LOGO A GAUCHE, LE PROPOS A DROITE. Il donne au panneau son identite
+   immediate, la meme que celle des fenetres et de l'ecran de blocage. Sur un
+   ecran etroit tout se range en colonne, logo centre. */
+.verrou-tete{display:flex;gap:18px;align-items:center;margin-bottom:14px}
+.verrou-tete-texte{min-width:0;flex:1}
+.verrou-tete h3{
+  margin:0 0 4px;font-size:17px;letter-spacing:.005em;
+  display:flex;align-items:center;gap:8px;
+}
+.verrou-tete h3 .ic{color:var(--err);flex:none}
+.verrou-tete .help{margin:0;max-width:62ch}
+
+/* L'ETAT : un VOYANT et une phrase. Le voyant se lit de loin, la phrase le
+   dit en toutes lettres pour qui ne distingue pas les couleurs. */
+.verrou-etat{
+  display:flex;gap:10px;align-items:flex-start;
+  font-size:13.5px;padding:11px 14px;border-radius:12px;margin-top:11px;
+  background:rgba(255,255,255,.66);border:1px solid rgba(255,255,255,.85);
+}
+.verrou-voyant{
+  flex:none;width:9px;height:9px;border-radius:50%;margin-top:5px;
+}
+.verrou-etat.vert .verrou-voyant{background:var(--ok);box-shadow:0 0 0 3px rgba(31,122,92,.15)}
+.verrou-etat.vert b{color:var(--ok)}
+/* Le voyant rouge PULSE : un blocage en cours doit se voir meme du coin de
+   l'oeil, c'est un etat qu'on ne doit pas oublier d'avoir pose. */
+.verrou-etat.rouge .verrou-voyant{
+  background:var(--err);box-shadow:0 0 0 3px rgba(196,48,48,.18);
+  animation:verrou-respire 2s ease-in-out infinite;
+}
+.verrou-etat.rouge b{color:var(--err)}
+.verrou-citation{margin-top:5px;font-style:italic;color:var(--ink)}
+
+.verrou-actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.verrou-actions .help{margin:0;flex:1;min-width:180px}
+/* Les boutons du verrou portent LEUR propre fond : sans ces exclusions, la
+   regle generale ecrite plus haut les repeindrait tous en bleu. */
+.verrou-principal{padding:11px 18px;border-radius:12px;display:inline-flex;align-items:center;gap:8px}
+.verrou-bloquer{background:var(--err) !important;background-image:none !important;border-color:var(--err) !important;color:#fff !important}
+.verrou-rouvrir{background:var(--ok) !important;background-image:none !important;border-color:var(--ok) !important;color:#fff !important}
+.verrou-pied{display:flex;gap:9px;justify-content:flex-end;margin-top:20px}
+
+/* ---- Les fenetres : meme en-tete que l'ecran de blocage ---- */
+.verrou-fenetre{display:flex;flex-direction:column;gap:2px}
+.verrou-fenetre h2{margin:14px 0 2px;text-align:center}
+.verrou-fenetre .verrou-sous{text-align:center;margin:0 auto 16px;max-width:52ch}
+.verrou-fenetre > label.help{margin:12px 0 6px;font-weight:600;color:var(--ink)}
+.verrou-fenetre > label.help i{font-weight:400;color:var(--muted)}
+
+/* CE QUI MANQUE EST DIT. Un bouton grise sans explication laisse chercher :
+   on nomme ce qu'il attend encore. */
+.verrou-manque{
+  margin-top:8px;font-size:12px;color:var(--warn);
+  padding:7px 11px;border-radius:9px;
+  background:rgba(180,83,31,.07);border:1px solid rgba(180,83,31,.2);
+}
+
+/* L'APERCU du message : cette phrase va s'afficher devant tout le port. */
+.verrou-apercu{
+  margin-top:9px;padding:11px 14px;border-radius:12px;
+  background:rgba(196,48,48,.06);border:1px dashed rgba(196,48,48,.3);
+}
+.verrou-apercu .help{margin:0 0 4px;font-size:11px}
+.verrou-apercu p{margin:0;font-weight:600;color:var(--err);font-size:15px}
+
+@media (max-width:620px){
+  .verrou-tete{flex-direction:column;text-align:center}
+  .verrou-tete h3{justify-content:center}
+  .verrou-etat{text-align:left}
+  .verrou-actions{flex-direction:column;align-items:stretch}
+  .verrou-pied{flex-direction:column-reverse}
+  .verrou-pied button{width:100%}
+}
+
+/* ---- L'écran que voient les comptes bloqués ---- */
+.verrou-ecran{
+  position:fixed;inset:0;z-index:60;display:grid;place-items:center;padding:24px;
+  background:
+    radial-gradient(900px 520px at 50% 0%, rgba(196,48,48,.22), transparent 66%),
+    linear-gradient(180deg,#ffffff 0%,#fdf6f6 46%,#f7e9e9 100%);
+}
+.verrou-carte{
+  max-width:560px;text-align:center;padding:34px 30px 30px;border-radius:20px;
+  background:rgba(255,255,255,.76);
+  backdrop-filter:blur(24px) saturate(165%);
+  -webkit-backdrop-filter:blur(24px) saturate(165%);
+  border:1px solid rgba(255,255,255,.85);
+  box-shadow:0 20px 50px rgba(150,30,30,.18),inset 0 1px 0 rgba(255,255,255,.95);
+}
+.verrou-carte h1{font-size:21px;margin:16px 0 10px;letter-spacing:.005em}
+.verrou-raison{
+  font-size:16px;font-weight:600;color:var(--err);margin:0 0 14px;
+  padding:12px 16px;border-radius:12px;
+  background:rgba(196,48,48,.08);border:1px solid rgba(196,48,48,.2);
+}
+.verrou-aide{font-size:13px;color:var(--muted);margin:0;line-height:1.5}
+
+/* TOUT SE DERIVE DE `--t`, la taille demandee : le meme dessin sert a 96 px
+   sur l'ecran de blocage, a 78 dans le panneau et a 64 en tete des fenetres.
+   Trois jeux de regles auraient diverge a la premiere retouche. */
+.verrou-logo{
+  --t:96px;
+  position:relative;width:var(--t);height:var(--t);margin:0 auto;
+  display:grid;place-items:center;flex:none;
+}
+.verrou-logo .logo-rond{
+  width:calc(var(--t) * .6);height:calc(var(--t) * .6);
+  border-radius:50%;position:relative;z-index:1;
+}
+/* L'anneau RESPIRE plutôt qu'il ne tourne : on peut rester devant cet écran
+   plusieurs minutes, et une rotation continue y deviendrait vite pénible. */
+.verrou-anneau{
+  position:absolute;inset:0;border-radius:50%;
+  border:2px solid rgba(196,48,48,.45);
+  animation:verrou-respire 2.6s ease-in-out infinite;
+}
+@keyframes verrou-respire{
+  0%,100%{transform:scale(1);opacity:.75}
+  50%{transform:scale(1.07);opacity:.35}
+}
+@media (prefers-reduced-motion:reduce){ .verrou-anneau{animation:none} }
+
+/* ---- L'animation de SUSPENSION (2026-10-07, demande utilisateur) ----
+ *
+ * Elle dit « suspendu » dans le vocabulaire que l'application emploie deja.
+ * Le `Spinner` fait tourner un conteneur autour du logo, et son commentaire
+ * l'explique : tant qu'il tourne, le serveur travaille. Celle-ci en est le
+ * CONTRAIRE EXACT, et c'est ce qui la rend lisible sans legende :
+ *
+ *   · l'anneau passe en POINTILLES, le circuit est interrompu ;
+ *   · le conteneur s'elance, BUTE sur une barriere baissee, recule un peu,
+ *     puis attend. Le tour ne s'acheve jamais ;
+ *   · la barriere est celle du poste, deja dessinee dans la scene d'attente,
+ *     ou elle se LEVE. Ici elle est baissee.
+ *
+ * Lent (5,2 s le cycle) et longuement immobile : on peut rester devant cet
+ * ecran plusieurs minutes, et ce qui s'agite y devient vite penible.
+ */
+.verrou-anneau{
+  border-style:dashed;                /* le circuit est coupe */
+  border-color:rgba(196,48,48,.42);
+}
+.verrou-orbite{
+  position:absolute;inset:calc(var(--t) * -.062);border-radius:50%;
+  animation:verrou-elan 5.2s cubic-bezier(.33,.9,.4,1) infinite;
+}
+.verrou-colis{
+  position:absolute;top:calc(var(--t) * -.062);left:50%;
+  margin-left:calc(var(--t) * -.062);
+  width:calc(var(--t) * .125);height:calc(var(--t) * .125);border-radius:3px;
+  background:linear-gradient(135deg,#c43030,#a02020);
+  box-shadow:0 2px 7px rgba(150,30,30,.45);
+}
+/* LE TOUR NE S'ACHEVE JAMAIS : 105 degres, un choc, un recul, puis l'attente.
+   C'est l'attente qui porte le sens, pas le mouvement : elle occupe plus de la
+   moitie du cycle. */
+@keyframes verrou-elan{
+  0%   { transform:rotate(0deg) }
+  26%  { transform:rotate(105deg) }   /* l'elan */
+  31%  { transform:rotate(96deg) }    /* le choc, et le recul */
+  34%  { transform:rotate(99deg) }
+  82%  { transform:rotate(99deg) }    /* l'attente, longue */
+  100% { transform:rotate(0deg) }     /* on repart, et on butera de nouveau */
+}
+
+/* LA BARRIERE DU POSTE, BAISSEE. Dans la scene d'attente elle se leve pour
+   laisser passer le camion ; ici elle barre la route, a l'endroit exact ou le
+   conteneur s'arrete. */
+.verrou-barriere{
+  position:absolute;top:50%;right:calc(var(--t) * -.104);
+  width:calc(var(--t) * .31);height:3px;margin-top:-1.5px;
+  border-radius:2px;transform-origin:right center;
+  background:repeating-linear-gradient(90deg,#c43030 0 6px,#fff 6px 12px);
+  box-shadow:0 1px 4px rgba(150,30,30,.35);
+  animation:verrou-barre 5.2s ease-in-out infinite;
+}
+/* Elle tressaute au moment du choc : c'est ce qui relie les deux dessins. */
+@keyframes verrou-barre{
+  0%,24%  { transform:rotate(0deg) }
+  28%     { transform:rotate(-7deg) }
+  33%     { transform:rotate(2deg) }
+  38%,100%{ transform:rotate(0deg) }
+}
+
+/* Le signe PAUSE, pose sur le logo : la lecture immediate, pour qui ne
+   regardera pas l'animation tourner. */
+.verrou-pause{
+  position:absolute;right:0;bottom:0;z-index:2;
+  width:calc(var(--t) * .25);height:calc(var(--t) * .25);border-radius:50%;
+  display:flex;align-items:center;justify-content:center;gap:3px;
+  background:var(--err);box-shadow:0 2px 8px rgba(150,30,30,.45);
+  animation:verrou-respire 2.6s ease-in-out infinite;
+}
+.verrou-pause i{
+  width:calc(var(--t) * .031);height:calc(var(--t) * .104);
+  border-radius:1px;background:#fff;
+}
+
+@media (prefers-reduced-motion:reduce){
+  .verrou-orbite,.verrou-barriere,.verrou-pause{animation:none}
+  /* Le conteneur reste ARRETE contre la barriere : le dessin garde son sens
+     meme immobile, c'est le minimum pour une animation qui porte le message. */
+  .verrou-orbite{transform:rotate(99deg)}
+}
+
+/* Le recours est REPLIÉ : il doit être trouvable sans être sous les yeux en
+   permanence. Une procédure de secours affichée en continu finit par faire
+   partie du décor, et on ne la lit plus le jour où elle sert. */
+.verrou-recours{margin-top:14px;font-size:12px}
+.verrou-recours summary{cursor:pointer;color:var(--err);font-weight:600}
+.verrou-recours .help{margin:8px 0 0;font-size:11.5px}
+.verrou-recours code{
+  display:block;margin-top:4px;
+  background:rgba(255,255,255,.75);border:1px solid rgba(15,45,70,.14);
+  border-radius:6px;padding:5px 8px;font-size:11px;word-break:break-all;
+}

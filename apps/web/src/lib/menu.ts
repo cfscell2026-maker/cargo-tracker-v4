@@ -68,7 +68,7 @@ export const MENUS: Record<string, MenuItem[]> = {
     ['temps', 'Temps de passage', 'sablier'], ['horodatage', 'Heures d\'activité', 'horloge'], ['account', 'Mon compte', 'compte'],
   ],
   CHEF_DIVISION: [
-    ['dash', 'Tableau de bord', 'tableau'], ['engagements', 'Engagements', 'echeance'], ['parking', 'Parking', 'parking'],
+    ['dash', 'Tableau de bord', 'tableau'], ['stockdwell', 'Rapprochement ACP', 'balance'], ['engagements', 'Engagements', 'echeance'], ['parking', 'Parking', 'parking'],
     ['search', 'Recherche (en cours)', 'loupe'], ['list', 'Cargaisons', 'liste'],
     ['vehicules', 'Véhicules', 'voiture'], ['controles', 'Contrôles (gabarit/surcharge)', 'balance'],
     ['temps', 'Temps de passage', 'sablier'], ['horodatage', 'Heures d\'activité', 'horloge'], ['account', 'Mon compte', 'compte'],

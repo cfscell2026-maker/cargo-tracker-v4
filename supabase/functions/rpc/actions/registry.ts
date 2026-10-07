@@ -15,6 +15,8 @@ import * as rap from './rapports.ts';
 import * as entrepot from './entrepots.ts';
 import * as prm from './parametres.ts';
 import * as prk from './parking.ts';
+import * as acp from './rapprochement.ts';
+import * as vrr from './verrou.ts';
 
 type H = (ctx: Ctx, data: never) => Promise<unknown>;
 const d = <T>(fn: (ctx: Ctx, data: T) => Promise<unknown>): H => fn as H;
@@ -100,7 +102,7 @@ export const ACTIONS: Record<string, H> = {
   'stock.import': d(stk.stockImport),
   'stock.pointage': d(stk.stockPointage),
   'stock.entreemagasin': d(stk.stockEntreeMagasin),
-  'report.stock': d((ctx) => stk.rapportStock(ctx)),
+  'report.stock': d(stk.rapportStock),
   'stockannonce.import': d(stk.annonceImport),
   'stockannonce.list': d(stk.annonceList),
   'stockannonce.pointage': d(stk.annoncePointage),
@@ -158,6 +160,17 @@ export const ACTIONS: Record<string, H> = {
 
   /* ----- Paramètres (2026-09-21) ----- */
   // PARKING (2026-09-24) : camions stationnés, pointés une fois par jour.
+  /* ----- Rapprochement des listes ACP (2026-10-06) ----- */
+  'acp.rapprocher': d(acp.rapprochementACP),
+  'acp.historique': d(acp.rapprochementHistorique),
+  'acp.detail': d(acp.rapprochementDetail),
+
+  /* ----- Verrou de l'application (2026-10-07) ----- */
+  'verrou.etat': d(vrr.verrouEtat),
+  'verrou.definir': d(vrr.verrouDefinir),
+  'verrou.bloquer': d(vrr.verrouBloquer),
+  'verrou.ouvrir': d(vrr.verrouOuvrir),
+
   'parking.list': d(prk.parkingList),
   'parking.detail': d(prk.parkingDetail),
   'parking.check': d(prk.parkingCheck),
@@ -171,11 +184,15 @@ export const ACTIONS: Record<string, H> = {
   'params.set': d(prm.paramsSet),
 
   /* ----- Compte courant ----- */
-  'account.me': d((ctx) => Promise.resolve({
+  /* `account.me` porte aussi L'ETAT DU VERROU (2026-10-07). L'ecran bloque
+     l'interroge toutes les 15 s : c'est ainsi que le blocage se leve de
+     lui-meme a la reouverture, sans que personne recharge la page. */
+  'account.me': d(async (ctx) => ({
     username: ctx.session.username,
     nomComplet: ctx.session.nomComplet,
     role: ctx.session.role,
     motDePasseAChanger: ctx.session.doitChangerMdp === true, // SEC-03
+    verrou: await vrr.etatVerrou(ctx),
   })),
   'account.changepwd': d(usr.accountChangepwd),
   'account.signin': d((ctx) => usr.accountSignin(ctx)), // SEC-05 : trace de connexion

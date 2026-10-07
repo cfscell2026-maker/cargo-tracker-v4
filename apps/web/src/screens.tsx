@@ -12,11 +12,12 @@ import { bornesDe, isoDate, normaliserPlage, type ModePeriode, repartition } fro
 import { trierEngagements, filtrerEngagements, type TriEngagement, type SensTri } from './lib/tri-engagements.ts';
 import { Detail, TitrePanneau } from './detail.tsx';
 import { EcranParking, ResultatsParking, useAlerteParking } from './parking.tsx';
+import { LogoVerrou } from './lib/verrou.tsx';
 import type { ReactNode } from 'react';
 import type { Nav } from './App.tsx';
 import { useNav } from './lib/contexte-nav.ts';
 import { ROLES, OPERATIONS, VEHICULE_DESTINATIONS, TYPES_DECLARATION, optionTypeDeclaration, STATUTS, SUIVENT_ENGAGEMENTS, dateDansNJours, tcValide, fileAttente, estTypeSansT1, libelleTypeSansT1, exigeControlePoids, dureeLisible,
-  ROLES_TECHNIQUES, rangTechnique } from '../../../supabase/functions/_shared/domaine/src/index.ts';
+  ROLES_TECHNIQUES, rangTechnique, extraireNumerosTC, aLeDroit, aPouvoirAdmin} from '../../../supabase/functions/_shared/domaine/src/index.ts';
 
 const STATUT_OPTIONS = Object.values(STATUTS);
 
@@ -397,7 +398,7 @@ function CargoList({ go, screen, user, filtre, titre, barre }: Nav & { filtre: O
     {loading ? <Spinner /> : error ? <div className="err-msg">{error}</div> : <>
       <Table cols={[['id', 'ID'], ['dateCreation', 'Date'], ['numeroCamion', 'Camion'], ['typeOperation', 'Opération'], ['statut', 'Statut'], ['suiviEngagement', 'Engagement'], ['numeroGps', 'GPS']]}
         rows={data?.rows ?? []} onRow={(r) => go('detail', r['id'])}
-        actions={(r) => <ActionsDossier r={r} admin={user.role === ROLES.ADMIN} onFait={reload} />} />
+        actions={(r) => <ActionsDossier r={r} admin={aPouvoirAdmin(user.role)} onFait={reload} />} />
       {(data?.pages ?? 1) > 1 && <div className="row" style={{ marginTop: 10, justifyContent: 'center' }}>
         <button className="ghost xs" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>‹</button>
         <span>Page {page} / {data?.pages}</span>
@@ -419,7 +420,7 @@ function CargoList({ go, screen, user, filtre, titre, barre }: Nav & { filtre: O
  * pas la main pour le faire », pour les capitaines).
  */
 function ExportCargaisons({ statutListe, searchListe }: { statutListe?: string; searchListe?: string }) {
-  const p = useReportRange('mois');
+  const p = useChoixPeriode('mois');
   // v4.2, 2026-08-19 : l'extraction PART du filtre AFFICHÉ dans la liste (statut
   // + recherche). Avant, elle avait ses propres sélecteurs indépendants et
   // sortait « toute la base » quand on venait d'une liste filtrée. Désormais :
@@ -480,7 +481,7 @@ function ExportCargaisons({ statutListe, searchListe }: { statutListe?: string; 
             <input type="checkbox" checked={limiterPeriode} onChange={(e) => setLimiterPeriode(e.target.checked)} />
             Limiter à une période
           </label>
-          {limiterPeriode ? <div style={{ marginTop: 8 }}><PeriodPicker p={p} /><PeriodeLue p={p} /></div>
+          {limiterPeriode ? <div style={{ marginTop: 8 }}><SelecteurPeriode c={p} /><PeriodeChoisieLue c={p} /></div>
             : <p className="help" style={{ margin: '6px 0 0' }}>Toute la base, cochez pour restreindre.</p>}
         </div>
       </div>
@@ -622,7 +623,7 @@ function BandeauEngagements({ role, go }: { role: string; go: Nav['go'] }) {
         </button>
       </div>;
     })}
-    {corrige && <ModaleCorrigerEngagement ligne={corrige} admin={role === ROLES.ADMIN}
+    {corrige && <ModaleCorrigerEngagement ligne={corrige} admin={aPouvoirAdmin(role)}
       onClose={() => setCorrige(null)}
       onFait={() => { setCorrige(null); setN((x) => x + 1); }} />}
   </div>;
@@ -712,7 +713,7 @@ const nav_go = (go: Nav['go'], id: string) => go('detail', { id });
 
 SCREENS.dash = (nav) => {
   // Même sélecteur de période que les rapports, plage personnalisée comprise.
-  const p = useReportRange();
+  const p = useChoixPeriode('mois');
   const { du, au } = p;
   /* ACTUALISATION AUTOMATIQUE (2026-09-12) : un camion qui passe du CFS au T1
      doit se voir quitter une tuile et rejoindre la suivante sans que le chef
@@ -768,7 +769,7 @@ SCREENS.dash = (nav) => {
       </>}
       action={<div className="bm-outils">
         <label className="help">Période</label>
-        <PeriodPicker p={p} />
+        <SelecteurPeriode c={p} />
       </div>} />
     {/* GRILLE BENTO (2026-09-11) : toutes les tuiles n'ont pas le même poids.
         Les cinq compteurs d'ÉVÉNEMENTS occupent deux colonnes, ce sont eux qui
@@ -878,7 +879,7 @@ function FicheTailles({ lignes }: { lignes: [string, O][] }) {
   </table></div>;
 }
 
-function FicheBord({ p }: { p: Periode }) {
+function FicheBord({ p }: { p: ChoixPeriode }) {
   const [ouvert, setOuvert] = useState(false);
   const { du, au } = p;
   const { data, loading, error } = useAsync<O | null>(
@@ -1003,7 +1004,7 @@ function itemsConteneurs(role: string): [string, string, string][] {
   const confEntree: [string, string, string] = ['confentree', 'Confirmer entrée', 'valider'];
   // v4.2, positionnés / dépotés / restant par jour (demande CFS).
   const depot: [string, string, string] = ['depotstats', 'Statistiques de dépotage', 'rapport'];
-  if (role === 'ADMIN') return [stock, pointage, stockjour, depot, imp, impAnn, annonce, pointEntree, confEntree];
+  if (aPouvoirAdmin(role)) return [stock, pointage, stockjour, depot, imp, impAnn, annonce, pointEntree, confEntree];
   if (role === 'PP') return [annonce, pointEntree, confEntree];
   if (role === 'CFS') return [stock, pointage, stockjour, depot, imp, annonce, confEntree];
   // Chefs : lecture seule, mais les statistiques de dépotage les intéressent.
@@ -1023,7 +1024,7 @@ function VehiculesEcran({ nav }: { nav: Nav }) {
   // sans période (présents sur site = non sortis ; sortis = déjà sortis).
   const { data, loading } = useAsync<{ compte: O }>(() => call('report.vehicule', {}), []);
   const cp = (data?.compte ?? {}) as O;
-  const peutCreer = nav.user.role === 'CFS' || nav.user.role === 'ADMIN';
+  const peutCreer = nav.user.role === 'CFS' || aPouvoirAdmin(nav.user.role);
   return <>
     <BandeauModule icone="voiture" titre="Véhicules dépotés"
       sous="Sortis d'un conteneur, ils sont suivis à part des camions."
@@ -1107,7 +1108,7 @@ function EcranEntrepot({ nav, type }: { nav: Nav; type: EntrepotType }) {
       : onglet === 'entree' ? <EntrepotEntree type={type} entrepots={entrepots} />
         : onglet === 'sortie' ? <EntrepotSortie type={type} entrepots={entrepots} nav={nav} />
           : onglet === 'stats' ? <EntrepotStats type={type} role={nav.user.role} />
-            : <EntrepotGerer type={type} reload={reload} admin={nav.user.role === 'ADMIN'} />}
+            : <EntrepotGerer type={type} reload={reload} admin={aPouvoirAdmin(nav.user.role)} />}
   </>;
 }
 
@@ -1528,7 +1529,7 @@ function DetailEntrepotStats({ entrepot, unite, lib, role, onClose, onFait }: {
   const [supprime, setSupprime] = useState<O | null>(null);
   // Suppression réservée à l'administration : le seul rôle qui voit TOUS les
   // volets de l'application (décision utilisateur).
-  const admin = role === ROLES.ADMIN;
+  const admin = aPouvoirAdmin(role);
 
   // Les plus récentes d'abord : on consulte un magasin par son actualité.
   const recues = ((data?.rows ?? []) as O[]).slice()
@@ -1696,7 +1697,7 @@ function DetailApurements({ code, apur, unite, role, onClose, onFait }: {
   const { data, loading, reload } = useAsync<{ rows: O[] }>(
     () => call('entrepot.sorties', { entrepotCode: code, entreeId: apur.entreeId, numeroArticle: apur.numero }), [code, apur.entreeId, apur.numero]);
   const champ = unite === 'kg' ? 'poids' : 'nbColis';
-  const admin = role === ROLES.ADMIN;
+  const admin = aPouvoirAdmin(role);
   const [edite, setEdite] = useState<O | null>(null);
   const [supprime, setSupprime] = useState<O | null>(null);
   const rows = ((data?.rows ?? []) as O[]).map((r) => {
@@ -1873,7 +1874,7 @@ SCREENS.engagements = ({ go, user }) => {
   // ce qu'on fait, solder un engagement le fait passer de l'un à l'autre.
   const glob = (data?.['global'] as O) ?? {};
   const peut = SUIVENT_ENGAGEMENTS.includes(user.role as never);
-  const admin = user.role === ROLES.ADMIN;
+  const admin = aPouvoirAdmin(user.role);
 
   async function solder(id: string) {
     setBusy(id);
@@ -2021,8 +2022,209 @@ SCREENS.parking = EcranParking;
  */
 const ICONE_GROUPE: Record<string, string> = { Conteneurs: 'conteneur', Engagements: 'sablier', 'Contrôles': 'balance', Affichage: 'tableau' };
 
+/* ===== LE VERROU DE L'APPLICATION (2026-10-07, demande utilisateur) =====
+ *
+ * Un bouton qui bloque l'application pour TOUS les comptes sauf l'INFO.
+ *
+ * RÉSERVÉ AU RÔLE INFO, et à lui seul : ni l'ADMIN ni le SUPER_ADMIN ne voient
+ * ce panneau. C'est la seule capacité du projet qui ne suit pas
+ * `aPouvoirAdmin` : bloquer l'outil de travail de tout le port n'est pas un
+ * pouvoir d'administration ordinaire.
+ *
+ * ⚠ CE MASQUAGE EST UN CONFORT, PAS UNE SÉCURITÉ. La matrice des droits refuse
+ * les quatre actions à tout autre rôle, et `exigerInfo` les refuse une seconde
+ * fois côté serveur. Ne pas afficher le panneau évite seulement de proposer un
+ * bouton qui serait refusé.
+ * ====================================================================== */
+function PanneauVerrou() {
+  const { data, loading, reload } = useAsync<O>(() => call('verrou.etat'), []);
+  const [ouvert, setOuvert] = useState<'' | 'definir' | 'bloquer' | 'ouvrir'>('');
+  const [mdp, setMdp] = useState('');
+  const [ancien, setAncien] = useState('');
+  const [confirmation, setConfirmation] = useState('');
+  const [message, setMessage] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const actif = data?.['actif'] === true;
+  const defini = data?.['defini'] === true;
+
+  const fermer = () => { setOuvert(''); setMdp(''); setAncien(''); setConfirmation(''); setMessage(''); };
+
+  async function agir(action: string, charge: O, dit: string) {
+    setBusy(true);
+    try { await call(action, charge); toast(dit, 'ok'); fermer(); reload(); }
+    catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(false); }
+  }
+
+  return <div className={`card verrou-panneau ${actif ? 'arme' : ''}`}>
+    {/* LE LOGO SOUS SUSPENSION EST L'EMBLÈME DU VERROU (2026-10-07, demande
+        utilisateur), ici comme sur les fenêtres et sur l'écran de blocage.
+        C'est ce qui fait reconnaître d'un coup d'œil qu'on est devant le même
+        dispositif, à trois endroits différents de l'application.
+        Il DÉCORE, il ne renseigne pas : l'état réel est écrit en toutes
+        lettres juste à côté, « ouverte » ou « bloquée ». */}
+    <div className="verrou-tete">
+      <LogoVerrou taille={78} />
+      <div className="verrou-tete-texte">
+        <h3><Icone nom="interrupteur" taille={17} />Verrou de l’application</h3>
+        <p className="help">
+          Bloque l’application pour <b>tous les comptes</b>. Vous seul continuez de
+          travailler, et vous seul pouvez rouvrir.
+        </p>
+        <div className={`verrou-etat ${actif ? 'rouge' : 'vert'}`}>
+          <span className="verrou-voyant" aria-hidden="true" />
+          {actif
+            ? <div>
+              <b>Application bloquée</b>
+              {data?.['bloqueLe'] ? <> depuis le {fmtDate(data['bloqueLe'])}</> : null}
+              {data?.['bloquePar'] ? <>, par {String(data['bloquePar'])}</> : null}.
+              {data?.['message'] ? <div className="verrou-citation">« {String(data['message'])} »</div> : null}
+            </div>
+            : <div><b>Application ouverte</b>, tout le monde travaille normalement.</div>}
+        </div>
+      </div>
+    </div>
+
+    {loading ? <Spinner /> : <>
+      {/* Tant qu'aucun mot de passe n'existe, le bouton de blocage n'a aucun
+          sens : on ne propose que de le définir. */}
+      {!defini
+        ? <div className="verrou-actions">
+          <button className="verrou-principal" onClick={() => setOuvert('definir')}>
+            <Icone nom="reglages" taille={16} />Définir le mot de passe du verrou
+          </button>
+          <span className="help">Aucun mot de passe n’est défini : le verrou est inutilisable.</span>
+        </div>
+        : <div className="verrou-actions">
+          {actif
+            ? <button className="verrou-principal verrou-rouvrir" onClick={() => setOuvert('ouvrir')}>
+              <Icone nom="valider" taille={16} />Rouvrir l’application
+            </button>
+            : <button className="verrou-principal verrou-bloquer" onClick={() => setOuvert('bloquer')}>
+              <Icone nom="interrupteur" taille={16} />Bloquer l’application
+            </button>}
+          <button className="ghost" onClick={() => setOuvert('definir')}>Changer le mot de passe</button>
+        </div>}
+
+      {/* LE RECOURS, écrit ici et pas seulement dans la migration. Celui qui lit
+          ce panneau doit savoir qu'une porte existe, et laquelle.
+
+          DEUX COMMANDES, et non une seule : la première rouvre l'application
+          mais NE REND PAS le mot de passe, et comme en changer exige l'ancien
+          (`verrouDefinir`), le verrou resterait inutilisable pour toujours. La
+          seconde efface tout et ramène au point de départ. Ne donner que la
+          première, comme je l'avais fait d'abord, laissait croire qu'elle
+          suffisait. */}
+      <details className="verrou-recours">
+        <summary>Mot de passe perdu ? La sortie de secours</summary>
+        <p className="help">
+          Les deux commandes s’exécutent dans le <b>SQL Editor</b> du tableau de bord Supabase,
+          auquel vous seul avez accès. C’est là que tient la sécurité du dispositif : hors de
+          l’application, derrière un autre compte.
+        </p>
+        <p className="help">
+          <b>1. Rouvrir l’application</b>, urgent si elle est bloquée et que personne ne travaille :
+          <code>update verrou_application set actif = false where cle = 'verrou';</code>
+        </p>
+        <p className="help">
+          <b>2. Repartir de zéro</b>, nécessaire ensuite : la première commande ne rend pas le
+          mot de passe et il est impossible d’en changer sans l’ancien. Celle-ci efface le verrou,
+          mot de passe compris ; le panneau reproposera alors « Définir le mot de passe » :
+          <code>delete from verrou_application;</code>
+        </p>
+      </details>
+    </>}
+
+    {ouvert === 'definir' && <Modal onClose={() => !busy && fermer()}>
+      <div className="verrou-fenetre">
+        <LogoVerrou taille={64} />
+        <h2>{defini ? 'Changer le mot de passe du verrou' : 'Définir le mot de passe du verrou'}</h2>
+        <p className="help verrou-sous">
+          Ce mot de passe n’est pas celui de votre compte. Il ne sert qu’à bloquer et à rouvrir
+          l’application, et il n’est jamais conservé en clair.
+        </p>
+        {defini && <>
+          <label className="help">Mot de passe actuel</label>
+          <input type="password" value={ancien} onChange={(e) => setAncien(e.target.value)} autoComplete="off" />
+        </>}
+        <label className="help">Nouveau mot de passe <i>(8 caractères au minimum)</i></label>
+        <input type="password" value={mdp} onChange={(e) => setMdp(e.target.value)} autoComplete="new-password" />
+        <label className="help">Confirmez le nouveau mot de passe</label>
+        <input type="password" value={confirmation} onChange={(e) => setConfirmation(e.target.value)} autoComplete="new-password" />
+        {/* Ce qui manque est DIT, au lieu de laisser un bouton grisé sans
+            explication : c'est la question qu'on se pose devant un bouton
+            qui refuse de s'allumer. */}
+        {/* UN SEUL message a la fois, et dans l'ordre ou l'on corrige : tant
+            que le mot de passe est trop court, lui reprocher en plus de ne pas
+            correspondre a sa confirmation ne sert a rien. */}
+        {mdp !== '' && mdp.length < 8
+          ? <div className="verrou-manque">Encore {8 - mdp.length} caractère(s).</div>
+          : (mdp || confirmation) && mdp !== confirmation
+            ? <div className="verrou-manque">Les deux saisies ne correspondent pas encore.</div>
+            : null}
+        <div className="verrou-pied">
+          <button className="ghost" disabled={busy} onClick={fermer}>Annuler</button>
+          <button className="verrou-principal" disabled={busy || mdp.length < 8 || confirmation !== mdp || (defini && !ancien)}
+            onClick={() => agir('verrou.definir', { ancien, nouveau: mdp, confirmation }, 'Mot de passe du verrou enregistré.')}>
+            {busy ? 'Enregistrement…' : 'Enregistrer'}
+          </button>
+        </div>
+      </div>
+    </Modal>}
+
+    {ouvert === 'bloquer' && <Modal onClose={() => !busy && fermer()}>
+      <div className="verrou-fenetre">
+        <LogoVerrou taille={64} />
+        <h2>Bloquer l’application</h2>
+        <p className="help verrou-sous">
+          Tous les comptes seront bloqués sur place : leur session reste ouverte, un écran
+          s’affiche par-dessus leur travail. Vous seul continuez de travailler.
+        </p>
+        <label className="help">Raison du blocage <i>(les agents la liront en plein écran)</i></label>
+        <input value={message} onChange={(e) => setMessage(e.target.value)} maxLength={500}
+          placeholder="Maintenance jusqu’à 14 h, inventaire en cours…" />
+        {/* L'APERÇU. Cette phrase va s'afficher devant tout le port : la voir
+            avant de l'envoyer vaut mieux que de la corriger après. */}
+        {message.trim() && <div className="verrou-apercu">
+          <span className="help">Ce que les agents verront :</span>
+          <p>{message.trim()}</p>
+        </div>}
+        <label className="help">Mot de passe du verrou</label>
+        <input type="password" value={mdp} onChange={(e) => setMdp(e.target.value)} autoComplete="off" />
+        <div className="verrou-pied">
+          <button className="ghost" disabled={busy} onClick={fermer}>Annuler</button>
+          <button className="verrou-principal verrou-bloquer" disabled={busy || !message.trim() || !mdp}
+            onClick={() => agir('verrou.bloquer', { motDePasse: mdp, message }, 'Application bloquée.')}>
+            {busy ? 'Blocage…' : 'Bloquer maintenant'}
+          </button>
+        </div>
+      </div>
+    </Modal>}
+
+    {ouvert === 'ouvrir' && <Modal onClose={() => !busy && fermer()}>
+      <div className="verrou-fenetre">
+        <LogoVerrou taille={64} />
+        <h2>Rouvrir l’application</h2>
+        <p className="help verrou-sous">
+          Chacun reprendra où il en était, sans se reconnecter. L’écran de blocage disparaît
+          tout seul, au plus tard quinze secondes après.
+        </p>
+        <label className="help">Mot de passe du verrou</label>
+        <input type="password" value={mdp} onChange={(e) => setMdp(e.target.value)} autoComplete="off" />
+        <div className="verrou-pied">
+          <button className="ghost" disabled={busy} onClick={fermer}>Annuler</button>
+          <button className="verrou-principal verrou-rouvrir" disabled={busy || !mdp}
+            onClick={() => agir('verrou.ouvrir', { motDePasse: mdp }, 'Application rouverte.')}>
+            {busy ? 'Réouverture…' : 'Rouvrir'}
+          </button>
+        </div>
+      </div>
+    </Modal>}
+  </div>;
+}
+
 SCREENS.parametres = ({ user }) => {
-  const admin = user.role === ROLES.ADMIN;
+  const admin = aPouvoirAdmin(user.role);
   /* RÉSERVÉ À L'ADMINISTRATEUR (décision utilisateur, 2026-09-21). Le menu ne
      le propose qu'à lui ; ce garde couvre toute autre façon d'arriver ici. Les
      réglages, eux, restent LUS par tous les rôles (params.get) : c'est ce qui les
@@ -2056,6 +2258,10 @@ SCREENS.parametres = ({ user }) => {
   return <>
     <BandeauModule icone="reglages" titre="Paramètres"
       sous="Les réglages de l'application. Chacun dit ce qu'il change, qui il concerne, et sa valeur par défaut." />
+    {/* EN TETE DU VOLET, et pour l'INFO SEUL (decision utilisateur) : ni
+        l'ADMIN ni le SUPER_ADMIN ne voient ce panneau. Le masquage est un
+        confort - la matrice des droits et `exigerInfo` refusent vraiment. */}
+    {user.role === ROLES.INFO && <PanneauVerrou />}
     {!loading && data && !active && <div className="card param-inactif">
       <b>Réglages pas encore activés.</b> La table qui les enregistre n'existe pas encore en base : l'application
       applique les valeurs par défaut ci-dessous, c'est-à-dire exactement son comportement habituel.
@@ -2491,7 +2697,7 @@ SCREENS.search = ({ go, user }) => {
         cols={[['numeroCamion', 'Camion / Châssis'], ['conteneur1', 'Conteneur'], ['typeOperation', 'Opération'],
           ['statut', 'Statut'], ['etapeEnCours', 'Attendu à'], ['dateCreation', 'Entré le']]}
         rows={rows.map(avecEtape)} onRow={(r) => go('detail', r['id'])}
-        actions={(r) => <ActionsDossier r={r} admin={user.role === ROLES.ADMIN} onFait={reload} />} />}
+        actions={(r) => <ActionsDossier r={r} admin={aPouvoirAdmin(user.role)} onFait={reload} />} />}
     </div>
   </div>
     <ResultatsParking recherche={q} go={go} exclureIds={rows.map((r) => String(r['id']))} />
@@ -2820,12 +3026,12 @@ SCREENS.stockjour = () => <StockJournalier />;
  */
 SCREENS.depotstats = () => <StatsDepotage />;
 function StatsDepotage() {
-  const p = useReportRange('semaine');
+  const p = useChoixPeriode('mois');
   const { data, loading, error } = useAsync<{ rows: O[]; compte: O }>(
     () => call('report.depotage', { du: p.du, au: p.au }), [p.du, p.au]);
   const c = (data?.compte ?? {}) as O;
-  return <><BandeauModule icone="conteneur" titre="Statistiques de dépotage" sous={<PeriodeLue p={p} />}
-    action={<div className="bm-outils"><PeriodPicker p={p} /></div>} />
+  return <><BandeauModule icone="conteneur" titre="Statistiques de dépotage" sous={<PeriodeChoisieLue c={p} />}
+    action={<div className="bm-outils"><SelecteurPeriode c={p} /></div>} />
   <div className="card">
     {/* Netlify déploie le front dès le push, l'Edge Function quelques minutes
         plus tard : entre les deux, cette action n'existe pas encore côté
@@ -2941,7 +3147,7 @@ function StockJournalier() {
 
 /** v4.1, Extraction de la liste des conteneurs (statut + période, Excel/PDF). */
 function ExportConteneurs({ statutDefaut }: { statutDefaut: string }) {
-  const p = useReportRange('mois');
+  const p = useChoixPeriode('mois');
   const [statut, setStatut] = useState(statutDefaut);
   const [busy, setBusy] = useState(false);
   async function exporter(fmt: 'xlsx' | 'pdf') {
@@ -2960,7 +3166,7 @@ function ExportConteneurs({ statutDefaut }: { statutDefaut: string }) {
         <option value="Positionné">Positionné (non dépoté)</option>
         <option value="Dépoté">Dépoté</option>
       </select>
-      <PeriodPicker p={p} />
+      <SelecteurPeriode c={p} />
       <button className="ghost xs" disabled={busy} onClick={() => exporter('xlsx')}>⤓ Excel</button>
       <button className="ghost xs" disabled={busy} onClick={() => exporter('pdf')}>⤓ PDF</button>
     </div>
@@ -3755,50 +3961,138 @@ function LigneValidation({ r, go, pesee, onPesee }: { r: O; go: Nav['go']; pesee
 }
 
 /* ------------------------------ Rapports ------------------------------- */
-/**
- * Période d'un rapport, les 4 périodes glissantes usuelles PLUS une PLAGE
- * PERSONNALISÉE (décision utilisateur) : les périodes calendaires ne couvrent
- * pas les questions réelles (« du 3 au 17 », une campagne, un mois écoulé à
- * cheval sur deux mois). Un seul hook pour tous les rapports et le tableau de
- * bord, afin que la période se choisisse partout de la même façon.
- */
-export function useReportRange(initial: ModePeriode = 'semaine') {
-  const [m, setM] = useState<ModePeriode>(initial);
-  // Plage personnalisée amorcée sur le mois en cours : basculer en
-  // « Personnalisée » part de ce que l'agent a sous les yeux au lieu de vider
-  // l'écran ou de le réduire à une seule journée.
-  const [duP, setDuP] = useState(() => bornesDe('mois')[0]);
-  const [auP, setAuP] = useState(() => isoDate(new Date()));
-  const brut = m === 'perso' ? { du: duP, au: auP } : (() => { const [du, au] = bornesDe(m); return { du, au }; })();
-  const { du, au, inversee } = normaliserPlage(brut.du, brut.au);
-  return { m, setM, du, au, duP, setDuP, auP, setAuP, inversee };
+/* ===== CHOISIR LA PERIODE, ET PAS SEULEMENT SA LONGUEUR =================
+ *
+ * L'ancien `PeriodPicker` ne savait montrer que la periode EN COURS : ce
+ * mois-ci, cette annee. Pour regarder septembre, ou 2025, il fallait passer par
+ * « Plage personnalisee » et saisir deux dates a la main. Il a ete supprime :
+ * deux selecteurs pour un meme geste, c'etait une de trop.
+ *
+ * Celui-ci separe les deux questions : le menu dit la GRANULARITE (jour, mois,
+ * annee), le champ voisin dit LAQUELLE. Choisir « Mois » puis « 2026-09 » tient
+ * en deux gestes.
+ *
+ * TANT QUE LE CHAMP EST VIDE, AUCUN FILTRE. C'est l'etat de depart, et il
+ * compte : sur un ecran de stock, la question courante est « qu'y a-t-il au
+ * parc ? », pas « qu'est-ce qui est entre en octobre ? ». L'ecran s'ouvre donc
+ * sur la totalite, et se restreint seulement si on le lui demande.
+ * ====================================================================== */
+export type GranulariteP = 'jour' | 'mois' | 'annee' | 'perso';
+
+/** La période EN COURS, dans l'écriture qu'attend le champ de cette granularité. */
+function valeurCourante(g: GranulariteP): string {
+  const d = new Date();
+  const z = (n: number) => String(n).padStart(2, '0');
+  if (g === 'jour') return isoDate(d);
+  if (g === 'mois') return `${d.getFullYear()}-${z(d.getMonth() + 1)}`;
+  if (g === 'annee') return String(d.getFullYear());
+  return '';
 }
 
-export type Periode = ReturnType<typeof useReportRange>;
+/**
+ * `vide` : l'écran s'ouvre-t-il SANS borne ?
+ *
+ * Les RAPPORTS doivent démarrer remplis - sans borne, ils interrogeraient tout
+ * l'historique à chaque ouverture, ce qui est lent et rarement ce qu'on veut.
+ * Les écrans d'ÉTAT (stock, parking) démarrent vides : la question courante y
+ * est « qu'y a-t-il en ce moment ? », pas « qu'est-ce qui est entré ce
+ * mois-ci ? ».
+ */
+export function useChoixPeriode(initiale: GranulariteP = 'mois', vide = false) {
+  const [g, setG] = useState<GranulariteP>(initiale);
+  const [valeur, setValeur] = useState(() => (vide ? '' : valeurCourante(initiale)));
+  const [duP, setDuP] = useState('');
+  const [auP, setAuP] = useState('');
 
-export function PeriodPicker({ p }: { p: Periode }) {
+  const bornes = (): { du: string; au: string } => {
+    if (g === 'perso') return { du: duP, au: auP };
+    if (!valeur) return { du: '', au: '' };
+    if (g === 'jour') return { du: valeur, au: valeur };
+    if (g === 'mois') {
+      const [a, m] = valeur.split('-').map(Number);
+      if (!a || !m) return { du: '', au: '' };
+      return { du: isoDate(new Date(a, m - 1, 1)), au: isoDate(new Date(a, m, 0)) };
+    }
+    const a = Number(valeur);
+    if (!a) return { du: '', au: '' };
+    return { du: isoDate(new Date(a, 0, 1)), au: isoDate(new Date(a, 11, 31)) };
+  };
+  const { du, au, inversee } = normaliserPlage(bornes().du, bornes().au);
+
+  /* Changer de granularite VIDE la valeur : « 2026-09 » n'est pas un jour, et
+     la reinterpreter silencieusement donnerait une periode fausse sans que
+     personne s'en apercoive. Sur un ecran de rapport, on la remplace aussitot
+     par la periode COURANTE : le laisser vide y supprimerait toute borne. */
+  const changerG = (v: GranulariteP) => {
+    setG(v);
+    setValeur(vide || v === 'perso' ? '' : valeurCourante(v));
+    setDuP(''); setAuP('');
+  };
+
+  // `m` : alias de `g`, pour les rapports qui transmettent la granularite au
+  // serveur (`periode: m`). Les valeurs sont les memes qu'avant, moins la semaine.
+  return { g, m: g, changerG, valeur, setValeur, duP, setDuP, auP, setAuP, du, au, inversee };
+}
+
+export type ChoixPeriode = ReturnType<typeof useChoixPeriode>;
+
+/**
+ * `extras` : des options qui ne sont PAS des periodes, ajoutees au meme menu.
+ *
+ * Le volet « Séjour conteneurs » en a besoin (2026-10-06, demande utilisateur) :
+ * la vue « encore au parc » ne s'obtenait qu'en cliquant la tuile « Séjour
+ * moyen », ce que rien n'indiquait. Elle rejoint donc le menu, la ou l'on
+ * cherche deja de quoi restreindre la liste.
+ *
+ * ELLES RESTENT FACULTATIVES, et aucun autre volet n'en passe : le menu ne
+ * montre Jour / Mois / Annee / Plage que partout ailleurs. Choisir un extra
+ * EFFACE la periode - un sous-ensemble et un intervalle de dates sont deux
+ * questions differentes, et les melanger dans un seul menu produirait des
+ * reponses qu'on ne saurait plus lire.
+ */
+export type OptionExtra = { valeur: string; libelle: string };
+
+export function SelecteurPeriode({ c, titre, extras, extraActif, onExtra }: {
+  c: ChoixPeriode; titre?: string;
+  extras?: OptionExtra[]; extraActif?: string; onExtra?: (v: string) => void;
+}) {
+  const estExtra = (v: string) => (extras ?? []).some((o) => o.valeur === v);
+  const courant = extraActif && estExtra(extraActif) ? extraActif : c.g;
+  const changer = (v: string) => {
+    if (estExtra(v)) { c.changerG('perso'); c.setDuP(''); c.setAuP(''); onExtra?.(v); return; }
+    onExtra?.('');                       // on quitte l'extra : la liste redevient entiere
+    c.changerG(v as GranulariteP);
+  };
   return <>
-    <select value={p.m} onChange={(e) => p.setM(e.target.value as ModePeriode)} style={{ maxWidth: 170 }}>
-      <option value="jour">Journalier</option>
-      <option value="semaine">Hebdomadaire</option>
-      <option value="mois">Mensuel</option>
-      <option value="annee">Annuel</option>
-      <option value="perso">Plage personnalisée…</option>
+    <select value={courant} onChange={(e) => changer(e.target.value)}
+      title={titre ?? 'Granularite de la periode'} style={{ maxWidth: 130 }}>
+      <option value="jour">Jour</option>
+      <option value="mois">Mois</option>
+      <option value="annee">Année</option>
+      <option value="perso">Plage…</option>
+      {(extras ?? []).map((o) => <option key={o.valeur} value={o.valeur}>{o.libelle}</option>)}
     </select>
-    {p.m === 'perso' && <span className="row" style={{ gap: 6, alignItems: 'center' }}>
-      <label className="help" style={{ margin: 0 }}>du</label>
-      <input type="date" value={p.duP} onChange={(e) => p.setDuP(e.target.value)} style={{ maxWidth: 155 }} />
-      <label className="help" style={{ margin: 0 }}>au</label>
-      <input type="date" value={p.auP} onChange={(e) => p.setAuP(e.target.value)} style={{ maxWidth: 155 }} />
-    </span>}
+    {courant === 'jour' && <input type="date" value={c.valeur} onChange={(e) => c.setValeur(e.target.value)}
+      title="Choisissez le jour" style={{ maxWidth: 160 }} />}
+    {courant === 'mois' && <input type="month" value={c.valeur} onChange={(e) => c.setValeur(e.target.value)}
+      title="Choisissez le mois" style={{ maxWidth: 160 }} />}
+    {courant === 'annee' && <input type="number" value={c.valeur} onChange={(e) => c.setValeur(e.target.value)}
+      placeholder="Année" min={2000} max={2100} title="Choisissez l'année" style={{ maxWidth: 110 }} />}
+    {courant === 'perso' && <>
+      <input type="date" value={c.duP} onChange={(e) => c.setDuP(e.target.value)}
+        title="À partir du" style={{ maxWidth: 160 }} />
+      <input type="date" value={c.auP} onChange={(e) => c.setAuP(e.target.value)}
+        title="Jusqu'au" style={{ maxWidth: 160 }} />
+    </>}
   </>;
 }
 
-/** Rappel de la période effectivement interrogée, sous le titre du rapport. */
-function PeriodeLue({ p }: { p: Periode }) {
-  return <div className="help">Du {fmtJour(p.du)} au {fmtJour(p.au)}
-    {p.inversee && <span style={{ color: 'var(--warn)' }}>, dates inversées, remises à l'endroit</span>}
-  </div>;
+/** Ce que la période choisie recouvre, ou le fait qu'elle ne borne rien. */
+export function PeriodeChoisieLue({ c, tout }: { c: ChoixPeriode; tout?: string }) {
+  if (!c.du && !c.au) return <>{tout ?? 'Toutes périodes'}</>;
+  return <>Du {fmtJour(c.du)} au {fmtJour(c.au)}
+    {c.inversee && <span style={{ color: 'var(--warn)' }}>, dates inversées, remises à l'endroit</span>}
+  </>;
 }
 
 /**
@@ -3823,7 +4117,7 @@ function RapportCellule({ action, detail, titre, twins, camLabel, go, etape, ico
   action: string; detail: string; titre: string; twins?: boolean; camLabel: string; go: Nav['go'];
   etape?: string; icone?: string;
 }) {
-  const p = useReportRange();
+  const p = useChoixPeriode('mois');
   const { m, du, au } = p;
   const [op, setOp] = useState('');
   const { data, loading } = useAsync<O>(() => call(action, { du, au, periode: m, operation: op }), [du, au, op]);
@@ -3868,12 +4162,12 @@ function RapportCellule({ action, detail, titre, twins, camLabel, go, etape, ico
 
   return <>
     <BandeauModule icone={icone ?? 'rapport'} titre={titre}
-      sous={<PeriodeLue p={p} />}
+      sous={<PeriodeChoisieLue c={p} />}
       action={<div className="bm-outils">
         <select value={op} onChange={(e) => setOp(e.target.value)} style={{ maxWidth: 190 }}>
           <option value="">Toutes opérations</option><option>{OPERATIONS.ENLEVEMENT}</option><option>{OPERATIONS.DEPOTAGE}</option>
         </select>
-        <PeriodPicker p={p} />
+        <SelecteurPeriode c={p} />
         <button onClick={() => exporter('xlsx')}><Icone nom="telecharger" taille={14} />Excel</button>
         <button onClick={() => exporter('pdf')}><Icone nom="telecharger" taille={14} />PDF</button>
       </div>} />
@@ -3917,12 +4211,12 @@ SCREENS.t1report = ({ go }) => <RapportCellule action="report.t1" detail="report
 SCREENS.bonsortiereport = ({ go }) => <RapportCellule action="report.bonsortie" detail="report.bonsortiedetail" titre="Rapport Bon de sortie (bons émis)" camLabel="Camions (bons émis)" go={go} etape="bs" icone="bonSortie" />;
 
 SCREENS.vehreport = () => {
-  const p = useReportRange();
+  const p = useChoixPeriode('mois');
   const { m, du, au } = p;
   const { data, loading } = useAsync<O>(() => call('report.vehicule', { du, au, periode: m }), [du, au]);
   const cp = (data?.['compte'] ?? {}) as O; const pd = (data?.['parDest'] ?? {}) as O;
-  return <><BandeauModule icone="voiture" titre="Rapport véhicules" sous={<PeriodeLue p={p} />}
-    action={<div className="bm-outils"><PeriodPicker p={p} /></div>} />
+  return <><BandeauModule icone="voiture" titre="Rapport véhicules" sous={<PeriodeChoisieLue c={p} />}
+    action={<div className="bm-outils"><SelecteurPeriode c={p} /></div>} />
   <div className="card">
     {loading ? <Spinner /> : <div className="stats">
       <StatCard n={Number(cp['total'] ?? 0)} l="Total" /><StatCard n={Number(cp['attente'] ?? 0)} l="En attente" /><StatCard n={Number(cp['sortis'] ?? 0)} l="Sortis" tone="ok" />
@@ -4078,7 +4372,7 @@ SCREENS.flux = () => {
   // Deux filtres DISTINCTS : la PÉRIODE borne l'analyse (plage personnalisée
   // comprise), le REGROUPEMENT (« répartition de la période ») décide de la
   // maille, un point par semaine, par mois ou par an.
-  const p = useReportRange('annee');
+  const p = useChoixPeriode('annee');
   const { du, au } = p;
   const [gran, setGran] = useState('mois');
   const { data, loading } = useAsync<{ rows: O[]; totaux: O }>(
@@ -4094,14 +4388,14 @@ SCREENS.flux = () => {
   ];
   return <>
     <div className="card">
-      <BandeauModule icone="flux" titre="Analyse des flux" sous={<PeriodeLue p={p} />}
-        action={<div className="bm-outils"><PeriodPicker p={p} /></div>} />
+      <BandeauModule icone="flux" titre="Analyse des flux" sous={<PeriodeChoisieLue c={p} />}
+        action={<div className="bm-outils"><SelecteurPeriode c={p} /></div>} />
       <div className="row" style={{ alignItems: 'center', marginTop: 6 }}>
         <label className="help" style={{ margin: 0 }}>Répartition de la période</label>
         <select value={gran} onChange={(e) => setGran(e.target.value)} style={{ maxWidth: 160 }}>
           <option value="semaine">Hebdomadaire</option><option value="mois">Mensuelle</option><option value="annee">Annuelle</option>
         </select>
-        <span style={{ flex: 1 }} /><PeriodeLue p={p} />
+        <span style={{ flex: 1 }} /><PeriodeChoisieLue c={p} />
       </div>
     </div>
     {loading ? <Spinner /> : <>
@@ -4127,7 +4421,7 @@ SCREENS.flux = () => {
 
 /* ------- v4.1 : Statistiques de contrôle (hors gabarit / surcharge / transit) */
 SCREENS.controles = () => {
-  const p = useReportRange('mois');
+  const p = useChoixPeriode('mois');
   const { m, du, au } = p;
   const { data, loading } = useAsync<O>(() => call('report.controles', { du, au, periode: m }), [du, au]);
   const hg = (data?.['horsGabarit'] ?? {}) as O;
@@ -4149,8 +4443,8 @@ SCREENS.controles = () => {
       </div>
     </div>;
   return <>
-    <BandeauModule icone="balance" titre="Statistiques de contrôle" sous={<PeriodeLue p={p} />}
-      action={<div className="bm-outils"><PeriodPicker p={p} /></div>} />
+    <BandeauModule icone="balance" titre="Statistiques de contrôle" sous={<PeriodeChoisieLue c={p} />}
+      action={<div className="bm-outils"><SelecteurPeriode c={p} /></div>} />
     {loading ? <Spinner /> : <>
       {/* Trois blocs de cartes se lisent isolément mais ne se COMPARENT pas :
           on ne voit pas lequel pèse le plus, ni dans quelle proportion. */}
@@ -4175,7 +4469,7 @@ SCREENS.controles = () => {
 
 /* ------- v4.1 : Répartition des cargaisons par destination ------------- */
 SCREENS.destinations = () => {
-  const p = useReportRange('annee');
+  const p = useChoixPeriode('annee');
   const { du, au } = p;
   const [gran, setGran] = useState('mois');
   const { data, loading } = useAsync<O>(() => call('report.destinations', { du, au, granularite: gran }), [du, au, gran]);
@@ -4188,14 +4482,14 @@ SCREENS.destinations = () => {
   const series = (actifs.length ? actifs : codes).map((c) => ({ nom: c, valeurs: seriesData.map((s) => Number(s[c] ?? 0)) }));
   return <>
     <div className="card">
-      <BandeauModule icone="carte" titre="Répartition par destination" sous={<PeriodeLue p={p} />}
-        action={<div className="bm-outils"><PeriodPicker p={p} /></div>} />
+      <BandeauModule icone="carte" titre="Répartition par destination" sous={<PeriodeChoisieLue c={p} />}
+        action={<div className="bm-outils"><SelecteurPeriode c={p} /></div>} />
       <div className="row" style={{ alignItems: 'center', marginTop: 6 }}>
         <label className="help" style={{ margin: 0 }}>Répartition de la période</label>
         <select value={gran} onChange={(e) => setGran(e.target.value)} style={{ maxWidth: 160 }}>
           <option value="semaine">Hebdomadaire</option><option value="mois">Mensuelle</option><option value="annee">Annuelle</option>
         </select>
-        <span style={{ flex: 1 }} /><PeriodeLue p={p} />
+        <span style={{ flex: 1 }} /><PeriodeChoisieLue c={p} />
       </div>
     </div>
     {loading ? <Spinner /> : <>
@@ -4225,7 +4519,7 @@ SCREENS.destinations = () => {
  * combien de temps a mis la marchandise à chaque poste ».
  */
 SCREENS.temps = ({ go }) => {
-  const p = useReportRange('semaine');
+  const p = useChoixPeriode('mois');
   const { du, au } = p;
   const [avecVeh, setAvecVeh] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -4260,9 +4554,9 @@ SCREENS.temps = ({ go }) => {
     <div className="card">
       {/* Extraction DANS LE BANDEAU (2026-09-24, demande utilisateur), à côté
           du choix de période qu'elle reprend. */}
-      <BandeauModule icone="sablier" titre="Temps de passage par poste" sous={<PeriodeLue p={p} />}
+      <BandeauModule icone="sablier" titre="Temps de passage par poste" sous={<PeriodeChoisieLue c={p} />}
         action={<div className="bm-outils">
-          <PeriodPicker p={p} />
+          <SelecteurPeriode c={p} />
           <button className="btn-export" disabled={busy} onClick={() => exporter('xlsx')}
             title="Extraire la période affichée en Excel">
             <Icone nom="telecharger" taille={15} />Excel
@@ -4278,7 +4572,7 @@ SCREENS.temps = ({ go }) => {
           <span>Inclure les véhicules</span>
         </label>
       </div>
-      <PeriodeLue p={p} />
+      <PeriodeChoisieLue c={p} />
       <p className="help" style={{ marginBottom: 0 }}>
         Un dossier est rattaché au <b>jour d'entrée du camion</b>. Pour la journée en cours,
         les moyennes ne portent donc que sur les dossiers <b>déjà sortis</b>, l'effectif
@@ -4375,7 +4669,7 @@ const CELLULES_HORODATAGE: [string, string][] = [
   ['T1', 'Cellule T1'], ['BS', 'Bon de sortie'], ['BALISE', 'Cellule Balise'], ['PP', 'Porte principale (sortie)'],
 ];
 SCREENS.horodatage = () => {
-  const p = useReportRange('jour'); // par défaut : la journée d'aujourd'hui
+  const p = useChoixPeriode('jour'); // par défaut : la journée d'aujourd'hui
   const { du, au } = p;
   const [cellule, setCellule] = useState('');
   const { data, loading } = useAsync<O>(() => call('report.horodatage', { du, au, cellule }), [du, au, cellule]);
@@ -4388,8 +4682,8 @@ SCREENS.horodatage = () => {
     try { telecharger(await call<O>('report.horodatage', { du, au, cellule, format: 'xlsx' })); }
     catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(false); }
   }
-  return <><BandeauModule icone="horloge" titre="Plage d'activité par cellule" sous={<PeriodeLue p={p} />}
-    action={<div className="bm-outils"><PeriodPicker p={p} /></div>} />
+  return <><BandeauModule icone="horloge" titre="Plage d'activité par cellule" sous={<PeriodeChoisieLue c={p} />}
+    action={<div className="bm-outils"><SelecteurPeriode c={p} /></div>} />
   <div className="card">
     <p className="help" style={{ marginTop: 0 }}>
       Pour chaque cellule et chaque agent, PAR JOUR : heure de <b>début</b> (première action),
@@ -4449,7 +4743,7 @@ function BlocArchives() {
 }
 
 SCREENS.goulots = (nav) => {
-  const admin = nav.user.role === 'ADMIN';
+  const admin = aPouvoirAdmin(nav.user.role);
   const [jours, setJours] = useState(90);
   const [sel, setSel] = useState<Set<string>>(new Set());
   const [motif, setMotif] = useState('');
@@ -4604,6 +4898,7 @@ function exporterSejour(lignes: O[], vue: string) {
     'Taille': String(r['taille'] ?? ''),
     'Statut': String(r['statut'] ?? ''),
     'Provenance': String(r['provenance'] ?? ''),
+    'Entré le': r['dateEntree'] ? fmtJour(r['dateEntree']) : '',
     'Séjour (jours)': Number(r['joursSejour'] ?? 0),
   }));
   const feuille = XLSX.utils.json_to_sheet(rows);
@@ -4623,8 +4918,30 @@ function exporterSejour(lignes: O[], vue: string) {
  *   · la liste se lit par pages de 50, avec une recherche par N° de conteneur.
  * Aucun aller-retour au serveur : tout se joue sur les lignes déjà reçues.
  */
-SCREENS.stockdwell = () => {
-  const { data, loading } = useAsync<{ compte: O; tranches: O[]; instance: O[]; seuil?: number }>(() => call('report.stock'), []);
+SCREENS.stockdwell = ({ user }) => {
+  /* DEUX ONGLETS (2026-10-06, demande utilisateur) : l'etat du PARC, et le
+     RAPPROCHEMENT des listes recues de l'ACP. Les deux parlent du meme parc,
+     et le rapprochement n'avait pas de quoi occuper un volet entier.
+
+     CHAQUE ONGLET EST SOUMIS A SON PROPRE DROIT, et ce n'est pas decoratif :
+     le CFS lit le stock mais n'a pas le rapprochement (on ne fait pas
+     controler le parc par celui qui le tient), tandis que le CHEF DE DIVISION
+     a le rapprochement sans avoir le rapport de stock. Aucun des deux ne doit
+     voir un onglet que le serveur lui refusera. */
+  const peutParc = aLeDroit(user.role, 'report.stock');
+  const peutACP = aLeDroit(user.role, 'acp.rapprocher');
+  const [onglet, setOnglet] = useState(peutParc ? 'parc' : 'acp');
+
+  /* PERIODE SUR LA DATE D'ENTREE (2026-10-06, demande utilisateur). Cet ecran
+     a essuye les platres : d'abord la liste du Parking, puis l'ancien
+     `PeriodPicker`, enfin ce selecteur-ci, desormais partage par TOUS les
+     volets. Deux presentations pour un meme geste, c'etait une de trop. */
+  const c = useChoixPeriode('mois', true); // ecran d'etat : aucune borne au depart
+  const { data, loading } = useAsync<{ compte: O; tranches: O[]; instance: O[]; seuil?: number } | null>(
+    // Demande UNE SEULE FOIS, et seulement a qui y a droit. On ne la relance
+    // pas en changeant d'onglet : revenir au parc doit etre instantane.
+    () => (peutParc ? call('report.stock', { du: c.du, au: c.au }) : Promise.resolve(null)),
+    [c.du, c.au, peutParc]);
   const [vue, setVue] = useState('tous');
   const [q, setQ] = useState('');
   const [page, setPage] = useState(1);
@@ -4661,14 +4978,49 @@ SCREENS.stockdwell = () => {
         d'extraction y prend place, à droite, comme sur les autres volets. Sans
         cela, App.tsx posait un bandeau automatique, muet, et le titre se
         répétait juste en dessous. */}
-    <BandeauModule icone="horloge" titre="Séjour &amp; instances conteneurs"
-      sous={<>Le parc conteneur par conteneur. <b>Cliquez un chiffre</b> pour ne voir que ce qu'il compte.</>}
-      action={<div className="bm-outils">
+    {/* Les outils de période ne concernent QUE le parc : les laisser sous
+        l'onglet ACP laisserait croire qu'ils bornent le rapprochement. */}
+    {/* Le bandeau suit l'onglet. Sans cela, le chef de division - qui n'a
+        QUE le rapprochement - atterrirait sur un ecran intitule
+        « Séjour & instances conteneurs » sans jamais voir de sejour. */}
+    <BandeauModule icone={onglet === 'acp' ? 'balance' : 'horloge'}
+      titre={onglet === 'acp' ? 'Rapprochement ACP' : 'Séjour & instances conteneurs'}
+      sous={onglet === 'acp'
+        ? <>Comparez une liste reçue de l'ACP avec le parc. Rien n'est modifié dans le stock.</>
+        : vue === 'parc'
+          ? <>Encore au parc : tout ce qui n'est pas dépoté, quelle que soit la date d'entrée.</>
+          : <PeriodeChoisieLue c={c} tout="Tout le parc, conteneur par conteneur. Cliquez un chiffre pour ne voir que ce qu'il compte." />}
+      action={onglet !== 'parc' ? undefined : <div className="bm-outils">
+        {/* « Séjour moyen » rejoint le menu des periodes (2026-10-06, demande
+            utilisateur) : la vue « encore au parc » ne s'atteignait qu'en
+            cliquant la tuile, et rien ne le disait. Le menu et la tuile
+            commandent le MEME etat, ils restent donc toujours d'accord. */}
+        <SelecteurPeriode c={c} titre="Période d'entrée, ou vue du parc"
+          extras={[{ valeur: 'parc', libelle: 'Séjour moyen' }]}
+          extraActif={vue === 'parc' ? 'parc' : ''}
+          onExtra={(v) => {
+            // Quitter l'extra ne touche PAS a un filtre pose par une autre
+            // tuile : seule la vue « au parc » est rendue.
+            if (v === 'parc') setVue('parc');
+            else if (vue === 'parc') setVue('tous');
+            setPage(1);
+          }} />
         <button className="btn-export" disabled={!lignes.length} onClick={() => exporterSejour(lignes, vue)}
           title="Extraire en Excel la vue affichée, dans son entier">
           <Icone nom="telecharger" taille={15} />Excel
         </button>
       </div>} />
+
+    {/* La barre n'apparaît QUE si l'on a droit aux deux : un seul onglet
+        visible ne serait pas un choix, juste un bouton inerte. */}
+    {peutParc && peutACP && <div className="card" style={{ paddingBottom: 10 }}>
+      <ChoixSegmente libelle="Onglet" valeur={onglet}
+        options={[{ valeur: 'parc', libelle: 'Parc', icone: 'conteneurHorloge' },
+          { valeur: 'acp', libelle: 'Rapprochement ACP', icone: 'balance' }]}
+        onChange={(v) => v && setOnglet(v)} />
+    </div>}
+
+    {onglet === 'acp' ? <PanneauRapprochementACP /> : <>
     <div className="card">
     {loading ? <Spinner /> : <>
       <div className="stats compacts">
@@ -4711,8 +5063,356 @@ SCREENS.stockdwell = () => {
       </>}
     </>}
     </div>
+    </>}
   </>;
 };
+
+/* ===== RAPPROCHEMENT DES LISTES ACP (2026-10-06, demande utilisateur) =====
+ *
+ * L'ACP envoie régulièrement la liste des conteneurs qu'elle nous attribue, et
+ * la comparaison avec le parc se faisait à l'œil, ligne à ligne.
+ *
+ * ON NE DICTE PAS SON FORMAT À CELUI QUI ENVOIE. Les deux imports existants
+ * (stock, annonce) lisent les colonnes PAR POSITION : tenable pour un fichier
+ * qu'on prépare soi-même, intenable pour un fichier qu'on reçoit. Ici on balaie
+ * TOUTES les feuilles et TOUTES les cellules, et on ramasse ce qui a la forme
+ * d'un numéro de conteneur. Colonne, ordre, entêtes, lignes de titre, feuilles
+ * multiples : rien de tout cela n'a d'importance.
+ *
+ * RIEN N'EST ÉCRIT DANS LE STOCK. Le rapprochement LIT le parc et enregistre
+ * son propre constat, dans sa propre table. Aucun conteneur n'est créé, déplacé
+ * ni dépoté : on peut le rejouer autant de fois qu'on veut, sans risque.
+ * ====================================================================== */
+/* Les cases du rapprochement. La cinquième ne s'affiche que si elle contient
+   quelque chose : sur le périmètre par défaut, elle est toujours vide, et une
+   tuile à zéro en permanence n'apprendrait rien à personne. */
+const VUES_ACP: [string, string, string][] = [
+  ['concordants', 'Concordants', 'Annoncés par l’ACP et bien présents. Rien à faire.'],
+  ['auParcHorsListe', 'Au parc, hors liste', 'Chez nous, absents de la liste reçue. À signaler à l’ACP.'],
+  ['listeDejaDepotes', 'Déjà dépotés', 'Annoncés par l’ACP, mais déjà sortis chez nous. Leur liste est en retard, ou nous avons dépoté à tort.'],
+  ['listeInconnus', 'Inconnus', 'Annoncés par l’ACP, jamais vus dans notre base. À réclamer.'],
+  ['horsPerimetre', 'Hors périmètre', 'Présents au parc, mais hors de ce que vous avez demandé de comparer. Ni concordants, ni inconnus.'],
+];
+
+/** Les périmètres proposés, et ce que chacun demande au juste. */
+const PERIMETRES_ACP: { valeur: string; libelle: string; aide: string; icone: string }[] = [
+  { valeur: 'parc', libelle: 'Tout le parc', icone: 'conteneur', aide: 'Tout ce qui n’est pas dépoté : « En stock » et « Positionné ». Le bon choix dans presque tous les cas.' },
+  { valeur: 'stock', libelle: 'En stock', icone: 'boites', aide: 'Le stock seul, sans les conteneurs pointés pour le dépotage du jour.' },
+  { valeur: 'positionne', libelle: 'Positionnés', icone: 'presse', aide: 'Uniquement les conteneurs pointés pour le dépotage.' },
+  { valeur: 'alerte', libelle: 'En alerte', icone: 'sablier', aide: 'Ceux qui dépassent le seuil de séjour. « De votre liste, lesquels traînent ? »' },
+];
+
+function exporterACP(lignes: O[], vue: string) {
+  if (!lignes.length) { toast('Rien à extraire.', 'err'); return; }
+  const rows = lignes.map((r) => ({
+    'N° conteneur': String(r['numeroTC'] ?? ''),
+    'Taille': String(r['taille'] ?? ''),
+    'Statut chez nous': String(r['statut'] ?? '—'),
+    'Entré le': r['dateEntree'] ? fmtJour(r['dateEntree']) : '',
+  }));
+  const feuille = XLSX.utils.json_to_sheet(rows);
+  const classeur = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(classeur, feuille, 'Rapprochement');
+  XLSX.writeFile(classeur, 'rapprochement-acp-' + vue + '-' + new Date().toISOString().slice(0, 10) + '.xlsx');
+  toast(rows.length + ' ligne(s) extraite(s).', 'ok');
+}
+
+const lignesACPVersFeuille = (lignes: O[]) => lignes.map((r) => ({
+  'N° conteneur': String(r['numeroTC'] ?? ''),
+  'Taille': String(r['taille'] ?? ''),
+  'Statut chez nous': String(r['statut'] ?? ''),
+  'Entré le': r['dateEntree'] ? fmtJour(r['dateEntree']) : '',
+}));
+
+/**
+ * UN RAPPROCHEMENT ENTIER DANS UN SEUL CLASSEUR, un onglet par cas.
+ *
+ * L'export par vue oblige à cliquer chaque tuile et produit autant de fichiers
+ * séparés. Or ce qu'on envoie à l'ACP est UN constat, pas quatre. Le premier
+ * onglet porte l'en-tête : date, auteur, périmètre, totaux. Sans lui, une liste
+ * de numéros reçue par courriel ne dit ni de quand elle date ni sur quoi elle
+ * portait.
+ */
+function exporterRapprochement(r: O) {
+  const cpt = (r['compte'] ?? {}) as Record<string, number>;
+  const classeur = XLSX.utils.book_new();
+  const entete = [
+    ['Rapprochement ACP'],
+    ['Fichier reçu', String(r['nomFichier'] ?? '')],
+    ['Fait le', r['faitLe'] ? fmtDate(r['faitLe']) : fmtDate(new Date().toISOString())],
+    ['Par', String(r['faitPar'] ?? '')],
+    ['Comparé à', String(r['libellePerimetre'] ?? '')],
+    ['Période d’entrée', r['du'] || r['au'] ? `du ${fmtJour(String(r['du']))} au ${fmtJour(String(r['au']))}` : 'toutes périodes'],
+    [],
+    ['Conteneurs reçus', Number(cpt['lus'] ?? 0)],
+    ['Conteneurs comparés', Number(cpt['parc'] ?? 0)],
+    ['Concordants', Number(cpt['concordants'] ?? 0)],
+    ['Au parc, hors liste', Number(cpt['auParcHorsListe'] ?? 0)],
+    ['Déjà dépotés', Number(cpt['listeDejaDepotes'] ?? 0)],
+    ['Inconnus', Number(cpt['listeInconnus'] ?? 0)],
+    ['Hors périmètre', Number(cpt['horsPerimetre'] ?? 0)],
+  ];
+  XLSX.utils.book_append_sheet(classeur, XLSX.utils.aoa_to_sheet(entete), 'Synthèse');
+  // Un onglet par cas, et SEULEMENT ceux qui contiennent quelque chose : un
+  // onglet vide dans un classeur envoyé fait douter de tout le reste.
+  for (const [cle, libelle] of [
+    ['auParcHorsListe', 'Au parc hors liste'], ['listeDejaDepotes', 'Déjà dépotés'],
+    ['listeInconnus', 'Inconnus'], ['horsPerimetre', 'Hors périmètre'],
+    ['concordants', 'Concordants'],
+  ] as [string, string][]) {
+    const lignes = (r[cle] ?? []) as O[];
+    if (!lignes.length) continue;
+    XLSX.utils.book_append_sheet(classeur, XLSX.utils.json_to_sheet(lignesACPVersFeuille(lignes)), libelle);
+  }
+  const jour = r['faitLe'] ? String(r['faitLe']).slice(0, 10) : new Date().toISOString().slice(0, 10);
+  XLSX.writeFile(classeur, 'rapprochement-acp-' + jour + '.xlsx');
+  toast('Rapprochement extrait.', 'ok');
+}
+
+/**
+ * LE LOGO ENTRE DEUX ARCS QUI TOURNENT EN SENS CONTRAIRE, chacun portant une
+ * boîte. Les deux font le tour et se croisent : c'est le geste même du
+ * rapprochement, deux inventaires qu'on fait coïncider.
+ *
+ * Le mouvement reste LENT (4 s le tour). Cette fenêtre s'ouvre pour qu'on y
+ * réfléchisse, choisir un périmètre et une période ; une animation pressée y
+ * serait un bruit de fond, pas une illustration.
+ */
+function LogoComparaison() {
+  return <div className="acp-anim" aria-hidden="true">
+    <span className="acp-arc acp-arc-a"><span className="acp-boite" /></span>
+    <span className="acp-arc acp-arc-b"><span className="acp-boite" /></span>
+    <img className="logo-rond" src="/logo.png" alt=""
+      onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />
+  </div>;
+}
+
+function PanneauRapprochementACP() {
+  const [ouvert, setOuvert] = useState(false);
+  const [lu, setLu] = useState<{ numeros: string[]; illisibles: string[]; doublons: string[]; nom: string } | null>(null);
+  const [res, setRes] = useState<O | null>(null);
+  const [vue, setVue] = useState('auParcHorsListe');
+  const [busy, setBusy] = useState(false);
+  const [perimetre, setPerimetre] = useState('parc');
+  // Aucune borne au départ : la question ordinaire porte sur tout le parc, pas
+  // sur un mois. On ne restreint que si on le demande.
+  const c = useChoixPeriode('mois', true);
+  const { data: hist, loading: histEnCours, reload } = useAsync<{ lignes: O[]; active: boolean }>(
+    () => call('acp.historique'), []);
+
+  /** Toutes les feuilles, toutes les cellules : le fichier est pris tel quel. */
+  function lire(f: File) {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const wb = XLSX.read(e.target?.result, { type: 'binary' });
+        const cellules: unknown[] = [];
+        for (const nom of wb.SheetNames) {
+          const feuille = wb.Sheets[nom];
+          if (!feuille) continue;
+          for (const ligne of XLSX.utils.sheet_to_json(feuille, { header: 1 }) as unknown[][]) cellules.push(...ligne);
+        }
+        const x = extraireNumerosTC(cellules);
+        setLu({ ...x, nom: f.name });
+        if (!x.numeros.length) toast('Aucun numéro de conteneur lisible dans ce fichier.', 'err');
+      } catch { toast('Fichier illisible : attendu .xlsx, .xls ou .csv.', 'err'); }
+    };
+    reader.readAsBinaryString(f);
+  }
+
+  async function lancer() {
+    if (!lu) return;
+    setBusy(true);
+    try {
+      const r = await call<O>('acp.rapprocher', {
+        numeros: lu.numeros, illisibles: lu.illisibles, doublons: lu.doublons,
+        nomFichier: lu.nom, perimetre, du: c.du, au: c.au,
+      });
+      setRes(r); setVue('auParcHorsListe'); setOuvert(false); reload();
+      toast('Rapprochement enregistré.', 'ok');
+    } catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(false); }
+  }
+
+  const libellePerimetre = (v: unknown) => PERIMETRES_ACP.find((x) => x.valeur === v)?.libelle ?? 'Tout le parc';
+
+  /**
+   * Un contrôle passé, remis dans la forme d'un résultat frais.
+   *
+   * `archive` dit la seule différence qui compte : LES CONCORDANTS NE SONT PAS
+   * CONSERVÉS. On garde leur NOMBRE, pas leur liste. Sans ce drapeau, cliquer
+   * « Concordants » sur un ancien contrôle afficherait « aucun conteneur » et
+   * ferait croire à une perte de données.
+   */
+  const enResultat = (d: O): O => {
+    const det = (d['detail'] ?? {}) as Record<string, O[]>;
+    return {
+      archive: true, faitLe: d['fait_le'], faitPar: d['fait_par'],
+      nomFichier: d['nom_fichier'], perimetre: d['perimetre'], du: d['du'], au: d['au'],
+      libellePerimetre: libellePerimetre(d['perimetre']),
+      compte: {
+        lus: d['nb_lus'], parc: d['nb_parc'], concordants: d['nb_concordants'],
+        auParcHorsListe: d['nb_au_parc_hors_liste'], listeDejaDepotes: d['nb_deja_depotes'],
+        listeInconnus: d['nb_inconnus'], horsPerimetre: d['nb_hors_perimetre'],
+      },
+      concordants: [],
+      auParcHorsListe: det['auParcHorsListe'] ?? [],
+      listeDejaDepotes: det['listeDejaDepotes'] ?? [],
+      listeInconnus: det['listeInconnus'] ?? [],
+      horsPerimetre: det['horsPerimetre'] ?? [],
+    };
+  };
+
+  async function ouvrir(id: string) {
+    try {
+      const d = await call<O>('acp.detail', { id });
+      setRes(enResultat(d)); setVue('auParcHorsListe');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    } catch (e) { toast((e as Error).message, 'err'); }
+  }
+
+  async function extraire(id: string) {
+    try { exporterRapprochement(enResultat(await call<O>('acp.detail', { id }))); }
+    catch (e) { toast((e as Error).message, 'err'); }
+  }
+
+  const cpt = (res?.['compte'] ?? {}) as Record<string, number>;
+  const archive = res?.['archive'] === true;
+  const lignes = ((res?.[vue] ?? []) as O[]);
+  const titreVue = VUES_ACP.find((v) => v[0] === vue);
+
+  return <>
+    <div className="card acp-accueil">
+      <div className="acp-accueil-texte">
+        <p className="help">Le fichier est pris tel qu’il arrive, quelles que soient ses colonnes.</p>
+      </div>
+      <button className="acp-lancer" onClick={() => setOuvert(true)}>
+        <Icone nom="balance" taille={17} />Nouveau rapprochement
+      </button>
+    </div>
+
+    {ouvert && <Modal onClose={() => !busy && setOuvert(false)}>
+      <div className="acp-fenetre">
+        <LogoComparaison />
+        <h2>Nouveau rapprochement</h2>
+        <p className="help acp-sous">Choisissez ce que la liste doit affronter, puis déposez-la.</p>
+
+        <label className="help">Sur quoi comparer ?</label>
+        <div className="acp-perimetres">
+          {PERIMETRES_ACP.map((p) => <button key={p.valeur} type="button"
+            className={`acp-perim ${perimetre === p.valeur ? 'actif' : ''}`}
+            aria-pressed={perimetre === p.valeur}
+            onClick={() => setPerimetre(p.valeur)} title={p.aide}>
+            <Icone nom={p.icone} taille={16} />
+            <b>{p.libelle}</b>
+            <span>{p.aide}</span>
+          </button>)}
+        </div>
+
+        {/* La période est FACULTATIVE, et c'est le bon défaut : une liste ACP
+            porte sur ce qui est là, pas sur ce qui est entré en septembre. */}
+        <label className="help">Restreindre à une période d’entrée ? <i>(facultatif)</i></label>
+        <div className="acp-periode">
+          <SelecteurPeriode c={c} titre="Période d’entrée au parc" />
+          <span className="help">
+            {c.du || c.au ? <>Du {fmtJour(c.du)} au {fmtJour(c.au)}</> : <>Toutes périodes</>}
+          </span>
+        </div>
+
+        <label className="help">La liste reçue</label>
+        <label className="acp-depot">
+          <input type="file" accept=".xlsx,.xls,.csv"
+            onChange={(e) => e.target.files?.[0] && lire(e.target.files[0]!)} />
+          <Icone nom="televerser" taille={18} />
+          <span>{lu ? lu.nom : 'Choisir le fichier reçu de l’ACP'}</span>
+          <i>.xlsx, .xls ou .csv</i>
+        </label>
+
+        {lu && <div className="acp-lu">
+          <b>{lu.numeros.length}</b> numéro(s) de conteneur lus.
+          {lu.doublons.length > 0 && <> · {lu.doublons.length} répété(s), compté(s) une fois.</>}
+          {/* Ce qui ressemblait à un numéro sans en être un est ANNONCÉ :
+              écarté en silence, il ferait un total qui ne tombe jamais juste. */}
+          {lu.illisibles.length > 0 && <div style={{ color: 'var(--warn)', marginTop: 4 }}>
+            {lu.illisibles.length} cellule(s) ressemblent à un n° sans en être un :
+            {' '}{lu.illisibles.slice(0, 6).join(', ')}{lu.illisibles.length > 6 ? '…' : ''}
+          </div>}
+        </div>}
+
+        <div className="acp-actions">
+          <button className="ghost" disabled={busy} onClick={() => setOuvert(false)}>Annuler</button>
+          <button disabled={busy || !lu?.numeros.length} onClick={lancer}>
+            {busy ? 'Rapprochement…' : `Comparer avec « ${libellePerimetre(perimetre)} »`}
+          </button>
+        </div>
+      </div>
+    </Modal>}
+
+    {res && <div className="card">
+      <div className="acp-entete">
+        <div className="help" style={{ margin: 0 }}>
+          Liste « {String(res['nomFichier'] ?? '')} » · {cpt['lus']} conteneur(s) reçus,
+          comparés à <b>{libellePerimetre(res['perimetre'])}</b> ({cpt['parc']} conteneur(s))
+          {res['du'] || res['au'] ? <> · du {fmtJour(String(res['du']))} au {fmtJour(String(res['au']))}</> : null}.
+          {archive && <> Contrôle du {fmtDate(res['faitLe'])}, par {String(res['faitPar'] ?? '')}.</>}
+        </div>
+        <button className="btn-export" onClick={() => exporterRapprochement({ ...res, libellePerimetre: libellePerimetre(res['perimetre']) })}
+          title="Extraire tout le rapprochement : un onglet par cas">
+          <Icone nom="telecharger" taille={15} />Tout extraire
+        </button>
+      </div>
+      <div className="stats compacts">
+        {VUES_ACP.filter(([cle]) => cle !== 'horsPerimetre' || Number(cpt['horsPerimetre'] ?? 0) > 0)
+          .map(([cle, libelle]) => <StatCard key={cle} n={Number(cpt[cle] ?? 0)} l={libelle}
+            tone={cle === 'listeInconnus' || cle === 'listeDejaDepotes' ? 'warn' : undefined}
+            icone="conteneur" onClick={() => setVue(cle)} />)}
+      </div>
+      {titreVue && <div className="help" style={{ margin: '8px 0' }}><b>{titreVue[1]}</b> · {titreVue[2]}</div>}
+      {archive && vue === 'concordants' && <div className="help" style={{ color: 'var(--warn)' }}>
+        Seul leur NOMBRE est conservé avec le contrôle, pas leur liste : les
+        concordants ne posent aucune question, et ils pèsent à eux seuls plus
+        que les trois autres listes réunies. Refaites le rapprochement pour les voir.
+      </div>}
+      <ListeLongue
+        /* « entreLe » et non « dateEntree » : le tableau REFORMATE tout seul
+           les colonnes dont la clé commence par « date », et relisait à
+           l'anglaise la date qu'on venait de mettre en forme : le 1er août
+           s'affichait « 08/01/2026 00:00 ». Ici on veut le jour seul. */
+        cols={[['numeroTC', 'Conteneur'], ['taille', 'Taille'], ['statut', 'Statut chez nous'], ['entreLe', 'Entré le']]}
+        rows={lignes.map((r) => ({ ...r, entreLe: r['dateEntree'] ? fmtJour(r['dateEntree']) : '—', statut: r['statut'] || '—' }))}
+        nom="conteneur(s)" placeholder="N° de conteneur" reinit={vue}
+        vide="Aucun conteneur dans cette vue : c'est le bon résultat pour les écarts."
+        filtres={<button className="btn-export" disabled={!lignes.length} onClick={() => exporterACP(lignes, vue)}
+          title="Extraire en Excel la vue affichée, dans son entier">
+          <Icone nom="telecharger" taille={15} />Excel
+        </button>} />
+    </div>}
+
+    {/* L'HISTORIQUE. Savoir qu'un écart avait déjà été signalé le mois dernier
+        vaut mieux que de le redécouvrir aujourd'hui. */}
+    <div className="card">
+      <TitrePanneau icone="historique">Rapprochements précédents</TitrePanneau>
+      {histEnCours ? <Spinner /> : !hist?.lignes.length
+        ? <div className="help">Aucun rapprochement enregistré pour l'instant.</div>
+        : <ListeLongue
+          // La ligne s'OUVRE (le constat fige remonte en haut de l'ecran) et
+          // porte son propre bouton d'extraction. `Table` isole deja la colonne
+          // d'actions du clic sur la ligne.
+          onRow={(r) => ouvrir(String(r['id']))}
+          actions={(r) => <button className="btn-export" onClick={() => extraire(String(r['id']))}
+            title="Extraire ce rapprochement en Excel">
+            <Icone nom="telecharger" taille={14} />Excel
+          </button>}
+          cols={[['fait_le', 'Fait le'], ['fait_par', 'Par'], ['nom_fichier', 'Fichier'],
+            ['surQuoi', 'Comparé à'], ['nb_lus', 'Reçus'], ['nb_concordants', 'Concordants'],
+            ['nb_au_parc_hors_liste', 'Hors liste'], ['nb_deja_depotes', 'Dépotés'], ['nb_inconnus', 'Inconnus']]}
+          // « fait_le » ne commence pas par « date » : aucune remise en forme
+          // automatique ne s'y ajoute, celle-ci est la seule.
+          rows={hist.lignes.map((l) => ({ ...l, fait_le: fmtDate(l['fait_le']),
+            surQuoi: libellePerimetre(l['perimetre']) }))}
+          nom="rapprochement(s)" placeholder="fichier, auteur" parPage={10} />}
+    </div>
+  </>;
+}
 
 /* ---------------------------- Utilisateurs ----------------------------- */
 const ROLES_LISTE = ['CFS', 'CHEF_BRIGADE', 'CHEF_BRIGADE_ADJOINT', 'CBPI', 'CHEF_VISITE', 'CHEF_DIVISION', 'T1', 'BALISE', 'BON_SORTIE', 'PP', 'ADMIN'];

@@ -3550,6 +3550,32 @@ test("parking : chaque ligne porte son dossier et l'etape attendue", async () =>
   assert.equal(l3.lignes[0]!.cargaisonEtape, 'le bon de sortie');
 });
 
+test("sejour conteneurs : la periode filtre sur la date d'entree", async () => {
+  const db = new FakeDB();
+  const jour = (n: number) => { const d = new Date(); d.setDate(d.getDate() + n); return d.toISOString(); };
+  const j = (n: number) => jour(n).slice(0, 10);
+  db.store['stock'].push(
+    { numero_tc: 'MSKU0000001', taille: "40'", statut: 'En stock', date_entree: jour(-2) },
+    { numero_tc: 'MSKU0000002', taille: "20'", statut: 'En stock', date_entree: jour(-1) },
+    { numero_tc: 'MSKU0000003', taille: "40'", statut: 'En stock', date_entree: jour(-400) },
+    // Sans date d'entree : appartient a « toute la periode », a aucune bornee.
+    { numero_tc: 'MSKU0000004', taille: "40'", statut: 'En stock' },
+  );
+  const ctx = ctxRole(db, 'ADMIN', 'Admin');
+  type R = { compte: { total: number; stock: number } };
+
+  // Sans borne : tout le parc, comme avant.
+  assert.equal(((await stk.rapportStock(ctx, {})) as R).compte.total, 4);
+
+  // Bornee aux deux derniers jours : les deux recents seulement.
+  const recent = (await stk.rapportStock(ctx, { du: j(-2), au: j(0) })) as R;
+  assert.equal(recent.compte.total, 2, 'la periode ecarte l ancien ET le sans-date');
+  assert.equal(recent.compte.stock, 2);
+
+  // Une periode ou rien n'est entre : zero, et non « tout ».
+  assert.equal(((await stk.rapportStock(ctx, { du: j(-10), au: j(-5) })) as R).compte.total, 0);
+});
+
 test('parking : ajout sans pointer, puis pointage le lendemain', async () => {
   const db = new FakeDB();
   const agent = ctxRole(db, 'T1', 'Agent T1');
@@ -3930,4 +3956,48 @@ test("exemption : dispense et escorte se distinguent, la reference ne filtre plu
   assert.equal(r.compte.dispenses, 2);
   assert.equal(r.compte.escortes, 1);
   assert.deepEqual(r.rows.map((x) => x.exemption).sort(), ['dispense', 'dispense', 'escorte']);
+});
+
+/* ---------------- Les roles techniques ont les pouvoirs de l'ADMIN --------- */
+
+test("INFO et SUPER_ADMIN derogent comme un ADMIN (correction d'un historique)", async () => {
+  /* 07/10/2026, demande utilisateur : « l'INFO doit avoir acces a tous les
+     volets ». La matrice leur accordait deja les actions, mais une trentaine
+     de gardes ecrites `role === ADMIN` ignoraient cet heritage : le dossier
+     avance restait incorrigeable pour eux. Un test par role, parce qu'un seul
+     laisserait passer une regression sur l'autre. */
+  for (const technique of ['INFO', 'SUPER_ADMIN']) {
+    const db = new FakeDB();
+    db.store['stock'].push({ numero_tc: 'MSKU1111111', taille: "40'", statut: 'En stock' });
+    const cfs = ctxAvec(db);
+    const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'TEC' + technique.slice(0, 3) + '/RM01', routage: 'Enlèvement' })) as { id: string };
+    await ecr.cfs(cfs, { id, conteneur: { num: 'MSKU1111111', taille: "40'", type: 'DRY', plomb: 'S1' }, declaration: DECL_OK });
+    await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'), { id, enSurcharge: false, suiviEngagement: false });
+    await ecr.t1(ctxRole(db, 'T1', 'Agent T1'), { id, bureauDestination: 'TG120', t1Numeros: [{ conteneur: 'MSKU1111111', numero: 'T1-' + technique }] });
+
+    // Le CFS, lui, reste refuse : la derogation n'est pas devenue generale.
+    await assert.rejects(
+      () => ecr.editconteneur(cfs, { id, index: 0, num: 'MSKU1111111', taille: "20'", type: 'DRY', plomb: 'S2' }),
+      /a déjà avancé/, technique);
+
+    await ecr.editconteneur(ctxRole(db, technique, technique), { id, index: 0, num: 'MSKU1111111', taille: "20'", type: 'DRY', plomb: 'S9' });
+    const c = versCamel(db.store['cargaisons'][0]!);
+    assert.equal((c['conteneursDetails'] as { conteneurs: { taille: string }[] }).conteneurs[0]?.taille, "20'", technique);
+  }
+});
+
+test("INFO peut signer une etape hors de son tour, comme l'ADMIN", async () => {
+  const db = new FakeDB();
+  db.store['stock'].push({ numero_tc: 'MSKU2222222', taille: "40'", statut: 'En stock' });
+  const cfs = ctxAvec(db);
+  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'TECINF2/RM01', routage: 'Enlèvement' })) as { id: string };
+  await ecr.cfs(cfs, { id, conteneur: { num: 'MSKU2222222', taille: "40'", type: 'DRY', plomb: 'S1' }, declaration: DECL_OK });
+
+  // La balise avant le T1 : refusee a l'agent, la chaine n'est pas respectee.
+  await assert.rejects(
+    () => ecr.gps(ctxRole(db, 'BALISE', 'B'), { id, baliseRequise: 'Oui', t1Correct: 'Oui', numeroGPS: 'G1' }),
+    /./);
+  // L'INFO passe outre, exactement comme un ADMIN.
+  await ecr.gps(ctxRole(db, 'INFO', 'Sam'), { id, baliseRequise: 'Oui', t1Correct: 'Oui', numeroGPS: 'G2' });
+  assert.equal(versCamel(db.store['cargaisons'][0]!)['numeroGps'], 'G2');
 });

@@ -327,16 +327,27 @@ test("SUPER_ADMIN et INFO heritent des droits de l'ADMIN", () => {
       }
     }
   }
-  /* CONSTAT ETABLI PAR CE TEST, et qui merite d'etre su : l'ADMIN figure dans
-     les 128 actions de la matrice, sans exception. L'heritage donne donc aux
-     deux roles techniques l'acces INTEGRAL - ce qui est l'intention, mais ne
-     doit pas rester implicite. Si une action venait un jour a exclure l'ADMIN,
-     l'assertion ci-dessous tomberait, et il faudrait alors decider
-     explicitement si les roles techniques y ont droit. */
+  /* UNE SEULE FAMILLE D'ACTIONS EXCLUT L'ADMIN, et c'est delibere : le VERROU
+     DE L'APPLICATION (2026-10-07, decision utilisateur). Bloquer l'outil de
+     travail de tout le port n'est pas un pouvoir d'administration ordinaire,
+     il revient au seul INFO - pas meme au SUPER_ADMIN.
+
+     Ce test gardait le cas depuis le 03/10 : « si une action venait a exclure
+     l'ADMIN, il faudrait decider explicitement si les roles techniques y ont
+     droit. » La decision est prise, elle est inscrite ici, et la liste reste
+     FERMEE : toute AUTRE action qui exclurait l'ADMIN fera tomber l'assertion,
+     et il faudra trancher a nouveau. */
+  const VERROU = ['verrou.etat', 'verrou.definir', 'verrou.bloquer', 'verrou.ouvrir'];
   const sansAdmin = Object.entries(PERMISSIONS)
     .filter(([, r]) => r.indexOf(ROLES.ADMIN) < 0).map(([a]) => a);
-  assert.deepEqual(sansAdmin, [],
+  assert.deepEqual(sansAdmin.filter((a) => VERROU.indexOf(a) < 0), [],
     'une action exclut desormais l ADMIN : trancher le cas des roles techniques');
+  // Et le verrou n'est ouvert QU'A L'INFO : le SUPER_ADMIN n'en herite pas.
+  for (const action of VERROU) {
+    assert.doesNotThrow(() => verifierPermission(ROLES.INFO, action), action);
+    assert.throws(() => verifierPermission(ROLES.SUPER_ADMIN, action), /refus/, action);
+    assert.throws(() => verifierPermission(ROLES.ADMIN, action), /refus/, action);
+  }
 
   // Une action inconnue reste inconnue, pour eux comme pour les autres.
   assert.throws(() => verifierPermission(ROLES.SUPER_ADMIN, 'action.inexistante'), /Action inconnue/);

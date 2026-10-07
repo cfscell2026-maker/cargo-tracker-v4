@@ -19,10 +19,9 @@ import { call } from './lib/rpc.ts';
 import { useAsync } from './lib/hooks.ts';
 import { Icone } from './lib/icones.tsx';
 import { Spinner, StatCard, Modal, masks, toast, fmtDate, fmtJour, ChampCamion, ChoixSegmente, BoutonBascule } from './lib/ui.tsx';
-import { BandeauModule, useReportRange } from './screens.tsx';
-import type { ModePeriode } from './lib/periode.ts';
+import { BandeauModule, SelecteurPeriode, useChoixPeriode } from './screens.tsx';
 import type { Nav } from './App.tsx';
-import { ROLES, alphaNumMaj, camionValide, dureeLisible } from '../../../supabase/functions/_shared/domaine/src/index.ts';
+import { ROLES, alphaNumMaj, camionValide, dureeLisible, aPouvoirAdmin} from '../../../supabase/functions/_shared/domaine/src/index.ts';
 
 type O = Record<string, unknown>;
 const s = (v: unknown) => String(v ?? '');
@@ -43,21 +42,16 @@ export function EcranParking({ user, go }: Nav) {
   const [edite, setEdite] = useState<O | null>(null);
   const [supprime, setSupprime] = useState<O | null>(null);
   const [busy, setBusy] = useState('');
-  const admin = user.role === ROLES.ADMIN;
+  const admin = aPouvoirAdmin(user.role);
   /* PÉRIODE (demande utilisateur) : jour, mois, année ou plage, sur la DATE
-     D'ENTRÉE au parking. Elle tient dans UNE liste déroulante du bandeau, dont
-     la première ligne (« Toute la période ») la neutralise : c'est le défaut,
-     car la question courante est « qui est là aujourd'hui ? ». Les deux champs
-     de dates n'apparaissent que si l'on choisit « Plage… ». */
-  const periode = useReportRange('mois');
-  const [limiterPeriode, setLimiterPeriode] = useState(false);
-  const du = limiterPeriode ? periode.du : '';
-  const au = limiterPeriode ? periode.au : '';
-  const choisirPeriode = (v: string) => {
-    if (!v) { setLimiterPeriode(false); return; }
-    setLimiterPeriode(true);
-    periode.setM(v as ModePeriode);
-  };
+     D'ENTRÉE au parking. MÊME sélecteur que partout ailleurs depuis le
+     2026-10-06 : le menu dit la granularité, le champ voisin dit laquelle.
+     Il démarre VIDE, donc sans borne — la question courante est « qui est là
+     aujourd'hui ? », pas « qui est entré ce mois-ci ? ». */
+  const periode = useChoixPeriode('mois', true);
+  const limiterPeriode = !!periode.du || !!periode.au;
+  const du = periode.du;
+  const au = periode.au;
 
   /* La recherche se fait sur les lignes DÉJÀ REÇUES : filtrer à chaque
      caractère ne doit pas appeler le serveur à chaque frappe. */
@@ -130,22 +124,7 @@ export function EcranParking({ user, go }: Nav) {
           placeholder="N° camion" title="Tapez la plaque : la liste se réduit à chaque caractère"
           style={{ width: 150 }} />
         {recherche && <button className="ghost xs" onClick={() => setRecherche('')}>Tout afficher</button>}
-        {/* La période tient en une seule liste : le bandeau est déjà chargé. */}
-        <select value={limiterPeriode ? periode.m : ''} onChange={(e) => choisirPeriode(e.target.value)}
-          title="Période d'entrée au parking" style={{ maxWidth: 150 }}>
-          <option value="">Toute la période</option>
-          <option value="jour">Aujourd'hui</option>
-          <option value="semaine">Cette semaine</option>
-          <option value="mois">Ce mois</option>
-          <option value="annee">Cette année</option>
-          <option value="perso">Plage…</option>
-        </select>
-        {limiterPeriode && periode.m === 'perso' && <>
-          <input type="date" value={periode.duP} onChange={(e) => periode.setDuP(e.target.value)}
-            title="Entrées à partir du" style={{ maxWidth: 150 }} />
-          <input type="date" value={periode.auP} onChange={(e) => periode.setAuP(e.target.value)}
-            title="Entrées jusqu'au" style={{ maxWidth: 150 }} />
-        </>}
+        <SelecteurPeriode c={periode} titre="Période d'entrée au parking" />
         <button className="btn-export" onClick={() => exporterExcel(lignes, statut)}
           disabled={!lignes.length} title="Extraire la liste affichée au format Excel">
           <Icone nom="telecharger" taille={15} />Excel
