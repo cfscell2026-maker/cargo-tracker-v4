@@ -2026,9 +2026,9 @@ const ICONE_GROUPE: Record<string, string> = { Conteneurs: 'conteneur', Engageme
  * Un bouton qui bloque l'application pour TOUS les comptes sauf l'INFO.
  *
  * RÉSERVÉ AU RÔLE INFO, et à lui seul : ni l'ADMIN ni le SUPER_ADMIN ne voient
- * ce panneau. C'est la seule capacité du projet qui ne suit pas `aPouvoirAdmin`
- * — bloquer l'outil de travail de tout le port n'est pas un pouvoir
- * d'administration ordinaire.
+ * ce panneau. C'est la seule capacité du projet qui ne suit pas
+ * `aPouvoirAdmin` : bloquer l'outil de travail de tout le port n'est pas un
+ * pouvoir d'administration ordinaire.
  *
  * ⚠ CE MASQUAGE EST UN CONFORT, PAS UNE SÉCURITÉ. La matrice des droits refuse
  * les quatre actions à tout autre rôle, et `exigerInfo` les refuse une seconde
@@ -2095,14 +2095,33 @@ function PanneauVerrou() {
           <button className="ghost" onClick={() => setOuvert('definir')}>Changer le mot de passe</button>
         </div>}
 
-      {/* LE RECOURS, écrit ici et pas seulement dans la migration. Un mot de
-          passe perdu laisserait l'application bloquée ; celui qui lit ce
-          panneau doit savoir qu'une porte existe, et laquelle. */}
-      <p className="help verrou-recours">
-        Mot de passe perdu alors que l’application est bloquée ? La seule sortie est en base,
-        depuis le tableau de bord Supabase :
-        {' '}<code>update verrou_application set actif = false where cle = 'verrou';</code>
-      </p>
+      {/* LE RECOURS, écrit ici et pas seulement dans la migration. Celui qui lit
+          ce panneau doit savoir qu'une porte existe, et laquelle.
+
+          DEUX COMMANDES, et non une seule : la première rouvre l'application
+          mais NE REND PAS le mot de passe, et comme en changer exige l'ancien
+          (`verrouDefinir`), le verrou resterait inutilisable pour toujours. La
+          seconde efface tout et ramène au point de départ. Ne donner que la
+          première, comme je l'avais fait d'abord, laissait croire qu'elle
+          suffisait. */}
+      <details className="verrou-recours">
+        <summary>Mot de passe perdu ? La sortie de secours</summary>
+        <p className="help">
+          Les deux commandes s’exécutent dans le <b>SQL Editor</b> du tableau de bord Supabase,
+          auquel vous seul avez accès. C’est là que tient la sécurité du dispositif : hors de
+          l’application, derrière un autre compte.
+        </p>
+        <p className="help">
+          <b>1. Rouvrir l’application</b>, urgent si elle est bloquée et que personne ne travaille :
+          <code>update verrou_application set actif = false where cle = 'verrou';</code>
+        </p>
+        <p className="help">
+          <b>2. Repartir de zéro</b>, nécessaire ensuite : la première commande ne rend pas le
+          mot de passe et il est impossible d’en changer sans l’ancien. Celle-ci efface le verrou,
+          mot de passe compris ; le panneau reproposera alors « Définir le mot de passe » :
+          <code>delete from verrou_application;</code>
+        </p>
+      </details>
     </>}
 
     {ouvert === 'definir' && <Modal onClose={() => !busy && fermer()}>

@@ -16,12 +16,19 @@
 --  ⚠ MIGRATION ADDITIVE. Une table NEUVE, vide, et l'application se comporte
 --  exactement comme avant tant que personne n'a defini de mot de passe.
 --
---  ⚠ RECOURS SI LE MOT DE PASSE EST PERDU. L'application resterait bloquee.
---  La porte de sortie est en base, et elle n'est accessible qu'au proprietaire
---  du projet Supabase :
---      update verrou_application set actif = false where cle = 'verrou';
---  Pour repartir de zero (mot de passe compris) :
---      delete from verrou_application;
+--  ⚠ RECOURS SI LE MOT DE PASSE EST PERDU. DEUX COMMANDES, et la premiere ne
+--  suffit PAS. Elles ne s'executent que depuis le tableau de bord Supabase,
+--  auquel seul le proprietaire du projet a acces : c'est la que tient la
+--  securite du dispositif, hors de l'application et derriere un autre compte.
+--
+--    1. Rouvrir l'application, si elle est bloquee :
+--         update verrou_application set actif = false where cle = 'verrou';
+--       Elle NE REND PAS le mot de passe. Or en changer exige l'ancien (voir
+--       `verrouDefinir`) : le verrou resterait donc inutilisable pour toujours.
+--
+--    2. Repartir de zero, mot de passe compris :
+--         delete from verrou_application;
+--       Le panneau reproposera alors « Definir le mot de passe ».
 -- ============================================================================
 
 create table if not exists verrou_application (
