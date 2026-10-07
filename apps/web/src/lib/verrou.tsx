@@ -47,23 +47,36 @@ export function useVerrou(initial: EtatVerrou | undefined, role: string) {
   return { verrou, setVerrou };
 }
 
+/**
+ * LE LOGO SOUS SUSPENSION, l'embleme du verrou.
+ *
+ * Le dessin parle dans le vocabulaire que l'application emploie deja : le
+ * `Spinner` fait tourner un conteneur autour du logo, et son commentaire
+ * l'explique, tant qu'il tourne le serveur travaille. Celui-ci en est le
+ * CONTRAIRE EXACT. Le conteneur s'elance, BUTE sur une barriere baissee,
+ * recule, et attend ; le tour ne s'acheve jamais. L'anneau passe en
+ * pointilles : le circuit est interrompu.
+ *
+ * `taille` en pixels : le meme dessin sert sur l'ecran de blocage (96),
+ * dans le panneau des Parametres (78) et en tete des fenetres (64). Tout se
+ * derive de cette unique mesure, sans quoi il aurait fallu trois jeux de
+ * regles qui auraient diverge a la premiere retouche.
+ */
+export function LogoVerrou({ taille = 96 }: { taille?: number }) {
+  return <div className="verrou-logo" style={{ ['--t' as string]: taille + 'px' }} aria-hidden="true">
+    <span className="verrou-anneau" />
+    <span className="verrou-orbite"><span className="verrou-colis" /></span>
+    <span className="verrou-barriere" />
+    <img className="logo-rond" src="/logo.png" alt=""
+      onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />
+    <span className="verrou-pause"><i /><i /></span>
+  </div>;
+}
+
 export function EcranVerrouille({ message }: { message: string }) {
   return <div className="verrou-ecran" role="alertdialog" aria-live="assertive">
     <div className="verrou-carte">
-      {/* L'APPLICATION EST SUSPENDUE, et le dessin le dit dans le vocabulaire
-          que l'application emploie deja. Le `Spinner` montre un conteneur qui
-          fait le tour du logo : tant qu'il tourne, le serveur travaille. Ici
-          c'est son contraire exact : le conteneur s'elance, BUTE sur une
-          barriere baissee, recule, et attend. Le tour ne s'acheve jamais.
-          L'anneau, lui, passe en pointilles : le circuit est interrompu. */}
-      <div className="verrou-logo">
-        <span className="verrou-anneau" aria-hidden="true" />
-        <span className="verrou-orbite" aria-hidden="true"><span className="verrou-colis" /></span>
-        <span className="verrou-barriere" aria-hidden="true" />
-        <img className="logo-rond" src="/logo.png" alt=""
-          onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />
-        <span className="verrou-pause" aria-hidden="true"><i /><i /></span>
-      </div>
+      <LogoVerrou taille={96} />
       <h1>Application momentanément bloquée</h1>
       {/* Le message écrit par l'INFO au moment du blocage. C'est tout l'intérêt
           du dispositif : « Inventaire jusqu'à 14 h » évite vingt appels

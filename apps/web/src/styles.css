@@ -3323,29 +3323,79 @@ button.modal-fermer:focus-visible{outline:2px solid #0e5a8a;outline-offset:2px}
   border-left:4px solid var(--err);
 }
 
-.verrou-tete{display:flex;gap:13px;align-items:flex-start;margin-bottom:12px}
-.verrou-tete .ic{color:var(--err);flex:none;margin-top:2px}
-.verrou-tete h3{margin:0 0 3px;font-size:16px;letter-spacing:.005em}
-.verrou-tete .help{margin:0;max-width:64ch}
-
-.verrou-etat{
-  font-size:13.5px;padding:10px 13px;border-radius:11px;margin-bottom:12px;
-  background:rgba(255,255,255,.62);border:1px solid rgba(255,255,255,.8);
+/* LE LOGO A GAUCHE, LE PROPOS A DROITE. Il donne au panneau son identite
+   immediate, la meme que celle des fenetres et de l'ecran de blocage. Sur un
+   ecran etroit tout se range en colonne, logo centre. */
+.verrou-tete{display:flex;gap:18px;align-items:center;margin-bottom:14px}
+.verrou-tete-texte{min-width:0;flex:1}
+.verrou-tete h3{
+  margin:0 0 4px;font-size:17px;letter-spacing:.005em;
+  display:flex;align-items:center;gap:8px;
 }
-.verrou-rouge{color:var(--err)}
-.verrou-vert{color:var(--ok)}
-.verrou-citation{margin-top:6px;font-style:italic;color:var(--ink)}
+.verrou-tete h3 .ic{color:var(--err);flex:none}
+.verrou-tete .help{margin:0;max-width:62ch}
+
+/* L'ETAT : un VOYANT et une phrase. Le voyant se lit de loin, la phrase le
+   dit en toutes lettres pour qui ne distingue pas les couleurs. */
+.verrou-etat{
+  display:flex;gap:10px;align-items:flex-start;
+  font-size:13.5px;padding:11px 14px;border-radius:12px;margin-top:11px;
+  background:rgba(255,255,255,.66);border:1px solid rgba(255,255,255,.85);
+}
+.verrou-voyant{
+  flex:none;width:9px;height:9px;border-radius:50%;margin-top:5px;
+}
+.verrou-etat.vert .verrou-voyant{background:var(--ok);box-shadow:0 0 0 3px rgba(31,122,92,.15)}
+.verrou-etat.vert b{color:var(--ok)}
+/* Le voyant rouge PULSE : un blocage en cours doit se voir meme du coin de
+   l'oeil, c'est un etat qu'on ne doit pas oublier d'avoir pose. */
+.verrou-etat.rouge .verrou-voyant{
+  background:var(--err);box-shadow:0 0 0 3px rgba(196,48,48,.18);
+  animation:verrou-respire 2s ease-in-out infinite;
+}
+.verrou-etat.rouge b{color:var(--err)}
+.verrou-citation{margin-top:5px;font-style:italic;color:var(--ink)}
 
 .verrou-actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
-.verrou-actions .help{margin:0}
-.verrou-bloquer{background:var(--err) !important;background-image:none !important;border-color:var(--err) !important}
-.verrou-rouvrir{background:var(--ok) !important;background-image:none !important;border-color:var(--ok) !important}
-.verrou-recours{margin:14px 0 0;font-size:11.5px}
-.verrou-recours code{
-  background:rgba(255,255,255,.7);border:1px solid rgba(15,45,70,.14);
-  border-radius:6px;padding:1px 6px;font-size:11px;word-break:break-all;
+.verrou-actions .help{margin:0;flex:1;min-width:180px}
+/* Les boutons du verrou portent LEUR propre fond : sans ces exclusions, la
+   regle generale ecrite plus haut les repeindrait tous en bleu. */
+.verrou-principal{padding:11px 18px;border-radius:12px;display:inline-flex;align-items:center;gap:8px}
+.verrou-bloquer{background:var(--err) !important;background-image:none !important;border-color:var(--err) !important;color:#fff !important}
+.verrou-rouvrir{background:var(--ok) !important;background-image:none !important;border-color:var(--ok) !important;color:#fff !important}
+.verrou-pied{display:flex;gap:9px;justify-content:flex-end;margin-top:20px}
+
+/* ---- Les fenetres : meme en-tete que l'ecran de blocage ---- */
+.verrou-fenetre{display:flex;flex-direction:column;gap:2px}
+.verrou-fenetre h2{margin:14px 0 2px;text-align:center}
+.verrou-fenetre .verrou-sous{text-align:center;margin:0 auto 16px;max-width:52ch}
+.verrou-fenetre > label.help{margin:12px 0 6px;font-weight:600;color:var(--ink)}
+.verrou-fenetre > label.help i{font-weight:400;color:var(--muted)}
+
+/* CE QUI MANQUE EST DIT. Un bouton grise sans explication laisse chercher :
+   on nomme ce qu'il attend encore. */
+.verrou-manque{
+  margin-top:8px;font-size:12px;color:var(--warn);
+  padding:7px 11px;border-radius:9px;
+  background:rgba(180,83,31,.07);border:1px solid rgba(180,83,31,.2);
 }
-.verrou-pied{display:flex;gap:9px;justify-content:flex-end;margin-top:18px}
+
+/* L'APERCU du message : cette phrase va s'afficher devant tout le port. */
+.verrou-apercu{
+  margin-top:9px;padding:11px 14px;border-radius:12px;
+  background:rgba(196,48,48,.06);border:1px dashed rgba(196,48,48,.3);
+}
+.verrou-apercu .help{margin:0 0 4px;font-size:11px}
+.verrou-apercu p{margin:0;font-weight:600;color:var(--err);font-size:15px}
+
+@media (max-width:620px){
+  .verrou-tete{flex-direction:column;text-align:center}
+  .verrou-tete h3{justify-content:center}
+  .verrou-etat{text-align:left}
+  .verrou-actions{flex-direction:column;align-items:stretch}
+  .verrou-pied{flex-direction:column-reverse}
+  .verrou-pied button{width:100%}
+}
 
 /* ---- L'écran que voient les comptes bloqués ---- */
 .verrou-ecran{
@@ -3370,8 +3420,18 @@ button.modal-fermer:focus-visible{outline:2px solid #0e5a8a;outline-offset:2px}
 }
 .verrou-aide{font-size:13px;color:var(--muted);margin:0;line-height:1.5}
 
-.verrou-logo{position:relative;width:96px;height:96px;margin:0 auto;display:grid;place-items:center}
-.verrou-logo .logo-rond{width:58px;height:58px;border-radius:50%;position:relative;z-index:1}
+/* TOUT SE DERIVE DE `--t`, la taille demandee : le meme dessin sert a 96 px
+   sur l'ecran de blocage, a 78 dans le panneau et a 64 en tete des fenetres.
+   Trois jeux de regles auraient diverge a la premiere retouche. */
+.verrou-logo{
+  --t:96px;
+  position:relative;width:var(--t);height:var(--t);margin:0 auto;
+  display:grid;place-items:center;flex:none;
+}
+.verrou-logo .logo-rond{
+  width:calc(var(--t) * .6);height:calc(var(--t) * .6);
+  border-radius:50%;position:relative;z-index:1;
+}
 /* L'anneau RESPIRE plutôt qu'il ne tourne : on peut rester devant cet écran
    plusieurs minutes, et une rotation continue y deviendrait vite pénible. */
 .verrou-anneau{
@@ -3406,12 +3466,13 @@ button.modal-fermer:focus-visible{outline:2px solid #0e5a8a;outline-offset:2px}
   border-color:rgba(196,48,48,.42);
 }
 .verrou-orbite{
-  position:absolute;inset:-6px;border-radius:50%;
+  position:absolute;inset:calc(var(--t) * -.062);border-radius:50%;
   animation:verrou-elan 5.2s cubic-bezier(.33,.9,.4,1) infinite;
 }
 .verrou-colis{
-  position:absolute;top:-6px;left:50%;margin-left:-6px;
-  width:12px;height:12px;border-radius:3px;
+  position:absolute;top:calc(var(--t) * -.062);left:50%;
+  margin-left:calc(var(--t) * -.062);
+  width:calc(var(--t) * .125);height:calc(var(--t) * .125);border-radius:3px;
   background:linear-gradient(135deg,#c43030,#a02020);
   box-shadow:0 2px 7px rgba(150,30,30,.45);
 }
@@ -3431,7 +3492,8 @@ button.modal-fermer:focus-visible{outline:2px solid #0e5a8a;outline-offset:2px}
    laisser passer le camion ; ici elle barre la route, a l'endroit exact ou le
    conteneur s'arrete. */
 .verrou-barriere{
-  position:absolute;top:50%;right:-10px;width:30px;height:3px;margin-top:-1.5px;
+  position:absolute;top:50%;right:calc(var(--t) * -.104);
+  width:calc(var(--t) * .31);height:3px;margin-top:-1.5px;
   border-radius:2px;transform-origin:right center;
   background:repeating-linear-gradient(90deg,#c43030 0 6px,#fff 6px 12px);
   box-shadow:0 1px 4px rgba(150,30,30,.35);
@@ -3448,13 +3510,16 @@ button.modal-fermer:focus-visible{outline:2px solid #0e5a8a;outline-offset:2px}
 /* Le signe PAUSE, pose sur le logo : la lecture immediate, pour qui ne
    regardera pas l'animation tourner. */
 .verrou-pause{
-  position:absolute;right:2px;bottom:2px;z-index:2;
-  width:24px;height:24px;border-radius:50%;
+  position:absolute;right:0;bottom:0;z-index:2;
+  width:calc(var(--t) * .25);height:calc(var(--t) * .25);border-radius:50%;
   display:flex;align-items:center;justify-content:center;gap:3px;
   background:var(--err);box-shadow:0 2px 8px rgba(150,30,30,.45);
   animation:verrou-respire 2.6s ease-in-out infinite;
 }
-.verrou-pause i{width:3px;height:10px;border-radius:1px;background:#fff}
+.verrou-pause i{
+  width:calc(var(--t) * .031);height:calc(var(--t) * .104);
+  border-radius:1px;background:#fff;
+}
 
 @media (prefers-reduced-motion:reduce){
   .verrou-orbite,.verrou-barriere,.verrou-pause{animation:none}

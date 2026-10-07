@@ -12,6 +12,7 @@ import { bornesDe, isoDate, normaliserPlage, type ModePeriode, repartition } fro
 import { trierEngagements, filtrerEngagements, type TriEngagement, type SensTri } from './lib/tri-engagements.ts';
 import { Detail, TitrePanneau } from './detail.tsx';
 import { EcranParking, ResultatsParking, useAlerteParking } from './parking.tsx';
+import { LogoVerrou } from './lib/verrou.tsx';
 import type { ReactNode } from 'react';
 import type { Nav } from './App.tsx';
 import { useNav } from './lib/contexte-nav.ts';
@@ -2056,40 +2057,50 @@ function PanneauVerrou() {
   }
 
   return <div className={`card verrou-panneau ${actif ? 'arme' : ''}`}>
+    {/* LE LOGO SOUS SUSPENSION EST L'EMBLÈME DU VERROU (2026-10-07, demande
+        utilisateur), ici comme sur les fenêtres et sur l'écran de blocage.
+        C'est ce qui fait reconnaître d'un coup d'œil qu'on est devant le même
+        dispositif, à trois endroits différents de l'application.
+        Il DÉCORE, il ne renseigne pas : l'état réel est écrit en toutes
+        lettres juste à côté, « ouverte » ou « bloquée ». */}
     <div className="verrou-tete">
-      <Icone nom="interrupteur" taille={20} />
-      <div>
-        <h3>Verrou de l’application</h3>
+      <LogoVerrou taille={78} />
+      <div className="verrou-tete-texte">
+        <h3><Icone nom="interrupteur" taille={17} />Verrou de l’application</h3>
         <p className="help">
           Bloque l’application pour <b>tous les comptes</b>. Vous seul continuez de
           travailler, et vous seul pouvez rouvrir.
         </p>
+        <div className={`verrou-etat ${actif ? 'rouge' : 'vert'}`}>
+          <span className="verrou-voyant" aria-hidden="true" />
+          {actif
+            ? <div>
+              <b>Application bloquée</b>
+              {data?.['bloqueLe'] ? <> depuis le {fmtDate(data['bloqueLe'])}</> : null}
+              {data?.['bloquePar'] ? <>, par {String(data['bloquePar'])}</> : null}.
+              {data?.['message'] ? <div className="verrou-citation">« {String(data['message'])} »</div> : null}
+            </div>
+            : <div><b>Application ouverte</b>, tout le monde travaille normalement.</div>}
+        </div>
       </div>
     </div>
 
     {loading ? <Spinner /> : <>
-      <div className="verrou-etat">
-        {actif
-          ? <><b className="verrou-rouge">Application bloquée</b>
-            {data?.['bloqueLe'] ? <> depuis le {fmtDate(data['bloqueLe'])}</> : null}
-            {data?.['bloquePar'] ? <>, par {String(data['bloquePar'])}</> : null}.
-            {data?.['message'] ? <div className="verrou-citation">« {String(data['message'])} »</div> : null}</>
-          : <><b className="verrou-vert">Application ouverte</b>, tout le monde travaille normalement.</>}
-      </div>
-
       {/* Tant qu'aucun mot de passe n'existe, le bouton de blocage n'a aucun
           sens : on ne propose que de le définir. */}
       {!defini
         ? <div className="verrou-actions">
-          <button onClick={() => setOuvert('definir')}>Définir le mot de passe du verrou</button>
+          <button className="verrou-principal" onClick={() => setOuvert('definir')}>
+            <Icone nom="reglages" taille={16} />Définir le mot de passe du verrou
+          </button>
           <span className="help">Aucun mot de passe n’est défini : le verrou est inutilisable.</span>
         </div>
         : <div className="verrou-actions">
           {actif
-            ? <button className="verrou-rouvrir" onClick={() => setOuvert('ouvrir')}>
+            ? <button className="verrou-principal verrou-rouvrir" onClick={() => setOuvert('ouvrir')}>
               <Icone nom="valider" taille={16} />Rouvrir l’application
             </button>
-            : <button className="verrou-bloquer" onClick={() => setOuvert('bloquer')}>
+            : <button className="verrou-principal verrou-bloquer" onClick={() => setOuvert('bloquer')}>
               <Icone nom="interrupteur" taille={16} />Bloquer l’application
             </button>}
           <button className="ghost" onClick={() => setOuvert('definir')}>Changer le mot de passe</button>
@@ -2125,62 +2136,88 @@ function PanneauVerrou() {
     </>}
 
     {ouvert === 'definir' && <Modal onClose={() => !busy && fermer()}>
-      <h2>{defini ? 'Changer le mot de passe du verrou' : 'Définir le mot de passe du verrou'}</h2>
-      <p className="help">
-        Ce mot de passe n’est pas celui de votre compte. Il ne sert qu’à bloquer et à rouvrir
-        l’application, et il n’est jamais conservé en clair.
-      </p>
-      {defini && <>
-        <label className="help">Mot de passe actuel</label>
-        <input type="password" value={ancien} onChange={(e) => setAncien(e.target.value)} autoComplete="off" />
-      </>}
-      <label className="help">Nouveau mot de passe <i>(8 caractères au minimum)</i></label>
-      <input type="password" value={mdp} onChange={(e) => setMdp(e.target.value)} autoComplete="new-password" />
-      <label className="help">Confirmez le nouveau mot de passe</label>
-      <input type="password" value={confirmation} onChange={(e) => setConfirmation(e.target.value)} autoComplete="new-password" />
-      <div className="verrou-pied">
-        <button className="ghost" disabled={busy} onClick={fermer}>Annuler</button>
-        <button disabled={busy || mdp.length < 8 || confirmation !== mdp || (defini && !ancien)}
-          onClick={() => agir('verrou.definir', { ancien, nouveau: mdp, confirmation }, 'Mot de passe du verrou enregistré.')}>
-          {busy ? 'Enregistrement…' : 'Enregistrer'}
-        </button>
+      <div className="verrou-fenetre">
+        <LogoVerrou taille={64} />
+        <h2>{defini ? 'Changer le mot de passe du verrou' : 'Définir le mot de passe du verrou'}</h2>
+        <p className="help verrou-sous">
+          Ce mot de passe n’est pas celui de votre compte. Il ne sert qu’à bloquer et à rouvrir
+          l’application, et il n’est jamais conservé en clair.
+        </p>
+        {defini && <>
+          <label className="help">Mot de passe actuel</label>
+          <input type="password" value={ancien} onChange={(e) => setAncien(e.target.value)} autoComplete="off" />
+        </>}
+        <label className="help">Nouveau mot de passe <i>(8 caractères au minimum)</i></label>
+        <input type="password" value={mdp} onChange={(e) => setMdp(e.target.value)} autoComplete="new-password" />
+        <label className="help">Confirmez le nouveau mot de passe</label>
+        <input type="password" value={confirmation} onChange={(e) => setConfirmation(e.target.value)} autoComplete="new-password" />
+        {/* Ce qui manque est DIT, au lieu de laisser un bouton grisé sans
+            explication : c'est la question qu'on se pose devant un bouton
+            qui refuse de s'allumer. */}
+        {/* UN SEUL message a la fois, et dans l'ordre ou l'on corrige : tant
+            que le mot de passe est trop court, lui reprocher en plus de ne pas
+            correspondre a sa confirmation ne sert a rien. */}
+        {mdp !== '' && mdp.length < 8
+          ? <div className="verrou-manque">Encore {8 - mdp.length} caractère(s).</div>
+          : (mdp || confirmation) && mdp !== confirmation
+            ? <div className="verrou-manque">Les deux saisies ne correspondent pas encore.</div>
+            : null}
+        <div className="verrou-pied">
+          <button className="ghost" disabled={busy} onClick={fermer}>Annuler</button>
+          <button className="verrou-principal" disabled={busy || mdp.length < 8 || confirmation !== mdp || (defini && !ancien)}
+            onClick={() => agir('verrou.definir', { ancien, nouveau: mdp, confirmation }, 'Mot de passe du verrou enregistré.')}>
+            {busy ? 'Enregistrement…' : 'Enregistrer'}
+          </button>
+        </div>
       </div>
     </Modal>}
 
     {ouvert === 'bloquer' && <Modal onClose={() => !busy && fermer()}>
-      <h2>Bloquer l’application</h2>
-      <p className="help">
-        Tous les comptes seront bloqués sur place : leur session reste ouverte, un écran
-        s’affiche par-dessus leur travail. Vous seul continuez de travailler.
-      </p>
-      <label className="help">Raison du blocage <i>(les agents la liront en plein écran)</i></label>
-      <input value={message} onChange={(e) => setMessage(e.target.value)} maxLength={500}
-        placeholder="Maintenance jusqu’à 14 h, inventaire en cours…" />
-      <label className="help">Mot de passe du verrou</label>
-      <input type="password" value={mdp} onChange={(e) => setMdp(e.target.value)} autoComplete="off" />
-      <div className="verrou-pied">
-        <button className="ghost" disabled={busy} onClick={fermer}>Annuler</button>
-        <button className="verrou-bloquer" disabled={busy || !message.trim() || !mdp}
-          onClick={() => agir('verrou.bloquer', { motDePasse: mdp, message }, 'Application bloquée.')}>
-          {busy ? 'Blocage…' : 'Bloquer maintenant'}
-        </button>
+      <div className="verrou-fenetre">
+        <LogoVerrou taille={64} />
+        <h2>Bloquer l’application</h2>
+        <p className="help verrou-sous">
+          Tous les comptes seront bloqués sur place : leur session reste ouverte, un écran
+          s’affiche par-dessus leur travail. Vous seul continuez de travailler.
+        </p>
+        <label className="help">Raison du blocage <i>(les agents la liront en plein écran)</i></label>
+        <input value={message} onChange={(e) => setMessage(e.target.value)} maxLength={500}
+          placeholder="Maintenance jusqu’à 14 h, inventaire en cours…" />
+        {/* L'APERÇU. Cette phrase va s'afficher devant tout le port : la voir
+            avant de l'envoyer vaut mieux que de la corriger après. */}
+        {message.trim() && <div className="verrou-apercu">
+          <span className="help">Ce que les agents verront :</span>
+          <p>{message.trim()}</p>
+        </div>}
+        <label className="help">Mot de passe du verrou</label>
+        <input type="password" value={mdp} onChange={(e) => setMdp(e.target.value)} autoComplete="off" />
+        <div className="verrou-pied">
+          <button className="ghost" disabled={busy} onClick={fermer}>Annuler</button>
+          <button className="verrou-principal verrou-bloquer" disabled={busy || !message.trim() || !mdp}
+            onClick={() => agir('verrou.bloquer', { motDePasse: mdp, message }, 'Application bloquée.')}>
+            {busy ? 'Blocage…' : 'Bloquer maintenant'}
+          </button>
+        </div>
       </div>
     </Modal>}
 
     {ouvert === 'ouvrir' && <Modal onClose={() => !busy && fermer()}>
-      <h2>Rouvrir l’application</h2>
-      <p className="help">
-        Chacun reprendra où il en était, sans se reconnecter. L’écran de blocage disparaît
-        tout seul, au plus tard quinze secondes après.
-      </p>
-      <label className="help">Mot de passe du verrou</label>
-      <input type="password" value={mdp} onChange={(e) => setMdp(e.target.value)} autoComplete="off" />
-      <div className="verrou-pied">
-        <button className="ghost" disabled={busy} onClick={fermer}>Annuler</button>
-        <button disabled={busy || !mdp}
-          onClick={() => agir('verrou.ouvrir', { motDePasse: mdp }, 'Application rouverte.')}>
-          {busy ? 'Réouverture…' : 'Rouvrir'}
-        </button>
+      <div className="verrou-fenetre">
+        <LogoVerrou taille={64} />
+        <h2>Rouvrir l’application</h2>
+        <p className="help verrou-sous">
+          Chacun reprendra où il en était, sans se reconnecter. L’écran de blocage disparaît
+          tout seul, au plus tard quinze secondes après.
+        </p>
+        <label className="help">Mot de passe du verrou</label>
+        <input type="password" value={mdp} onChange={(e) => setMdp(e.target.value)} autoComplete="off" />
+        <div className="verrou-pied">
+          <button className="ghost" disabled={busy} onClick={fermer}>Annuler</button>
+          <button className="verrou-principal verrou-rouvrir" disabled={busy || !mdp}
+            onClick={() => agir('verrou.ouvrir', { motDePasse: mdp }, 'Application rouverte.')}>
+            {busy ? 'Réouverture…' : 'Rouvrir'}
+          </button>
+        </div>
       </div>
     </Modal>}
   </div>;
