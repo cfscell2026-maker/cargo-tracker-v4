@@ -21,7 +21,7 @@ import { Icone } from './lib/icones.tsx';
 import { Spinner, StatCard, Modal, masks, toast, fmtDate, fmtJour, ChampCamion, ChoixSegmente, BoutonBascule } from './lib/ui.tsx';
 import { BandeauModule, SelecteurPeriode, useChoixPeriode } from './screens.tsx';
 import type { Nav } from './App.tsx';
-import { ROLES, alphaNumMaj, camionValide, dureeLisible } from '../../../supabase/functions/_shared/domaine/src/index.ts';
+import { ROLES, alphaNumMaj, camionValide, dureeLisible, aPouvoirAdmin} from '../../../supabase/functions/_shared/domaine/src/index.ts';
 
 type O = Record<string, unknown>;
 const s = (v: unknown) => String(v ?? '');
@@ -42,7 +42,7 @@ export function EcranParking({ user, go }: Nav) {
   const [edite, setEdite] = useState<O | null>(null);
   const [supprime, setSupprime] = useState<O | null>(null);
   const [busy, setBusy] = useState('');
-  const admin = user.role === ROLES.ADMIN;
+  const admin = aPouvoirAdmin(user.role);
   /* PÉRIODE (demande utilisateur) : jour, mois, année ou plage, sur la DATE
      D'ENTRÉE au parking. MÊME sélecteur que partout ailleurs depuis le
      2026-10-06 : le menu dit la granularité, le champ voisin dit laquelle.

@@ -16,7 +16,7 @@ import type { ReactNode } from 'react';
 import type { Nav } from './App.tsx';
 import { useNav } from './lib/contexte-nav.ts';
 import { ROLES, OPERATIONS, VEHICULE_DESTINATIONS, TYPES_DECLARATION, optionTypeDeclaration, STATUTS, SUIVENT_ENGAGEMENTS, dateDansNJours, tcValide, fileAttente, estTypeSansT1, libelleTypeSansT1, exigeControlePoids, dureeLisible,
-  ROLES_TECHNIQUES, rangTechnique, extraireNumerosTC, aLeDroit } from '../../../supabase/functions/_shared/domaine/src/index.ts';
+  ROLES_TECHNIQUES, rangTechnique, extraireNumerosTC, aLeDroit, aPouvoirAdmin} from '../../../supabase/functions/_shared/domaine/src/index.ts';
 
 const STATUT_OPTIONS = Object.values(STATUTS);
 
@@ -397,7 +397,7 @@ function CargoList({ go, screen, user, filtre, titre, barre }: Nav & { filtre: O
     {loading ? <Spinner /> : error ? <div className="err-msg">{error}</div> : <>
       <Table cols={[['id', 'ID'], ['dateCreation', 'Date'], ['numeroCamion', 'Camion'], ['typeOperation', 'Opération'], ['statut', 'Statut'], ['suiviEngagement', 'Engagement'], ['numeroGps', 'GPS']]}
         rows={data?.rows ?? []} onRow={(r) => go('detail', r['id'])}
-        actions={(r) => <ActionsDossier r={r} admin={user.role === ROLES.ADMIN} onFait={reload} />} />
+        actions={(r) => <ActionsDossier r={r} admin={aPouvoirAdmin(user.role)} onFait={reload} />} />
       {(data?.pages ?? 1) > 1 && <div className="row" style={{ marginTop: 10, justifyContent: 'center' }}>
         <button className="ghost xs" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>‹</button>
         <span>Page {page} / {data?.pages}</span>
@@ -622,7 +622,7 @@ function BandeauEngagements({ role, go }: { role: string; go: Nav['go'] }) {
         </button>
       </div>;
     })}
-    {corrige && <ModaleCorrigerEngagement ligne={corrige} admin={role === ROLES.ADMIN}
+    {corrige && <ModaleCorrigerEngagement ligne={corrige} admin={aPouvoirAdmin(role)}
       onClose={() => setCorrige(null)}
       onFait={() => { setCorrige(null); setN((x) => x + 1); }} />}
   </div>;
@@ -1003,7 +1003,7 @@ function itemsConteneurs(role: string): [string, string, string][] {
   const confEntree: [string, string, string] = ['confentree', 'Confirmer entrée', 'valider'];
   // v4.2, positionnés / dépotés / restant par jour (demande CFS).
   const depot: [string, string, string] = ['depotstats', 'Statistiques de dépotage', 'rapport'];
-  if (role === 'ADMIN') return [stock, pointage, stockjour, depot, imp, impAnn, annonce, pointEntree, confEntree];
+  if (aPouvoirAdmin(role)) return [stock, pointage, stockjour, depot, imp, impAnn, annonce, pointEntree, confEntree];
   if (role === 'PP') return [annonce, pointEntree, confEntree];
   if (role === 'CFS') return [stock, pointage, stockjour, depot, imp, annonce, confEntree];
   // Chefs : lecture seule, mais les statistiques de dépotage les intéressent.
@@ -1023,7 +1023,7 @@ function VehiculesEcran({ nav }: { nav: Nav }) {
   // sans période (présents sur site = non sortis ; sortis = déjà sortis).
   const { data, loading } = useAsync<{ compte: O }>(() => call('report.vehicule', {}), []);
   const cp = (data?.compte ?? {}) as O;
-  const peutCreer = nav.user.role === 'CFS' || nav.user.role === 'ADMIN';
+  const peutCreer = nav.user.role === 'CFS' || aPouvoirAdmin(nav.user.role);
   return <>
     <BandeauModule icone="voiture" titre="Véhicules dépotés"
       sous="Sortis d'un conteneur, ils sont suivis à part des camions."
@@ -1107,7 +1107,7 @@ function EcranEntrepot({ nav, type }: { nav: Nav; type: EntrepotType }) {
       : onglet === 'entree' ? <EntrepotEntree type={type} entrepots={entrepots} />
         : onglet === 'sortie' ? <EntrepotSortie type={type} entrepots={entrepots} nav={nav} />
           : onglet === 'stats' ? <EntrepotStats type={type} role={nav.user.role} />
-            : <EntrepotGerer type={type} reload={reload} admin={nav.user.role === 'ADMIN'} />}
+            : <EntrepotGerer type={type} reload={reload} admin={aPouvoirAdmin(nav.user.role)} />}
   </>;
 }
 
@@ -1528,7 +1528,7 @@ function DetailEntrepotStats({ entrepot, unite, lib, role, onClose, onFait }: {
   const [supprime, setSupprime] = useState<O | null>(null);
   // Suppression réservée à l'administration : le seul rôle qui voit TOUS les
   // volets de l'application (décision utilisateur).
-  const admin = role === ROLES.ADMIN;
+  const admin = aPouvoirAdmin(role);
 
   // Les plus récentes d'abord : on consulte un magasin par son actualité.
   const recues = ((data?.rows ?? []) as O[]).slice()
@@ -1696,7 +1696,7 @@ function DetailApurements({ code, apur, unite, role, onClose, onFait }: {
   const { data, loading, reload } = useAsync<{ rows: O[] }>(
     () => call('entrepot.sorties', { entrepotCode: code, entreeId: apur.entreeId, numeroArticle: apur.numero }), [code, apur.entreeId, apur.numero]);
   const champ = unite === 'kg' ? 'poids' : 'nbColis';
-  const admin = role === ROLES.ADMIN;
+  const admin = aPouvoirAdmin(role);
   const [edite, setEdite] = useState<O | null>(null);
   const [supprime, setSupprime] = useState<O | null>(null);
   const rows = ((data?.rows ?? []) as O[]).map((r) => {
@@ -1873,7 +1873,7 @@ SCREENS.engagements = ({ go, user }) => {
   // ce qu'on fait, solder un engagement le fait passer de l'un à l'autre.
   const glob = (data?.['global'] as O) ?? {};
   const peut = SUIVENT_ENGAGEMENTS.includes(user.role as never);
-  const admin = user.role === ROLES.ADMIN;
+  const admin = aPouvoirAdmin(user.role);
 
   async function solder(id: string) {
     setBusy(id);
@@ -2022,7 +2022,7 @@ SCREENS.parking = EcranParking;
 const ICONE_GROUPE: Record<string, string> = { Conteneurs: 'conteneur', Engagements: 'sablier', 'Contrôles': 'balance', Affichage: 'tableau' };
 
 SCREENS.parametres = ({ user }) => {
-  const admin = user.role === ROLES.ADMIN;
+  const admin = aPouvoirAdmin(user.role);
   /* RÉSERVÉ À L'ADMINISTRATEUR (décision utilisateur, 2026-09-21). Le menu ne
      le propose qu'à lui ; ce garde couvre toute autre façon d'arriver ici. Les
      réglages, eux, restent LUS par tous les rôles (params.get) : c'est ce qui les
@@ -2491,7 +2491,7 @@ SCREENS.search = ({ go, user }) => {
         cols={[['numeroCamion', 'Camion / Châssis'], ['conteneur1', 'Conteneur'], ['typeOperation', 'Opération'],
           ['statut', 'Statut'], ['etapeEnCours', 'Attendu à'], ['dateCreation', 'Entré le']]}
         rows={rows.map(avecEtape)} onRow={(r) => go('detail', r['id'])}
-        actions={(r) => <ActionsDossier r={r} admin={user.role === ROLES.ADMIN} onFait={reload} />} />}
+        actions={(r) => <ActionsDossier r={r} admin={aPouvoirAdmin(user.role)} onFait={reload} />} />}
     </div>
   </div>
     <ResultatsParking recherche={q} go={go} exclureIds={rows.map((r) => String(r['id']))} />
@@ -4537,7 +4537,7 @@ function BlocArchives() {
 }
 
 SCREENS.goulots = (nav) => {
-  const admin = nav.user.role === 'ADMIN';
+  const admin = aPouvoirAdmin(nav.user.role);
   const [jours, setJours] = useState(90);
   const [sel, setSel] = useState<Set<string>>(new Set());
   const [motif, setMotif] = useState('');

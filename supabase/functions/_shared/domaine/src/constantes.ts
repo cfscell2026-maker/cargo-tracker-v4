@@ -112,6 +112,27 @@ export function estRoleTechnique(role: unknown): boolean {
 }
 
 /**
+ * CE PROFIL A-T-IL LES POUVOIRS DE L'ADMINISTRATEUR ? (2026-10-07, demande
+ * utilisateur : « l'INFO doit avoir accès à tous les volets, même Paramètres ».)
+ *
+ * `verifierPermission` faisait déjà hériter SUPER_ADMIN et INFO des droits de
+ * l'ADMIN, action par action. Mais une trentaine d'endroits, dans le serveur
+ * comme dans l'interface, posaient la question AUTREMENT : `role === ADMIN`.
+ * Ces comparaisons-là ne connaissaient pas l'héritage, et un compte INFO se
+ * voyait refuser ce que la matrice venait de lui accorder : le volet Paramètres
+ * s'ouvrait sur « réservé à l'administrateur », les dérogations d'étape
+ * tombaient, les boutons de correction disparaissaient.
+ *
+ * Un seul verdict, donc, et on l'appelle partout où l'on jugeait le rôle DE
+ * L'ACTEUR. ⚠ Pas là où l'on juge le rôle D'UNE CIBLE : refuser de déclasser
+ * le dernier ADMIN, ou tracer une promotion, parle du compte qu'on modifie, pas
+ * de celui qui modifie. Confondre les deux ouvrirait des trous silencieux.
+ */
+export function aPouvoirAdmin(role: unknown): boolean {
+  return String(role ?? '') === ROLES.ADMIN || estRoleTechnique(role);
+}
+
+/**
  * RANG D'UN ROLE TECHNIQUE (2026-10-03, precision utilisateur).
  *
  * Les deux roles techniques ne sont PAS a egalite : l'INFO est au-dessus du

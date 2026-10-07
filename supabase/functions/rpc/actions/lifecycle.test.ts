@@ -3957,3 +3957,47 @@ test("exemption : dispense et escorte se distinguent, la reference ne filtre plu
   assert.equal(r.compte.escortes, 1);
   assert.deepEqual(r.rows.map((x) => x.exemption).sort(), ['dispense', 'dispense', 'escorte']);
 });
+
+/* ---------------- Les roles techniques ont les pouvoirs de l'ADMIN --------- */
+
+test("INFO et SUPER_ADMIN derogent comme un ADMIN (correction d'un historique)", async () => {
+  /* 07/10/2026, demande utilisateur : « l'INFO doit avoir acces a tous les
+     volets ». La matrice leur accordait deja les actions, mais une trentaine
+     de gardes ecrites `role === ADMIN` ignoraient cet heritage : le dossier
+     avance restait incorrigeable pour eux. Un test par role, parce qu'un seul
+     laisserait passer une regression sur l'autre. */
+  for (const technique of ['INFO', 'SUPER_ADMIN']) {
+    const db = new FakeDB();
+    db.store['stock'].push({ numero_tc: 'MSKU1111111', taille: "40'", statut: 'En stock' });
+    const cfs = ctxAvec(db);
+    const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'TEC' + technique.slice(0, 3) + '/RM01', routage: 'Enlèvement' })) as { id: string };
+    await ecr.cfs(cfs, { id, conteneur: { num: 'MSKU1111111', taille: "40'", type: 'DRY', plomb: 'S1' }, declaration: DECL_OK });
+    await ecr.valider(ctxRole(db, 'CHEF_BRIGADE', 'CB'), { id, enSurcharge: false, suiviEngagement: false });
+    await ecr.t1(ctxRole(db, 'T1', 'Agent T1'), { id, bureauDestination: 'TG120', t1Numeros: [{ conteneur: 'MSKU1111111', numero: 'T1-' + technique }] });
+
+    // Le CFS, lui, reste refuse : la derogation n'est pas devenue generale.
+    await assert.rejects(
+      () => ecr.editconteneur(cfs, { id, index: 0, num: 'MSKU1111111', taille: "20'", type: 'DRY', plomb: 'S2' }),
+      /a déjà avancé/, technique);
+
+    await ecr.editconteneur(ctxRole(db, technique, technique), { id, index: 0, num: 'MSKU1111111', taille: "20'", type: 'DRY', plomb: 'S9' });
+    const c = versCamel(db.store['cargaisons'][0]!);
+    assert.equal((c['conteneursDetails'] as { conteneurs: { taille: string }[] }).conteneurs[0]?.taille, "20'", technique);
+  }
+});
+
+test("INFO peut signer une etape hors de son tour, comme l'ADMIN", async () => {
+  const db = new FakeDB();
+  db.store['stock'].push({ numero_tc: 'MSKU2222222', taille: "40'", statut: 'En stock' });
+  const cfs = ctxAvec(db);
+  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'TECINF2/RM01', routage: 'Enlèvement' })) as { id: string };
+  await ecr.cfs(cfs, { id, conteneur: { num: 'MSKU2222222', taille: "40'", type: 'DRY', plomb: 'S1' }, declaration: DECL_OK });
+
+  // La balise avant le T1 : refusee a l'agent, la chaine n'est pas respectee.
+  await assert.rejects(
+    () => ecr.gps(ctxRole(db, 'BALISE', 'B'), { id, baliseRequise: 'Oui', t1Correct: 'Oui', numeroGPS: 'G1' }),
+    /./);
+  // L'INFO passe outre, exactement comme un ADMIN.
+  await ecr.gps(ctxRole(db, 'INFO', 'Sam'), { id, baliseRequise: 'Oui', t1Correct: 'Oui', numeroGPS: 'G2' });
+  assert.equal(versCamel(db.store['cargaisons'][0]!)['numeroGps'], 'G2');
+});

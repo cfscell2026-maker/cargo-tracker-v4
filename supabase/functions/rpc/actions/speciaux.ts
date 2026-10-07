@@ -11,8 +11,7 @@ import { chargerParametres } from './parametres.ts';
 import {
   ROLES, STATUTS, OPERATIONS, sautsTypeC,
   alphaNumMaj, maj, txt, tcValide, camionValide, messageCamionFormat, parseDateImport,
-  normaliserDeclaration, construireCamion, construireCamionEffets, construireVehicule, type CamionConstruit,
-} from '../../_shared/domaine/src/index.ts';
+  normaliserDeclaration, construireCamion, construireCamionEffets, construireVehicule, type CamionConstruit, aPouvoirAdmin} from '../../_shared/domaine/src/index.ts';
 import {
   getCargo, patchCargo, nextId, nextRapportId, ajouterConteneurs, lierStock, lookupDeclaration, majApurement,
 } from './helpers.ts';
@@ -351,7 +350,7 @@ export async function ouillagedecl(ctx: Ctx, p: Record<string, unknown>) {
   const cargo = await getCargo(ctx, id);
   const c = cargo.o;
   if (c['estVehicule'] !== true && c['estVehicule'] !== 'Oui') throw new Error('Action réservée aux véhicules.');
-  if (ctx.session.role !== ROLES.ADMIN && c['statut'] !== STATUTS.VEHICULE_OUILLAGE)
+  if (!aPouvoirAdmin(ctx.session.role) && c['statut'] !== STATUTS.VEHICULE_OUILLAGE)
     throw new Error('Déclaration impossible : le véhicule doit être au statut « Véhicule ouillage créé » (statut « ' + c['statut'] + ' »).');
   const patch: Record<string, unknown> = {
     declarant: decl.declarant, contact_declarant: decl.contactDeclarant, destination_marchandise: decl.destinationMarchandise,
