@@ -50,10 +50,19 @@ export function useVerrou(initial: EtatVerrou | undefined, role: string) {
 export function EcranVerrouille({ message }: { message: string }) {
   return <div className="verrou-ecran" role="alertdialog" aria-live="assertive">
     <div className="verrou-carte">
+      {/* L'APPLICATION EST SUSPENDUE, et le dessin le dit dans le vocabulaire
+          que l'application emploie deja. Le `Spinner` montre un conteneur qui
+          fait le tour du logo : tant qu'il tourne, le serveur travaille. Ici
+          c'est son contraire exact : le conteneur s'elance, BUTE sur une
+          barriere baissee, recule, et attend. Le tour ne s'acheve jamais.
+          L'anneau, lui, passe en pointilles : le circuit est interrompu. */}
       <div className="verrou-logo">
         <span className="verrou-anneau" aria-hidden="true" />
+        <span className="verrou-orbite" aria-hidden="true"><span className="verrou-colis" /></span>
+        <span className="verrou-barriere" aria-hidden="true" />
         <img className="logo-rond" src="/logo.png" alt=""
           onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />
+        <span className="verrou-pause" aria-hidden="true"><i /><i /></span>
       </div>
       <h1>Application momentanément bloquée</h1>
       {/* Le message écrit par l'INFO au moment du blocage. C'est tout l'intérêt
