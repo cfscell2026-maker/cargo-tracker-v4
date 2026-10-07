@@ -3288,3 +3288,99 @@ button.modal-fermer:focus-visible{outline:2px solid #0e5a8a;outline-offset:2px}
    plutôt que de comprimer la phrase. */
 .acp-entete{display:flex;gap:12px;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;margin-bottom:10px}
 .acp-entete .help{flex:1;min-width:240px}
+
+/* ================== VERROU DE L'APPLICATION, 2026-10-07 ================
+ *
+ * Demande utilisateur : un bloc en verre dépoli, blanc dégradé vers le rouge.
+ *
+ * LE ROUGE EST EN BAS, pas partout. Un panneau entièrement rouge crierait en
+ * permanence dans un volet qu'on ouvre pour régler des seuils ; la teinte monte
+ * depuis le bas, assez pour qu'on sache que ce bloc n'est pas comme les autres,
+ * assez peu pour que le texte s'y lise sans effort.
+ * ====================================================================== */
+.verrou-panneau{
+  background:
+    linear-gradient(170deg,
+      rgba(255,255,255,.90) 0%,
+      rgba(255,255,255,.82) 42%,
+      rgba(214,69,69,.16) 82%,
+      rgba(196,48,48,.26) 100%);
+  backdrop-filter:blur(22px) saturate(170%);
+  -webkit-backdrop-filter:blur(22px) saturate(170%);
+  border:1px solid rgba(255,255,255,.75);
+  box-shadow:
+    0 12px 34px rgba(150,30,30,.14),
+    inset 0 1px 0 rgba(255,255,255,.95);
+}
+/* Verrou ARMÉ : le rouge remonte et le liseré gauche le dit de loin, pour que
+   l'état se lise sans avoir à relire la phrase. */
+.verrou-panneau.arme{
+  background:
+    linear-gradient(170deg,
+      rgba(255,255,255,.86) 0%,
+      rgba(214,69,69,.18) 38%,
+      rgba(196,48,48,.30) 100%);
+  border-left:4px solid var(--err);
+}
+
+.verrou-tete{display:flex;gap:13px;align-items:flex-start;margin-bottom:12px}
+.verrou-tete .ic{color:var(--err);flex:none;margin-top:2px}
+.verrou-tete h3{margin:0 0 3px;font-size:16px;letter-spacing:.005em}
+.verrou-tete .help{margin:0;max-width:64ch}
+
+.verrou-etat{
+  font-size:13.5px;padding:10px 13px;border-radius:11px;margin-bottom:12px;
+  background:rgba(255,255,255,.62);border:1px solid rgba(255,255,255,.8);
+}
+.verrou-rouge{color:var(--err)}
+.verrou-vert{color:var(--ok)}
+.verrou-citation{margin-top:6px;font-style:italic;color:var(--ink)}
+
+.verrou-actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.verrou-actions .help{margin:0}
+.verrou-bloquer{background:var(--err) !important;background-image:none !important;border-color:var(--err) !important}
+.verrou-rouvrir{background:var(--ok) !important;background-image:none !important;border-color:var(--ok) !important}
+.verrou-recours{margin:14px 0 0;font-size:11.5px}
+.verrou-recours code{
+  background:rgba(255,255,255,.7);border:1px solid rgba(15,45,70,.14);
+  border-radius:6px;padding:1px 6px;font-size:11px;word-break:break-all;
+}
+.verrou-pied{display:flex;gap:9px;justify-content:flex-end;margin-top:18px}
+
+/* ---- L'écran que voient les comptes bloqués ---- */
+.verrou-ecran{
+  position:fixed;inset:0;z-index:60;display:grid;place-items:center;padding:24px;
+  background:
+    radial-gradient(900px 520px at 50% 0%, rgba(196,48,48,.22), transparent 66%),
+    linear-gradient(180deg,#ffffff 0%,#fdf6f6 46%,#f7e9e9 100%);
+}
+.verrou-carte{
+  max-width:560px;text-align:center;padding:34px 30px 30px;border-radius:20px;
+  background:rgba(255,255,255,.76);
+  backdrop-filter:blur(24px) saturate(165%);
+  -webkit-backdrop-filter:blur(24px) saturate(165%);
+  border:1px solid rgba(255,255,255,.85);
+  box-shadow:0 20px 50px rgba(150,30,30,.18),inset 0 1px 0 rgba(255,255,255,.95);
+}
+.verrou-carte h1{font-size:21px;margin:16px 0 10px;letter-spacing:.005em}
+.verrou-raison{
+  font-size:16px;font-weight:600;color:var(--err);margin:0 0 14px;
+  padding:12px 16px;border-radius:12px;
+  background:rgba(196,48,48,.08);border:1px solid rgba(196,48,48,.2);
+}
+.verrou-aide{font-size:13px;color:var(--muted);margin:0;line-height:1.5}
+
+.verrou-logo{position:relative;width:96px;height:96px;margin:0 auto;display:grid;place-items:center}
+.verrou-logo .logo-rond{width:58px;height:58px;border-radius:50%;position:relative;z-index:1}
+/* L'anneau RESPIRE plutôt qu'il ne tourne : on peut rester devant cet écran
+   plusieurs minutes, et une rotation continue y deviendrait vite pénible. */
+.verrou-anneau{
+  position:absolute;inset:0;border-radius:50%;
+  border:2px solid rgba(196,48,48,.45);
+  animation:verrou-respire 2.6s ease-in-out infinite;
+}
+@keyframes verrou-respire{
+  0%,100%{transform:scale(1);opacity:.75}
+  50%{transform:scale(1.07);opacity:.35}
+}
+@media (prefers-reduced-motion:reduce){ .verrou-anneau{animation:none} }

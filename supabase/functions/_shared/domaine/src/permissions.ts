@@ -190,6 +190,19 @@ export const PERMISSIONS: Record<string, Role[]> = {
   'acp.rapprocher': [ROLES.CHEF_BRIGADE, ROLES.CHEF_DIVISION, ROLES.ADMIN],
   'acp.historique': [ROLES.CHEF_BRIGADE, ROLES.CHEF_DIVISION, ROLES.ADMIN],
   'acp.detail': [ROLES.CHEF_BRIGADE, ROLES.CHEF_DIVISION, ROLES.ADMIN],
+
+  /* VERROU DE L'APPLICATION (2026-10-07, decision utilisateur) : L'INFO SEUL.
+     Pas le SUPER_ADMIN, pas l'ADMIN. C'est la seule entree de cette matrice
+     qui ne mentionne PAS l'ADMIN, et ce n'est pas un oubli : l'heritage des
+     roles techniques passe par `allowed.indexOf(ROLES.ADMIN)`, de sorte que
+     ne pas l'inscrire ici ferme la porte au SUPER_ADMIN aussi. Bloquer l'outil
+     de travail de tout le port n'est pas un pouvoir d'administration
+     ordinaire. `exigerInfo`, cote action, redit la meme chose : deux barrieres
+     valent mieux qu'une pour un bouton de cette portee. */
+  'verrou.etat': [ROLES.INFO],
+  'verrou.definir': [ROLES.INFO],
+  'verrou.bloquer': [ROLES.INFO],
+  'verrou.ouvrir': [ROLES.INFO],
   // Stock ANNONCÉ (v2.8)
   'stockannonce.import': [ROLES.ADMIN],
   'stockannonce.list': TOUS_ROLES,

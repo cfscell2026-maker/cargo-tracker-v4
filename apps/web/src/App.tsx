@@ -14,6 +14,7 @@ import { empiler, vueInitiale, vueCourante, ecranPrecedentDe, allerA, type EtatN
 import { SCREENS, BandeauModule } from './screens.tsx';
 import { ContexteNav } from './lib/contexte-nav.ts';
 import { BandeauMiseAJour, BoutonMiseAJour, nettoyerAdresse } from './lib/mise-a-jour.tsx';
+import { EcranVerrouille, useVerrou, type EtatVerrou } from './lib/verrou.tsx';
 
 // Après un « Mettre à jour », l'adresse porte un paramètre unique : on le retire.
 nettoyerAdresse();
@@ -50,6 +51,10 @@ const MFA_REQUISE = String(import.meta.env.VITE_MFA_REQUISE ?? 'true').toLowerCa
 export function App() {
   const [phase, setPhase] = useState<Phase>('loading');
   const [user, setUser] = useState<User | null>(null);
+  /* L'etat du verrou arrive avec `account.me` et se met a jour tout seul : la
+     veille interroge le serveur toutes les 15 s tant que le blocage dure, et
+     l'ecran se leve sans que personne recharge la page. */
+  const { verrou, setVerrou } = useVerrou(undefined, user?.role ?? '');
   // Historique de navigation (logique pure dans lib/navigation).
   const [nav, setNav] = useState<EtatNav>(vueInitiale);
   const [sideOpen, setSideOpen] = useState(false);
@@ -101,7 +106,10 @@ export function App() {
   }, [majNav]);
 
   const entrerApp = useCallback(async () => {
-    const u = await call<User & { motDePasseAChanger?: boolean }>('account.me');
+    const u = await call<User & { motDePasseAChanger?: boolean; verrou?: EtatVerrou }>('account.me');
+    // L'etat du verrou arrive avec l'identite : l'ecran de blocage est donc
+    // pose DES L'ENTREE, sans un aller-retour de plus.
+    setVerrou(u.verrou ?? { actif: false, message: '' });
     // SEC-03 : Tant que l'agent n'a pas remplacé le mot de passe qui lui a été
     // ATTRIBUÉ (création de compte ou réinitialisation par un ADMIN), il n'entre
     // pas dans l'application : ce mot de passe est connu de l'administrateur,
@@ -157,6 +165,12 @@ export function App() {
   const { general, navigation } = menuSections(user.role);
   const navProps: Nav = { user, go, screen, arg, retour, ecranPrecedent: ecranPrecedentDe(nav) };
   const Screen = (SCREENS[screen] ?? SCREENS.dash)!;
+
+  /* LE BLOCAGE SE POSE PAR-DESSUS, il ne remplace pas l'application : la
+     session reste ouverte et l'ecran se leve tout seul a la reouverture
+     (decision utilisateur). L'INFO, lui, n'est jamais bloque - c'est aussi ce
+     qui garantit qu'il reste quelqu'un pour rouvrir. */
+  if (verrou.actif && user.role !== 'INFO') return <EcranVerrouille message={verrou.message} />;
 
   return (
     <div className="shell">

@@ -80,7 +80,7 @@ function match(row: Row, filters: [string, string, unknown][]): boolean {
 
 class Query {
   filters: [string, string, unknown][] = [];
-  private opType: 'select' | 'insert' | 'update' | 'delete' = 'select';
+  private opType: 'select' | 'insert' | 'upsert' | 'update' | 'delete' = 'select';
   private payload: Row | Row[] | null = null;
   private wantSingle: 'maybe' | 'one' | null = null;
   private wantSelect = false;
@@ -99,6 +99,14 @@ class Query {
   select(_c?: string) { this.wantSelect = true; return this; }
   insert(p: Row | Row[]) { this.opType = 'insert'; this.payload = p; return this; }
   update(p: Row) { this.opType = 'update'; this.payload = p; return this; }
+  /* `upsert` ajoute le 2026-10-07 (verrou de l'application), meme lecon que
+     `like` et `or` avant lui : sans lui, le double ne sait pas exprimer ce que
+     le code fait, et le test echoue au lieu de mentir. On s'en tient a l'usage
+     reel : la CLE PRIMAIRE est dans la charge utile, et c'est sur elle que
+     porte le conflit. Pas d'`onConflict` sur une autre colonne, pas de lot
+     partiellement en conflit : le jour ou le code en aura besoin, il faudra
+     l'ajouter ici, et c'est exactement le but. */
+  upsert(p: Row | Row[]) { this.opType = 'upsert'; this.payload = p; return this; }
   delete() { this.opType = 'delete'; return this; }
   eq(c: string, v: unknown) { this.filters.push([c, 'eq', v]); return this; }
   neq(c: string, v: unknown) { this.filters.push([c, 'neq', v]); return this; }
@@ -129,6 +137,18 @@ class Query {
     if (this.opType === 'insert') {
       const items = Array.isArray(this.payload) ? this.payload : [this.payload!];
       for (const it of items) rows.push(colonnesGenerees(this.table, structuredClone(it)));
+      return { data: this.wantSelect ? items.map((r) => structuredClone(r)) : null, error: null };
+    }
+    if (this.opType === 'upsert') {
+      const items = Array.isArray(this.payload) ? this.payload : [this.payload!];
+      const cle = CLE_PRIMAIRE_FAKE[this.table];
+      if (!cle) return { data: null, error: { message: 'upsert : cle primaire inconnue pour « ' + this.table + ' »' } };
+      for (const it of items) {
+        if (!(cle in it)) return { data: null, error: { message: 'upsert : la cle « ' + cle + ' » manque dans la charge utile' } };
+        const deja = rows.find((r) => r[cle] === it[cle]);
+        if (deja) colonnesGenerees(this.table, Object.assign(deja, structuredClone(it)));
+        else rows.push(colonnesGenerees(this.table, structuredClone(it)));
+      }
       return { data: this.wantSelect ? items.map((r) => structuredClone(r)) : null, error: null };
     }
     if (this.opType === 'update') {
@@ -163,6 +183,11 @@ class Query {
     return Promise.resolve(this.run()).then(onF);
   }
 }
+
+/** Cle primaire des tables sur lesquelles le code fait un `upsert`. */
+const CLE_PRIMAIRE_FAKE: Record<string, string> = {
+  verrou_application: 'cle', parametres_app: 'cle',
+};
 
 export class FakeDB {
   store: Record<string, Row[]> = {

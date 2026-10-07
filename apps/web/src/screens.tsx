@@ -2021,6 +2021,152 @@ SCREENS.parking = EcranParking;
  */
 const ICONE_GROUPE: Record<string, string> = { Conteneurs: 'conteneur', Engagements: 'sablier', 'Contrôles': 'balance', Affichage: 'tableau' };
 
+/* ===== LE VERROU DE L'APPLICATION (2026-10-07, demande utilisateur) =====
+ *
+ * Un bouton qui bloque l'application pour TOUS les comptes sauf l'INFO.
+ *
+ * RÉSERVÉ AU RÔLE INFO, et à lui seul : ni l'ADMIN ni le SUPER_ADMIN ne voient
+ * ce panneau. C'est la seule capacité du projet qui ne suit pas `aPouvoirAdmin`
+ * — bloquer l'outil de travail de tout le port n'est pas un pouvoir
+ * d'administration ordinaire.
+ *
+ * ⚠ CE MASQUAGE EST UN CONFORT, PAS UNE SÉCURITÉ. La matrice des droits refuse
+ * les quatre actions à tout autre rôle, et `exigerInfo` les refuse une seconde
+ * fois côté serveur. Ne pas afficher le panneau évite seulement de proposer un
+ * bouton qui serait refusé.
+ * ====================================================================== */
+function PanneauVerrou() {
+  const { data, loading, reload } = useAsync<O>(() => call('verrou.etat'), []);
+  const [ouvert, setOuvert] = useState<'' | 'definir' | 'bloquer' | 'ouvrir'>('');
+  const [mdp, setMdp] = useState('');
+  const [ancien, setAncien] = useState('');
+  const [confirmation, setConfirmation] = useState('');
+  const [message, setMessage] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const actif = data?.['actif'] === true;
+  const defini = data?.['defini'] === true;
+
+  const fermer = () => { setOuvert(''); setMdp(''); setAncien(''); setConfirmation(''); setMessage(''); };
+
+  async function agir(action: string, charge: O, dit: string) {
+    setBusy(true);
+    try { await call(action, charge); toast(dit, 'ok'); fermer(); reload(); }
+    catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(false); }
+  }
+
+  return <div className={`card verrou-panneau ${actif ? 'arme' : ''}`}>
+    <div className="verrou-tete">
+      <Icone nom="interrupteur" taille={20} />
+      <div>
+        <h3>Verrou de l’application</h3>
+        <p className="help">
+          Bloque l’application pour <b>tous les comptes</b>. Vous seul continuez de
+          travailler, et vous seul pouvez rouvrir.
+        </p>
+      </div>
+    </div>
+
+    {loading ? <Spinner /> : <>
+      <div className="verrou-etat">
+        {actif
+          ? <><b className="verrou-rouge">Application bloquée</b>
+            {data?.['bloqueLe'] ? <> depuis le {fmtDate(data['bloqueLe'])}</> : null}
+            {data?.['bloquePar'] ? <>, par {String(data['bloquePar'])}</> : null}.
+            {data?.['message'] ? <div className="verrou-citation">« {String(data['message'])} »</div> : null}</>
+          : <><b className="verrou-vert">Application ouverte</b>, tout le monde travaille normalement.</>}
+      </div>
+
+      {/* Tant qu'aucun mot de passe n'existe, le bouton de blocage n'a aucun
+          sens : on ne propose que de le définir. */}
+      {!defini
+        ? <div className="verrou-actions">
+          <button onClick={() => setOuvert('definir')}>Définir le mot de passe du verrou</button>
+          <span className="help">Aucun mot de passe n’est défini : le verrou est inutilisable.</span>
+        </div>
+        : <div className="verrou-actions">
+          {actif
+            ? <button className="verrou-rouvrir" onClick={() => setOuvert('ouvrir')}>
+              <Icone nom="valider" taille={16} />Rouvrir l’application
+            </button>
+            : <button className="verrou-bloquer" onClick={() => setOuvert('bloquer')}>
+              <Icone nom="interrupteur" taille={16} />Bloquer l’application
+            </button>}
+          <button className="ghost" onClick={() => setOuvert('definir')}>Changer le mot de passe</button>
+        </div>}
+
+      {/* LE RECOURS, écrit ici et pas seulement dans la migration. Un mot de
+          passe perdu laisserait l'application bloquée ; celui qui lit ce
+          panneau doit savoir qu'une porte existe, et laquelle. */}
+      <p className="help verrou-recours">
+        Mot de passe perdu alors que l’application est bloquée ? La seule sortie est en base,
+        depuis le tableau de bord Supabase :
+        {' '}<code>update verrou_application set actif = false where cle = 'verrou';</code>
+      </p>
+    </>}
+
+    {ouvert === 'definir' && <Modal onClose={() => !busy && fermer()}>
+      <h2>{defini ? 'Changer le mot de passe du verrou' : 'Définir le mot de passe du verrou'}</h2>
+      <p className="help">
+        Ce mot de passe n’est pas celui de votre compte. Il ne sert qu’à bloquer et à rouvrir
+        l’application, et il n’est jamais conservé en clair.
+      </p>
+      {defini && <>
+        <label className="help">Mot de passe actuel</label>
+        <input type="password" value={ancien} onChange={(e) => setAncien(e.target.value)} autoComplete="off" />
+      </>}
+      <label className="help">Nouveau mot de passe <i>(8 caractères au minimum)</i></label>
+      <input type="password" value={mdp} onChange={(e) => setMdp(e.target.value)} autoComplete="new-password" />
+      <label className="help">Confirmez le nouveau mot de passe</label>
+      <input type="password" value={confirmation} onChange={(e) => setConfirmation(e.target.value)} autoComplete="new-password" />
+      <div className="verrou-pied">
+        <button className="ghost" disabled={busy} onClick={fermer}>Annuler</button>
+        <button disabled={busy || mdp.length < 8 || confirmation !== mdp || (defini && !ancien)}
+          onClick={() => agir('verrou.definir', { ancien, nouveau: mdp, confirmation }, 'Mot de passe du verrou enregistré.')}>
+          {busy ? 'Enregistrement…' : 'Enregistrer'}
+        </button>
+      </div>
+    </Modal>}
+
+    {ouvert === 'bloquer' && <Modal onClose={() => !busy && fermer()}>
+      <h2>Bloquer l’application</h2>
+      <p className="help">
+        Tous les comptes seront bloqués sur place : leur session reste ouverte, un écran
+        s’affiche par-dessus leur travail. Vous seul continuez de travailler.
+      </p>
+      <label className="help">Raison du blocage <i>(les agents la liront en plein écran)</i></label>
+      <input value={message} onChange={(e) => setMessage(e.target.value)} maxLength={500}
+        placeholder="Maintenance jusqu’à 14 h, inventaire en cours…" />
+      <label className="help">Mot de passe du verrou</label>
+      <input type="password" value={mdp} onChange={(e) => setMdp(e.target.value)} autoComplete="off" />
+      <div className="verrou-pied">
+        <button className="ghost" disabled={busy} onClick={fermer}>Annuler</button>
+        <button className="verrou-bloquer" disabled={busy || !message.trim() || !mdp}
+          onClick={() => agir('verrou.bloquer', { motDePasse: mdp, message }, 'Application bloquée.')}>
+          {busy ? 'Blocage…' : 'Bloquer maintenant'}
+        </button>
+      </div>
+    </Modal>}
+
+    {ouvert === 'ouvrir' && <Modal onClose={() => !busy && fermer()}>
+      <h2>Rouvrir l’application</h2>
+      <p className="help">
+        Chacun reprendra où il en était, sans se reconnecter. L’écran de blocage disparaît
+        tout seul, au plus tard quinze secondes après.
+      </p>
+      <label className="help">Mot de passe du verrou</label>
+      <input type="password" value={mdp} onChange={(e) => setMdp(e.target.value)} autoComplete="off" />
+      <div className="verrou-pied">
+        <button className="ghost" disabled={busy} onClick={fermer}>Annuler</button>
+        <button disabled={busy || !mdp}
+          onClick={() => agir('verrou.ouvrir', { motDePasse: mdp }, 'Application rouverte.')}>
+          {busy ? 'Réouverture…' : 'Rouvrir'}
+        </button>
+      </div>
+    </Modal>}
+  </div>;
+}
+
 SCREENS.parametres = ({ user }) => {
   const admin = aPouvoirAdmin(user.role);
   /* RÉSERVÉ À L'ADMINISTRATEUR (décision utilisateur, 2026-09-21). Le menu ne
@@ -2056,6 +2202,10 @@ SCREENS.parametres = ({ user }) => {
   return <>
     <BandeauModule icone="reglages" titre="Paramètres"
       sous="Les réglages de l'application. Chacun dit ce qu'il change, qui il concerne, et sa valeur par défaut." />
+    {/* EN TETE DU VOLET, et pour l'INFO SEUL (decision utilisateur) : ni
+        l'ADMIN ni le SUPER_ADMIN ne voient ce panneau. Le masquage est un
+        confort - la matrice des droits et `exigerInfo` refusent vraiment. */}
+    {user.role === ROLES.INFO && <PanneauVerrou />}
     {!loading && data && !active && <div className="card param-inactif">
       <b>Réglages pas encore activés.</b> La table qui les enregistre n'existe pas encore en base : l'application
       applique les valeurs par défaut ci-dessous, c'est-à-dire exactement son comportement habituel.

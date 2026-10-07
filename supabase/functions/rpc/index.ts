@@ -11,10 +11,11 @@
  *  Le client ne décide JAMAIS des droits : tout est contrôlé ici.
  * ============================================================================
  */
-import { verifierPermission } from '../_shared/domaine/src/index.ts';
+import { verifierPermission, ROLES } from '../_shared/domaine/src/index.ts';
 import { AuthError, estMessageMetier, type Ctx } from './ctx.ts';
 import { dbAdmin, exigerSession, fabriquerLog, requeteDe } from './supa.ts';
 import { ACTIONS } from './actions/registry.ts';
+import { etatVerrou } from './actions/verrou.ts';
 
 /* -------------------------------------------------------------------------- */
 /* SEC-07 · CORS : liste blanche d'origines                                    */
@@ -95,6 +96,14 @@ function depasse(cle: string, plafond: number): boolean {
 /* -------------------------------------------------------------------------- */
 const ACTIONS_AVANT_CHANGEMENT = new Set(['account.me', 'account.changepwd']);
 
+/* Ce qui passe MALGRE le verrou de l'application (2026-10-07).
+   `account.me` : c'est par lui que l'ecran bloque apprend QUI est connecte et,
+   surtout, QUAND l'application rouvre. Le retirer d'ici obligerait chacun a
+   recharger la page pour s'apercevoir que le blocage est leve.
+   `account.signin` : la trace de connexion doit rester juste meme pendant un
+   blocage, sans quoi on ne saurait pas qui a essaye d'entrer. */
+const ACTIONS_MALGRE_VERROU = new Set(['account.me', 'account.signin']);
+
 Deno.serve(async (req) => {
   const CORS = enTetesCors(req.headers.get('origin'));
 
@@ -145,6 +154,30 @@ Deno.serve(async (req) => {
     if (!handler) throw new Error('Action non gérée : ' + action);
 
     const ctx: Ctx = { db, session, requete, log: fabriquerLog(db, session, requete) };
+
+    /* VERROU DE L'APPLICATION (2026-10-07, demande utilisateur).
+     *
+     * Ici, et pas dans chaque action : un garde posé action par action finit
+     * toujours par en oublier une, et l'action oubliée est précisément celle
+     * qu'on n'avait pas prévue. Tout passe par ce point.
+     *
+     * Trois exceptions, et elles sont nécessaires :
+     *   · l'INFO travaille normalement (décision utilisateur), et c'est aussi
+     *     ce qui garantit qu'il reste quelqu'un pour rouvrir ;
+     *   · `account.me` passe toujours, sinon l'écran bloqué ne saurait ni qui
+     *     est connecté ni QUAND l'application rouvre : c'est par lui que le
+     *     blocage se lève tout seul, sans que personne recharge la page ;
+     *   · `account.signin` passe, pour que la trace de connexion reste juste.
+     *
+     * La lecture ne lève jamais : si la base ne répond pas, l'application
+     * reste OUVERTE. Un verrou qui se refermerait sur une panne bloquerait tout
+     * le port sans que personne l'ait demandé. */
+    if (session.role !== ROLES.INFO && !ACTIONS_MALGRE_VERROU.has(action)) {
+      const verrou = await etatVerrou(ctx);
+      if (verrou.actif)
+        return json({ ok: false, error: verrou.message, verrouille: true }, 423);
+    }
+
     const result = await handler(ctx, (data ?? {}) as never);
     return json({ ok: true, data: result });
   } catch (e) {
