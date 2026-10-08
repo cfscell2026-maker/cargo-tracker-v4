@@ -2689,11 +2689,31 @@ label.help.lbl-icone svg{color:var(--accent);flex:0 0 auto}
    leur propre rangee, ce qui est lisible, au lieu d'ecraser le texte. */
 .bm-textes{flex:1 1 300px;min-width:min(100%,240px)}
 .bandeau-module{flex-wrap:wrap}
-/* Replie sur sa propre rangee, le groupe d'outils s'aligne a droite et peut
-   lui-meme passer sur deux lignes plutot que deborder. Il ne devient jamais une
-   COLONNE pour autant (decision utilisateur du 12/09) : les commandes restent
-   cote a cote tant qu'il y a de la place. */
-.bm-droite{flex-wrap:wrap;justify-content:flex-end;max-width:100%}
+/* TOUTES LES COMMANDES SUR UNE SEULE LIGNE (2026-10-08, demande utilisateur),
+   quelle que soit la largeur de l'ecran. Elles ne se replient donc PAS, et ne
+   se compriment pas non plus : la barre DEFILE lateralement quand elle est plus
+   longue que la place. C'est la seule facon de tenir les trois promesses a la
+   fois, une ligne unique, des commandes a leur taille, et un titre qui ne
+   s'ecrase pas.
+   LA BARRE DE DEFILEMENT RESTE VISIBLE, discretement. Masquee au repos, rien
+   n'annoncait qu'il y avait d'autres commandes a droite, et une commande qu'on
+   ne soupconne pas n'existe pas. Un filet clair a 22 % se remarque sans
+   concurrencer les menus ; il s'affirme au survol. */
+.bm-droite{
+  flex-wrap:nowrap;justify-content:flex-end;max-width:100%;
+  overflow-x:auto;overflow-y:hidden;
+  scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.22) transparent;
+  padding-bottom:2px;
+}
+.bm-droite:hover{scrollbar-color:rgba(255,255,255,.45) transparent}
+.bm-droite::-webkit-scrollbar{height:5px}
+.bm-droite::-webkit-scrollbar-thumb{background:rgba(255,255,255,.22);border-radius:3px}
+.bm-droite:hover::-webkit-scrollbar-thumb{background:rgba(255,255,255,.45)}
+/* Chaque commande garde SA taille : sans cela, flexbox les retrecirait toutes
+   jusqu'a l'illisible plutot que de laisser la barre defiler. */
+/* `.bm-outils` est en `display:contents` : les elements de flux sont SES
+   enfants, pas lui. Figer le conteneur seul ne servait a rien. */
+.bm-droite > *,.bm-droite > .bm-outils > *{flex:0 0 auto}
 /* Repli si `display:contents` manque : les outils restent un bloc, mais le
    retour s'aligne au moins sur leur premiere ligne. */
 @supports not (display:contents){
@@ -2843,8 +2863,17 @@ tr:hover .avatar-u{
      compris - et l'emporte en specificite sur `.bm-droite` seul : d'ou ce
      selecteur enfant, sans quoi le groupe reprendrait l'ordre 2 et passerait
      AVANT le titre. */
-  .bandeau-module > .bm-droite{order:3;width:100%;justify-content:flex-start;flex-wrap:wrap}
-  .bm-outils select,.bm-outils input{flex:1 1 auto;min-width:0}
+  /* UNE SEULE LIGNE, MEME ICI (2026-10-08, demande utilisateur). Cette regle
+     repliait les commandes : avec deux d'entre elles c'etait confortable, avec
+     six le bandeau montait a trois rangees. Le groupe prend toute la largeur,
+     reste sur UNE ligne et DEFILE lateralement.
+     `flex:0 0 auto` remplace `flex:1 1 auto` : sans cela flexbox retrecirait
+     les menus jusqu'a l'illisible plutot que de laisser la barre defiler. */
+  .bandeau-module > .bm-droite{
+    order:3;width:100%;justify-content:flex-start;flex-wrap:nowrap;
+    overflow-x:auto;overflow-y:hidden;
+  }
+  .bm-outils select,.bm-outils input{flex:0 0 auto}
   .bm-titre{font-size:17px}
 }
 
@@ -3556,14 +3585,15 @@ button.modal-fermer:focus-visible{outline:2px solid #0e5a8a;outline-offset:2px}
 /* La barre de filtres du volet Engagements. Quatre commandes de largeurs
    differentes : on les borne ici plutot qu'en style en ligne, et elles se
    replient proprement sur un ecran etroit. */
-.eng-filtres{gap:9px;flex-wrap:wrap;align-items:center;margin-bottom:10px}
-.eng-filtres .champ-loupe{flex:1 1 170px;max-width:220px}
-.eng-filtres select{flex:0 1 auto;max-width:190px}
-.eng-filtres .eng-echeance{
+/* Les commandes du volet Engagements, remontees dans le bandeau le 08/10 :
+   elles y heritent de la hauteur commune (`--bm-h`) et de la ligne unique. */
+.bm-outils .champ-loupe{width:160px}
+.bm-outils .champ-loupe input{width:100%}
+.bm-outils label.eng-echeance{
   display:inline-flex;align-items:center;gap:6px;margin:0;
-  white-space:nowrap;flex:0 0 auto;
+  white-space:nowrap;color:inherit;
 }
-.eng-filtres .eng-echeance input{width:62px;flex:none}
+.bm-outils .eng-echeance input{width:56px}
 
 /* ============ LES KPI EN RECTANGLE, 2026-10-08 (demande utilisateur) ====
  *

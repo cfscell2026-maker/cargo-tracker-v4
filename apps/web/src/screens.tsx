@@ -1907,29 +1907,12 @@ SCREENS.engagements = ({ go, user }) => {
 
   return <>
     <BandeauModule icone="sablier" titre="Engagements"
-      sous={<>Tous les camions sous suivi d'engagement. <b>Effectué</b> : les informations ont été transmises ·
-        <b> Corriger</b> : engagement ou délai erroné · <b>Retirer</b> : engagement coché par erreur.</>}
+      sous="Tous les camions sous suivi d'engagement."
       action={<div className="bm-outils">
         <label className="help">Afficher</label>
         <select value={filtre} onChange={(e) => setFiltre(e.target.value)} style={{ maxWidth: 150 }}>
           {FILTRES_ENGAGEMENT.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
         </select>
-      </div>} />
-    <div className="stats" style={{ marginTop: 10 }}>
-      <StatCard n={Number(glob['encours'] ?? 0)} l="Engagements en cours" icone="sablier" tone="warn"
-        onClick={() => setFiltre('encours')} />
-      <StatCard n={Number(glob['soldes'] ?? 0)} l="Engagements effectués" icone="valider" tone="ok"
-        onClick={() => setFiltre('solde')} />
-    </div>
-    <div className="card">
-      {/* LES FILTRES D'AFFINAGE VIVENT AVEC LA LISTE, pas dans le bandeau
-          (2026-10-08, demande utilisateur). Ils y étaient sept avec le bouton
-          Retour, et le bloc de titre s'est retrouvé écrasé à un mot par ligne,
-          le bandeau haut de cinq cents pixels.
-          Le bandeau garde ce qui dit DE QUOI on parle et la vue principale
-          (« Afficher ») ; ce qui RESTREINT la liste se pose au-dessus d'elle,
-          comme sur tous les autres volets. */}
-      <div className="row liste-outils eng-filtres">
         <span className="champ-loupe">
           <Icone nom="loupe" taille={15} />
           <input className="mono" value={rechCamion} placeholder="N° camion"
@@ -1958,7 +1941,14 @@ SCREENS.engagements = ({ go, user }) => {
         </label>
         {affine && <button className="ghost xs"
           onClick={() => { setJours(''); setRechCamion(''); setTypeEng(''); setSignePar(''); }}>Tout afficher</button>}
-      </div>
+      </div>} />
+    <div className="stats" style={{ marginTop: 10 }}>
+      <StatCard n={Number(glob['encours'] ?? 0)} l="Engagements en cours" icone="sablier" tone="warn"
+        onClick={() => setFiltre('encours')} />
+      <StatCard n={Number(glob['soldes'] ?? 0)} l="Engagements effectués" icone="valider" tone="ok"
+        onClick={() => setFiltre('solde')} />
+    </div>
+    <div className="card">
       {loading ? <Spinner /> : error ? <div className="err-msg">{error}</div> : <>
         <div className="help" style={{ marginBottom: 8 }}>
           {affine ? `${lignes.length} engagement(s) sur ${recues.length}` : `${lignes.length} engagement(s)`}
@@ -1994,13 +1984,20 @@ SCREENS.engagements = ({ go, user }) => {
                 <td className="help">{String(l['agentValidation'] || '—')}</td>
                 <td onClick={(e) => e.stopPropagation()}>
                   <div className="acts-dossier">
-                    {peut && !solde && <button className="ghost xs" disabled={busy === id} onClick={() => solder(id)}>
+                    {/* CE QUE FAIT CHAQUE BOUTON EST DIT SUR LE BOUTON (08/10).
+                        Le sous-titre du bandeau portait ces trois explications,
+                        ce qui lui faisait trois lignes ; elles ont leur place
+                        ici, la ou l'on hesite avant de cliquer. */}
+                    {peut && !solde && <button className="ghost xs" disabled={busy === id} onClick={() => solder(id)}
+                      title="Les informations ont été transmises : l'engagement est tenu.">
                       {busy === id ? '…' : '✔ Effectué'}
                     </button>}
-                    {peut && <button className="ghost xs" onClick={() => setCorrige(l)}>✎ Corriger</button>}
+                    {peut && <button className="ghost xs" onClick={() => setCorrige(l)}
+                      title="Engagement ou délai erroné : corriger la saisie.">✎ Corriger</button>}
                     {/* RETRAIT (2026-09-17) : un bouton à lui, sur la ligne, il était
                         caché dans la fenêtre de correction. Administrateur seul. */}
-                    {admin && <button className="ghost xs acts-suppr" onClick={() => setRetire(l)}>✕ Retirer</button>}
+                    {admin && <button className="ghost xs acts-suppr" onClick={() => setRetire(l)}
+                      title="Engagement coché par erreur : le retirer du suivi.">✕ Retirer</button>}
                   </div>
                 </td>
               </tr>;
