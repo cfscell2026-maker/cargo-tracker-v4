@@ -54,10 +54,32 @@ export interface FiltreEngagements {
   camion?: string;
   /** Échéance dans AU PLUS N jours (les dépassées comprises). Vide = pas de filtre. */
   joursMax?: number | null;
+  /**
+   * NATURE DE L'ENGAGEMENT (2026-10-08, demande utilisateur) : « BFE 03
+   * Sinkase », « Transit national », « Transit côtier », ou ce que le chef a
+   * saisi lui-même. Comparaison EXACTE sur le libellé reçu, et non « contient » :
+   * les valeurs proposées à l'écran sont construites depuis les lignes elles-mêmes,
+   * on ne filtre donc jamais sur un libellé qui n'existe pas.
+   */
+  type?: string;
+  /**
+   * QUI A SIGNÉ LA VALIDATION. La question posee par le chef de brigade :
+   * « mes validations qui vont vers le BFE 03 ». Les deux filtres se combinent,
+   * c'est leur croisement qui répond.
+   */
+  signePar?: string;
 }
 
 /** Normalisation d'un n° pour la recherche : « TG-1234 BK » → « TG1234BK ». */
 const normNum = (v: unknown) => String(v ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+/* Comparaison de libellés indulgente sur la casse, les accents et les espaces
+   en trop : « BFE 03 Sinkase » et « bfe 03  sinkase » désignent le même
+   engagement. Le champ est du TEXTE LIBRE (le chef peut saisir autre chose que
+   les trois propositions), les variantes d'écriture sont donc inévitables. */
+const normLib = (v: unknown) => String(v ?? '')
+  .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  .toUpperCase().replace(/\s+/g, ' ').trim();
 
 /** Jours entre aujourd'hui et l'échéance ; null si l'échéance est absente ou illisible. */
 export function joursAvantEcheance(delai: unknown, aujourdhui: Date = new Date()): number | null {
@@ -77,8 +99,14 @@ export function filtrerEngagements(
   const cam = normNum(f.camion);
   const jours = f.joursMax === null || f.joursMax === undefined || Number.isNaN(f.joursMax)
     ? null : Number(f.joursMax);
+  const type = normLib(f.type);
+  const signe = normLib(f.signePar);
   return lignes.filter((l) => {
     if (cam && !normNum(l['numeroCamion']).includes(cam)) return false;
+    // Les deux filtres du 08/10 se CUMULENT avec les precedents : c'est leur
+    // croisement qui repond a « mes validations qui vont vers le BFE 03 ».
+    if (type && normLib(l['engagementType']) !== type) return false;
+    if (signe && normLib(l['agentValidation']) !== signe) return false;
     if (jours !== null) {
       const restant = joursAvantEcheance(l['engagementDelai'], aujourdhui);
       // Sans échéance lisible, la ligne ne peut pas répondre « oui » à une

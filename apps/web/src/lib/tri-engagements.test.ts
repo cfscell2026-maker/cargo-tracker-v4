@@ -77,3 +77,55 @@ test('joursAvantEcheance : négatif si dépassé, null si illisible', () => {
   assert.equal(joursAvantEcheance('', AUJ), null);
   assert.equal(joursAvantEcheance('pas une date', AUJ), null);
 });
+
+/* ---- Nature de l'engagement et signataire : 2026-10-08, demande utilisateur ---- */
+
+const engagements = (): Record<string, unknown>[] => [
+  { numeroCamion: 'TG1111AA', engagementType: 'BFE 03 Sinkase', agentValidation: 'Cne MIAWONENE Edem' },
+  { numeroCamion: 'TG2222BB', engagementType: 'BFE 03 Sinkase', agentValidation: 'AYIVI ODILON' },
+  { numeroCamion: 'TG3333CC', engagementType: 'Transit national', agentValidation: 'Cne MIAWONENE Edem' },
+  { numeroCamion: 'TG4444DD', engagementType: 'Transit côtier', agentValidation: 'Cne MIAWONENE Edem' },
+  { numeroCamion: 'TG5555EE', engagementType: '', agentValidation: 'Cne MIAWONENE Edem' },
+];
+
+test('engagements : filtre par NATURE de l’engagement', () => {
+  assert.deepEqual(cam(filtrerEngagements(engagements(), { type: 'BFE 03 Sinkase' })),
+    ['TG1111AA', 'TG2222BB']);
+});
+
+test('engagements : filtre par SIGNATAIRE de la validation', () => {
+  assert.deepEqual(cam(filtrerEngagements(engagements(), { signePar: 'Cne MIAWONENE Edem' })),
+    ['TG1111AA', 'TG3333CC', 'TG4444DD', 'TG5555EE']);
+});
+
+test('engagements : LES DEUX ENSEMBLE, la question posee par le chef de brigade', () => {
+  /* « Mes validations qui vont vers le BFE 03 ». C'est le CROISEMENT qui
+     repond : ni la nature seule, ni le signataire seul. */
+  const r = filtrerEngagements(engagements(), { type: 'BFE 03 Sinkase', signePar: 'Cne MIAWONENE Edem' });
+  assert.deepEqual(cam(r), ['TG1111AA']);
+});
+
+test('engagements : casse, accents et espaces en trop ne font pas rater une ligne', () => {
+  /* Le champ est du TEXTE LIBRE : le chef peut saisir autre chose que les trois
+     propositions, et les variantes d'ecriture sont inevitables. */
+  assert.deepEqual(cam(filtrerEngagements(engagements(), { type: 'bfe 03  sinkase' })),
+    ['TG1111AA', 'TG2222BB']);
+  assert.deepEqual(cam(filtrerEngagements(engagements(), { type: 'TRANSIT COTIER' })), ['TG4444DD']);
+});
+
+test('engagements : la comparaison est EXACTE, pas « contient »', () => {
+  /* « Transit » ne doit pas ramener « Transit national » ET « Transit cotier » :
+     ce sont deux engagements differents, et les confondre fausserait un compte
+     qu'on presente ensuite a la hierarchie. */
+  assert.deepEqual(cam(filtrerEngagements(engagements(), { type: 'Transit' })), []);
+});
+
+test('engagements : sans ces filtres, la liste est rendue telle quelle', () => {
+  assert.equal(filtrerEngagements(engagements(), {}).length, 5);
+  assert.equal(filtrerEngagements(engagements(), { type: '', signePar: '' }).length, 5);
+});
+
+test('engagements : les nouveaux filtres se CUMULENT avec la recherche camion', () => {
+  const r = filtrerEngagements(engagements(), { type: 'BFE 03 Sinkase', camion: 'tg2222' });
+  assert.deepEqual(cam(r), ['TG2222BB']);
+});

@@ -2674,13 +2674,68 @@ label.help.lbl-icone svg{color:var(--accent);flex:0 0 auto}
   display:flex;flex-wrap:nowrap;align-items:center;
   justify-content:flex-end;gap:8px;
 }
-.bm-droite > .bm-outils{display:contents}
+/* `display:contents` retire le 08/10 : voir le bloc « UNE SEULE LIGNE » plus bas. */
 /* Le bloc de titre CEDE la place aux commandes. Avec `flex:1` et une base
    automatique, sa largeur naturelle - titre plus sous-titre - entrait dans le
    calcul du repli et poussait le dernier bouton a la ligne alors que la place
    existait. Une base courte le fait plier en premier ; il a de quoi, le texte
    se remet sur deux lignes, un bouton non. */
-.bm-textes{flex:1 1 220px;min-width:0}
+/* UNE LARGEUR PLANCHER POUR LE TEXTE (2026-10-08).
+   `min-width:0` l'autorisait a se reduire A ZERO : en ajoutant deux menus a la
+   barre des Engagements, le titre s'est retrouve a un mot par ligne et le
+   bandeau faisait 500 px de haut. Le bloc de titre plie toujours en premier,
+   c'est voulu, mais il ne doit pas disparaitre. En dessous de ce plancher, le
+   bandeau passe a la ligne (`flex-wrap` ci-dessous) : les outils prennent alors
+   leur propre rangee, ce qui est lisible, au lieu d'ecraser le texte. */
+.bm-textes{flex:1 1 300px;min-width:min(100%,240px)}
+.bandeau-module{flex-wrap:wrap}
+/* TOUTES LES COMMANDES SUR UNE SEULE LIGNE (2026-10-08, demande utilisateur),
+   quelle que soit la largeur de l'ecran. Elles ne se replient donc PAS, et ne
+   se compriment pas non plus : la barre DEFILE lateralement quand elle est plus
+   longue que la place. C'est la seule facon de tenir les trois promesses a la
+   fois, une ligne unique, des commandes a leur taille, et un titre qui ne
+   s'ecrase pas.
+
+   ⚠ CE QUI DEFILE, C'EST `.bm-outils`, ET NON `.bm-droite`. Le bouton RETOUR
+   est le premier enfant de `.bm-droite` : en faisant defiler le groupe entier,
+   il partait avec les filtres et se retrouvait coupe au bord gauche
+   (« etour »). Ce n'est pas un filtre, c'est de la navigation : il reste fixe,
+   et seules les commandes glissent a cote de lui.
+
+   `display:contents` tombe donc avec. Il existait pour aligner le Retour sur la
+   PREMIERE rangee d'outils quand ceux-ci se repliaient sur deux lignes ; plus
+   rien ne se replie, sa raison d'etre a disparu.
+
+   LA BARRE DE DEFILEMENT RESTE VISIBLE, discretement. Masquee au repos, rien
+   n'annoncait qu'il y avait d'autres commandes a droite, et une commande qu'on
+   ne soupconne pas n'existe pas. Un filet clair a 22 % se remarque sans
+   concurrencer les menus ; il s'affirme au survol. */
+.bm-droite{flex-wrap:nowrap;justify-content:flex-end;max-width:100%;min-width:0}
+.bm-droite > .bm-retour{flex:0 0 auto}
+.bm-droite > .bm-outils{
+  display:flex;flex-wrap:nowrap;align-items:center;gap:8px;
+  flex:0 1 auto;min-width:0;
+  /* ⚠ `justify-content:flex-start`, ET C'EST LE POINT QUI DECIDE DE TOUT.
+     La regle de base aligne ces outils a DROITE. Des qu'ils depassent, un
+     conteneur en `flex-end` les fait deborder VERS LA GAUCHE - or un
+     debordement a gauche n'entre pas dans `scrollWidth` et AUCUN defilement ne
+     va le chercher. Le contenu etait donc coupe et inatteignable : c'est ce
+     qui tronquait le bouton Retour en « etour ».
+     En partant de la gauche, le trop-plein s'en va a droite, la ou le
+     defilement sait aller. Le groupe, lui, reste cale a droite du bandeau par
+     `margin-left:auto`. */
+  justify-content:flex-start;margin-left:auto;
+  overflow-x:auto;overflow-y:hidden;
+  scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.22) transparent;
+  padding-bottom:2px;
+}
+.bm-droite > .bm-outils:hover{scrollbar-color:rgba(255,255,255,.45) transparent}
+.bm-droite > .bm-outils::-webkit-scrollbar{height:5px}
+.bm-droite > .bm-outils::-webkit-scrollbar-thumb{background:rgba(255,255,255,.22);border-radius:3px}
+.bm-droite > .bm-outils:hover::-webkit-scrollbar-thumb{background:rgba(255,255,255,.45)}
+/* Chaque commande garde SA taille : sans cela, flexbox les retrecirait toutes
+   jusqu'a l'illisible plutot que de laisser la barre defiler. */
+.bm-droite > .bm-outils > *{flex:0 0 auto}
 /* Repli si `display:contents` manque : les outils restent un bloc, mais le
    retour s'aligne au moins sur leur premiere ligne. */
 @supports not (display:contents){
@@ -2830,8 +2885,16 @@ tr:hover .avatar-u{
      compris - et l'emporte en specificite sur `.bm-droite` seul : d'ou ce
      selecteur enfant, sans quoi le groupe reprendrait l'ordre 2 et passerait
      AVANT le titre. */
-  .bandeau-module > .bm-droite{order:3;width:100%;justify-content:flex-start;flex-wrap:wrap}
-  .bm-outils select,.bm-outils input{flex:1 1 auto;min-width:0}
+  /* UNE SEULE LIGNE, MEME ICI (2026-10-08, demande utilisateur). Cette regle
+     repliait les commandes : avec deux d'entre elles c'etait confortable, avec
+     six le bandeau montait a trois rangees. Le groupe prend toute la largeur,
+     reste sur UNE ligne et DEFILE lateralement.
+     `flex:0 0 auto` remplace `flex:1 1 auto` : sans cela flexbox retrecirait
+     les menus jusqu'a l'illisible plutot que de laisser la barre defiler. */
+  .bandeau-module > .bm-droite{
+    order:3;width:100%;justify-content:flex-start;flex-wrap:nowrap;min-width:0;
+  }
+  .bm-outils select,.bm-outils input{flex:0 0 auto}
   .bm-titre{font-size:17px}
 }
 
@@ -3538,4 +3601,99 @@ button.modal-fermer:focus-visible{outline:2px solid #0e5a8a;outline-offset:2px}
   display:block;margin-top:4px;
   background:rgba(255,255,255,.75);border:1px solid rgba(15,45,70,.14);
   border-radius:6px;padding:5px 8px;font-size:11px;word-break:break-all;
+}
+
+/* La barre de filtres du volet Engagements. Quatre commandes de largeurs
+   differentes : on les borne ici plutot qu'en style en ligne, et elles se
+   replient proprement sur un ecran etroit. */
+/* Les commandes du volet Engagements, remontees dans le bandeau le 08/10 :
+   elles y heritent de la hauteur commune (`--bm-h`) et de la ligne unique. */
+.bm-outils .champ-loupe{width:160px}
+.bm-outils .champ-loupe input{width:100%}
+.bm-outils label.eng-echeance{
+  display:inline-flex;align-items:center;gap:6px;margin:0;
+  white-space:nowrap;color:inherit;
+}
+.bm-outils .eng-echeance input{width:56px}
+
+/* ============ LES KPI EN RECTANGLE, 2026-10-08 (demande utilisateur) ====
+ *
+ * Les tuiles ordinaires empilaient pastille, chiffre et libellé : 165 px de
+ * large pour 115 de haut, un carré. Le tableau de bord (`.bento`) et les écrans
+ * compacts posaient déjà la pastille A COTE du chiffre ; les tuiles ordinaires
+ * étaient les seules à ne pas le faire.
+ *
+ * Même grille pour elles, donc : pastille à gauche, chiffre et libellé au
+ * centre, chevron à droite. La carte tombe d'un tiers en hauteur, et rien de ce
+ * qu'elle dit ne se perd.
+ *
+ * ⚠ `:not(.bento):not(.compacts)` : ces deux-là ont LEUR propre grille, réglée
+ * pour ce qu'elles portent - une ligne d'évolution pour le tableau de bord, un
+ * gabarit plus serré pour les écrans denses. Sans ces exclusions, cette règle,
+ * écrite plus bas dans le fichier, les écraserait toutes les deux.
+ */
+.stats:not(.bento){grid-template-columns:repeat(auto-fill,minmax(205px,1fr))}
+.stats:not(.bento):not(.compacts) .stat{
+  display:grid;
+  grid-template-columns:auto 1fr auto;
+  grid-template-areas:
+    "pastille nombre  chevron"
+    "pastille libelle chevron";
+  align-items:center;column-gap:12px;
+  min-height:0;padding:12px 14px;
+}
+.stats:not(.bento):not(.compacts) .stat .n{grid-area:nombre;font-size:23px;line-height:1.15}
+.stats:not(.bento):not(.compacts) .stat .l{grid-area:libelle;font-size:12px;line-height:1.25}
+
+/* ============ LE BLOC DES FILTRES, EN VERRE, 2026-10-08 ================
+ *
+ * Demande utilisateur : sortir les commandes du bandeau et les poser dessous,
+ * en verre dépoli avec un dégradé.
+ *
+ * LE DEGRADE VA DU BLANC A LA TEINTE DE L'APPLICATION, en diagonale, et reste
+ * très dilué. Ce bloc est posé entre un bandeau bleu soutenu et des cartes
+ * blanches : s'il criait, il couperait la page en deux. Il doit se distinguer
+ * assez pour qu'on sache que ces commandes vont ensemble, pas davantage.
+ *
+ * Le verre a de quoi travailler : la couche de halos posée derrière `.content`
+ * passe au travers, et c'est elle qu'on voit bouger au défilement.
+ */
+.filtres-verre{
+  display:flex;flex-wrap:wrap;align-items:center;gap:10px;
+  padding:13px 15px;
+  background:
+    linear-gradient(115deg,
+      rgba(255,255,255,.90) 0%,
+      rgba(255,255,255,.72) 30%,
+      rgba(14,90,138,.17) 62%,
+      rgba(14,90,138,.24) 82%,
+      rgba(31,122,92,.26) 100%);
+  backdrop-filter:blur(22px) saturate(170%);
+  -webkit-backdrop-filter:blur(22px) saturate(170%);
+  border:1px solid rgba(255,255,255,.78);
+  box-shadow:
+    0 10px 28px rgba(15,35,55,.10),
+    inset 0 1px 0 rgba(255,255,255,.95);
+}
+/* « Afficher » introduit le premier menu : c'est une etiquette, pas un reglage
+   a part. Elle se colle a lui plutot que de flotter dans la rangee. */
+.filtres-verre .fv-etiquette{margin:0 -4px 0 0;font-weight:600;color:var(--muted)}
+.filtres-verre select{max-width:190px;flex:0 1 auto}
+.filtres-verre .champ-loupe{flex:1 1 160px;max-width:210px}
+.filtres-verre .champ-loupe input{width:100%}
+/* L'echeance et son unite forment UNE expression : « echeance <= 5 jours ». Les
+   separer en trois elements d'une rangee souple les aurait disperses. */
+.filtres-verre .fv-echeance{
+  display:inline-flex;align-items:center;gap:6px;margin:0;
+  white-space:nowrap;flex:0 0 auto;font-weight:600;
+}
+.filtres-verre .fv-echeance input{width:62px;flex:none;font-weight:400}
+/* Le bouton de remise a zero part a DROITE, a l'ecart des commandes : il ne
+   regle rien, il annule tout. */
+.filtres-verre .fv-raz{margin-left:auto}
+
+@media (max-width:560px){
+  .filtres-verre{gap:8px}
+  .filtres-verre select,.filtres-verre .champ-loupe{flex:1 1 100%;max-width:none}
+  .filtres-verre .fv-raz{margin-left:0;width:100%}
 }

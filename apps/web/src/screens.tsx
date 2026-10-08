@@ -1853,6 +1853,15 @@ SCREENS.engagements = ({ go, user }) => {
   // reçues, aucun aller-retour au serveur à chaque frappe.
   const [jours, setJours] = useState('');
   const [rechCamion, setRechCamion] = useState('');
+  /* DEUX FILTRES DE PLUS (2026-10-08, demande utilisateur) : la NATURE de
+     l'engagement et le SIGNATAIRE de la validation. La question posee est
+     « mes validations qui vont vers le BFE 03 », et c'est leur CROISEMENT qui
+     y repond : ni l'une ni l'autre seule.
+     Ils affinent les lignes DEJA RECUES, comme les deux precedents : le
+     serveur renvoyait deja `engagementType` et `agentValidation`, aucun
+     aller-retour n'est ajoute. */
+  const [typeEng, setTypeEng] = useState('');
+  const [signePar, setSignePar] = useState('');
   const changerTri = (t: TriEngagement) => {
     if (t === tri) setSens(sens === 'asc' ? 'desc' : 'asc');
     else { setTri(t); setSens('asc'); }
@@ -1865,9 +1874,20 @@ SCREENS.engagements = ({ go, user }) => {
   const affinees = filtrerEngagements(recues, {
     camion: rechCamion,
     joursMax: jours.trim() === '' ? null : Number(jours),
+    type: typeEng,
+    signePar,
   }) as O[];
+  /* Les choix proposes sont batis depuis LES LIGNES RECUES, et non depuis la
+     liste des trois engagements connus : le champ est du texte libre, le chef
+     a pu en saisir d'autres, et un menu qui ne proposerait pas ce qui existe
+     en base donnerait un filtre aveugle. */
+  const valeursDe = (cle: string) => [...new Set(recues
+    .map((l) => String(l[cle] ?? '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'fr'));
+  const typesPresents = valeursDe('engagementType');
+  const signatairesPresents = valeursDe('agentValidation');
+  const moi = String(user.nomComplet ?? '');
   const lignes = trierEngagements(affinees, tri, sens) as O[];
-  const affine = rechCamion.trim() !== '' || jours.trim() !== '';
+  const affine = rechCamion.trim() !== '' || jours.trim() !== '' || typeEng !== '' || signePar !== '';
   const fleche = (t: TriEngagement) => (t === tri ? (sens === 'asc' ? ' ▲' : ' ▼') : '');
   const cpt = (data?.['compte'] as O) ?? {};
   // Compteurs GLOBAUX : ils ne bougent pas avec la vue affichée, mais bien avec
@@ -1887,24 +1907,49 @@ SCREENS.engagements = ({ go, user }) => {
 
   return <>
     <BandeauModule icone="sablier" titre="Engagements"
-      sous={<>Tous les camions sous suivi d'engagement. <b>Effectué</b> : les informations ont été transmises ·
-        <b> Corriger</b> : engagement ou délai erroné · <b>Retirer</b> : engagement coché par erreur.</>}
-      action={<div className="bm-outils">
-        <label className="help">Afficher</label>
-        <select value={filtre} onChange={(e) => setFiltre(e.target.value)} style={{ maxWidth: 150 }}>
-          {FILTRES_ENGAGEMENT.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-        </select>
-        <label className="help">Échéance ≤</label>
-        <input inputMode="numeric" value={jours} placeholder="jours"
-          onChange={(e) => setJours(e.target.value.replace(/[^0-9]/g, ''))}
-          title="Camions dont l'échéance tombe dans au plus N jours, les dépassées comprises"
-          style={{ width: 80 }} />
+      sous="Tous les camions sous suivi d'engagement." />
+    {/* TOUTES LES COMMANDES DANS LEUR PROPRE BLOC (2026-10-08, demande
+        utilisateur). Le bandeau en portait six, plus le bouton Retour : il
+        fallait les faire défiler pour les atteindre, et le titre s'en trouvait
+        comprimé. Elles descendent ici, en verre dépoli, où elles tiennent
+        toutes à la fois sans rien bousculer.
+        Le bandeau redevient ce qu'il est : il dit de quoi on parle, et par où
+        revenir. */}
+    <div className="card filtres-verre">
+      <label className="help fv-etiquette">Afficher</label>
+      <select value={filtre} onChange={(e) => setFiltre(e.target.value)}
+        title="La vue d'ensemble : ce qui reste dû, ce qui est en retard, ce qui est soldé">
+        {FILTRES_ENGAGEMENT.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+      </select>
+      <span className="champ-loupe">
+        <Icone nom="loupe" taille={15} />
         <input className="mono" value={rechCamion} placeholder="N° camion"
           onChange={(e) => setRechCamion(e.target.value)}
-          title="Rechercher un camion dans les engagements, espaces et tirets ignorés"
-          style={{ width: 150 }} />
-        {affine && <button className="ghost xs" onClick={() => { setJours(''); setRechCamion(''); }}>Tout afficher</button>}
-      </div>} />
+          title="Rechercher un camion dans les engagements, espaces et tirets ignorés" />
+      </span>
+      <select value={typeEng} onChange={(e) => setTypeEng(e.target.value)}
+        title="Ne garder qu'une nature d'engagement">
+        <option value="">Tous les engagements</option>
+        {typesPresents.map((t) => <option key={t} value={t}>{t}</option>)}
+      </select>
+      {/* LE SIGNATAIRE. Le nom de l'utilisateur connecté est proposé EN TÊTE
+          et annoncé comme tel : « mes validations » est la question courante,
+          et personne ne devrait avoir à se chercher dans une liste. */}
+      <select value={signePar} onChange={(e) => setSignePar(e.target.value)}
+        title="Ne garder que les validations d'un agent">
+        <option value="">Toutes les validations</option>
+        {moi && signatairesPresents.includes(moi) && <option value={moi}>Mes validations</option>}
+        {signatairesPresents.filter((n) => n !== moi).map((n) => <option key={n} value={n}>{n}</option>)}
+      </select>
+      <label className="help fv-echeance">Échéance ≤
+        <input inputMode="numeric" value={jours} placeholder="j"
+          onChange={(e) => setJours(e.target.value.replace(/[^0-9]/g, ''))}
+          title="Camions dont l'échéance tombe dans au plus N jours, les dépassées comprises" />
+        jours
+      </label>
+      {affine && <button className="ghost xs fv-raz"
+        onClick={() => { setJours(''); setRechCamion(''); setTypeEng(''); setSignePar(''); }}>Tout afficher</button>}
+    </div>
     <div className="stats" style={{ marginTop: 10 }}>
       <StatCard n={Number(glob['encours'] ?? 0)} l="Engagements en cours" icone="sablier" tone="warn"
         onClick={() => setFiltre('encours')} />
@@ -1916,6 +1961,8 @@ SCREENS.engagements = ({ go, user }) => {
         <div className="help" style={{ marginBottom: 8 }}>
           {affine ? `${lignes.length} engagement(s) sur ${recues.length}` : `${lignes.length} engagement(s)`}
           {affine && jours.trim() !== '' ? ` · échéance dans ${jours} jour(s) au plus, dépassées comprises` : ''}
+          {typeEng ? ` · ${typeEng}` : ''}
+          {signePar ? ` · validé(s) par ${signePar === moi ? 'vous' : signePar}` : ''}
           {Number(cpt['retard'] ?? 0) ? <span style={{ color: 'var(--err)', fontWeight: 600 }}> · {String(cpt['retard'])} en retard</span> : null}
           {Number(cpt['solde'] ?? 0) ? <span> · {String(cpt['solde'])} soldé(s)</span> : null}
         </div>
@@ -1945,13 +1992,20 @@ SCREENS.engagements = ({ go, user }) => {
                 <td className="help">{String(l['agentValidation'] || '—')}</td>
                 <td onClick={(e) => e.stopPropagation()}>
                   <div className="acts-dossier">
-                    {peut && !solde && <button className="ghost xs" disabled={busy === id} onClick={() => solder(id)}>
+                    {/* CE QUE FAIT CHAQUE BOUTON EST DIT SUR LE BOUTON (08/10).
+                        Le sous-titre du bandeau portait ces trois explications,
+                        ce qui lui faisait trois lignes ; elles ont leur place
+                        ici, la ou l'on hesite avant de cliquer. */}
+                    {peut && !solde && <button className="ghost xs" disabled={busy === id} onClick={() => solder(id)}
+                      title="Les informations ont été transmises : l'engagement est tenu.">
                       {busy === id ? '…' : '✔ Effectué'}
                     </button>}
-                    {peut && <button className="ghost xs" onClick={() => setCorrige(l)}>✎ Corriger</button>}
+                    {peut && <button className="ghost xs" onClick={() => setCorrige(l)}
+                      title="Engagement ou délai erroné : corriger la saisie.">✎ Corriger</button>}
                     {/* RETRAIT (2026-09-17) : un bouton à lui, sur la ligne, il était
                         caché dans la fenêtre de correction. Administrateur seul. */}
-                    {admin && <button className="ghost xs acts-suppr" onClick={() => setRetire(l)}>✕ Retirer</button>}
+                    {admin && <button className="ghost xs acts-suppr" onClick={() => setRetire(l)}
+                      title="Engagement coché par erreur : le retirer du suivi.">✕ Retirer</button>}
                   </div>
                 </td>
               </tr>;
