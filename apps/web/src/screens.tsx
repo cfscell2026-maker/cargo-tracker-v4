@@ -1853,6 +1853,15 @@ SCREENS.engagements = ({ go, user }) => {
   // reçues, aucun aller-retour au serveur à chaque frappe.
   const [jours, setJours] = useState('');
   const [rechCamion, setRechCamion] = useState('');
+  /* DEUX FILTRES DE PLUS (2026-10-08, demande utilisateur) : la NATURE de
+     l'engagement et le SIGNATAIRE de la validation. La question posee est
+     « mes validations qui vont vers le BFE 03 », et c'est leur CROISEMENT qui
+     y repond : ni l'une ni l'autre seule.
+     Ils affinent les lignes DEJA RECUES, comme les deux precedents : le
+     serveur renvoyait deja `engagementType` et `agentValidation`, aucun
+     aller-retour n'est ajoute. */
+  const [typeEng, setTypeEng] = useState('');
+  const [signePar, setSignePar] = useState('');
   const changerTri = (t: TriEngagement) => {
     if (t === tri) setSens(sens === 'asc' ? 'desc' : 'asc');
     else { setTri(t); setSens('asc'); }
@@ -1865,9 +1874,20 @@ SCREENS.engagements = ({ go, user }) => {
   const affinees = filtrerEngagements(recues, {
     camion: rechCamion,
     joursMax: jours.trim() === '' ? null : Number(jours),
+    type: typeEng,
+    signePar,
   }) as O[];
+  /* Les choix proposes sont batis depuis LES LIGNES RECUES, et non depuis la
+     liste des trois engagements connus : le champ est du texte libre, le chef
+     a pu en saisir d'autres, et un menu qui ne proposerait pas ce qui existe
+     en base donnerait un filtre aveugle. */
+  const valeursDe = (cle: string) => [...new Set(recues
+    .map((l) => String(l[cle] ?? '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'fr'));
+  const typesPresents = valeursDe('engagementType');
+  const signatairesPresents = valeursDe('agentValidation');
+  const moi = String(user.nomComplet ?? '');
   const lignes = trierEngagements(affinees, tri, sens) as O[];
-  const affine = rechCamion.trim() !== '' || jours.trim() !== '';
+  const affine = rechCamion.trim() !== '' || jours.trim() !== '' || typeEng !== '' || signePar !== '';
   const fleche = (t: TriEngagement) => (t === tri ? (sens === 'asc' ? ' ▲' : ' ▼') : '');
   const cpt = (data?.['compte'] as O) ?? {};
   // Compteurs GLOBAUX : ils ne bougent pas avec la vue affichée, mais bien avec
@@ -1903,7 +1923,22 @@ SCREENS.engagements = ({ go, user }) => {
           onChange={(e) => setRechCamion(e.target.value)}
           title="Rechercher un camion dans les engagements, espaces et tirets ignorés"
           style={{ width: 150 }} />
-        {affine && <button className="ghost xs" onClick={() => { setJours(''); setRechCamion(''); }}>Tout afficher</button>}
+        <select value={typeEng} onChange={(e) => setTypeEng(e.target.value)}
+          title="Ne garder qu'une nature d'engagement" style={{ maxWidth: 170 }}>
+          <option value="">Tous les engagements</option>
+          {typesPresents.map((t) => <option key={t} value={t}>{t}</option>)}
+        </select>
+        {/* LE SIGNATAIRE. Le nom de l'utilisateur connecte est propose EN TETE
+            et annonce comme tel : « mes validations » est la question courante,
+            et personne ne devrait avoir a se chercher dans une liste. */}
+        <select value={signePar} onChange={(e) => setSignePar(e.target.value)}
+          title="Ne garder que les validations d'un agent" style={{ maxWidth: 190 }}>
+          <option value="">Toutes les validations</option>
+          {moi && signatairesPresents.includes(moi) && <option value={moi}>Mes validations</option>}
+          {signatairesPresents.filter((n) => n !== moi).map((n) => <option key={n} value={n}>{n}</option>)}
+        </select>
+        {affine && <button className="ghost xs"
+          onClick={() => { setJours(''); setRechCamion(''); setTypeEng(''); setSignePar(''); }}>Tout afficher</button>}
       </div>} />
     <div className="stats" style={{ marginTop: 10 }}>
       <StatCard n={Number(glob['encours'] ?? 0)} l="Engagements en cours" icone="sablier" tone="warn"
@@ -1916,6 +1951,8 @@ SCREENS.engagements = ({ go, user }) => {
         <div className="help" style={{ marginBottom: 8 }}>
           {affine ? `${lignes.length} engagement(s) sur ${recues.length}` : `${lignes.length} engagement(s)`}
           {affine && jours.trim() !== '' ? ` · échéance dans ${jours} jour(s) au plus, dépassées comprises` : ''}
+          {typeEng ? ` · ${typeEng}` : ''}
+          {signePar ? ` · validé(s) par ${signePar === moi ? 'vous' : signePar}` : ''}
           {Number(cpt['retard'] ?? 0) ? <span style={{ color: 'var(--err)', fontWeight: 600 }}> · {String(cpt['retard'])} en retard</span> : null}
           {Number(cpt['solde'] ?? 0) ? <span> · {String(cpt['solde'])} soldé(s)</span> : null}
         </div>
