@@ -2680,7 +2680,20 @@ label.help.lbl-icone svg{color:var(--accent);flex:0 0 auto}
    calcul du repli et poussait le dernier bouton a la ligne alors que la place
    existait. Une base courte le fait plier en premier ; il a de quoi, le texte
    se remet sur deux lignes, un bouton non. */
-.bm-textes{flex:1 1 220px;min-width:0}
+/* UNE LARGEUR PLANCHER POUR LE TEXTE (2026-10-08).
+   `min-width:0` l'autorisait a se reduire A ZERO : en ajoutant deux menus a la
+   barre des Engagements, le titre s'est retrouve a un mot par ligne et le
+   bandeau faisait 500 px de haut. Le bloc de titre plie toujours en premier,
+   c'est voulu, mais il ne doit pas disparaitre. En dessous de ce plancher, le
+   bandeau passe a la ligne (`flex-wrap` ci-dessous) : les outils prennent alors
+   leur propre rangee, ce qui est lisible, au lieu d'ecraser le texte. */
+.bm-textes{flex:1 1 300px;min-width:min(100%,240px)}
+.bandeau-module{flex-wrap:wrap}
+/* Replie sur sa propre rangee, le groupe d'outils s'aligne a droite et peut
+   lui-meme passer sur deux lignes plutot que deborder. Il ne devient jamais une
+   COLONNE pour autant (decision utilisateur du 12/09) : les commandes restent
+   cote a cote tant qu'il y a de la place. */
+.bm-droite{flex-wrap:wrap;justify-content:flex-end;max-width:100%}
 /* Repli si `display:contents` manque : les outils restent un bloc, mais le
    retour s'aligne au moins sur leur premiere ligne. */
 @supports not (display:contents){
@@ -3539,3 +3552,44 @@ button.modal-fermer:focus-visible{outline:2px solid #0e5a8a;outline-offset:2px}
   background:rgba(255,255,255,.75);border:1px solid rgba(15,45,70,.14);
   border-radius:6px;padding:5px 8px;font-size:11px;word-break:break-all;
 }
+
+/* La barre de filtres du volet Engagements. Quatre commandes de largeurs
+   differentes : on les borne ici plutot qu'en style en ligne, et elles se
+   replient proprement sur un ecran etroit. */
+.eng-filtres{gap:9px;flex-wrap:wrap;align-items:center;margin-bottom:10px}
+.eng-filtres .champ-loupe{flex:1 1 170px;max-width:220px}
+.eng-filtres select{flex:0 1 auto;max-width:190px}
+.eng-filtres .eng-echeance{
+  display:inline-flex;align-items:center;gap:6px;margin:0;
+  white-space:nowrap;flex:0 0 auto;
+}
+.eng-filtres .eng-echeance input{width:62px;flex:none}
+
+/* ============ LES KPI EN RECTANGLE, 2026-10-08 (demande utilisateur) ====
+ *
+ * Les tuiles ordinaires empilaient pastille, chiffre et libellé : 165 px de
+ * large pour 115 de haut, un carré. Le tableau de bord (`.bento`) et les écrans
+ * compacts posaient déjà la pastille A COTE du chiffre ; les tuiles ordinaires
+ * étaient les seules à ne pas le faire.
+ *
+ * Même grille pour elles, donc : pastille à gauche, chiffre et libellé au
+ * centre, chevron à droite. La carte tombe d'un tiers en hauteur, et rien de ce
+ * qu'elle dit ne se perd.
+ *
+ * ⚠ `:not(.bento):not(.compacts)` : ces deux-là ont LEUR propre grille, réglée
+ * pour ce qu'elles portent - une ligne d'évolution pour le tableau de bord, un
+ * gabarit plus serré pour les écrans denses. Sans ces exclusions, cette règle,
+ * écrite plus bas dans le fichier, les écraserait toutes les deux.
+ */
+.stats:not(.bento){grid-template-columns:repeat(auto-fill,minmax(205px,1fr))}
+.stats:not(.bento):not(.compacts) .stat{
+  display:grid;
+  grid-template-columns:auto 1fr auto;
+  grid-template-areas:
+    "pastille nombre  chevron"
+    "pastille libelle chevron";
+  align-items:center;column-gap:12px;
+  min-height:0;padding:12px 14px;
+}
+.stats:not(.bento):not(.compacts) .stat .n{grid-area:nombre;font-size:23px;line-height:1.15}
+.stats:not(.bento):not(.compacts) .stat .l{grid-area:libelle;font-size:12px;line-height:1.25}
