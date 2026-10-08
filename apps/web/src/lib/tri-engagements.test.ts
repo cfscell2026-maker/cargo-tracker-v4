@@ -129,3 +129,19 @@ test('engagements : les nouveaux filtres se CUMULENT avec la recherche camion', 
   const r = filtrerEngagements(engagements(), { type: 'BFE 03 Sinkase', camion: 'tg2222' });
   assert.deepEqual(cam(r), ['TG2222BB']);
 });
+
+/* ---- Extraction Excel (2026-10-08) ---- */
+test('extraction : mêmes lignes, même ordre, dates lisibles', async () => {
+  const { lignesExportEngagements } = await import('./tri-engagements.ts');
+  const rows = lignesExportEngagements([
+    { id: 'CT-2', numeroCamion: 'TG2', engagementType: 'BFE 03 Sinkase', engagementDelai: '2026-10-20',
+      engagementEffectueLe: '2026-10-07T10:00:00Z', libelle: 'Effectué', agentValidation: 'Chef A' },
+    { id: 'CT-1', numeroCamion: 'TG1', engagementType: 'BFE 03 Sinkase', engagementDelai: '2026-10-05', libelle: 'En retard' },
+  ]);
+  assert.deepEqual(rows.map((r) => r['ID']), ['CT-2', 'CT-1'], "l'ordre affiché est conservé");
+  assert.equal(rows[0]!['Échéance'], '20/10/2026');
+  assert.equal(rows[0]!['Effectué le'], '07/10/2026');
+  assert.equal(rows[0]!['Signé par'], 'Chef A');
+  assert.equal(rows[1]!['Effectué le'], '', 'pas encore effectué');
+  assert.equal(rows[1]!['État'], 'En retard');
+});

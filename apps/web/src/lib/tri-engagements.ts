@@ -116,3 +116,34 @@ export function filtrerEngagements(
     return true;
   });
 }
+
+/* ============ EXTRACTION EXCEL : 2026-10-08 (demande utilisateur) ===========
+ *
+ * « Si on filtre pour ne voir que les BFE 03, on peut les extraire eux seuls. »
+ * L'extraction part donc des lignes DÉJÀ affinées et triées par l'écran, jamais
+ * d'une nouvelle requête qui pourrait dire autre chose que ce qui est affiché.
+ */
+
+/** « 2026-10-05… » → « 05/10/2026 » ; vide si absent. */
+const jourFr = (v: unknown) => {
+  const s = String(v ?? '').slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(s) ? `${s.slice(8, 10)}/${s.slice(5, 7)}/${s.slice(0, 4)}` : '';
+};
+
+/** Lignes du classeur Excel, dans l'ordre affiché. */
+export function lignesExportEngagements(lignes: Record<string, unknown>[]): Record<string, string>[] {
+  return lignes.map((l) => ({
+    'Camion': String(l['numeroCamion'] ?? ''),
+    'ID': String(l['id'] ?? ''),
+    'Opération': String(l['typeOperation'] ?? ''),
+    'Statut': String(l['statut'] ?? ''),
+    'Déclarant': String(l['declarant'] ?? ''),
+    'N° déclaration': String(l['numeroDeclaration'] ?? ''),
+    'Engagement': String(l['engagementType'] ?? ''),
+    'Échéance': jourFr(l['engagementDelai']),
+    'État': String(l['libelle'] ?? ''),
+    'Effectué le': jourFr(l['engagementEffectueLe']),
+    'Signé par': String(l['agentValidation'] ?? ''),
+    'Validé le': jourFr(l['dateValidation']),
+  }));
+}
