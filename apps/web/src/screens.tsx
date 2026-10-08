@@ -1907,41 +1907,49 @@ SCREENS.engagements = ({ go, user }) => {
 
   return <>
     <BandeauModule icone="sablier" titre="Engagements"
-      sous="Tous les camions sous suivi d'engagement."
-      action={<div className="bm-outils">
-        <label className="help">Afficher</label>
-        <select value={filtre} onChange={(e) => setFiltre(e.target.value)} style={{ maxWidth: 150 }}>
-          {FILTRES_ENGAGEMENT.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-        </select>
-        <span className="champ-loupe">
-          <Icone nom="loupe" taille={15} />
-          <input className="mono" value={rechCamion} placeholder="N° camion"
-            onChange={(e) => setRechCamion(e.target.value)}
-            title="Rechercher un camion dans les engagements, espaces et tirets ignorés" />
-        </span>
-        <select value={typeEng} onChange={(e) => setTypeEng(e.target.value)}
-          title="Ne garder qu'une nature d'engagement">
-          <option value="">Tous les engagements</option>
-          {typesPresents.map((t) => <option key={t} value={t}>{t}</option>)}
-        </select>
-        {/* LE SIGNATAIRE. Le nom de l'utilisateur connecté est proposé EN TÊTE
-            et annoncé comme tel : « mes validations » est la question courante,
-            et personne ne devrait avoir à se chercher dans une liste. */}
-        <select value={signePar} onChange={(e) => setSignePar(e.target.value)}
-          title="Ne garder que les validations d'un agent">
-          <option value="">Toutes les validations</option>
-          {moi && signatairesPresents.includes(moi) && <option value={moi}>Mes validations</option>}
-          {signatairesPresents.filter((n) => n !== moi).map((n) => <option key={n} value={n}>{n}</option>)}
-        </select>
-        <label className="help eng-echeance">Échéance ≤
-          <input inputMode="numeric" value={jours} placeholder="j"
-            onChange={(e) => setJours(e.target.value.replace(/[^0-9]/g, ''))}
-            title="Camions dont l'échéance tombe dans au plus N jours, les dépassées comprises" />
-          jours
-        </label>
-        {affine && <button className="ghost xs"
-          onClick={() => { setJours(''); setRechCamion(''); setTypeEng(''); setSignePar(''); }}>Tout afficher</button>}
-      </div>} />
+      sous="Tous les camions sous suivi d'engagement." />
+    {/* TOUTES LES COMMANDES DANS LEUR PROPRE BLOC (2026-10-08, demande
+        utilisateur). Le bandeau en portait six, plus le bouton Retour : il
+        fallait les faire défiler pour les atteindre, et le titre s'en trouvait
+        comprimé. Elles descendent ici, en verre dépoli, où elles tiennent
+        toutes à la fois sans rien bousculer.
+        Le bandeau redevient ce qu'il est : il dit de quoi on parle, et par où
+        revenir. */}
+    <div className="card filtres-verre">
+      <label className="help fv-etiquette">Afficher</label>
+      <select value={filtre} onChange={(e) => setFiltre(e.target.value)}
+        title="La vue d'ensemble : ce qui reste dû, ce qui est en retard, ce qui est soldé">
+        {FILTRES_ENGAGEMENT.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+      </select>
+      <span className="champ-loupe">
+        <Icone nom="loupe" taille={15} />
+        <input className="mono" value={rechCamion} placeholder="N° camion"
+          onChange={(e) => setRechCamion(e.target.value)}
+          title="Rechercher un camion dans les engagements, espaces et tirets ignorés" />
+      </span>
+      <select value={typeEng} onChange={(e) => setTypeEng(e.target.value)}
+        title="Ne garder qu'une nature d'engagement">
+        <option value="">Tous les engagements</option>
+        {typesPresents.map((t) => <option key={t} value={t}>{t}</option>)}
+      </select>
+      {/* LE SIGNATAIRE. Le nom de l'utilisateur connecté est proposé EN TÊTE
+          et annoncé comme tel : « mes validations » est la question courante,
+          et personne ne devrait avoir à se chercher dans une liste. */}
+      <select value={signePar} onChange={(e) => setSignePar(e.target.value)}
+        title="Ne garder que les validations d'un agent">
+        <option value="">Toutes les validations</option>
+        {moi && signatairesPresents.includes(moi) && <option value={moi}>Mes validations</option>}
+        {signatairesPresents.filter((n) => n !== moi).map((n) => <option key={n} value={n}>{n}</option>)}
+      </select>
+      <label className="help fv-echeance">Échéance ≤
+        <input inputMode="numeric" value={jours} placeholder="j"
+          onChange={(e) => setJours(e.target.value.replace(/[^0-9]/g, ''))}
+          title="Camions dont l'échéance tombe dans au plus N jours, les dépassées comprises" />
+        jours
+      </label>
+      {affine && <button className="ghost xs fv-raz"
+        onClick={() => { setJours(''); setRechCamion(''); setTypeEng(''); setSignePar(''); }}>Tout afficher</button>}
+    </div>
     <div className="stats" style={{ marginTop: 10 }}>
       <StatCard n={Number(glob['encours'] ?? 0)} l="Engagements en cours" icone="sablier" tone="warn"
         onClick={() => setFiltre('encours')} />

@@ -3644,3 +3644,56 @@ button.modal-fermer:focus-visible{outline:2px solid #0e5a8a;outline-offset:2px}
 }
 .stats:not(.bento):not(.compacts) .stat .n{grid-area:nombre;font-size:23px;line-height:1.15}
 .stats:not(.bento):not(.compacts) .stat .l{grid-area:libelle;font-size:12px;line-height:1.25}
+
+/* ============ LE BLOC DES FILTRES, EN VERRE, 2026-10-08 ================
+ *
+ * Demande utilisateur : sortir les commandes du bandeau et les poser dessous,
+ * en verre dépoli avec un dégradé.
+ *
+ * LE DEGRADE VA DU BLANC A LA TEINTE DE L'APPLICATION, en diagonale, et reste
+ * très dilué. Ce bloc est posé entre un bandeau bleu soutenu et des cartes
+ * blanches : s'il criait, il couperait la page en deux. Il doit se distinguer
+ * assez pour qu'on sache que ces commandes vont ensemble, pas davantage.
+ *
+ * Le verre a de quoi travailler : la couche de halos posée derrière `.content`
+ * passe au travers, et c'est elle qu'on voit bouger au défilement.
+ */
+.filtres-verre{
+  display:flex;flex-wrap:wrap;align-items:center;gap:10px;
+  padding:13px 15px;
+  background:
+    linear-gradient(115deg,
+      rgba(255,255,255,.90) 0%,
+      rgba(255,255,255,.72) 30%,
+      rgba(14,90,138,.17) 62%,
+      rgba(14,90,138,.24) 82%,
+      rgba(31,122,92,.26) 100%);
+  backdrop-filter:blur(22px) saturate(170%);
+  -webkit-backdrop-filter:blur(22px) saturate(170%);
+  border:1px solid rgba(255,255,255,.78);
+  box-shadow:
+    0 10px 28px rgba(15,35,55,.10),
+    inset 0 1px 0 rgba(255,255,255,.95);
+}
+/* « Afficher » introduit le premier menu : c'est une etiquette, pas un reglage
+   a part. Elle se colle a lui plutot que de flotter dans la rangee. */
+.filtres-verre .fv-etiquette{margin:0 -4px 0 0;font-weight:600;color:var(--muted)}
+.filtres-verre select{max-width:190px;flex:0 1 auto}
+.filtres-verre .champ-loupe{flex:1 1 160px;max-width:210px}
+.filtres-verre .champ-loupe input{width:100%}
+/* L'echeance et son unite forment UNE expression : « echeance <= 5 jours ». Les
+   separer en trois elements d'une rangee souple les aurait disperses. */
+.filtres-verre .fv-echeance{
+  display:inline-flex;align-items:center;gap:6px;margin:0;
+  white-space:nowrap;flex:0 0 auto;font-weight:600;
+}
+.filtres-verre .fv-echeance input{width:62px;flex:none;font-weight:400}
+/* Le bouton de remise a zero part a DROITE, a l'ecart des commandes : il ne
+   regle rien, il annule tout. */
+.filtres-verre .fv-raz{margin-left:auto}
+
+@media (max-width:560px){
+  .filtres-verre{gap:8px}
+  .filtres-verre select,.filtres-verre .champ-loupe{flex:1 1 100%;max-width:none}
+  .filtres-verre .fv-raz{margin-left:0;width:100%}
+}
