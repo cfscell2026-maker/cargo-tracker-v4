@@ -2674,7 +2674,7 @@ label.help.lbl-icone svg{color:var(--accent);flex:0 0 auto}
   display:flex;flex-wrap:nowrap;align-items:center;
   justify-content:flex-end;gap:8px;
 }
-.bm-droite > .bm-outils{display:contents}
+/* `display:contents` retire le 08/10 : voir le bloc « UNE SEULE LIGNE » plus bas. */
 /* Le bloc de titre CEDE la place aux commandes. Avec `flex:1` et une base
    automatique, sa largeur naturelle - titre plus sous-titre - entrait dans le
    calcul du repli et poussait le dernier bouton a la ligne alors que la place
@@ -2695,25 +2695,47 @@ label.help.lbl-icone svg{color:var(--accent);flex:0 0 auto}
    longue que la place. C'est la seule facon de tenir les trois promesses a la
    fois, une ligne unique, des commandes a leur taille, et un titre qui ne
    s'ecrase pas.
+
+   ⚠ CE QUI DEFILE, C'EST `.bm-outils`, ET NON `.bm-droite`. Le bouton RETOUR
+   est le premier enfant de `.bm-droite` : en faisant defiler le groupe entier,
+   il partait avec les filtres et se retrouvait coupe au bord gauche
+   (« etour »). Ce n'est pas un filtre, c'est de la navigation : il reste fixe,
+   et seules les commandes glissent a cote de lui.
+
+   `display:contents` tombe donc avec. Il existait pour aligner le Retour sur la
+   PREMIERE rangee d'outils quand ceux-ci se repliaient sur deux lignes ; plus
+   rien ne se replie, sa raison d'etre a disparu.
+
    LA BARRE DE DEFILEMENT RESTE VISIBLE, discretement. Masquee au repos, rien
    n'annoncait qu'il y avait d'autres commandes a droite, et une commande qu'on
    ne soupconne pas n'existe pas. Un filet clair a 22 % se remarque sans
    concurrencer les menus ; il s'affirme au survol. */
-.bm-droite{
-  flex-wrap:nowrap;justify-content:flex-end;max-width:100%;
+.bm-droite{flex-wrap:nowrap;justify-content:flex-end;max-width:100%;min-width:0}
+.bm-droite > .bm-retour{flex:0 0 auto}
+.bm-droite > .bm-outils{
+  display:flex;flex-wrap:nowrap;align-items:center;gap:8px;
+  flex:0 1 auto;min-width:0;
+  /* ⚠ `justify-content:flex-start`, ET C'EST LE POINT QUI DECIDE DE TOUT.
+     La regle de base aligne ces outils a DROITE. Des qu'ils depassent, un
+     conteneur en `flex-end` les fait deborder VERS LA GAUCHE - or un
+     debordement a gauche n'entre pas dans `scrollWidth` et AUCUN defilement ne
+     va le chercher. Le contenu etait donc coupe et inatteignable : c'est ce
+     qui tronquait le bouton Retour en « etour ».
+     En partant de la gauche, le trop-plein s'en va a droite, la ou le
+     defilement sait aller. Le groupe, lui, reste cale a droite du bandeau par
+     `margin-left:auto`. */
+  justify-content:flex-start;margin-left:auto;
   overflow-x:auto;overflow-y:hidden;
   scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.22) transparent;
   padding-bottom:2px;
 }
-.bm-droite:hover{scrollbar-color:rgba(255,255,255,.45) transparent}
-.bm-droite::-webkit-scrollbar{height:5px}
-.bm-droite::-webkit-scrollbar-thumb{background:rgba(255,255,255,.22);border-radius:3px}
-.bm-droite:hover::-webkit-scrollbar-thumb{background:rgba(255,255,255,.45)}
+.bm-droite > .bm-outils:hover{scrollbar-color:rgba(255,255,255,.45) transparent}
+.bm-droite > .bm-outils::-webkit-scrollbar{height:5px}
+.bm-droite > .bm-outils::-webkit-scrollbar-thumb{background:rgba(255,255,255,.22);border-radius:3px}
+.bm-droite > .bm-outils:hover::-webkit-scrollbar-thumb{background:rgba(255,255,255,.45)}
 /* Chaque commande garde SA taille : sans cela, flexbox les retrecirait toutes
    jusqu'a l'illisible plutot que de laisser la barre defiler. */
-/* `.bm-outils` est en `display:contents` : les elements de flux sont SES
-   enfants, pas lui. Figer le conteneur seul ne servait a rien. */
-.bm-droite > *,.bm-droite > .bm-outils > *{flex:0 0 auto}
+.bm-droite > .bm-outils > *{flex:0 0 auto}
 /* Repli si `display:contents` manque : les outils restent un bloc, mais le
    retour s'aligne au moins sur leur premiere ligne. */
 @supports not (display:contents){
@@ -2870,8 +2892,7 @@ tr:hover .avatar-u{
      `flex:0 0 auto` remplace `flex:1 1 auto` : sans cela flexbox retrecirait
      les menus jusqu'a l'illisible plutot que de laisser la barre defiler. */
   .bandeau-module > .bm-droite{
-    order:3;width:100%;justify-content:flex-start;flex-wrap:nowrap;
-    overflow-x:auto;overflow-y:hidden;
+    order:3;width:100%;justify-content:flex-start;flex-wrap:nowrap;min-width:0;
   }
   .bm-outils select,.bm-outils input{flex:0 0 auto}
   .bm-titre{font-size:17px}
