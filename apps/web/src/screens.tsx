@@ -9,7 +9,7 @@ import { Icone } from './lib/icones.tsx';
 import { iconeDeLEcran, MENUS } from './lib/menu.ts';
 import { Spinner, StatCard, Tag, Modal, masks, toast, fmtDate, fmtJour, ChampDestination, Graphique, BarresClassees, useSuiviEngagement, useParametres, ChampCamion, roleLabel, TITLES, ChoixSegmente } from './lib/ui.tsx';
 import { bornesDe, isoDate, normaliserPlage, type ModePeriode, repartition } from './lib/periode.ts';
-import { trierEngagements, filtrerEngagements, type TriEngagement, type SensTri } from './lib/tri-engagements.ts';
+import { trierEngagements, filtrerEngagements, lignesExportEngagements, type TriEngagement, type SensTri } from './lib/tri-engagements.ts';
 import { Detail, TitrePanneau } from './detail.tsx';
 import { EcranParking, ResultatsParking, useAlerteParking } from './parking.tsx';
 import { LogoVerrou } from './lib/verrou.tsx';
@@ -1949,6 +1949,12 @@ SCREENS.engagements = ({ go, user }) => {
       </label>
       {affine && <button className="ghost xs fv-raz"
         onClick={() => { setJours(''); setRechCamion(''); setTypeEng(''); setSignePar(''); }}>Tout afficher</button>}
+      {/* EXTRACTION (2026-10-08) : exactement les lignes affichées, filtres et tri compris. */}
+      <button className="ghost xs" disabled={loading || !lignes.length}
+        onClick={() => exporterEngagements(lignes, filtre, typeEng, signePar === moi ? 'mes-validations' : signePar)}
+        title="Extraire en Excel exactement les lignes affichées (filtres et tri compris)">
+        <Icone nom="telecharger" taille={15} />Excel
+      </button>
     </div>
     <div className="stats" style={{ marginTop: 10 }}>
       <StatCard n={Number(glob['encours'] ?? 0)} l="Engagements en cours" icone="sablier" tone="warn"
@@ -4379,6 +4385,21 @@ SCREENS.dispenses = () => {
     </>}
   </>;
 };
+
+/** Extraction du volet Engagements : la vue affichée, filtres et tri compris (2026-10-08). */
+function exporterEngagements(lignes: O[], filtre: string, ...criteres: string[]) {
+  if (!lignes.length) { toast('Rien à extraire.', 'err'); return; }
+  const rows = lignesExportEngagements(lignes);
+  const feuille = XLSX.utils.json_to_sheet(rows);
+  const classeur = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(classeur, feuille, 'Engagements');
+  // Le nom du fichier dit ce qu'il contient : « engagements-tous-BFE-03-Sinkase-2026-10-08.xlsx ».
+  const suffixe = criteres.filter(Boolean)
+    .map((c) => '-' + c.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Za-z0-9]+/g, '-').replace(/^-|-$/g, ''))
+    .join('');
+  XLSX.writeFile(classeur, `engagements-${filtre}${suffixe}-${new Date().toISOString().slice(0, 10)}.xlsx`);
+  toast(`${rows.length} ligne(s) extraite(s).`, 'ok');
+}
 
 /** L'extraction suit la vue affichée, comme partout ailleurs. */
 function exporterExemptions(lignes: O[], vue: string) {
