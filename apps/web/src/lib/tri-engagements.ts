@@ -139,6 +139,11 @@ export function lignesExportEngagements(lignes: Record<string, unknown>[]): Reco
     'Statut': String(l['statut'] ?? ''),
     'Déclarant': String(l['declarant'] ?? ''),
     'N° déclaration': String(l['numeroDeclaration'] ?? ''),
+    'Année': String(l['anneeDeclaration'] ?? ''),
+    'Bureau': String(l['bureauDeclaration'] ?? ''),
+    'Type décl.': String(l['typeDeclaration'] ?? ''),
+    'T1': numerosT1(l),
+    'Bon de sortie': numerosBonSortie(l),
     'Engagement': String(l['engagementType'] ?? ''),
     'Échéance': jourFr(l['engagementDelai']),
     'État': String(l['libelle'] ?? ''),
@@ -146,4 +151,45 @@ export function lignesExportEngagements(lignes: Record<string, unknown>[]): Reco
     'Signé par': String(l['agentValidation'] ?? ''),
     'Validé le': jourFr(l['dateValidation']),
   }));
+}
+
+/* ============ T1 ET BON DE SORTIE : 2026-10-09 (demande utilisateur) =========
+ *
+ * Les deux pièces sont stockées en JSON, sous plusieurs formes selon l'époque
+ * et le type d'opération :
+ *   · une liste par conteneur  [{ conteneur, numero }]  (T1, bon de sortie) ;
+ *   · une liste de numéros     ['T1-A', 'T1-B'] ;
+ *   · un numéro seul           "BS-12" (bon de sortie d'un dépotage).
+ * On en tire les numéros, une fois chacun, dans l'ordre de saisie.
+ */
+function numerosDe(v: unknown): string[] {
+  const liste = Array.isArray(v) ? v : v === null || v === undefined || v === '' ? [] : [v];
+  const vus: string[] = [];
+  for (const x of liste) {
+    const n = (x !== null && typeof x === 'object'
+      ? String((x as Record<string, unknown>)['numero'] ?? '')
+      : String(x ?? '')).trim();
+    if (n && !vus.includes(n)) vus.push(n);
+  }
+  return vus;
+}
+
+/** N° de T1 d'une ligne, « Non requis » si le camion saute le T1, vide sinon. */
+export function numerosT1(l: Record<string, unknown>): string {
+  const n = numerosDe(l['t1Numeros']);
+  if (n.length) return n.join(', ');
+  return l['sauteT1'] === true ? 'Non requis' : '';
+}
+
+/** N° de bon de sortie d'une ligne, « Non requis » si le camion le saute, vide sinon. */
+export function numerosBonSortie(l: Record<string, unknown>): string {
+  const n = numerosDe(l['bonSortieNumero']);
+  if (n.length) return n.join(', ');
+  return l['sauteBs'] === true || l['sauteBS'] === true ? 'Non requis' : '';
+}
+
+/** « 12345 · 2026 · TG120 · T » : la déclaration telle que le reste de l'appli l'affiche. */
+export function libelleDeclarationEngagement(l: Record<string, unknown>): string {
+  return [l['numeroDeclaration'], l['anneeDeclaration'], l['bureauDeclaration'], l['typeDeclaration']]
+    .map((v) => String(v ?? '').trim()).filter(Boolean).join(' · ');
 }

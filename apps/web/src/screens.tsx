@@ -9,7 +9,7 @@ import { Icone } from './lib/icones.tsx';
 import { iconeDeLEcran, MENUS } from './lib/menu.ts';
 import { Spinner, StatCard, Tag, Modal, masks, toast, fmtDate, fmtJour, ChampDestination, Graphique, BarresClassees, useSuiviEngagement, useParametres, ChampCamion, roleLabel, TITLES, ChoixSegmente } from './lib/ui.tsx';
 import { bornesDe, isoDate, normaliserPlage, type ModePeriode, repartition } from './lib/periode.ts';
-import { trierEngagements, filtrerEngagements, lignesExportEngagements, type TriEngagement, type SensTri } from './lib/tri-engagements.ts';
+import { trierEngagements, filtrerEngagements, lignesExportEngagements, numerosT1, numerosBonSortie, libelleDeclarationEngagement, type TriEngagement, type SensTri } from './lib/tri-engagements.ts';
 import { Detail, TitrePanneau } from './detail.tsx';
 import { EcranParking, ResultatsParking, useAlerteParking } from './parking.tsx';
 import { LogoVerrou } from './lib/verrou.tsx';
@@ -1979,9 +1979,11 @@ SCREENS.engagements = ({ go, user }) => {
             <thead><tr>
               <th><button className="ghost xs" onClick={() => changerTri('camion')}
                 title="Trier par camion">Camion{fleche('camion')}</button></th>
+              <th>Déclarant</th><th>Déclaration</th>
               <th>Engagement</th>
               <th><button className="ghost xs" onClick={() => changerTri('delai')}
                 title="Trier par échéance">Échéance{fleche('delai')}</button></th>
+              <th>T1</th><th>Bon de sortie</th>
               <th>État</th><th>Signé par</th><th>Actions</th>
             </tr></thead>
             <tbody>{lignes.map((l) => {
@@ -1990,8 +1992,12 @@ SCREENS.engagements = ({ go, user }) => {
               const retard = l['etat'] === 'retard';
               return <tr key={id}>
                 <td><a className="mono" onClick={() => go('detail', { id })}>{String(l['numeroCamion'] || id)}</a></td>
+                <td>{String(l['declarant'] || '—')}</td>
+                <td className="mono">{libelleDeclarationEngagement(l) || '—'}</td>
                 <td>{String(l['engagementType'] || '—')}</td>
                 <td>{fmtJour(l['engagementDelai'])}</td>
+                <td className="mono">{numerosT1(l) || '—'}</td>
+                <td className="mono">{numerosBonSortie(l) || '—'}</td>
                 <td style={{ color: retard ? 'var(--err)' : solde ? 'var(--ok)' : 'var(--warn)', fontWeight: 600 }}>
                   {String(l['libelle'] || '')}
                 </td>

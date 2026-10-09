@@ -5,7 +5,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { trierEngagements } from './tri-engagements.ts';
+import { trierEngagements, numerosT1, numerosBonSortie, libelleDeclarationEngagement, lignesExportEngagements as exporter } from './tri-engagements.ts';
 
 const L = [
   { numeroCamion: 'TG9999ZZ', engagementDelai: '2026-10-05' },
@@ -144,4 +144,34 @@ test('extraction : mêmes lignes, même ordre, dates lisibles', async () => {
   assert.equal(rows[0]!['Signé par'], 'Chef A');
   assert.equal(rows[1]!['Effectué le'], '', 'pas encore effectué');
   assert.equal(rows[1]!['État'], 'En retard');
+});
+
+/* ---- Déclaration, T1 et bon de sortie (2026-10-09) ---- */
+test('T1 : liste par conteneur, liste simple, doublons retirés, « Non requis » si sauté', () => {
+  assert.equal(numerosT1({ t1Numeros: [{ conteneur: 'MSKU1', numero: 'T1-A' }, { conteneur: 'MSKU2', numero: 'T1-B' }] }), 'T1-A, T1-B');
+  assert.equal(numerosT1({ t1Numeros: ['T1-A', 'T1-A', 'T1-C'] }), 'T1-A, T1-C');
+  assert.equal(numerosT1({ t1Numeros: null, sauteT1: true }), 'Non requis');
+  assert.equal(numerosT1({ t1Numeros: null }), '', 'pas encore saisi');
+});
+
+test('bon de sortie : numéro seul (dépotage) ou liste par conteneur (enlèvement)', () => {
+  assert.equal(numerosBonSortie({ bonSortieNumero: 'BS-12' }), 'BS-12');
+  assert.equal(numerosBonSortie({ bonSortieNumero: [{ conteneur: 'MSKU1', t1: 'T1-A', numero: 'BS-1' }] }), 'BS-1');
+  assert.equal(numerosBonSortie({ bonSortieNumero: '', sauteBs: true }), 'Non requis');
+  assert.equal(numerosBonSortie({}), '');
+});
+
+test('déclaration : libellé complet, champs vides ignorés', () => {
+  assert.equal(libelleDeclarationEngagement({ numeroDeclaration: '12345', anneeDeclaration: '2026', bureauDeclaration: 'TG120', typeDeclaration: 'T' }), '12345 · 2026 · TG120 · T');
+  assert.equal(libelleDeclarationEngagement({ numeroDeclaration: '12345' }), '12345');
+});
+
+test('extraction : déclarant, déclaration, T1 et bon de sortie présents', () => {
+  const [r] = exporter([{ id: 'CT-1', declarant: 'STE X', numeroDeclaration: '12345', anneeDeclaration: '2026',
+    bureauDeclaration: 'TG120', typeDeclaration: 'T', t1Numeros: [{ conteneur: 'MSKU1', numero: 'T1-A' }], bonSortieNumero: 'BS-9' }]);
+  assert.equal(r!['Déclarant'], 'STE X');
+  assert.equal(r!['N° déclaration'], '12345');
+  assert.equal(r!['Bureau'], 'TG120');
+  assert.equal(r!['T1'], 'T1-A');
+  assert.equal(r!['Bon de sortie'], 'BS-9');
 });
