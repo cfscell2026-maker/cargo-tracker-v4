@@ -20,6 +20,7 @@ import {
   delaisDe, agreger, dureeLisible, enHeures, POSTES, LIBELLE_POSTE,
 } from '../../_shared/domaine/src/index.ts';
 import { fetchAll, lookupDeclaration } from './helpers.ts';
+import { numerosPiece, extraire, resumeFiltres, DATES_REFERENCE, type FiltresExtraction } from './extraction.ts';
 import { filtrerConfidentiel } from './lecture.ts';
 
 /* ------------------------------- Helpers ------------------------------- */
@@ -146,19 +147,6 @@ function detsDeRow(c: Record<string, unknown>) {
  */
 const tx = (v: unknown) => String(v ?? '').trim();
 
-/** Numéros d'une pièce (T1, bon de sortie), sous toutes ses formes stockées ;
- *  pour un conteneur précis quand la pièce est saisie conteneur par conteneur. */
-function numerosPiece(v: unknown, conteneur?: string): string {
-  const liste = Array.isArray(v) ? v : v === null || v === undefined || v === '' ? [] : [v];
-  const lignes = liste.map((x) => (x !== null && typeof x === 'object'
-    ? { cont: normAlphaNum((x as Record<string, unknown>)['conteneur']), num: tx((x as Record<string, unknown>)['numero']) }
-    : { cont: '', num: tx(x) })).filter((l) => l.num);
-  const cible = normAlphaNum(conteneur);
-  const siennes = cible ? lignes.filter((l) => l.cont === cible) : [];
-  const retenues = siennes.length ? siennes : lignes;
-  return [...new Set(retenues.map((l) => l.num))].join(', ');
-}
-
 /** Champs « déclaration et pièces » d'une ligne de détail : camion entier, ou un de ses conteneurs. */
 function infosDeclaration(c: Record<string, unknown>, ct?: Record<string, unknown>): Record<string, unknown> {
   const commun = {
@@ -173,6 +161,7 @@ function infosDeclaration(c: Record<string, unknown>, ct?: Record<string, unknow
       declarant: tx(src['declarant']) || tx(c['declarant']),
       numeroDeclaration: tx(src['numeroDeclaration']), anneeDeclaration: tx(src['anneeDeclaration']),
       bureauDeclaration: tx(src['bureauDeclaration']), typeDeclaration: tx(src['typeDeclaration']),
+      designation: tx(ct['descriptionMarchandise']) || tx(c['descriptionMarchandise']),
       t1: numerosPiece(c['t1Numeros'], tx(ct['num'])), bonSortie: numerosPiece(c['bonSortieNumero'], tx(ct['num'])),
     };
   }
@@ -186,6 +175,8 @@ function infosDeclaration(c: Record<string, unknown>, ct?: Record<string, unknow
     declarant: joint('declarant') || tx(c['declarant']),
     numeroDeclaration: joint('numeroDeclaration'), anneeDeclaration: joint('anneeDeclaration'),
     bureauDeclaration: joint('bureauDeclaration'), typeDeclaration: joint('typeDeclaration'),
+    designation: [...new Set([...detsDeRow(c).map((ct) => tx((ct as unknown as Record<string, unknown>)['descriptionMarchandise'])), tx(c['descriptionMarchandise'])]
+      .filter(Boolean))].join(' / '),
     t1: numerosPiece(c['t1Numeros']), bonSortie: numerosPiece(c['bonSortieNumero']),
   };
 }
@@ -2094,5 +2085,38 @@ export async function historiqueCargaison(ctx: Ctx, p: Record<string, unknown>) 
   return {
     id,
     lignes: (data ?? []).map((r) => versCamel(r as unknown as Record<string, unknown>)),
+  };
+}
+
+/* ===================== EXTRACTION SUR MESURE : 2026-10-09 ==================
+ *
+ * Voir extraction.ts. Ici : le pré-filtre SQL sur LA date choisie (même règle
+ * que les rapports de cellule : une ligne sans cette date est écartée des deux
+ * côtés), le filtrage, et la trace d'export (RGPD-01 : un export nominatif
+ * quitte l'application, il est journalisé).
+ */
+const MAX_LIGNES_EXTRACTION = 20000;
+
+export async function rapportExtraction(ctx: Ctx, p: Record<string, unknown>) {
+  const s = (k: string) => (typeof p[k] === 'string' ? String(p[k]).trim() : '');
+  const f: FiltresExtraction = {
+    niveau: s('niveau') as FiltresExtraction['niveau'], dateRef: s('dateRef') || 'entree',
+    du: s('du'), au: s('au'), operation: s('operation'), etat: s('etat') as FiltresExtraction['etat'],
+    statut: s('statut'), typeDeclaration: s('typeDeclaration'), bureauDeclaration: s('bureauDeclaration'),
+    bureauDestination: s('bureauDestination'), destination: s('destination'),
+    engagement: s('engagement') as FiltresExtraction['engagement'], natureEngagement: s('natureEngagement'),
+    declarant: s('declarant'), numeroDeclaration: s('numeroDeclaration'), designation: s('designation'),
+    recherche: s('recherche'), vehicules: (s('vehicules') || 'exclure') as FiltresExtraction['vehicules'],
+  };
+  const ref = DATES_REFERENCE[f.dateRef!] ?? DATES_REFERENCE['entree']!;
+  const cargos = await loadCargos(ctx, f.du || f.au ? SQL_PERIODE(ref.colSql, f.du, f.au) : undefined);
+  const r = extraire(cargos, f, { voitBalise: voitBalise(ctx) });
+  if (p['pourExport'] === true)
+    await ctx.log('Export sur mesure', '', `${r.total} ligne(s) · ${r.niveau} · ${resumeFiltres(f)}`);
+  return {
+    ...r,
+    lignes: r.lignes.slice(0, MAX_LIGNES_EXTRACTION),
+    tronque: r.total > MAX_LIGNES_EXTRACTION,
+    filtres: resumeFiltres(f),
   };
 }

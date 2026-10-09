@@ -259,6 +259,7 @@ export const PERMISSIONS: Record<string, Role[]> = {
   'report.bonsortiedetail': [ROLES.BON_SORTIE, ROLES.CHEF_BRIGADE, ROLES.ADMIN],
   'report.kpi': TOUS_ROLES,
   'report.dispenses': [ROLES.BALISE, ROLES.CHEF_BRIGADE, ROLES.ADMIN],
+  'report.extraction': TOUS_ROLES, // 2026-10-09 : extraction sur mesure, mêmes droits que l'export des cargaisons
   'report.cargaisons': TOUS_ROLES, // v4.1 : export cargaisons (lecture), captaines/chefs inclus
   'report.conteneurs': TOUS_ROLES, // v4.1 : export liste conteneurs (lecture)
   'report.flux': [ROLES.CHEF_BRIGADE, ROLES.ADMIN],

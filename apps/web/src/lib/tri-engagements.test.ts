@@ -175,3 +175,20 @@ test('extraction : déclarant, déclaration, T1 et bon de sortie présents', () 
   assert.equal(r!['T1'], 'T1-A');
   assert.equal(r!['Bon de sortie'], 'BS-9');
 });
+
+/* ---- Désignation (2026-10-09) ---- */
+test('désignation : « riz ; sucre » garde l\'un OU l\'autre, sans tenir compte des accents', () => {
+  const L2 = [
+    { id: '1', descriptionMarchandise: 'Riz blanc' },
+    { id: '2', descriptionMarchandise: 'SUCRE RAFFINÉ' },
+    { id: '3', descriptionMarchandise: 'Ciment' },
+  ];
+  assert.deepEqual(filtrerEngagements(L2, { designation: 'riz ; sucre' }).map((l) => l['id']), ['1', '2']);
+  assert.deepEqual(filtrerEngagements(L2, { designation: 'raffine' }).map((l) => l['id']), ['2']);
+  assert.equal(filtrerEngagements(L2, { designation: ' ; ' }).length, 3, 'aucun terme : tout passe');
+});
+
+test('extraction des engagements : colonne Désignation', () => {
+  const [r] = exporter([{ id: 'CT-1', descriptionMarchandise: '331 COLIS VÊTEMENTS' }]);
+  assert.equal(r!['Désignation'], '331 COLIS VÊTEMENTS');
+});

@@ -30,7 +30,7 @@ export type MenuItem = [string, string, string];
 export const MENUS: Record<string, MenuItem[]> = {
   CFS: [
     ['creercamion', 'Créer un camion', 'camionPlus'], ['completer', 'Saisir / compléter', 'crayon'],
-    ['search', 'Recherche (en cours)', 'loupe'], ['list', 'Cargaisons', 'liste'], ['vehicules', 'Véhicules', 'voiture'],
+    ['search', 'Recherche (en cours)', 'loupe'], ['list', 'Cargaisons', 'liste'], ['extraction', 'Extraction', 'telecharger'], ['vehicules', 'Véhicules', 'voiture'],
     ['conteneurs', 'Opérations sur conteneurs', 'conteneur'], ['mad', 'Magasin / MAD', 'entrepot'], ['entrepindus', 'Entrepôt industriel', 'usine'],
     ['etatcfs', 'Pointage camions (sortie)', 'presse'], ['chargement', 'Bon de chargement', 'document'],
     ['cfsreport', 'Rapport CFS', 'rapport'], ['vehreport', 'Rapport véhicules', 'rapport'], ['destinations', 'Par destination', 'carte'],
@@ -43,7 +43,7 @@ export const MENUS: Record<string, MenuItem[]> = {
     // 2026-09-17 : le volet des engagements, tous les camions engages, et les
     // trois gestes (solder, corriger, retirer) au meme endroit.
     ['engagements', 'Engagements', 'echeance'], ['parking', 'Parking', 'parking'], ['search', 'Recherche (en cours)', 'loupe'],
-    ['list', 'Cargaisons', 'liste'], ['vehicules', 'Véhicules', 'voiture'],
+    ['list', 'Cargaisons', 'liste'], ['extraction', 'Extraction', 'telecharger'], ['vehicules', 'Véhicules', 'voiture'],
     ['etatcfs', 'Pointage camions (sortie)', 'presse'], ['chargement', 'Bon de chargement', 'document'],
     ['cfsreport', 'Rapport CFS', 'rapport'], ['vehreport', 'Rapport véhicules', 'rapport'], ['baliserep', 'Rapport Balise', 'rapport'],
     ['pprep', 'Rapport PP', 'rapport'], ['t1report', 'Rapport T1', 'rapport'], ['bonsortiereport', 'Rapport Bon de sortie', 'rapport'],
@@ -54,7 +54,7 @@ export const MENUS: Record<string, MenuItem[]> = {
   ],
   CHEF_BRIGADE_ADJOINT: [
     ['engagements', 'Engagements', 'echeance'], ['parking', 'Parking', 'parking'],
-    ['search', 'Recherche (en cours)', 'loupe'], ['list', 'Cargaisons', 'liste'], ['vehicules', 'Véhicules', 'voiture'],
+    ['search', 'Recherche (en cours)', 'loupe'], ['list', 'Cargaisons', 'liste'], ['extraction', 'Extraction', 'telecharger'], ['vehicules', 'Véhicules', 'voiture'],
     ['controles', 'Contrôles (gabarit/surcharge)', 'balance'], ['temps', 'Temps de passage', 'sablier'],
     ['horodatage', 'Heures d\'activité', 'horloge'], ['account', 'Mon compte', 'compte'],
   ],
@@ -63,42 +63,42 @@ export const MENUS: Record<string, MenuItem[]> = {
   CBPI: [['wait_valid', 'À valider', 'valider'], ['account', 'Mon compte', 'compte']],
   CHEF_VISITE: [
     ['dash', 'Tableau de bord', 'tableau'], ['engagements', 'Engagements', 'echeance'], ['parking', 'Parking', 'parking'],
-    ['search', 'Recherche (en cours)', 'loupe'], ['list', 'Cargaisons', 'liste'],
+    ['search', 'Recherche (en cours)', 'loupe'], ['list', 'Cargaisons', 'liste'], ['extraction', 'Extraction', 'telecharger'],
     ['vehicules', 'Véhicules', 'voiture'], ['controles', 'Contrôles (gabarit/surcharge)', 'balance'],
     ['temps', 'Temps de passage', 'sablier'], ['horodatage', 'Heures d\'activité', 'horloge'], ['account', 'Mon compte', 'compte'],
   ],
   CHEF_DIVISION: [
     ['dash', 'Tableau de bord', 'tableau'], ['stockdwell', 'Rapprochement ACP', 'balance'], ['engagements', 'Engagements', 'echeance'], ['parking', 'Parking', 'parking'],
-    ['search', 'Recherche (en cours)', 'loupe'], ['list', 'Cargaisons', 'liste'],
+    ['search', 'Recherche (en cours)', 'loupe'], ['list', 'Cargaisons', 'liste'], ['extraction', 'Extraction', 'telecharger'],
     ['vehicules', 'Véhicules', 'voiture'], ['controles', 'Contrôles (gabarit/surcharge)', 'balance'],
     ['temps', 'Temps de passage', 'sablier'], ['horodatage', 'Heures d\'activité', 'horloge'], ['account', 'Mon compte', 'compte'],
   ],
   T1: [
     ['t1', 'Cellule T1', 't1'], ['wait_t1', 'En attente T1', 'attenteT1'], ['search', 'Recherche (en cours)', 'loupe'],
-    ['list', 'Cargaisons', 'liste'], ['t1report', 'Rapport T1', 'rapport'],
+    ['list', 'Cargaisons', 'liste'], ['extraction', 'Extraction', 'telecharger'], ['t1report', 'Rapport T1', 'rapport'],
     ['horodatage', 'Heures d\'activité', 'horloge'], ['parking', 'Parking', 'parking'], ['account', 'Mon compte', 'compte'],
   ],
   BALISE: [
     ['gps', 'Cellule Balise', 'balise'], ['wait_gps', 'En attente Balise', 'attenteBalise'], ['dispenses', 'Dispenses', 'drapeau'],
-    ['search', 'Recherche (en cours)', 'loupe'], ['list', 'Cargaisons', 'liste'], ['baliserep', 'Rapport Balise', 'rapport'],
+    ['search', 'Recherche (en cours)', 'loupe'], ['list', 'Cargaisons', 'liste'], ['extraction', 'Extraction', 'telecharger'], ['baliserep', 'Rapport Balise', 'rapport'],
     ['horodatage', 'Heures d\'activité', 'horloge'], ['parking', 'Parking', 'parking'], ['account', 'Mon compte', 'compte'],
   ],
   BON_SORTIE: [
     ['bonsortie', 'Cellule Bon de Sortie', 'bonSortie'], ['wait_bs', 'En attente Bon de Sortie', 'attenteBonSortie'],
-    ['search', 'Recherche (en cours)', 'loupe'], ['list', 'Cargaisons', 'liste'], ['bonsortiereport', 'Rapport Bon de sortie', 'rapport'],
+    ['search', 'Recherche (en cours)', 'loupe'], ['list', 'Cargaisons', 'liste'], ['extraction', 'Extraction', 'telecharger'], ['bonsortiereport', 'Rapport Bon de sortie', 'rapport'],
     ['horodatage', 'Heures d\'activité', 'horloge'], ['parking', 'Parking', 'parking'], ['account', 'Mon compte', 'compte'],
   ],
   PP: [
     ['sortie', 'Sortie (checklist)', 'sortie'], ['wait_sortie', 'En attente sortie', 'attenteSortie'],
     ['conteneurs', 'Opérations sur conteneurs', 'conteneur'], ['search', 'Recherche (en cours)', 'loupe'],
-    ['vehicules', 'Véhicules', 'voiture'], ['list', 'Cargaisons', 'liste'], ['pprep', 'Rapport PP', 'rapport'],
+    ['vehicules', 'Véhicules', 'voiture'], ['list', 'Cargaisons', 'liste'], ['extraction', 'Extraction', 'telecharger'], ['pprep', 'Rapport PP', 'rapport'],
     ['destinations', 'Par destination', 'carte'], ['horodatage', 'Heures d\'activité', 'horloge'], ['parking', 'Parking', 'parking'], ['account', 'Mon compte', 'compte'],
   ],
   ADMIN: [
     ['dash', 'Tableau de bord', 'tableau'], ['creercamion', 'Créer un camion', 'camionPlus'],
     ['completer', 'Saisir / compléter', 'crayon'], ['wait_valid', 'À valider', 'valider'],
     ['engagements', 'Engagements', 'echeance'], ['parking', 'Parking', 'parking'],
-    ['search', 'Recherche (en cours)', 'loupe'], ['list', 'Cargaisons', 'liste'], ['vehicules', 'Véhicules', 'voiture'],
+    ['search', 'Recherche (en cours)', 'loupe'], ['list', 'Cargaisons', 'liste'], ['extraction', 'Extraction', 'telecharger'], ['vehicules', 'Véhicules', 'voiture'],
     ['conteneurs', 'Opérations sur conteneurs', 'conteneur'], ['mad', 'Magasin / MAD', 'entrepot'],
     ['entrepindus', 'Entrepôt industriel', 'usine'], ['etatcfs', 'Pointage camions (sortie)', 'presse'],
     ['chargement', 'Bon de chargement', 'document'],

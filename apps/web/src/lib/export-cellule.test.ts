@@ -1,7 +1,7 @@
 /** Extraction du détail d'un rapport de cellule (2026-10-09). */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { lignesExportCellule, nomFichierCellule, dateHeureFr } from './export-cellule.ts';
+import { lignesExportCellule, nomFichierCellule, dateHeureFr, filtrerParDesignation } from './export-cellule.ts';
 
 const camion = {
   id: 'CT-1', numeroCamion: 'TG1234AB', typeOperation: 'Enlèvement', statut: 'Sortie Enregistrée',
@@ -41,4 +41,13 @@ test('nom du fichier : rapport, opération, carte et période, sans accents', ()
   assert.equal(nomFichierCellule('pp', 'Enlèvement', 'Camions', '2026-10-01', '2026-10-09'),
     'rapport-pp-Enlevement-Camions-2026-10-01-au-2026-10-09.xlsx');
   assert.equal(nomFichierCellule('cfs', '', "20'", '', ''), 'rapport-cfs-toutes-operations-20.xlsx');
+});
+
+/* ---- Désignation (2026-10-09) ---- */
+
+test('détail de cellule : colonne Désignation, et recherche « riz ; sucre »', () => {
+  const rows = [{ id: '1', designation: 'Riz blanc' }, { id: '2', designation: 'Sucre' }, { id: '3', designation: 'Ciment' }];
+  assert.deepEqual(filtrerParDesignation(rows, 'riz;SUCRE').map((r) => r['id']), ['1', '2']);
+  assert.equal(filtrerParDesignation(rows, '').length, 3);
+  assert.equal(lignesExportCellule([rows[2]!], true)[0]!['Désignation'], 'Ciment');
 });

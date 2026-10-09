@@ -647,7 +647,9 @@ export async function engagementsDus(ctx: Ctx, p: { filtre?: string } = {}) {
       // 2026-10-09 (demande utilisateur) : la déclaration complète, le T1 et le
       // bon de sortie, au volet comme dans son extraction Excel.
       + 'annee_declaration, bureau_declaration, type_declaration, '
-      + 't1_numeros, saute_t1, bon_sortie_numero, saute_bs')
+      + 't1_numeros, saute_t1, bon_sortie_numero, saute_bs, '
+      // 2026-10-09 : la désignation, pour l'extraction et la recherche.
+      + 'description_marchandise')
     .eq('suivi_engagement', true)
     // `neq` plutôt que `eq(false)` : c'est la forme déjà employée ailleurs pour
     // SEC-12, et elle reste juste quelle que soit la valeur par défaut.
