@@ -13,7 +13,7 @@ import {
   etapesEnAttente, etatCellules, etapePrecedenteManquante, messageEtapePrecedente, LIBELLE_ETAPE,
   estOui, tcValide, parseConteneursDetails, tailleBucket,
   groupesDeclaration, libelleDeclaration, estTypeSansT1, libelleTypeSansT1, exigeControlePoids,
-  numeroDispenseValide,
+  numeroDispenseValide, aPouvoirAdmin,
 } from '../../../supabase/functions/_shared/domaine/src/index.ts';
 
 type O = Record<string, unknown>;
@@ -38,7 +38,13 @@ export function Detail({ user, arg, go, retour, ecranPrecedent }: Nav) {
   const pend = etapesEnAttente(c as never);
   const cellules = etatCellules(c as never);
   const role = user.role;
-  const can = (...roles: string[]) => roles.includes(role);
+  /* LES RÔLES TECHNIQUES VOIENT CE QUE VOIT L'ADMIN (2026-10-09). `can(..., A)`
+     ne reconnaissait que « ADMIN » au sens strict : SUPER_ADMIN et INFO, qui en
+     ont les pouvoirs partout et que le SERVEUR autorise (verifierPermission),
+     ne voyaient aucun panneau réservé à l'administrateur sur la fiche. La règle
+     est la même qu'au serveur : un panneau ouvert à l'ADMIN l'est à eux. */
+  const can = (...roles: string[]) => roles.includes(role) || (roles.includes(A) && aPouvoirAdmin(role));
+  const suitEngagements = can(ROLES.CHEF_BRIGADE, ROLES.CHEF_BRIGADE_ADJOINT, ROLES.CHEF_VISITE, ROLES.CHEF_DIVISION, A);
   const dets = parseConteneursDetails(c['conteneursDetails']);
   // Chargement mixte : déduit des déclarations portées par chaque conteneur.
   const groupes = groupesDeclaration(dets.conteneurs, c);
@@ -64,12 +70,18 @@ export function Detail({ user, arg, go, retour, ecranPrecedent }: Nav) {
   // « Créée », le serveur EXIGE UN MOTIF, inscrit au journal d'audit
   // (`exigerMotifSiAvancee`). Le champ correspondant apparaît alors à l'écran.
   // Les autres rôles n'ont toujours que la correction de plaque, rendue plus bas.
-  const peutTtEditer = role === A || role === ROLES.CFS;
+  const peutTtEditer = aPouvoirAdmin(role) || role === ROLES.CFS;
 
   return (
     <div>
       <BoutonRetour retour={retour} ecranPrecedent={ecranPrecedent} secours={() => go('list')} />
       <FicheCargaison c={c} groupes={groupes} />
+      {/* 2026-10-09 : le chef a signé « Non » alors qu'il voulait « Oui ».
+          JUSTE SOUS LE RÉSUMÉ, là où se lit « Engagement : Non » : en bas de
+          fiche, replié, personne ne le trouvait. Seulement sur un camion
+          VALIDÉ et SANS engagement. */}
+      {c['suiviEngagement'] !== true && !!c['dateValidation'] && suitEngagements
+        && <PanneauEngagementAjout c={c} action={action} />}
       <ToutesLesInformations c={c} />
       <HistoriqueCargaison c={c} />
       <CarteConteneurs c={c} dets={dets} groupes={groupes} />
@@ -135,14 +147,8 @@ export function Detail({ user, arg, go, retour, ecranPrecedent }: Nav) {
       {!!c['dateBonSortie'] && can(ROLES.BON_SORTIE, A) && <PanneauBSEdit c={c} action={action} />}
       {/* 2026-09-17 : la correction reste offerte APRÈS « Effectué », un clic de
           trop ne doit pas figer un engagement mal saisi. */}
-      {c['suiviEngagement'] === true
-        && can(ROLES.CHEF_BRIGADE, ROLES.CHEF_BRIGADE_ADJOINT, ROLES.CHEF_VISITE, ROLES.CHEF_DIVISION, A)
-        && <PanneauEngagementEdit c={c} action={action} admin={role === A} />}
-      {/* 2026-10-09 : le chef a signé « Non » alors qu'il voulait « Oui ».
-          Offert seulement sur un camion VALIDÉ et SANS engagement. */}
-      {c['suiviEngagement'] !== true && !!c['dateValidation']
-        && can(ROLES.CHEF_BRIGADE, ROLES.CHEF_BRIGADE_ADJOINT, ROLES.CHEF_VISITE, ROLES.CHEF_DIVISION, A)
-        && <PanneauEngagementAjout c={c} action={action} />}
+      {c['suiviEngagement'] === true && suitEngagements
+        && <PanneauEngagementEdit c={c} action={action} admin={aPouvoirAdmin(role)} />}
       {c['statut'] === STATUTS.SORTIE && (String(c['baliseRequise']) === 'Non' || estOui(c['sauteBalise'])) && !estOui(c['arriveeBureau']) && can(ROLES.BALISE, A) &&
         <div className="card"><TitrePanneau icone="drapeau" etape="balise">Dispense, arrivée au bureau</TitrePanneau>
           <button onClick={() => action(() => call('cargo.arriveebureau', { id }), 'Arrivée confirmée.')}>Confirmer l'arrivée (solder la dispense)</button></div>}
@@ -154,7 +160,7 @@ export function Detail({ user, arg, go, retour, ecranPrecedent }: Nav) {
         <AjouterCamion c={c} go={go} />}
       {/* v4, Éditer : le CFS a la main JUSQU'À la fin de chargement ; l'ADMIN toujours. */}
       {peutTtEditer
-        ? <PanneauEditer c={c} dets={dets} action={action} apresSuppression={quitter} admin={role === A} />
+        ? <PanneauEditer c={c} dets={dets} action={action} apresSuppression={quitter} admin={aPouvoirAdmin(role)} />
         /* 2026-09-12 · décision utilisateur : la correction de plaque est de
            nouveau ouverte à TOUS les rôles (permission serveur alignée). */
         : <CorrigerCamion c={c} action={action} estVeh={estVeh} />}
@@ -1501,10 +1507,23 @@ function PanneauEngagementAjout({ c, action }: { c: O; action: ActionFn }) {
     }), 'Engagement ajouté.');
   }
 
-  return <details style={EDIT_ITEM}><summary style={{ cursor: 'pointer', fontWeight: 600 }}>Ajouter un engagement</summary>
+  const [ouvert, setOuvert] = useState(false);
+  if (!ouvert) return <div className="card row" style={{ alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+    <div style={{ flex: 1, minWidth: 220 }}>
+      <b>Engagement : Non</b>
+      <div className="help">Validé sans suivi d'engagement. Si c'était une erreur, vous pouvez l'ajouter.</div>
+    </div>
+    <button onClick={() => setOuvert(true)}><Icone nom="plus" taille={15} />Ajouter un engagement</button>
+  </div>;
+
+  return <div className="card">
+    <div className="row" style={{ alignItems: 'center', gap: 8 }}>
+      <h2 style={{ flex: 1, margin: 0 }}>Ajouter un engagement</h2>
+      <button className="ghost xs" onClick={() => setOuvert(false)}>Annuler</button>
+    </div>
     <p className="help" style={{ marginTop: 10 }}>
-      Ce camion a été validé <b>sans</b> suivi d'engagement. Si c'était une erreur, ajoutez-le ici :
-      il rejoindra le volet Engagements et l'échéancier.
+      Ce camion a été validé <b>sans</b> suivi d'engagement. Une fois ajouté, il rejoindra
+      le volet Engagements et l'échéancier.
     </p>
     <p className="help" style={{ color: 'var(--warn)' }}>
       ⚠ La signature de la validation n'est pas refaite : l'ajout, son auteur et son motif restent au journal.
@@ -1527,7 +1546,7 @@ function PanneauEngagementAjout({ c, action }: { c: O; action: ActionFn }) {
     <div className="row" style={{ marginTop: 8 }}>
       <button disabled={!motif.trim() || !nature || !delai} onClick={ajouter}>Ajouter l'engagement</button>
     </div>
-  </details>;
+  </div>;
 }
 
 /* ================ TOUTES LES INFORMATIONS : ajout 2026-09-10 ==============
