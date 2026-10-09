@@ -9,6 +9,7 @@ import { Icone } from './lib/icones.tsx';
 import { iconeDeLEcran, MENUS } from './lib/menu.ts';
 import { Spinner, StatCard, Tag, Modal, masks, toast, fmtDate, fmtJour, ChampDestination, Graphique, BarresClassees, useSuiviEngagement, useParametres, ChampCamion, roleLabel, TITLES, ChoixSegmente } from './lib/ui.tsx';
 import { bornesDe, isoDate, normaliserPlage, type ModePeriode, repartition } from './lib/periode.ts';
+import { lignesExportCellule, nomFichierCellule } from './lib/export-cellule.ts';
 import { trierEngagements, filtrerEngagements, lignesExportEngagements, numerosT1, numerosBonSortie, libelleDeclarationEngagement, type TriEngagement, type SensTri } from './lib/tri-engagements.ts';
 import { Detail, TitrePanneau } from './detail.tsx';
 import { EcranParking, ResultatsParking, useAlerteParking } from './parking.tsx';
@@ -4260,12 +4261,29 @@ function DetailCellule({ detail, du, au, op, metric, go, onClose }: {
   const rows = data?.rows ?? [];
   const estCamions = data?.['kind'] === 'camions' || metric === 'camions' || metric === 'twins';
   const ouvrir = (id: unknown) => { onClose(); if (id) go('detail', id); };
+  /* EXTRACTION (2026-10-09, demande utilisateur) : « quand on clique, on peut
+     extraire toutes les déclarations ». Les lignes affichées, dans leur ordre,
+     avec déclaration, T1, bon de sortie et date de chaque cellule. */
+  function extraire() {
+    if (!rows.length) { toast('Rien à extraire.', 'err'); return; }
+    const feuille = XLSX.utils.json_to_sheet(lignesExportCellule(rows, estCamions));
+    const classeur = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(classeur, feuille, estCamions ? 'Camions' : 'Conteneurs');
+    XLSX.writeFile(classeur, nomFichierCellule(detail.replace(/^report\./, '').replace(/detail$/, ''), op, String(data?.titre ?? metric), du, au));
+    toast(`${rows.length} ligne(s) extraite(s).`, 'ok');
+  }
   return <Modal onClose={onClose}>
-    <h2><span className="tp-pastille" aria-hidden="true"><Icone nom="liste" taille={18} /></span>{(op || 'Toutes opérations')}, {data?.titre ?? '…'} ({rows.length})</h2>
+    <div className="ecran-tete">
+      <h2 style={{ flex: 1, margin: 0, minWidth: 0 }}><span className="tp-pastille" aria-hidden="true"><Icone nom="liste" taille={18} /></span>{(op || 'Toutes opérations')}, {data?.titre ?? '…'} ({rows.length})</h2>
+      <button className="ghost" disabled={loading || !rows.length} onClick={extraire}
+        title="Extraire en Excel ces lignes, avec déclaration, T1 et bon de sortie">
+        <Icone nom="telecharger" taille={15} />Excel
+      </button>
+    </div>
     {loading ? <Spinner /> : rows.length === 0 ? <div className="empty">Aucun élément sur la période.</div>
       : estCamions
-        ? <Table cols={[['numeroCamion', 'Camion'], ['typeOperation', 'Opération'], ['statut', 'Statut'], ['numeroGps', 'N° GPS'], ['nbConteneurs', 'Nb cont.']]} rows={rows} onRow={(r) => ouvrir(r['id'])} />
-        : <Table cols={[['conteneur', 'Conteneur'], ['taille', 'Taille'], ['type', 'Type'], ['scelle', 'Scellé'], ['numeroCamion', 'Camion'], ['cargaisonId', 'Cargaison']]} rows={rows} onRow={(r) => ouvrir(r['cargaisonId'] ?? r['id'])} />}
+        ? <Table cols={[['numeroCamion', 'Camion'], ['typeOperation', 'Opération'], ['statut', 'Statut'], ['declarant', 'Déclarant'], ['numeroDeclaration', 'N° décl.'], ['numeroGps', 'N° GPS'], ['nbConteneurs', 'Nb cont.']]} rows={rows} onRow={(r) => ouvrir(r['id'])} />
+        : <Table cols={[['conteneur', 'Conteneur'], ['taille', 'Taille'], ['type', 'Type'], ['scelle', 'Scellé'], ['numeroCamion', 'Camion'], ['declarant', 'Déclarant'], ['numeroDeclaration', 'N° décl.'], ['cargaisonId', 'Cargaison']]} rows={rows} onRow={(r) => ouvrir(r['cargaisonId'] ?? r['id'])} />}
   </Modal>;
 }
 
