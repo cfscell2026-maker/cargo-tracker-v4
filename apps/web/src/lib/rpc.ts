@@ -30,6 +30,8 @@ interface Enveloppe<T> {
   motDePasseAChanger?: boolean;
   /** SEC-08 : référence de corrélation d'une erreur technique. */
   ref?: string;
+  /** Verrou après sortie (2026-10-09) : l'action exige un motif de l'administrateur. */
+  motifRequis?: boolean;
 }
 
 /** Un aller-retour, sans interprétation : le statut et le corps, tels quels. */
@@ -133,6 +135,17 @@ async function appelComplet<T>(action: string, data: Record<string, unknown>, sa
       // Réponse de notre fonction : comportement d'origine, inchangé. Une
       // erreur MÉTIER n'est jamais rejouée, elle se reproduirait à l'identique.
       if (corps.ok) return corps.data as T;
+
+      /* VERROU APRÈS SORTIE (2026-10-09). Un dossier sorti ne se corrige plus
+         que par l'administrateur, motif à l'appui. Plutôt que d'ajouter un
+         champ « motif » à chaque écran de correction, on le demande ICI, une
+         seule fois pour toutes les actions, puis on rejoue la même action. */
+      if (corps.motifRequis && !String(data['motif'] ?? '').trim()) {
+        const motif = window.prompt(
+          (corps.error || 'Ce dossier est sorti.') + '\n\nMotif de la correction (obligatoire) :', '');
+        if (motif && motif.trim()) return appelComplet<T>(action, { ...data, motif: motif.trim() }, sansEffet);
+        throw new Error('Correction abandonnée : un motif est obligatoire pour modifier un dossier sorti.');
+      }
 
       const err = new Error(corps.error || 'Erreur inconnue.') as RpcErreur;
       err.auth = !!corps.auth;
