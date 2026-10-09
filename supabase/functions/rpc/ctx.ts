@@ -59,6 +59,15 @@ export class ErreurMetier extends Error {
 }
 
 /**
+ * Erreur métier qui demande un MOTIF à l'utilisateur (2026-10-09, verrou après
+ * sortie). Le front la reconnaît au drapeau `motifRequis`, demande le motif, et
+ * rejoue la même action avec `motif` renseigné.
+ */
+export class MotifRequis extends ErreurMetier {
+  motifRequis = true;
+}
+
+/**
  * Un message d'erreur PostgreSQL / PostgREST ne doit jamais atteindre le
  * navigateur : il cartographie le schéma (noms de contraintes, de colonnes, de
  * tables). Ces motifs sont ceux que produisent Postgres et PostgREST.
