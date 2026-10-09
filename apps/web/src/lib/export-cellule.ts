@@ -33,6 +33,7 @@ function declarationEtPieces(r: Ligne): Record<string, string> {
     'Destination': tx(r['destination']),
     'T1': tx(r['t1']),
     'Bon de sortie': tx(r['bonSortie']),
+    'Désignation': tx(r['designation']),
     'Entré le': dateHeureFr(r['dateCreation']),
     'Validé le': dateHeureFr(r['dateValidation']),
     'T1 le': dateHeureFr(r['dateT1']),
@@ -64,6 +65,15 @@ export function lignesExportCellule(rows: Ligne[], estCamions: boolean): Record<
       'Opération': tx(r['typeOperation']),
       ...declarationEtPieces(r),
     });
+}
+
+/** Recherche par désignation (2026-10-09) : « riz ; sucre » garde les lignes contenant l'un OU l'autre. */
+export function filtrerParDesignation(rows: Ligne[], termes: string): Ligne[] {
+  const norm = (v: unknown) => String(v ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toUpperCase().replace(/\s+/g, ' ').trim();
+  const liste = termes.split(';').map(norm).filter(Boolean);
+  if (!liste.length) return rows;
+  return rows.filter((r) => liste.some((t) => norm(r['designation']).includes(t)));
 }
 
 /** Nom du fichier, qui dit ce qu'il contient : « rapport-pp-Enlevement-camions-2026-10-01-au-2026-10-09.xlsx ». */

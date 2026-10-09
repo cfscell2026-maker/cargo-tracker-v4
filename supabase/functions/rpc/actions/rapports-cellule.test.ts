@@ -28,7 +28,7 @@ function camionMixte(): FakeDB {
     declarant: 'STE CAMION', numero_declaration: '100', annee_declaration: '2026', bureau_declaration: 'TG120', type_declaration: 'T',
     destination_marchandise: 'OUAGA', numero_gps: 'GPS-1', twins: true, est_vehicule: false,
     conteneurs_details: { conteneurs: [
-      { num: 'MSKU1111111', taille: "20'", type: 'DRY', plomb: 'S1', declarant: 'STE A', numeroDeclaration: '200', anneeDeclaration: '2026', bureauDeclaration: 'TG120', typeDeclaration: 'T' },
+      { num: 'MSKU1111111', taille: "20'", type: 'DRY', plomb: 'S1', declarant: 'STE A', numeroDeclaration: '200', anneeDeclaration: '2026', bureauDeclaration: 'TG120', typeDeclaration: 'T', descriptionMarchandise: 'RIZ' },
       { num: 'TCLU2222222', taille: "20'", type: 'DRY', plomb: 'S2', declarant: 'STE B', numeroDeclaration: '300', anneeDeclaration: '2026', bureauDeclaration: 'TG120', typeDeclaration: 'T' },
     ], scellesCamion: [] },
     t1_numeros: [{ conteneur: 'MSKU1111111', numero: 'T1-A' }, { conteneur: 'TCLU2222222', numero: 'T1-B' }],
@@ -58,6 +58,9 @@ test('PP, ligne conteneur : SA déclaration, SON T1 et SON bon de sortie', async
   assert.equal(b['declarant'], 'STE B');
   assert.equal(b['t1'], 'T1-B');
   assert.equal(b['bonSortie'], 'BS-2');
+  assert.equal(b['designation'], '', 'sans désignation propre ni désignation du camion : vide');
+  const a = r.rows.find((x) => x['conteneur'] === 'MSKU1111111')!;
+  assert.equal(a['designation'], 'RIZ', 'la désignation du conteneur (LOT D)');
 });
 
 test('CFS : un conteneur SANS déclaration propre relève de celle du camion', async () => {

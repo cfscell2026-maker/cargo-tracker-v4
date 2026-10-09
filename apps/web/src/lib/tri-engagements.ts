@@ -68,6 +68,12 @@ export interface FiltreEngagements {
    * c'est leur croisement qui répond.
    */
   signePar?: string;
+  /**
+   * DÉSIGNATION de la marchandise (2026-10-09, demande utilisateur) : un ou
+   * plusieurs termes séparés par « ; », la ligne est gardée si elle en
+   * contient AU MOINS UN. Recherche indulgente (casse, accents, espaces).
+   */
+  designation?: string;
 }
 
 /** Normalisation d'un n° pour la recherche : « TG-1234 BK » → « TG1234BK ». */
@@ -101,12 +107,14 @@ export function filtrerEngagements(
     ? null : Number(f.joursMax);
   const type = normLib(f.type);
   const signe = normLib(f.signePar);
+  const termes = String(f.designation ?? '').split(';').map(normLib).filter(Boolean);
   return lignes.filter((l) => {
     if (cam && !normNum(l['numeroCamion']).includes(cam)) return false;
     // Les deux filtres du 08/10 se CUMULENT avec les precedents : c'est leur
     // croisement qui repond a « mes validations qui vont vers le BFE 03 ».
     if (type && normLib(l['engagementType']) !== type) return false;
     if (signe && normLib(l['agentValidation']) !== signe) return false;
+    if (termes.length && !termes.some((t) => normLib(l['descriptionMarchandise']).includes(t))) return false;
     if (jours !== null) {
       const restant = joursAvantEcheance(l['engagementDelai'], aujourdhui);
       // Sans échéance lisible, la ligne ne peut pas répondre « oui » à une
@@ -144,6 +152,7 @@ export function lignesExportEngagements(lignes: Record<string, unknown>[]): Reco
     'Type décl.': String(l['typeDeclaration'] ?? ''),
     'T1': numerosT1(l),
     'Bon de sortie': numerosBonSortie(l),
+    'Désignation': String(l['descriptionMarchandise'] ?? ''),
     'Engagement': String(l['engagementType'] ?? ''),
     'Échéance': jourFr(l['engagementDelai']),
     'État': String(l['libelle'] ?? ''),

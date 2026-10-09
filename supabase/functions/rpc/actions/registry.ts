@@ -130,6 +130,7 @@ export const ACTIONS: Record<string, H> = {
   'report.bonsortiedetail': d((ctx, data: Record<string, unknown>) => rap.rapportActiviteDetail(ctx, { ...data, kind: 'bonsortie' })),
   'report.kpi': d(rap.rapportKPI),
   'report.dispenses': d(rap.rapportDispenses),
+  'report.extraction': d(rap.rapportExtraction), // 2026-10-09 : extraction sur mesure (filtres croisés)
   'report.cargaisons': d(rap.rapportCargaisons), // v4.1 : export cargaisons par statut + période (xlsx/pdf)
   'report.conteneurs': d(rap.rapportConteneurs), // v4.1 : export liste conteneurs par statut + période
   'report.flux': d(rap.rapportFlux),
