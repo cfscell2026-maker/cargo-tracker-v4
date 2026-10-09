@@ -131,6 +131,64 @@ const inRange = (v: unknown, du?: string, au?: string): boolean => {
 function detsDeRow(c: Record<string, unknown>) {
   return parseConteneursDetails(c['conteneursDetails']).conteneurs;
 }
+
+/* ===== DÉCLARATIONS DANS LE DÉTAIL DES RAPPORTS DE CELLULE : 2026-10-09 =====
+ *
+ * Demande utilisateur : depuis un rapport de cellule (CFS, T1, Bon de sortie,
+ * Balise, PP), cliquer une carte et EXTRAIRE les déclarations qui sont derrière.
+ * Le détail ne portait que le camion, le statut et le GPS : on y ajoute la
+ * déclaration, le déclarant, le T1, le bon de sortie et les dates de chaque
+ * cellule.
+ *
+ * LOT D : un conteneur porte SA déclaration dès qu'il en a un numéro ; sinon il
+ * relève de celle du camion. Une ligne CAMION d'un chargement mixte porte donc
+ * PLUSIEURS déclarations : elles sont listées, séparées par « / ».
+ */
+const tx = (v: unknown) => String(v ?? '').trim();
+
+/** Numéros d'une pièce (T1, bon de sortie), sous toutes ses formes stockées ;
+ *  pour un conteneur précis quand la pièce est saisie conteneur par conteneur. */
+function numerosPiece(v: unknown, conteneur?: string): string {
+  const liste = Array.isArray(v) ? v : v === null || v === undefined || v === '' ? [] : [v];
+  const lignes = liste.map((x) => (x !== null && typeof x === 'object'
+    ? { cont: normAlphaNum((x as Record<string, unknown>)['conteneur']), num: tx((x as Record<string, unknown>)['numero']) }
+    : { cont: '', num: tx(x) })).filter((l) => l.num);
+  const cible = normAlphaNum(conteneur);
+  const siennes = cible ? lignes.filter((l) => l.cont === cible) : [];
+  const retenues = siennes.length ? siennes : lignes;
+  return [...new Set(retenues.map((l) => l.num))].join(', ');
+}
+
+/** Champs « déclaration et pièces » d'une ligne de détail : camion entier, ou un de ses conteneurs. */
+function infosDeclaration(c: Record<string, unknown>, ct?: Record<string, unknown>): Record<string, unknown> {
+  const commun = {
+    destination: tx(c['destinationMarchandise']),
+    dateCreation: c['dateCreation'], dateValidation: c['dateValidation'], dateT1: c['dateT1'],
+    dateBonSortie: c['dateBonSortie'], datePoseGps: c['datePoseGps'], dateSortie: c['dateSortie'],
+  };
+  if (ct) {
+    const src = tx(ct['numeroDeclaration']) ? ct : c;
+    return {
+      ...commun,
+      declarant: tx(src['declarant']) || tx(c['declarant']),
+      numeroDeclaration: tx(src['numeroDeclaration']), anneeDeclaration: tx(src['anneeDeclaration']),
+      bureauDeclaration: tx(src['bureauDeclaration']), typeDeclaration: tx(src['typeDeclaration']),
+      t1: numerosPiece(c['t1Numeros'], tx(ct['num'])), bonSortie: numerosPiece(c['bonSortieNumero'], tx(ct['num'])),
+    };
+  }
+  const groupes = groupesDeclaration(detsDeRow(c), c);
+  const joint = (k: 'declarant' | 'numeroDeclaration' | 'anneeDeclaration' | 'bureauDeclaration' | 'typeDeclaration') => {
+    const vals = groupes.length ? groupes.map((g) => tx(g[k])) : [tx(c[k])];
+    return [...new Set(vals.filter(Boolean))].join(' / ');
+  };
+  return {
+    ...commun,
+    declarant: joint('declarant') || tx(c['declarant']),
+    numeroDeclaration: joint('numeroDeclaration'), anneeDeclaration: joint('anneeDeclaration'),
+    bureauDeclaration: joint('bureauDeclaration'), typeDeclaration: joint('typeDeclaration'),
+    t1: numerosPiece(c['t1Numeros']), bonSortie: numerosPiece(c['bonSortieNumero']),
+  };
+}
 /**
  * v4.1, Filtre agent d'un rapport de cellule (décision utilisateur 2026-07-27).
  * PLUS de restriction « chaque agent ne voit que la sienne » : les agents d'une
@@ -366,7 +424,7 @@ function collecteCFS(cargos: Record<string, unknown>[], du?: string, au?: string
     const a = parOp[op]!;
     const dets = detsDeRow(c);
     a.camions++; total.camions++;
-    camions.push({ id: c['id'], numeroCamion: c['numeroCamion'], typeOperation: op, statut: c['statut'], dateCreation: c['dateCreation'], nbConteneurs: dets.length, agentCfs: c['agentCfs'] });
+    camions.push({ ...infosDeclaration(c), id: c['id'], numeroCamion: c['numeroCamion'], typeOperation: op, statut: c['statut'], dateCreation: c['dateCreation'], nbConteneurs: dets.length, agentCfs: c['agentCfs'] });
     for (const ct of dets) {
       if (ct.partage) continue; // partagé (2026-09-14) : compté au premier dépotage
       if (ct.num && vus.has(ct.num)) continue; // conteneur partagé : déjà compté
@@ -374,7 +432,7 @@ function collecteCFS(cargos: Record<string, unknown>[], du?: string, au?: string
       const bk = tailleBucket(ct.taille); const ev = evpDeTaille(bk);
       (a as Record<string, number>)[bk]++; a.conteneurs++; a.evp += ev;
       (total as Record<string, number>)[bk]++; total.conteneurs++; total.evp += ev;
-      conteneurs.push({ id: c['id'], cargaisonId: c['id'], numeroCamion: c['numeroCamion'], typeOperation: op, conteneur: ct.num, taille: ct.taille, type: ct.type, scelle: ct.plomb, bucket: bk, dateCreation: c['dateCreation'] });
+      conteneurs.push({ ...infosDeclaration(c, ct as unknown as Record<string, unknown>), id: c['id'], cargaisonId: c['id'], numeroCamion: c['numeroCamion'], typeOperation: op, conteneur: ct.num, taille: ct.taille, type: ct.type, scelle: ct.plomb, bucket: bk, dateCreation: c['dateCreation'] });
     }
   }
   return { parOp, total, camions, conteneurs };
@@ -530,7 +588,7 @@ function collecteActivite(cargos: Record<string, unknown>[], dateCol: string, ag
     a.camions++; total.camions++;
     if (estOui(c['twins']) || c['twins'] === 'Yes') { a.twins++; total.twins++; }
     if (String(c['baliseRequise']) === 'Non' || c['baliseRequise'] === false) { a.sansBalise++; total.sansBalise++; }
-    camions.push({ id: c['id'], numeroCamion: c['numeroCamion'], typeOperation: op, statut: c['statut'], date: c[dateCol], numeroGps: c['numeroGps'], nbConteneurs: dets.length, twins: c['twins'] });
+    camions.push({ ...infosDeclaration(c), id: c['id'], numeroCamion: c['numeroCamion'], typeOperation: op, statut: c['statut'], date: c[dateCol], numeroGps: c['numeroGps'], nbConteneurs: dets.length, twins: c['twins'] });
     for (const ct of dets) {
       /* CONTENEUR PARTAGÉ : COMPTÉ UNE SEULE FOIS · 2026-09-12, règle dictée
        * par le douanier. Un conteneur dont la marchandise se répartit sur
@@ -554,7 +612,7 @@ function collecteActivite(cargos: Record<string, unknown>[], dateCol: string, ag
         (a as Record<string, number>)[bk]++; a.conteneurs++; a.evp += ev;
         (total as Record<string, number>)[bk]++; total.conteneurs++; total.evp += ev;
       }
-      conteneurs.push({ id: c['id'], cargaisonId: c['id'], numeroCamion: c['numeroCamion'], typeOperation: op, conteneur: ct.num, taille: ct.taille, type: ct.type, scelle: ct.plomb, bucket: bk, numeroGps: c['numeroGps'], date: c[dateCol] });
+      conteneurs.push({ ...infosDeclaration(c, ct as unknown as Record<string, unknown>), id: c['id'], cargaisonId: c['id'], numeroCamion: c['numeroCamion'], typeOperation: op, conteneur: ct.num, taille: ct.taille, type: ct.type, scelle: ct.plomb, bucket: bk, numeroGps: c['numeroGps'], date: c[dateCol] });
     }
   }
   return { parOp, total, camions, conteneurs };
