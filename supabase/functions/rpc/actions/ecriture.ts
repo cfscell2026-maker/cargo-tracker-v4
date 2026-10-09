@@ -443,6 +443,43 @@ export async function engagementRetirer(ctx: Ctx, p: Record<string, unknown>) {
   return { id, suiviEngagement: false };
 }
 
+/**
+ * AJOUT D'UN ENGAGEMENT APRÈS LA VALIDATION : 2026-10-09 (demande utilisateur).
+ *
+ * Le pendant du retrait : le chef de brigade voulait « Oui » et a signé « Non ».
+ * Rien ne permettait de rattraper ce sens-là : la correction refuse un camion
+ * qui n'est pas sous suivi, et le panneau de validation disparaît une fois signé.
+ *
+ * Ouvert aux CHEFS et à l'administrateur (décision utilisateur), comme la
+ * correction. Mêmes règles qu'à la validation (`engagementPatch` : nature et
+ * délai obligatoires, délai à venir), plus un MOTIF obligatoire. La signature du
+ * chef n'est PAS refaite : elle reste celle de ce qu'il a signé, et l'ajout se
+ * lit au journal, comme toute correction d'engagement.
+ *
+ * Permis APRÈS la sortie : le suivi d'un engagement se fait par nature une fois
+ * le camion parti (voir verrou-sortie.ts).
+ */
+export async function engagementAjouter(ctx: Ctx, p: Record<string, unknown>) {
+  const id = String(p['id'] ?? '').trim();
+  const motif = txt(p['motif'], 300);
+  if (!motif) throw new ErreurMetier("Indiquez le motif de l'ajout.");
+
+  const cargo = await getCargo(ctx, id);
+  const c = cargo.o;
+  if (!aFait(c['dateValidation']))
+    throw new ErreurMetier("Ce camion n'est pas encore validé : choisissez l'engagement au moment de la validation.");
+  if (c['suiviEngagement'] === true)
+    throw new ErreurMetier('Ce camion est déjà sous suivi d\'engagement : utilisez « Corriger le suivi d\'engagement ».');
+
+  const patch = engagementPatch({
+    suiviEngagement: true, engagementType: p['engagementType'], engagementDelai: p['engagementDelai'],
+  });
+  await patchCargo(ctx, cargo, { ...patch, engagement_effectue_le: null });
+  await ctx.log('Engagement ajouté après validation', id,
+    `${String(patch['engagement_type'])} · échéance ${fmtDate(patch['engagement_delai'])} · motif : ${motif}`);
+  return { id, suiviEngagement: true };
+}
+
 /* ---------------------------- declaration ------------------------------ */
 
 /** v3.2, DÉPOTAGE : hauteur + colis + scellés → « Créée ». Hors gabarit auto. */

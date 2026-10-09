@@ -138,6 +138,11 @@ export function Detail({ user, arg, go, retour, ecranPrecedent }: Nav) {
       {c['suiviEngagement'] === true
         && can(ROLES.CHEF_BRIGADE, ROLES.CHEF_BRIGADE_ADJOINT, ROLES.CHEF_VISITE, ROLES.CHEF_DIVISION, A)
         && <PanneauEngagementEdit c={c} action={action} admin={role === A} />}
+      {/* 2026-10-09 : le chef a signé « Non » alors qu'il voulait « Oui ».
+          Offert seulement sur un camion VALIDÉ et SANS engagement. */}
+      {c['suiviEngagement'] !== true && !!c['dateValidation']
+        && can(ROLES.CHEF_BRIGADE, ROLES.CHEF_BRIGADE_ADJOINT, ROLES.CHEF_VISITE, ROLES.CHEF_DIVISION, A)
+        && <PanneauEngagementAjout c={c} action={action} />}
       {c['statut'] === STATUTS.SORTIE && (String(c['baliseRequise']) === 'Non' || estOui(c['sauteBalise'])) && !estOui(c['arriveeBureau']) && can(ROLES.BALISE, A) &&
         <div className="card"><TitrePanneau icone="drapeau" etape="balise">Dispense, arrivée au bureau</TitrePanneau>
           <button onClick={() => action(() => call('cargo.arriveebureau', { id }), 'Arrivée confirmée.')}>Confirmer l'arrivée (solder la dispense)</button></div>}
@@ -1472,6 +1477,56 @@ function PanneauEngagementEdit({ c, action, admin }: { c: O; action: ActionFn; a
     {admin
       ? <p className="help">Le retrait efface l'engagement, son échéance et son solde. Ce qui est retiré part au journal.</p>
       : <p className="help">Le <b>retrait</b> d'un engagement relève de l'administrateur : demandez-le-lui si l'engagement a été coché par erreur.</p>}
+  </details>;
+}
+
+/**
+ * Ajout d'un engagement APRÈS la validation (2026-10-09, demande utilisateur) :
+ * le chef voulait « Oui » et a signé « Non ». Chefs et ADMIN, motif obligatoire.
+ * Mêmes règles qu'à la validation : nature et délai obligatoires, délai à venir.
+ */
+function PanneauEngagementAjout({ c, action }: { c: O; action: ActionFn }) {
+  const id = c['id'] as string;
+  const { engagementsProposes } = useParametres(); // liste réglable (Paramètres)
+  const [type, setType] = useState(engagementsProposes[0] ?? '');
+  const [libre, setLibre] = useState('');
+  const [jours, setJours] = useState('');
+  const [motif, setMotif] = useState('');
+  const delai = dateDansNJours(jours);
+  const nature = type === '__libre' ? libre.trim() : type;
+
+  async function ajouter() {
+    await action(() => call('cargo.engagementajouter', {
+      id, motif, engagementType: nature, engagementDelai: delai,
+    }), 'Engagement ajouté.');
+  }
+
+  return <details style={EDIT_ITEM}><summary style={{ cursor: 'pointer', fontWeight: 600 }}>Ajouter un engagement</summary>
+    <p className="help" style={{ marginTop: 10 }}>
+      Ce camion a été validé <b>sans</b> suivi d'engagement. Si c'était une erreur, ajoutez-le ici :
+      il rejoindra le volet Engagements et l'échéancier.
+    </p>
+    <p className="help" style={{ color: 'var(--warn)' }}>
+      ⚠ La signature de la validation n'est pas refaite : l'ajout, son auteur et son motif restent au journal.
+    </p>
+    <label className="help">Engagement</label>
+    <select value={type} onChange={(e) => setType(e.target.value)}>
+      {engagementsProposes.map((e) => <option key={e} value={e}>{e}</option>)}
+      <option value="__libre">Autre (saisie libre)…</option>
+    </select>
+    {type === '__libre' && <input style={{ marginTop: 6 }} value={libre} onChange={(e) => setLibre(e.target.value)}
+      placeholder="Nature de l'engagement" />}
+    <label className="help" style={{ marginTop: 6 }}>Délai en jours (obligatoire)</label>
+    <div className="row" style={{ alignItems: 'center', gap: 8 }}>
+      <input inputMode="numeric" style={{ maxWidth: 110 }} value={jours}
+        onChange={(e) => setJours(e.target.value.replace(/[^0-9]/g, ''))} placeholder="Ex. 3" />
+      {delai ? <span style={{ fontWeight: 600 }}>→ {fmtDate(delai)}</span> : null}
+    </div>
+    <label className="help" style={{ marginTop: 6 }}>Motif de l'ajout (obligatoire)</label>
+    <input value={motif} onChange={(e) => setMotif(e.target.value)} placeholder="ex. « Non » coché par erreur à la validation" />
+    <div className="row" style={{ marginTop: 8 }}>
+      <button disabled={!motif.trim() || !nature || !delai} onClick={ajouter}>Ajouter l'engagement</button>
+    </div>
   </details>;
 }
 
