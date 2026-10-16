@@ -2107,6 +2107,7 @@ export async function rapportExtraction(ctx: Ctx, p: Record<string, unknown>) {
     engagement: s('engagement') as FiltresExtraction['engagement'], natureEngagement: s('natureEngagement'),
     declarant: s('declarant'), numeroDeclaration: s('numeroDeclaration'), designation: s('designation'),
     recherche: s('recherche'), vehicules: (s('vehicules') || 'exclure') as FiltresExtraction['vehicules'],
+    controle: s('controle') as FiltresExtraction['controle'],
   };
   const ref = DATES_REFERENCE[f.dateRef!] ?? DATES_REFERENCE['entree']!;
   const cargos = await loadCargos(ctx, f.du || f.au ? SQL_PERIODE(ref.colSql, f.du, f.au) : undefined);

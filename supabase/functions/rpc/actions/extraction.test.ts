@@ -29,7 +29,7 @@ const BRUTS: Record<string, unknown>[] = [
     id: 'CT-B', numero_camion: 'TG2222BB', type_operation: 'Dépotage', statut: 'Créée',
     date_creation: '2026-10-03T08:00:00.000Z', declarant: 'STE C', numero_declaration: '400', annee_declaration: '2026',
     bureau_declaration: 'TG120', type_declaration: 'C', description_marchandise: 'CIMENT', destination_marchandise: 'LOME',
-    bureau_destination: '', suivi_engagement: false, est_vehicule: false,
+    bureau_destination: '', suivi_engagement: false, est_vehicule: false, en_surcharge: true, poids_surcharge: '1200',
     conteneurs_details: { conteneurs: [{ num: 'GLDU3333333', taille: "40'" }], scellesCamion: [] },
   },
   { // C : véhicule
@@ -130,4 +130,26 @@ test('résumé des filtres : lisible, et « aucun filtre » quand rien n\'est ch
   assert.equal(resumeFiltres({}), 'aucun filtre');
   assert.equal(resumeFiltres({ dateRef: 'sortie', du: '2026-10-01', au: '2026-10-09', bureauDestination: 'BF' }),
     'Sortie du 2026-10-01 au 2026-10-09 · bureau dest. BF');
+});
+
+test('surcharge (2026-10-16) : la liste extraite = le chiffre du rapport « Contrôles »', async () => {
+  const r = extraire(CARGOS, { controle: 'surcharge' }, { voitBalise: true });
+  assert.deepEqual(ids(r), ['CT-B']);
+  assert.equal(r.lignes[0]!['Surcharge'], 'Oui · 1200 kg');
+  assert.equal(resumeFiltres({ controle: 'surcharge' }), 'en surcharge');
+
+  const db = new FakeDB();
+  for (const b of BRUTS) db.store['cargaisons'].push(structuredClone(b));
+  const ctx: Ctx = {
+    db: db as never,
+    session: { userId: 'u', username: 'chef', nomComplet: 'Chef', role: 'CHEF_BRIGADE' as never },
+    log: async () => {},
+  };
+  const ctl = (await rap.rapportControles(ctx, {})) as Record<string, { camions: number; conteneurs: number }>;
+  for (const motif of ['surcharge', 'horsGabarit', 'transitNational'] as const) {
+    const cam = extraire(CARGOS, { controle: motif }, { voitBalise: true });
+    const cts = extraire(CARGOS, { controle: motif, niveau: 'conteneurs' }, { voitBalise: true });
+    assert.equal(cam.total, ctl[motif]!.camions, motif + ' : camions');
+    assert.equal(cts.total, ctl[motif]!.conteneurs, motif + ' : conteneurs');
+  }
 });
