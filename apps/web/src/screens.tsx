@@ -4314,8 +4314,11 @@ SCREENS.vehreport = () => {
   const { m, du, au } = p;
   const { data, loading } = useAsync<O>(() => call('report.vehicule', { du, au, periode: m }), [du, au]);
   const cp = (data?.['compte'] ?? {}) as O; const pd = (data?.['parDest'] ?? {}) as O;
+  const exporter = async (format: string) => telecharger(await call<O>('report.vehicule', { du, au, periode: m, format }));
   return <><BandeauModule icone="voiture" titre="Rapport véhicules" sous={<PeriodeChoisieLue c={p} />}
-    action={<div className="bm-outils"><SelecteurPeriode c={p} /></div>} />
+    action={<div className="bm-outils"><SelecteurPeriode c={p} />
+      <BoutonExcel titre="Extraire en Excel la liste des véhicules de la période" onClick={() => exporter('xlsx')} />
+      <BoutonExcel libelle="PDF" onClick={() => exporter('pdf')} /></div>} />
   <div className="card">
     {loading ? <Spinner /> : <div className="stats">
       <StatCard n={Number(cp['total'] ?? 0)} l="Total" /><StatCard n={Number(cp['attente'] ?? 0)} l="En attente" /><StatCard n={Number(cp['sortis'] ?? 0)} l="Sortis" tone="ok" />
@@ -4327,7 +4330,12 @@ SCREENS.vehreport = () => {
 SCREENS.kpi = () => {
   const { data, loading } = useAsync<O>(() => call('report.kpi', {}), []);
   const k = data ?? {};
-  return <div className="card"><h2>KPI / EVP</h2>
+  const extraireKpi = () => exporterChiffres('kpi-evp', 'situation actuelle', [{ nom: 'KPI', lignes: [
+    ['Conteneurs dépotés', 'videsDepotage'], ['Sortis scellés', 'sortisScelles'], ['Camions actifs', 'camionsActifs'],
+    ['Camions sortis', 'camionsSortis'], ['EVP dépotés', 'evpVides'], ['EVP en stock', 'evpStock'],
+  ].map(([l, cle]) => ({ Indicateur: l, Valeur: Number(k[cle!] ?? 0) })) }]);
+  return <div className="card"><div className="row" style={{ alignItems: 'center' }}><h2 style={{ flex: 1 }}>KPI / EVP</h2>
+    {!loading && <BoutonExcel onClick={extraireKpi} titre="Extraire ces indicateurs en Excel" />}</div>
     {loading ? <Spinner /> : <div className="stats">
       <StatCard n={Number(k['videsDepotage'] ?? 0)} l="Conteneurs dépotés" />
       <StatCard n={Number(k['sortisScelles'] ?? 0)} l="Sortis scellés" />
@@ -4449,8 +4457,54 @@ const DATES_EXTRACTION: [string, string][] = [
 const FILTRES_VIDES: O = {
   dateRef: 'entree', operation: '', etat: '', statut: '', typeDeclaration: '', bureauDeclaration: '',
   bureauDestination: '', destination: '', engagement: '', natureEngagement: '', declarant: '',
-  numeroDeclaration: '', designation: '', recherche: '', vehicules: 'exclure',
+  numeroDeclaration: '', designation: '', recherche: '', vehicules: 'exclure', controle: '',
 };
+
+/** « Transit national (TG) » → « transit-national-tg » : un nom de fichier lisible. */
+const slugFichier = (t: string) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  .replace(/[^A-Za-z0-9]+/g, '-').replace(/^-|-$/g, '').toLowerCase();
+
+/**
+ * Extraction en Excel à partir de filtres d'extraction sur mesure (2026-10-16).
+ * Sert à l'écran Extraction ET aux écrans qui AFFICHENT un chiffre (Contrôles…) :
+ * « on extrait depuis là où ça se voit ». Le serveur filtre et JOURNALISE
+ * l'export (RGPD-01) ; ici on ne fait qu'écrire le fichier.
+ */
+async function exporterExtraction(filtres: O, nom: string): Promise<void> {
+  const r = await call<O>('report.extraction', { ...filtres, pourExport: true }, { fraiche: true });
+  const lignes = (r['lignes'] as O[]) ?? [];
+  if (!lignes.length) { toast('Rien à extraire avec ces critères.', 'err'); return; }
+  const classeur = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(classeur, XLSX.utils.json_to_sheet(lignes), String(r['niveau'] ?? 'extraction').slice(0, 31));
+  XLSX.writeFile(classeur, `${slugFichier(nom)}-${new Date().toISOString().slice(0, 10)}.xlsx`);
+  toast(`${lignes.length} ligne(s) extraite(s).`, 'ok');
+}
+
+/**
+ * Extraction des CHIFFRES affichés par un écran de statistiques (2026-10-16) :
+ * une feuille par tableau, exactement ce que l'écran montre, plus la période.
+ */
+function exporterChiffres(nom: string, periode: string, feuilles: { nom: string; lignes: O[] }[]) {
+  const pleines = feuilles.filter((f) => f.lignes.length);
+  if (!pleines.length) { toast('Rien à extraire.', 'err'); return; }
+  const classeur = XLSX.utils.book_new();
+  for (const f of pleines) {
+    const feuille = XLSX.utils.json_to_sheet(f.lignes);
+    XLSX.utils.sheet_add_aoa(feuille, [[], ['Période', periode]], { origin: -1 });
+    XLSX.utils.book_append_sheet(classeur, feuille, f.nom.slice(0, 31));
+  }
+  XLSX.writeFile(classeur, `${slugFichier(nom)}-${new Date().toISOString().slice(0, 10)}.xlsx`);
+  toast('Chiffres extraits.', 'ok');
+}
+
+/** Bouton « Excel » des écrans de statistiques. */
+function BoutonExcel({ onClick, libelle = 'Excel', titre }: { onClick: () => void | Promise<void>; libelle?: string; titre?: string }) {
+  const [busy, setBusy] = useState(false);
+  return <button className="ghost xs" disabled={busy} title={titre}
+    onClick={async () => { setBusy(true); try { await onClick(); } catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(false); } }}>
+    <Icone nom="telecharger" taille={14} />{busy ? 'Extraction…' : libelle}
+  </button>;
+}
 /** Au-delà, l'écran montre un aperçu ; le fichier Excel, lui, contient tout. */
 const APERCU_MAX = 300;
 
@@ -4473,14 +4527,7 @@ SCREENS.extraction = ({ go }) => {
     try {
       // L'export repasse par le serveur, qui le JOURNALISE (RGPD-01) : un
       // export nominatif quitte l'application, il doit laisser une trace.
-      const r = await call<O>('report.extraction', { ...params(), pourExport: true }, { fraiche: true });
-      const lignes = (r['lignes'] as O[]) ?? [];
-      if (!lignes.length) { toast('Rien à extraire avec ces filtres.', 'err'); return; }
-      const feuille = XLSX.utils.json_to_sheet(lignes);
-      const classeur = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(classeur, feuille, String(r['niveau'] ?? niveau));
-      XLSX.writeFile(classeur, `extraction-${niveau}-${new Date().toISOString().slice(0, 10)}.xlsx`);
-      toast(`${lignes.length} ligne(s) extraite(s).`, 'ok');
+      await exporterExtraction(params(), `extraction-${niveau}`);
     } catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(''); }
   }
 
@@ -4562,6 +4609,13 @@ SCREENS.extraction = ({ go }) => {
         {champ('numeroDeclaration', 'N° de déclaration')}
         {champ('designation', 'Désignation (marchandise)', 'ex. riz ; sucre')}
         {champ('recherche', 'Camion ou conteneur', 'N° camion, conteneur ou ID')}
+        <div>
+          <label className="help">Contrôle</label>
+          <select value={String(f['controle'] ?? '')} onChange={set('controle')}>
+            <option value="">Tous</option><option value="surcharge">En surcharge</option>
+            <option value="horsGabarit">Hors gabarit</option><option value="transitNational">Transit national (TG)</option>
+          </select>
+        </div>
         <div>
           <label className="help">Véhicules</label>
           <select value={String(f['vehicules'])} onChange={set('vehicules')}>
@@ -4671,10 +4725,16 @@ SCREENS.flux = () => {
     { nom: 'Camions balisés', valeurs: rows.map((r) => Number(r['baliseC'] ?? 0)) },
     { nom: 'Camions sortis', valeurs: rows.map((r) => Number(r['ppC'] ?? 0)) },
   ];
+  const COLS_FLUX: [string, string][] = [['periode', 'Période'], ['enlevesC', 'Cont. enlevés'], ['depotesC', 'Cont. dépotés'], ['tc', 'Total TC'], ['evp', 'EVP'], ['baliseC', 'Camions balisés'], ['ppC', 'Camions sortis']];
+  const extraireFlux = () => exporterChiffres('analyse-des-flux', `${du || '…'} au ${au || '…'}`, [
+    { nom: 'Détail', lignes: rows.map((r, i) => Object.fromEntries(COLS_FLUX.map(([k, l]) => [l, k === 'periode' ? cats[i] ?? r[k] : Number(r[k] ?? 0)]))) },
+    { nom: 'Totaux', lignes: COLS_FLUX.slice(1).map(([k, l]) => ({ Indicateur: l, Valeur: Number(tot[k] ?? 0) })) },
+  ]);
   return <>
     <div className="card">
       <BandeauModule icone="flux" titre="Analyse des flux" sous={<PeriodeChoisieLue c={p} />}
-        action={<div className="bm-outils"><SelecteurPeriode c={p} /></div>} />
+        action={<div className="bm-outils"><SelecteurPeriode c={p} />
+          {!loading && <BoutonExcel onClick={extraireFlux} titre="Extraire en Excel le détail chiffré" />}</div>} />
       <div className="row" style={{ alignItems: 'center', marginTop: 6 }}>
         <label className="help" style={{ margin: 0 }}>Répartition de la période</label>
         <select value={gran} onChange={(e) => setGran(e.target.value)} style={{ maxWidth: 160 }}>
@@ -4699,7 +4759,7 @@ SCREENS.flux = () => {
         <p className="help" style={{ marginTop: 0 }}>La même donnée empilée : la hauteur totale donne la charge de la période.</p>
         <Graphique cats={cats} series={series} type="barresEmpilees" ordonnee="Total" hauteur={260} /></div>
       <div className="card"><h2>Détail chiffré</h2>
-        <Table cols={[['periode', 'Période'], ['enlevesC', 'Cont. enlevés'], ['depotesC', 'Cont. dépotés'], ['tc', 'Total TC'], ['evp', 'EVP'], ['baliseC', 'Camions balisés'], ['ppC', 'Camions sortis']]} rows={rows} /></div>
+        <Table cols={COLS_FLUX} rows={rows} /></div>
     </>}
   </>;
 };
@@ -4716,11 +4776,19 @@ SCREENS.controles = () => {
      une surcharge aussi, un transit national est un régime de déclaration. Les
      deux tuiles d'un bloc disent camions et conteneurs, elles reçoivent donc
      l'icône correspondante, comme dans les tableaux. */
-  const bloc = (titre: string, o: O, icone: string, tone?: 'warn') =>
+  /* 2026-10-16 : chaque bloc s'extrait sur place, camions ou conteneurs, avec
+     les MÊMES règles que le chiffre (filtre « controle » de l'extraction). */
+  const extraireMotif = (controle: string, titre: string, niveau: string) =>
+    exporterExtraction({ controle, niveau, dateRef: 'entree', du, au, vehicules: 'exclure' }, `controle-${titre}-${niveau}`);
+  const bloc = (titre: string, o: O, icone: string, controle: string, tone?: 'warn') =>
     <div className="card">
       <div className="ecran-tete">
         <span className="tete-pastille" aria-hidden="true"><Icone nom={icone} taille={20} /></span>
         <h2 style={{ flex: 1, margin: 0, minWidth: 0 }}>{titre}</h2>
+        <BoutonExcel libelle="Camions" titre={`Extraire en Excel la liste des camions (${titre})`}
+          onClick={() => extraireMotif(controle, titre, 'camions')} />
+        <BoutonExcel libelle="Conteneurs" titre={`Extraire en Excel la liste des conteneurs (${titre})`}
+          onClick={() => extraireMotif(controle, titre, 'conteneurs')} />
       </div>
       <div className="stats">
         <StatCard n={Number(o['camions'] ?? 0)} l="Camions" tone={tone} etape="cfs" />
@@ -4745,9 +4813,9 @@ SCREENS.controles = () => {
             { nom: 'Conteneurs', valeurs: [Number(hg['conteneurs'] ?? 0), Number(su['conteneurs'] ?? 0), Number(tn['conteneurs'] ?? 0)] },
           ]}
           type="barres" ordonnee="Nombre" hauteur={250} valeursSurBarres /></div>
-      {bloc('Hors gabarit', hg, 'balance', 'warn')}
-      {bloc('Surcharge', su, 'camion', 'warn')}
-      {bloc('Transit national (TG)', tn, 'drapeau')}
+      {bloc('Hors gabarit', hg, 'balance', 'horsGabarit', 'warn')}
+      {bloc('Surcharge', su, 'camion', 'surcharge', 'warn')}
+      {bloc('Transit national (TG)', tn, 'drapeau', 'transitNational')}
     </>}
   </>;
 };
@@ -4765,10 +4833,16 @@ SCREENS.destinations = () => {
   // Une ligne par destination réellement présente sur la période (évite un fouillis de zéros).
   const actifs = codes.filter((c) => Number(parDest[c] ?? 0) > 0);
   const series = (actifs.length ? actifs : codes).map((c) => ({ nom: c, valeurs: seriesData.map((s) => Number(s[c] ?? 0)) }));
+  const extraireDest = () => exporterChiffres('repartition-par-destination', `${du || '…'} au ${au || '…'}`, [
+    { nom: 'Par destination', lignes: codes.map((c) => ({ Destination: c, 'Camions sortis': Number(parDest[c] ?? 0) })) },
+    { nom: 'Évolution', lignes: seriesData.map((s, i) => ({ 'Période': cats[i] ?? String(s['periode'] ?? ''),
+      ...Object.fromEntries(codes.map((c) => [c, Number(s[c] ?? 0)])) })) },
+  ]);
   return <>
     <div className="card">
       <BandeauModule icone="carte" titre="Répartition par destination" sous={<PeriodeChoisieLue c={p} />}
-        action={<div className="bm-outils"><SelecteurPeriode c={p} /></div>} />
+        action={<div className="bm-outils"><SelecteurPeriode c={p} />
+          {!loading && <BoutonExcel onClick={extraireDest} titre="Extraire ces chiffres en Excel" />}</div>} />
       <div className="row" style={{ alignItems: 'center', marginTop: 6 }}>
         <label className="help" style={{ margin: 0 }}>Répartition de la période</label>
         <select value={gran} onChange={(e) => setGran(e.target.value)} style={{ maxWidth: 160 }}>

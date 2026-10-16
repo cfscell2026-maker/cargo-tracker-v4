@@ -23,7 +23,7 @@
  * ============================================================================
  */
 import {
-  STATUTS, LIBELLES_TYPE_DECLARATION, parseConteneursDetails, estOui, normAlphaNum,
+  STATUTS, LIBELLES_TYPE_DECLARATION, parseConteneursDetails, estOui, normAlphaNum, codeDestination,
 } from '../../_shared/domaine/src/index.ts';
 
 type Ligne = Record<string, unknown>;
@@ -61,6 +61,23 @@ export interface FiltresExtraction {
   /** N° de camion, de conteneur ou ID de dossier ; espaces et tirets ignorés. */
   recherche?: string;
   vehicules?: 'exclure' | 'inclure' | 'seulement';
+  /** Motif de contrôle, MÊMES règles que le rapport « Contrôles » (rapportControles). */
+  controle?: '' | 'surcharge' | 'horsGabarit' | 'transitNational';
+}
+
+/* 2026-10-16 (demande utilisateur) : la surcharge devient un filtre, pour sortir
+   la LISTE des camions que le rapport « Contrôles » ne fait que compter. Les
+   trois motifs reprennent à l'identique ses règles, pour que la liste extraite
+   et le chiffre affiché tombent juste. */
+export const estEnSurcharge = (c: Ligne) =>
+  c['enSurcharge'] === true || String(c['enSurcharge']) === 'true' || String(c['enSurcharge']) === 'Oui';
+export const estHorsGabarit = (c: Ligne) => estOui(c['horsGabarit']) || c['horsGabarit'] === true;
+export const estTransitNational = (c: Ligne) => codeDestination(c['destinationMarchandise']) === 'TG';
+
+/** « Oui · 1200 kg », « Non » (pesé, hors surcharge), ou vide (pas pesé). */
+function libSurcharge(c: Ligne): string {
+  if (estEnSurcharge(c)) return 'Oui' + (tx(c['poidsSurcharge']) ? ' · ' + tx(c['poidsSurcharge']) + ' kg' : '');
+  return c['enSurcharge'] === false || String(c['enSurcharge']) === 'false' ? 'Non' : '';
 }
 
 /* ---------------------------- outils ---------------------------------- */
@@ -172,6 +189,10 @@ function garder(l: LigneCt, f: FiltresExtraction): boolean {
   if (f.engagement === 'non' && engage) return false;
   if (f.natureEngagement && !(engage && contient(c['engagementType'], f.natureEngagement))) return false;
 
+  if (f.controle === 'surcharge' && !estEnSurcharge(c)) return false;
+  if (f.controle === 'horsGabarit' && !estHorsGabarit(c)) return false;
+  if (f.controle === 'transitNational' && !estTransitNational(c)) return false;
+
   if (f.recherche) {
     const q = normAlphaNum(f.recherche);
     const champs = [c['numeroCamion'], c['id'], l.ct?.['num']];
@@ -203,6 +224,8 @@ function colonnesCamion(c: Ligne, ls: LigneCt[], voitBalise: boolean): Record<st
     'Bon de sortie': uniques(ls.map((l) => l.bonSortie), ', '),
     ...(voitBalise ? { 'N° balise': tx(c['numeroGps']) } : {}),
     'Engagement': c['suiviEngagement'] === true ? tx(c['engagementType']) || 'Oui' : '',
+    'Surcharge': libSurcharge(c),
+    'Hors gabarit': estHorsGabarit(c) ? 'Oui' : '',
     'Nb conteneurs': String(conts.length),
     'Conteneurs': conts.join(', '),
     'Entré le': dateHeureFr(c['dateCreation']),
@@ -237,6 +260,8 @@ function colonnesConteneur(l: LigneCt, voitBalise: boolean): Record<string, stri
     'Bon de sortie': l.bonSortie,
     ...(voitBalise ? { 'N° balise': tx(c['numeroGps']) } : {}),
     'Engagement': c['suiviEngagement'] === true ? tx(c['engagementType']) || 'Oui' : '',
+    'Surcharge': libSurcharge(c),
+    'Hors gabarit': estHorsGabarit(c) ? 'Oui' : '',
     'Entré le': dateHeureFr(c['dateCreation']),
     'Sorti le': dateHeureFr(c['dateSortie']),
   };
@@ -325,6 +350,8 @@ export function resumeFiltres(f: FiltresExtraction): string {
     f.destination ? 'destination ' + f.destination : '',
     f.engagement === 'oui' ? 'engagés' : f.engagement === 'non' ? 'non engagés' : '',
     f.natureEngagement ? 'engagement ' + f.natureEngagement : '',
+    f.controle === 'surcharge' ? 'en surcharge' : f.controle === 'horsGabarit' ? 'hors gabarit'
+      : f.controle === 'transitNational' ? 'transit national (TG)' : '',
     f.declarant ? 'déclarant ' + f.declarant : '', f.numeroDeclaration ? 'décl. ' + f.numeroDeclaration : '',
     f.designation ? 'désignation ' + f.designation : '', f.recherche ? 'recherche ' + f.recherche : '',
     f.vehicules === 'seulement' ? 'véhicules seuls' : f.vehicules === 'inclure' ? 'véhicules inclus' : '',
