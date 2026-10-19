@@ -127,7 +127,17 @@ export async function cargoGet(ctx: Ctx, data: { id?: string }) {
   // en base (on ne détruit pas de pièce) mais n'est plus servie aux cellules.
   if (row['annule'] === true && !aPouvoirAdmin(ctx.session.role))
     throw new Error('Cargaison introuvable : ' + id);
-  return filtrerConfidentiel(versCamel(row), ctx.session.role);
+  const fiche = filtrerConfidentiel(versCamel(row), ctx.session.role);
+  /* AMENDE POUR EFFETS NON DÉCLARÉS (2026-10-19) : elle vit dans sa propre table
+     (une ligne = une amende), on la joint ici pour que la fiche la montre. Une
+     erreur de lecture ne doit pas empêcher d'ouvrir la fiche : on l'ignore. */
+  const { data: am } = await ctx.db.from('amendes_effets').select('montant, saisie_le')
+    .eq('cargaison_id', id).maybeSingle();
+  if (am) {
+    fiche['amendeEffets'] = Number((am as Record<string, unknown>)['montant']);
+    fiche['amendeEffetsLe'] = (am as Record<string, unknown>)['saisie_le'];
+  }
+  return fiche;
 }
 
 /* ----------------------------- cargo.search ---------------------------- */

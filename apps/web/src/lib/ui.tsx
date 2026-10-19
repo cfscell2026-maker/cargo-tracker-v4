@@ -11,7 +11,7 @@ import { Icone } from './icones.tsx';
 import type { Variation } from './periode.ts';
 
 type O = Record<string, unknown>;
-import { ROLE_LABELS, STATUTS, DESTINATIONS, DESTINATION_CODES, dateDansNJours, camionValide, valeursParametres, type ValeursParametres } from '../../../../supabase/functions/_shared/domaine/src/index.ts';
+import { ROLE_LABELS, STATUTS, DESTINATIONS, DESTINATION_CODES, dateDansNJours, camionValide, valeursParametres, AMENDE_EFFETS_FORFAIT, type ValeursParametres } from '../../../../supabase/functions/_shared/domaine/src/index.ts';
 
 // Menus et découpage : extraits dans menu.ts (données pures, testables).
 export { MENUS, menuSections, type MenuItem } from './menu.ts';
@@ -41,7 +41,7 @@ export const TITLES: Record<string, string> = {
   temps: 'Temps de passage par poste',
   conteneurs: 'Opérations sur conteneurs', mad: 'Magasin / MAD', madsortie: 'Sortie Magasin / MAD',
   vehnew: 'Dépotage de véhicules', conso: 'Conso (type C)', destinations: 'Répartition par destination',
-  controles: 'Statistiques de contrôle', entrepindus: 'Entrepôt industriel',
+  controles: 'Statistiques de contrôle', engagementsrap: 'Rapport des engagements', amendes: 'Amendes, effets non déclarés', entrepindus: 'Entrepôt industriel',
 };
 
 export const roleLabel = (r: string) => ROLE_LABELS[r] ?? r;
@@ -525,6 +525,54 @@ export function useSuiviEngagement() {
   </div>;
 
   return { pret, payload, champ };
+}
+
+/* ==========================================================================
+ *  AMENDE POUR EFFETS NON DÉCLARÉS : 2026-10-19 (demande utilisateur)
+ *
+ *  Renseignée à la validation d'un ENLÈVEMENT, comme l'engagement : Oui / Non,
+ *  puis le montant, le forfait de 250 000 FCFA ou un autre montant. L'état est
+ *  une simple valeur, pour servir à la fois la validation d'un camion et la
+ *  validation en lot, où chaque camion a SA réponse (comme la pesée).
+ * ========================================================================== */
+export type ChoixAmende = { reponse: '' | 'oui' | 'non'; mode: 'forfait' | 'autre'; autre: string };
+export const AMENDE_VIDE: ChoixAmende = { reponse: '', mode: 'forfait', autre: '' };
+
+/** « 250 000 FCFA ». */
+export const fmtFcfa = (n: unknown) => Number(n ?? 0).toLocaleString('fr-FR').replace(/\u202f|\u00a0/g, ' ') + ' FCFA';
+
+const chiffres = (v: string) => v.replace(/[^0-9]/g, '');
+
+export const amendePrete = (a?: ChoixAmende): boolean => !!a && (a.reponse === 'non'
+  || (a.reponse === 'oui' && (a.mode === 'forfait' || Number(chiffres(a.autre)) > 0)));
+
+export const payloadAmende = (a: ChoixAmende) => ({
+  amendeEffets: a.reponse === 'oui',
+  amendeMontant: a.reponse !== 'oui' ? '' : a.mode === 'forfait' ? String(AMENDE_EFFETS_FORFAIT) : chiffres(a.autre),
+});
+
+export function ChampAmende({ valeur, onChange, compact }: {
+  valeur: ChoixAmende; onChange: (a: ChoixAmende) => void; compact?: boolean;
+}) {
+  // « 1250000 » s'affiche « 1 250 000 » pendant la frappe : un zéro de trop se voit.
+  const autreLisible = valeur.autre ? Number(chiffres(valeur.autre)).toLocaleString('fr-FR').replace(/\u202f|\u00a0/g, ' ') : '';
+  return <div style={{ marginTop: compact ? 0 : 10 }}>
+    {!compact && <div className="section-title">Amende pour effets non déclarés</div>}
+    <ChoixSegmente libelle="Amende pour effets non déclarés" valeur={valeur.reponse}
+      options={[{ valeur: 'oui', libelle: compact ? 'Amende payée' : 'Oui, amende payée' }, { valeur: 'non', libelle: compact ? 'Pas d\'amende' : 'Non' }]}
+      onChange={(v) => onChange(v === 'oui' ? { ...valeur, reponse: 'oui' } : { ...AMENDE_VIDE, reponse: v === 'non' ? 'non' : '' })} />
+    {valeur.reponse === 'oui' && <div className="row" style={{ alignItems: 'center', gap: 10, marginTop: 8, flexWrap: 'wrap' }}>
+      <ChoixSegmente libelle="Montant de l'amende" valeur={valeur.mode}
+        options={[{ valeur: 'forfait', libelle: `Forfait ${fmtFcfa(AMENDE_EFFETS_FORFAIT)}` }, { valeur: 'autre', libelle: 'Autre montant' }]}
+        onChange={(v) => onChange({ ...valeur, mode: v === 'autre' ? 'autre' : 'forfait' })} />
+      {valeur.mode === 'autre' && <input inputMode="numeric" style={{ maxWidth: 190 }} value={autreLisible}
+        onChange={(e) => onChange({ ...valeur, autre: chiffres(e.target.value) })} placeholder="Montant payé (FCFA)" />}
+    </div>}
+    {!compact && <div className="help" style={{ marginTop: 4 }}>
+      Seulement si le déclarant a payé une amende parce que des effets n'étaient pas déclarés.
+      Pas d'effets trouvés à la visite, ou effets déclarés : répondez « Non ».
+    </div>}
+  </div>;
 }
 
 /* ==========================================================================

@@ -100,7 +100,7 @@ export function designationCorrespond(designation: unknown, termes: string | und
 }
 
 /** Période inclusive sur des jours UTC (= heure locale au Togo). */
-function dansPeriode(v: unknown, du?: string, au?: string): boolean {
+export function dansPeriode(v: unknown, du?: string, au?: string): boolean {
   if (!du && !au) return true;
   if (!v) return false;
   const t = new Date(String(v)).getTime();

@@ -22,6 +22,7 @@ import {
 import { fetchAll, lookupDeclaration } from './helpers.ts';
 import { numerosPiece, extraire, resumeFiltres, DATES_REFERENCE, type FiltresExtraction } from './extraction.ts';
 import { filtrerConfidentiel } from './lecture.ts';
+import { calculerEngagements, calculerAmendes, type Amende } from './engagements-amendes.ts';
 
 /* ------------------------------- Helpers ------------------------------- */
 
@@ -2120,4 +2121,53 @@ export async function rapportExtraction(ctx: Ctx, p: Record<string, unknown>) {
     tronque: r.total > MAX_LIGNES_EXTRACTION,
     filtres: resumeFiltres(f),
   };
+}
+
+/* ===== ENGAGEMENTS PAR PÉRIODE ET AMENDES : 2026-10-19 =====================
+ *
+ * Voir engagements-amendes.ts. Ici : le chargement (pré-filtré en SQL sur ce
+ * qui est sûr), le calcul, et la trace d'export (RGPD-01).
+ */
+const granulariteDe = (p: Record<string, unknown>) => {
+  const g = String(p['granularite'] ?? 'mois');
+  return ['jour', 'semaine', 'mois', 'annee'].includes(g) ? g : 'mois';
+};
+
+export async function rapportEngagementsPeriode(ctx: Ctx, p: Record<string, unknown>) {
+  const du = String(p['du'] ?? '') || undefined, au = String(p['au'] ?? '') || undefined;
+  const gran = granulariteDe(p);
+  /* Seules les cargaisons SOUS ENGAGEMENT sont rapatriées : quelques centaines
+     sur des dizaines de milliers. La période, elle, se tranche en JS, sur la
+     date de pose avec repli sur la validation : un pré-filtre SQL sur
+     `engagement_pose_le` écarterait une ligne que la migration n'aurait pas
+     calée, en silence. */
+  const cargos = await loadCargos(ctx, (q) => q.eq('suivi_engagement', true));
+  const r = calculerEngagements(cargos, { du, au, cle: (v) => periodeKey(v, gran) });
+  if (p['pourExport'] === true)
+    await ctx.log('Export rapport engagements', '', `${r.lignes.length} ligne(s) · ${du || '…'} au ${au || '…'}`);
+  return { du, au, granularite: gran, ...r };
+}
+
+/** Découpe une liste d'identifiants : un `in (...)` trop long dépasse la taille d'URL de PostgREST. */
+const paquets = <T,>(xs: T[], n = 300): T[][] => Array.from({ length: Math.ceil(xs.length / n) }, (_, i) => xs.slice(i * n, i * n + n));
+
+export async function rapportAmendes(ctx: Ctx, p: Record<string, unknown>) {
+  const du = String(p['du'] ?? '') || undefined, au = String(p['au'] ?? '') || undefined;
+  const gran = granulariteDe(p);
+  const brutes = await fetchAll(ctx, 'amendes_effets', '*', undefined, du || au ? SQL_PERIODE('saisie_le', du, au) : undefined);
+  const amendes: Amende[] = brutes.map((a) => ({
+    cargaisonId: String(a['cargaison_id']), montant: Number(a['montant']),
+    saisieLe: String(a['saisie_le'] ?? ''), saisiePar: String(a['saisie_par'] ?? ''),
+  }));
+  const cargosParId = new Map<string, Record<string, unknown>>();
+  for (const ids of paquets([...new Set(amendes.map((a) => a.cargaisonId))]))
+    for (const c of await loadCargos(ctx, (q) => q.in('id', ids))) cargosParId.set(String(c['id']), c);
+  const noms = new Map<string, string>();
+  for (const ids of paquets([...new Set(amendes.map((a) => a.saisiePar).filter(Boolean))]))
+    for (const u of await fetchAll(ctx, 'profils', 'id, nom_complet', undefined, (q) => q.in('id', ids)))
+      noms.set(String(u['id']), String(u['nom_complet'] ?? ''));
+  const r = calculerAmendes(amendes, cargosParId, noms, { du, au, cle: (v) => periodeKey(v, gran) });
+  if (p['pourExport'] === true)
+    await ctx.log('Export rapport amendes', '', `${r.lignes.length} ligne(s) · ${du || '…'} au ${au || '…'}`);
+  return { du, au, granularite: gran, ...r };
 }
