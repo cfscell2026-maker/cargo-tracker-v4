@@ -40,7 +40,16 @@ const voitBalise = (ctx: Ctx) => ROLES_VOIENT_BALISE.indexOf(ctx.session.role) >
 // deno-lint-ignore no-explicit-any
 async function loadCargos(ctx: Ctx, affiner?: (q: any) => any): Promise<Record<string, unknown>[]> {
   // fetchAll : pagine (5000+ cargaisons migrées) sinon les rapports sous-comptent.
-  const data = await fetchAll(ctx, 'cargaisons', '*', undefined, affiner);
+  /* LENTEUR, 2026-10-19 : annulées et archivées sont écartées PAR LA BASE, au
+     lieu d'être rapatriées puis jetées. `IS NOT TRUE` est exactement le
+     contraire de `=== true` (NULL passe, comme `undefined` en JS) ; le filtre
+     JS ci-dessous reste en place et tranche. */
+  // deno-lint-ignore no-explicit-any
+  const vivantes = (q: any) => {
+    const v = q.not('annule', 'is', true).not('archive', 'is', true);
+    return affiner ? affiner(v) : v;
+  };
+  const data = await fetchAll(ctx, 'cargaisons', '*', undefined, vivantes);
   // SEC-12 : une cargaison annulée (doublon écarté) reste en base pour l'audit
   // mais ne doit compter dans AUCUN rapport, sinon elle fausse tous les totaux.
   // 2026-08-19 · de même pour les dossiers ARCHIVÉS (vieux goulots clôturés) :
@@ -119,6 +128,20 @@ const SQL_PERIODE = (colonne: string, du?: unknown, au?: unknown) => (q: any) =>
   if (d) q = q.gte(colonne, decalerJour(d, -1));
   if (a) q = q.lt(colonne, decalerJour(a, 2));
   return q;
+};
+
+/**
+ * LENTEUR, 2026-10-19 : un rapport qui compte plusieurs événements, chacun à SA
+ * date (entrée, balise, sortie…), ne peut écarter un dossier que si AUCUNE de
+ * ces dates n'atteint le début de la période. Seule la borne basse est traduite
+ * (avec un jour de marge pour le fuseau, comme `SQL_PERIODE`) : le filtre est
+ * donc plus LARGE que le tri JS, jamais plus étroit, et ce qu'il retire, c'est
+ * l'historique ancien, l'essentiel de la table.
+ */
+// deno-lint-ignore no-explicit-any
+const SQL_UNE_DATE_DEPUIS = (colonnes: string[], du?: unknown) => (q: any) => {
+  const d = typeof du === 'string' && du ? du : '';
+  return d ? q.or(colonnes.map((c) => `${c}.gte.${decalerJour(d, -1)}`).join(',')) : q;
 };
 
 const lc = (v: unknown) => String(v ?? '').toLowerCase();
@@ -521,7 +544,7 @@ function collecteVehicules(cargos: Record<string, unknown>[], du?: string, au?: 
 
 export async function rapportVehicules(ctx: Ctx, p: Record<string, unknown>) {
   const agentLc = agentForce(ctx, ROLES.CFS, p['agentCFS']);
-  const r = collecteVehicules(await loadCargos(ctx), p['du'] as string, p['au'] as string, agentLc || undefined);
+  const r = collecteVehicules(await loadCargos(ctx, (q: any) => SQL_UNE_DATE_DEPUIS(['date_creation', 'date_sortie'], p['du'])(q.eq('est_vehicule', true))), p['du'] as string, p['au'] as string, agentLc || undefined);
   if (p['format'] === 'xlsx' || p['format'] === 'pdf') {
     const aoa: unknown[][] = [['ID', 'Châssis', 'Destination', 'Statut', 'Créé le']];
     r.vehicules.forEach((v) => aoa.push([v['id'], v['chassis'], v['destination'], v['statut'], v['dateCreation']]));
@@ -532,7 +555,7 @@ export async function rapportVehicules(ctx: Ctx, p: Record<string, unknown>) {
 
 export async function rapportVehiculesDetail(ctx: Ctx, p: Record<string, unknown>) {
   const agentLc = agentForce(ctx, ROLES.CFS, p['agentCFS']);
-  const r = collecteVehicules(await loadCargos(ctx), p['du'] as string, p['au'] as string, agentLc || undefined);
+  const r = collecteVehicules(await loadCargos(ctx, (q: any) => SQL_UNE_DATE_DEPUIS(['date_creation', 'date_sortie'], p['du'])(q.eq('est_vehicule', true))), p['du'] as string, p['au'] as string, agentLc || undefined);
   const bucket = String(p['bucket'] ?? 'total');
   let rows = r.vehicules;
   if (bucket === 'attente') rows = rows.filter((v) => v['statut'] !== STATUTS.SORTIE);
@@ -1003,7 +1026,7 @@ export async function rapportKPI(ctx: Ctx, p: Record<string, unknown>) {
 export async function rapportControles(ctx: Ctx, p: Record<string, unknown>) {
   const du = p['du'] as string | undefined;
   const au = p['au'] as string | undefined;
-  const cargos = await loadCargos(ctx);
+  const cargos = await loadCargos(ctx, SQL_PERIODE('date_creation', du, au));
   const vide = () => ({ camions: 0, conteneurs: 0 });
   const r = { horsGabarit: vide(), surcharge: vide(), transitNational: vide() };
   for (const c of cargos) {
@@ -1211,7 +1234,7 @@ export async function rapportFlux(ctx: Ctx, p: Record<string, unknown>) {
   const du = String(p['du'] ?? '') || undefined;
   const au = String(p['au'] ?? '') || undefined;
   const dansPeriode = (v: unknown) => (!du && !au) || inRange(v, du, au);
-  const cargos = await loadCargos(ctx);
+  const cargos = await loadCargos(ctx, SQL_UNE_DATE_DEPUIS(['date_creation', 'date_pose_gps', 'date_sortie'], du));
   const map: Record<string, FluxLigne> = {};
   const bump = (k: string | null) => { if (!k) return null; if (!map[k]) map[k] = fluxVide(k); return map[k]; };
   const tot = fluxVide('');
@@ -1271,7 +1294,7 @@ export async function rapportDestinations(ctx: Ctx, p: Record<string, unknown>) 
   const au = String(p['au'] ?? '') || undefined;
   const dansPeriode = (v: unknown) => (!du && !au) || inRange(v, du, au);
   const codes = [...DESTINATION_CODES, 'Autres'];
-  const cargos = await loadCargos(ctx);
+  const cargos = await loadCargos(ctx, SQL_PERIODE('date_sortie', du, au));
   const parDest: Record<string, number> = {}; codes.forEach((c) => (parDest[c] = 0));
   const map: Record<string, Record<string, unknown>> = {};
   let total = 0;
