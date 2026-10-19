@@ -1654,7 +1654,8 @@ const GROUPES_INFOS: [string, [string, string][]][] = [
     ['enSurcharge', 'En surcharge'], ['poidsSurcharge', 'Poids en surcharge (kg)'],
     ['suiviEngagement', "Suivi d'engagement"], ['engagementType', 'Engagement'],
     ['engagementDelai', 'Échéance'], ['engagementEffectueLe', 'Informations transmises le'],
-    ['engagementEffectuePar', 'Transmises par'],
+    ['engagementEffectuePar', 'Transmises par'], ['engagementPoseLe', 'Engagement posé le'],
+    ['amendeEffets', 'Amende effets non déclarés (FCFA)'], ['amendeEffetsLe', 'Amende saisie le'],
   ]],
   ['Cellule T1', [
     ['dateT1', 'Date T1'], ['agentT1', 'Agent T1'], ['bureauDestination', 'Bureau de destination'],
