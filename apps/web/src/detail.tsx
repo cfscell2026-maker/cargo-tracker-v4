@@ -6,14 +6,14 @@ import { useEffect, useState } from 'react';
 import { call } from './lib/rpc.ts';
 import { useAsync } from './lib/hooks.ts';
 import { Icone } from './lib/icones.tsx';
-import { useParametres, Spinner, Tag, Modal, masks, toast, fmtDate, BoutonRetour, ChampDestination, useSuiviEngagement, ChampCamion, roleLabel, ChoixSegmente, BoutonBascule } from './lib/ui.tsx';
+import { useParametres, Spinner, Tag, Modal, masks, toast, fmtDate, BoutonRetour, ChampDestination, useSuiviEngagement, ChampCamion, roleLabel, ChoixSegmente, BoutonBascule, ChampAmende, AMENDE_VIDE, amendePrete, payloadAmende, fmtFcfa, type ChoixAmende } from './lib/ui.tsx';
 import type { Nav } from './App.tsx';
 import {
   STATUTS, OPERATIONS, ROLES, TYPES_DECLARATION, optionTypeDeclaration, ETATS_SORTIE, dateDansNJours,
   etapesEnAttente, etatCellules, etapePrecedenteManquante, messageEtapePrecedente, LIBELLE_ETAPE,
   estOui, tcValide, parseConteneursDetails, tailleBucket,
   groupesDeclaration, libelleDeclaration, estTypeSansT1, libelleTypeSansT1, exigeControlePoids,
-  numeroDispenseValide, aPouvoirAdmin,
+  numeroDispenseValide, aPouvoirAdmin, exigeAmendeEffets, AMENDE_EFFETS_FORFAIT,
 } from '../../../supabase/functions/_shared/domaine/src/index.ts';
 
 type O = Record<string, unknown>;
@@ -149,6 +149,10 @@ export function Detail({ user, arg, go, retour, ecranPrecedent }: Nav) {
           trop ne doit pas figer un engagement mal saisi. */}
       {c['suiviEngagement'] === true && suitEngagements
         && <PanneauEngagementEdit c={c} action={action} admin={aPouvoirAdmin(role)} />}
+      {/* Amende pour effets non déclarés (2026-10-19) : enlèvement validé,
+          chefs et ADMIN, motif obligatoire. Ouverte après la sortie. */}
+      {exigeAmendeEffets(c['typeOperation']) && !!c['dateValidation'] && suitEngagements
+        && <PanneauAmendeEdit c={c} action={action} />}
       {c['statut'] === STATUTS.SORTIE && (String(c['baliseRequise']) === 'Non' || estOui(c['sauteBalise'])) && !estOui(c['arriveeBureau']) && can(ROLES.BALISE, A) &&
         <div className="card"><TitrePanneau icone="drapeau" etape="balise">Dispense, arrivée au bureau</TitrePanneau>
           <button onClick={() => action(() => call('cargo.arriveebureau', { id }), 'Arrivée confirmée.')}>Confirmer l'arrivée (solder la dispense)</button></div>}
@@ -218,6 +222,9 @@ function FicheCargaison({ c, groupes }: { c: O; groupes: Groupe[] }) {
           ? ((c['engagementType'] as string) || 'Oui')
           : 'Aucun'}</div>
         : null}
+      {/* Amende pour effets non déclarés (2026-10-19), jointe par cargo.get. */}
+      {c['amendeEffets'] ? <div className="kv"><b>Amende effets non déclarés</b>{fmtFcfa(c['amendeEffets'])}
+        {Number(c['amendeEffets']) === AMENDE_EFFETS_FORFAIT ? ' (forfait)' : ''}</div> : null}
     </div>
 
     {mixte && <div className="bandeau">
@@ -861,6 +868,10 @@ function PanneauValidation({ c, action }: { c: O; action: ActionFn }) {
   // Suivi des engagements (2026-09-10), bloquant, sur toutes les opérations.
   // Le hook est partagé avec les deux écrans de validation en lot (lib/ui.tsx).
   const eng = useSuiviEngagement();
+  // Amende pour effets non déclarés (2026-10-19) : enlèvement seulement.
+  const exigeAmende = exigeAmendeEffets(c['typeOperation']);
+  const [amende, setAmende] = useState<ChoixAmende>(AMENDE_VIDE);
+  const pretAmende = !exigeAmende || amendePrete(amende);
 
   return <div className="card"><TitrePanneau icone="valider" etape="validation">Validation, chef brigade</TitrePanneau>
     {horsGab && exigePesee && <p style={{ background: 'var(--warn-soft)', color: 'var(--warn)', padding: 10, borderRadius: 6 }}>⚠ Chargement <b>hors gabarit</b> ({(c['hauteurChargement'] as string) || '?'} m).</p>}
@@ -875,14 +886,16 @@ function PanneauValidation({ c, action }: { c: O; action: ActionFn }) {
       </div>
     </> : <p className="help" style={{ marginTop: 0 }}>Opération « {String(c['typeOperation'])} » : pas de pesée ni de hors gabarit (réservés au dépotage).</p>}
     {eng.champ}
+    {exigeAmende && <ChampAmende valeur={amende} onChange={setAmende} />}
 
     <p style={{ color: '#5c6b7a', marginTop: 10 }}>Votre validation (signature numérique) débloque les cellules T1 / Balise / Bon de sortie.</p>
-    <button disabled={!pretPesee || !eng.pret}
+    <button disabled={!pretPesee || !eng.pret || !pretAmende}
       onClick={() => action(() => call('cargo.valider', {
         id,
         enSurcharge: enSurcharge === 'oui',
         poidsSurcharge: poids,
         ...eng.payload,
+        ...(exigeAmende ? payloadAmende(amende) : {}),
       }), 'Cargaison validée et signée.')}>
       Valider et signer
     </button>
@@ -1545,6 +1558,49 @@ function PanneauEngagementAjout({ c, action }: { c: O; action: ActionFn }) {
     <input value={motif} onChange={(e) => setMotif(e.target.value)} placeholder="ex. « Non » coché par erreur à la validation" />
     <div className="row" style={{ marginTop: 8 }}>
       <button disabled={!motif.trim() || !nature || !delai} onClick={ajouter}>Ajouter l'engagement</button>
+    </div>
+  </div>;
+}
+
+/**
+ * AMENDE POUR EFFETS NON DÉCLARÉS, APRÈS LA VALIDATION (2026-10-19).
+ *
+ * Pour l'ajouter quand elle est constatée après la signature, la corriger, ou
+ * la retirer si elle a été saisie par erreur. Chefs et ADMIN, motif obligatoire,
+ * tout passe au journal.
+ */
+function PanneauAmendeEdit({ c, action }: { c: O; action: ActionFn }) {
+  const id = c['id'] as string;
+  const actuelle = Number(c['amendeEffets'] ?? 0);
+  const [ouvert, setOuvert] = useState(false);
+  const [amende, setAmende] = useState<ChoixAmende>(AMENDE_VIDE);
+  const [motif, setMotif] = useState('');
+  const fermer = () => { setOuvert(false); setAmende(AMENDE_VIDE); setMotif(''); };
+
+  if (!ouvert) return <div className="card row" style={{ alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+    <div style={{ flex: 1, minWidth: 220 }}>
+      <b>Amende effets non déclarés : {actuelle ? fmtFcfa(actuelle) : 'aucune'}</b>
+      <div className="help">{actuelle ? 'Vous pouvez corriger le montant ou retirer l\'amende.' : 'Constatée après la signature ? Vous pouvez l\'ajouter.'}</div>
+    </div>
+    <button className="ghost" onClick={() => setOuvert(true)}>
+      <Icone nom={actuelle ? 'crayon' : 'plus'} taille={15} />{actuelle ? 'Corriger l\'amende' : 'Ajouter une amende'}
+    </button>
+  </div>;
+
+  return <div className="card">
+    <div className="row" style={{ alignItems: 'center', gap: 8 }}>
+      <h2 style={{ flex: 1, margin: 0 }}>Amende pour effets non déclarés</h2>
+      <button className="ghost xs" onClick={fermer}>Annuler</button>
+    </div>
+    <p className="help" style={{ marginTop: 8 }}>Actuellement : <b>{actuelle ? fmtFcfa(actuelle) : 'aucune amende'}</b>.</p>
+    <ChampAmende valeur={amende} onChange={setAmende} compact />
+    <label className="help" style={{ marginTop: 8 }}>Motif (obligatoire)</label>
+    <input value={motif} onChange={(e) => setMotif(e.target.value)} placeholder="ex. amende constatée à la visite, reçu n° …" />
+    <div className="row" style={{ marginTop: 8 }}>
+      <button disabled={!motif.trim() || !amendePrete(amende)}
+        onClick={() => action(async () => { await call('cargo.amende', { id, motif, ...payloadAmende(amende) }); fermer(); }, 'Amende enregistrée.')}>
+        Enregistrer
+      </button>
     </div>
   </div>;
 }

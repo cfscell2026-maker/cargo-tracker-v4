@@ -46,6 +46,9 @@ export const ACTIONS: Record<string, H> = {
   'cargo.engagementretirer': d(ecr.engagementRetirer), // 2026-09-17 : engagement coché par erreur
   'cargo.engagementajouter': d(ecr.engagementAjouter), // 2026-10-09 : « Non » signé au lieu de « Oui »
   'report.engagements': d(lecture.engagementsDus), // échéancier + volet Engagements (filtre)
+  'report.engagementsperiode': d(rap.rapportEngagementsPeriode), // 2026-10-19 : par nature, par période
+  'cargo.amende': d(ecr.amendeDefinir), // 2026-10-19 : amende effets non déclarés, après validation
+  'report.amendes': d(rap.rapportAmendes), // 2026-10-19 : statistiques des amendes
   'cargo.historique': d(rap.historiqueCargaison), // 2026-09-10 : parcours complet d'un camion
   'report.archive': d(lecture.archiveAncienne), // 2026-09-10 : cargaisons de plus d'un an (ADMIN)
   'cargo.passages': d(lecture.passagesCamion), // 2026-09-10 : passages antérieurs d'une plaque

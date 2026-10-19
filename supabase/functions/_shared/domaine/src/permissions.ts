@@ -110,6 +110,11 @@ export const PERMISSIONS: Record<string, Role[]> = {
    * part au journal : le retrait se relit, il ne s'efface pas. */
   'cargo.engagementretirer': [ROLES.ADMIN],
   'cargo.engagementajouter': SUIVENT_ENGAGEMENTS, // 2026-10-09 : ajout après validation (chefs + ADMIN), motif obligatoire
+  // 2026-10-19 : rapport périodique par engagement (BFE 03, transit national, côtier),
+  // amendes pour effets non déclarés (correction après validation + statistiques).
+  'report.engagementsperiode': SUIVENT_ENGAGEMENTS,
+  'cargo.amende': SUIVENT_ENGAGEMENTS,
+  'report.amendes': SUIVENT_ENGAGEMENTS,
   /* PARAMÈTRES (2026-09-21). Lecture : tous les rôles, CBPI compris, l'écran de
      signature en tire la liste des engagements et le délai proposé. Écriture :
      l'administrateur seul, chaque modification part au journal. */

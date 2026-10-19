@@ -186,7 +186,7 @@ class Query {
 
 /** Cle primaire des tables sur lesquelles le code fait un `upsert`. */
 const CLE_PRIMAIRE_FAKE: Record<string, string> = {
-  verrou_application: 'cle', parametres_app: 'cle',
+  verrou_application: 'cle', parametres_app: 'cle', amendes_effets: 'cargaison_id',
 };
 
 export class FakeDB {

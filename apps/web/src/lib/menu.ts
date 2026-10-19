@@ -48,14 +48,14 @@ export const MENUS: Record<string, MenuItem[]> = {
     ['cfsreport', 'Rapport CFS', 'rapport'], ['vehreport', 'Rapport véhicules', 'rapport'], ['baliserep', 'Rapport Balise', 'rapport'],
     ['pprep', 'Rapport PP', 'rapport'], ['t1report', 'Rapport T1', 'rapport'], ['bonsortiereport', 'Rapport Bon de sortie', 'rapport'],
     ['dispenses', 'Dispenses', 'drapeau'],
-    ['flux', 'Analyse des flux', 'flux'], ['destinations', 'Par destination', 'carte'], ['controles', 'Contrôles (gabarit/surcharge)', 'balance'],
+    ['flux', 'Analyse des flux', 'flux'], ['destinations', 'Par destination', 'carte'], ['controles', 'Contrôles (gabarit/surcharge)', 'balance'], ['engagementsrap', 'Rapport engagements', 'echeance'], ['amendes', 'Amendes (effets)', 'document'],
     ['dwell', 'Délai & instance', 'minuterie'], ['stockdwell', 'Séjour conteneurs', 'conteneurHorloge'], ['temps', 'Temps de passage', 'sablier'],
     ['horodatage', 'Heures d\'activité', 'horloge'], ['account', 'Mon compte', 'compte'],
   ],
   CHEF_BRIGADE_ADJOINT: [
     ['engagements', 'Engagements', 'echeance'], ['parking', 'Parking', 'parking'],
     ['search', 'Recherche (en cours)', 'loupe'], ['list', 'Cargaisons', 'liste'], ['extraction', 'Extraction', 'telecharger'], ['vehicules', 'Véhicules', 'voiture'],
-    ['controles', 'Contrôles (gabarit/surcharge)', 'balance'], ['temps', 'Temps de passage', 'sablier'],
+    ['controles', 'Contrôles (gabarit/surcharge)', 'balance'], ['engagementsrap', 'Rapport engagements', 'echeance'], ['amendes', 'Amendes (effets)', 'document'], ['temps', 'Temps de passage', 'sablier'],
     ['horodatage', 'Heures d\'activité', 'horloge'], ['account', 'Mon compte', 'compte'],
   ],
   // CBPI · chef brigade par intérim : UNIQUEMENT la file « À valider » (+ son
@@ -64,13 +64,13 @@ export const MENUS: Record<string, MenuItem[]> = {
   CHEF_VISITE: [
     ['dash', 'Tableau de bord', 'tableau'], ['engagements', 'Engagements', 'echeance'], ['parking', 'Parking', 'parking'],
     ['search', 'Recherche (en cours)', 'loupe'], ['list', 'Cargaisons', 'liste'], ['extraction', 'Extraction', 'telecharger'],
-    ['vehicules', 'Véhicules', 'voiture'], ['controles', 'Contrôles (gabarit/surcharge)', 'balance'],
+    ['vehicules', 'Véhicules', 'voiture'], ['controles', 'Contrôles (gabarit/surcharge)', 'balance'], ['engagementsrap', 'Rapport engagements', 'echeance'], ['amendes', 'Amendes (effets)', 'document'],
     ['temps', 'Temps de passage', 'sablier'], ['horodatage', 'Heures d\'activité', 'horloge'], ['account', 'Mon compte', 'compte'],
   ],
   CHEF_DIVISION: [
     ['dash', 'Tableau de bord', 'tableau'], ['stockdwell', 'Rapprochement ACP', 'balance'], ['engagements', 'Engagements', 'echeance'], ['parking', 'Parking', 'parking'],
     ['search', 'Recherche (en cours)', 'loupe'], ['list', 'Cargaisons', 'liste'], ['extraction', 'Extraction', 'telecharger'],
-    ['vehicules', 'Véhicules', 'voiture'], ['controles', 'Contrôles (gabarit/surcharge)', 'balance'],
+    ['vehicules', 'Véhicules', 'voiture'], ['controles', 'Contrôles (gabarit/surcharge)', 'balance'], ['engagementsrap', 'Rapport engagements', 'echeance'], ['amendes', 'Amendes (effets)', 'document'],
     ['temps', 'Temps de passage', 'sablier'], ['horodatage', 'Heures d\'activité', 'horloge'], ['account', 'Mon compte', 'compte'],
   ],
   T1: [
@@ -106,7 +106,7 @@ export const MENUS: Record<string, MenuItem[]> = {
     ['pprep', 'Rapport PP', 'rapport'], ['t1report', 'Rapport T1', 'rapport'], ['bonsortiereport', 'Rapport Bon de sortie', 'rapport'],
     ['dispenses', 'Dispenses', 'drapeau'],
     ['flux', 'Analyse des flux', 'flux'], ['destinations', 'Par destination', 'carte'],
-    ['controles', 'Contrôles (gabarit/surcharge)', 'balance'], ['dwell', 'Délai & instance', 'minuterie'],
+    ['controles', 'Contrôles (gabarit/surcharge)', 'balance'], ['engagementsrap', 'Rapport engagements', 'echeance'], ['amendes', 'Amendes (effets)', 'document'], ['dwell', 'Délai & instance', 'minuterie'],
     ['stockdwell', 'Séjour conteneurs', 'conteneurHorloge'], ['temps', 'Temps de passage', 'sablier'],
     ['horodatage', 'Heures d\'activité', 'horloge'], ['goulots', 'Nettoyage (goulots)', 'nettoyage'], ['parametres', 'Paramètres', 'reglages'],
     ['archive', 'Archive (+1 an)', 'archive'], ['history', 'Historique', 'historique'],
