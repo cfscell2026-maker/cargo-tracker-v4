@@ -185,6 +185,8 @@ type Groupe = ReturnType<typeof groupesDeclaration>[number];
  */
 function FicheCargaison({ c, groupes }: { c: O; groupes: Groupe[] }) {
   const mixte = groupes.length > 1;
+  const madMixte = c['typeOperation'] === OPERATIONS.MAGASIN && Array.isArray(c['mixteDetails'])
+    ? (c['mixteDetails'] as O[]).filter((m) => m && m['sortieId']) : [];
   // Pastille d'en-tête : camion ou véhicule selon la nature du dossier. Elle
   // donne à la fiche le même repère visuel que les tuiles et le parcours.
   const pastille = estOui(c['estVehicule']) ? 'voiture' : 'camion';
@@ -227,6 +229,21 @@ function FicheCargaison({ c, groupes }: { c: O; groupes: Groupe[] }) {
         {Number(c['amendeEffets']) === AMENDE_EFFETS_FORFAIT ? ' (forfait)' : ''}</div> : null}
     </div>
 
+    {/* UN CAMION, PLUSIEURS ENTRÉES MAD (2026-10-21) : sans conteneurs, les
+        déclarations rattachées vivent dans l'historique du chargement mixte. */}
+    {madMixte.length > 0 && <div className="bandeau">
+      <div className="t">⊞ Chargement sur plusieurs entrées MAD, {madMixte.length + 1} déclarations sur ce camion</div>
+      <div className="l"><b>{libelleDeclaration(c)}</b>{c['declarant'] ? `, ${String(c['declarant'])}` : ''} · première sortie</div>
+      {madMixte.map((m, i) => {
+        const d = (m['declaration'] ?? {}) as O;
+        return <div key={i} className="l">
+          <b>{[d['numero'], d['annee'], d['bureau'], d['type']].filter(Boolean).join(' · ')}</b>
+          {m['declarant'] ? `, ${String(m['declarant'])}` : ''} · {String(m['quantite'] ?? '')} {String(m['unite'] ?? '')}
+          {m['designation'] ? ` · ${String(m['designation'])}` : ''} · entrée {String(m['entreeId'] ?? '')}
+          {' · '}{fmtDate(m['date'])}
+        </div>;
+      })}
+    </div>}
     {mixte && <div className="bandeau">
       <div className="t">⊞ Chargement mixte, {groupes.length} déclarations sur ce camion</div>
       {groupes.map((g) => <div key={g.cle} className="l">
