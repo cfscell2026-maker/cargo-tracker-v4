@@ -15,9 +15,10 @@ import { versCamel } from '../ctx.ts';
 import { ErreurMetier } from '../ctx.ts';
 import {
   ENTREPOT_TYPES, ARTICLES_MAX, uniteApurement, cleDecl, maj, tcValide, estTypeSansT1,
-  STATUTS, OPERATIONS, sautsTypeC,
+  STATUTS, OPERATIONS, sautsTypeC, parseConteneursDetails,
 } from '../../_shared/domaine/src/index.ts';
-import { fetchAll, nextRef, nextId, nextRapportId } from './helpers.ts';
+import { fetchAll, nextRef, nextId, nextRapportId, getCargo, patchCargo, type CargoRow } from './helpers.ts';
+import { camionActif } from './ecriture.ts';
 
 const normTC = (v: unknown) => String(v ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 const num = (v: unknown) => { const n = Number(String(v ?? '').replace(',', '.').replace(/[^0-9.]/g, '')); return isFinite(n) && n > 0 ? n : 0; };
@@ -279,6 +280,34 @@ export async function entrepotSortie(ctx: Ctx, p: Record<string, unknown>) {
     ? p['baliseRequise'] === true || String(p['baliseRequise']).toLowerCase() === 'oui'
     : null; // type T (ou autre) : sans objet, le transit est balisé par nature
 
+  /* UN CAMION, PLUSIEURS ENTRÉES (2026-10-21, inquiétude du client).
+   *
+   * Le camion 8505H103/8627G903BF a chargé, le même jour, 113 cartons de la
+   * déclaration T 23228 et 51 cartons de la T 23246 : deux sorties, et chaque
+   * sortie créait SON dossier camion. Deux lignes pour un seul camion physique,
+   * deux validations, deux passages à la Porte Principale, et un dossier qui
+   * reste « en cours » pour toujours. Ce chemin était le seul à ne pas
+   * vérifier que le camion était déjà dans le système.
+   *
+   * Le contrôle se fait AVANT d'écrire quoi que ce soit :
+   *   · camion déjà ouvert pour une sortie MAD : la nouvelle sortie se RATTACHE
+   *     à ce dossier (chargement sur plusieurs entrées) ;
+   *   · camion ouvert pour autre chose (enlèvement, dépotage…) : refus, rien
+   *     n'est enregistré, et le message nomme le dossier en cause. */
+  let existant: CargoRow | null = null;
+  if (numeroCamion) {
+    const actif = await camionActif(ctx, numeroCamion);
+    if (actif) {
+      existant = await getCargo(ctx, String(actif['id']));
+      if (existant.o['typeOperation'] !== OPERATIONS.MAGASIN)
+        throw new ErreurMetier(
+          `Le camion « ${numeroCamion} » est déjà dans le système pour une autre opération : `
+          + `${String(actif['id'])} (« ${String(existant.o['typeOperation'] ?? '')} », statut « ${String(actif['statut'])} »).\n\n`
+          + `Il ne peut charger en MAD qu'après sa sortie. S'il s'agit d'un autre camion, vérifiez la plaque.`,
+        );
+    }
+  }
+
   const row = {
     id, entrepot_code: code, entree_id: entreeId, numero_article: numeroArticle,
     numero_declaration: maj(d['numeroDeclaration'], 30) || String(entree['numeroDeclaration']),
@@ -310,7 +339,19 @@ export async function entrepotSortie(ctx: Ctx, p: Record<string, unknown>) {
    * circuit). Le lien apurement → cargaison est conservé (best-effort).
    */
   let cargaisonId: string | null = null;
-  if (numeroCamion) {
+  if (numeroCamion && existant) {
+    cargaisonId = await rattacherSortieMad(ctx, existant, {
+      sortieId: id, entrepot: code, entreeId, article: numeroArticle, quantite, unite: unite === 'poids' ? 'kg' : 'colis', scelles,
+      declaration: {
+        type: typeApu, numero: row.numero_declaration, annee: row.annee_declaration, bureau: row.bureau_declaration,
+      },
+      declarant: maj(d['declarant'], 120) || String(entree['declarant'] ?? ''),
+      designation: row.designation,
+      consoMode: baliseRequise === false ? 'sansbalise' : 'balise',
+    });
+    const { error: eLink } = await ctx.db.from('entrepot_sorties').update({ cargaison_id: cargaisonId }).eq('id', id);
+    if (eLink) console.error('[MAD-SORTIE] lien cargaison non enregistré (' + id + ') : ' + eLink.message);
+  } else if (numeroCamion) {
     const consoMode = baliseRequise === false ? 'sansbalise' : 'balise';
     const { sauteT1, sauteBalise } = sautsTypeC(typeApu, consoMode);
     cargaisonId = await nextId(ctx);
@@ -341,8 +382,53 @@ export async function entrepotSortie(ctx: Ctx, p: Record<string, unknown>) {
   const mentionBalise = baliseRequise === null ? '' : baliseRequise ? ' · à baliser' : ' · sans balise';
   await ctx.log('Sortie entrepôt ' + code, id,
     'entrée ' + entreeId + ' art.' + numeroArticle + ' · ' + quantite + ' ' + unite + mentionBalise
-      + (cargaisonId ? ' · camion ' + numeroCamion + ' (' + cargaisonId + ')' : ''));
-  return { id, restantApres: restant - quantite, baliseRequise, cargaisonId };
+      + (cargaisonId ? ' · camion ' + numeroCamion + ' (' + cargaisonId + ')' : '')
+      + (existant ? ' · rattachée au camion déjà ouvert (chargement sur plusieurs entrées)' : ''));
+  return { id, restantApres: restant - quantite, baliseRequise, cargaisonId, rattache: !!existant };
+}
+
+/**
+ * Rattache une sortie MAD au dossier du camion DÉJÀ ouvert (2026-10-21).
+ *
+ * Le dossier garde sa première déclaration ; chaque sortie suivante s'inscrit
+ * dans `mixte_details` (déclaration, quantité, entrée, article), comme un
+ * chargement mixte. Les scellés s'ajoutent, les désignations aussi. Le régime
+ * le plus exigeant l'emporte : si la nouvelle déclaration est un transit, le T1
+ * (et la balise) redeviennent dus, même si la première ne les demandait pas.
+ */
+async function rattacherSortieMad(ctx: Ctx, cargo: CargoRow, s: {
+  sortieId: string; entrepot: string; entreeId: string; article: number; quantite: number; unite: string;
+  scelles: string[]; declaration: Record<string, string>; declarant: string; designation: string; consoMode: string;
+}): Promise<string> {
+  const c = cargo.o;
+  const id = String(c['id']);
+  const hist: unknown[] = Array.isArray(c['mixteDetails']) ? [...(c['mixteDetails'] as unknown[])] : [];
+  const libDecl = [s.declaration['type'], s.declaration['numero']].filter(Boolean).join(' ');
+  hist.push({
+    date: new Date().toISOString(), agent: ctx.session.nomComplet,
+    note: `Sortie MAD ${s.entrepot} · décl. ${libDecl} · ${s.quantite} ${s.unite}`,
+    infos: s.designation, conteneursAjoutes: [],
+    sortieId: s.sortieId, entrepot: s.entrepot, entreeId: s.entreeId, article: s.article,
+    declaration: s.declaration, declarant: s.declarant, designation: s.designation, quantite: s.quantite, unite: s.unite,
+  });
+  const pd = parseConteneursDetails(c['conteneursDetails']);
+  const scelles = [...new Set([...(pd.scellesCamion ?? []), ...s.scelles].filter(Boolean))];
+  const { sauteT1, sauteBalise } = sautsTypeC(s.declaration['type'], s.consoMode);
+  const designations = [...new Set([String(c['descriptionMarchandise'] ?? ''), s.designation]
+    .flatMap((x) => x.split(' / ')).map((x) => x.trim()).filter(Boolean))].join(' / ').slice(0, 500);
+  await patchCargo(ctx, cargo, {
+    chargement_mixte: true, mixte_details: hist,
+    conteneurs_details: { conteneurs: pd.conteneurs, scellesCamion: scelles },
+    description_marchandise: designations,
+    saute_t1: c['sauteT1'] === true && sauteT1,
+    saute_balise: c['sauteBalise'] === true && sauteBalise,
+    observations_cfs: [String(c['observationsCfs'] ?? ''), `Sortie MAD ${s.entrepot} · entrée ${s.entreeId} art.${s.article}`]
+      .filter(Boolean).join(' | ').slice(0, 1000),
+  });
+  await ctx.log('Chargement sur plusieurs entrées MAD', id,
+    `${libDecl} · ${s.quantite} ${s.unite} · entrée ${s.entreeId} art.${s.article} · sortie ${s.sortieId}`
+      + (c['dateValidation'] ? ' · ajoutée APRÈS la validation du chef' : ''));
+  return id;
 }
 
 /**

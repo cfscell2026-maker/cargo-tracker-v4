@@ -1382,8 +1382,11 @@ function EntrepotSortie({ type, entrepots, nav }: { type: EntrepotType; entrepot
         baliseRequise: apuSansT1 ? baliseRequise : undefined,
       };
       if (estIndus(type)) payload['poids'] = qte; else payload['nbColis'] = qte;
-      const r = await call<{ restantApres: number }>('entrepot.sortie', payload);
-      toast(`Sortie enregistrée. Restant : ${r.restantApres}.`, 'ok');
+      const r = await call<{ restantApres: number; rattache?: boolean; cargaisonId?: string }>('entrepot.sortie', payload);
+      // 2026-10-21 : un camion déjà ouvert en MAD ne crée plus de seconde ligne.
+      toast(r.rattache
+        ? `Sortie enregistrée et ajoutée au camion déjà ouvert (${String(r.cargaisonId)}) : un seul dossier pour plusieurs entrées. Restant : ${r.restantApres}.`
+        : `Sortie enregistrée. Restant : ${r.restantApres}.`, 'ok');
       setQte(''); setNumCamion(''); setScelles(['', '', '']); reload();
     } catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(false); }
   }
