@@ -3120,11 +3120,51 @@ test('engagement, RETRAIT : le suivi disparaît, et le journal garde ce qui a é
   await ecr.engagementRetirer(chef as never, { id: 'ENG-R1', motif: 'coché par erreur : ce camion n\'a pas d\'engagement' });
   const c = db.store['cargaisons'].find((x) => x['id'] === 'ENG-R1')!;
   assert.equal(c['suivi_engagement'], false);
-  assert.equal(c['engagement_type'], null);
+  /* ⚠ VIDE, ET NON NUL. `engagement_type` est NOT NULL en base (migration
+     00180, defaut ''). Ce test exigeait `null` : il attestait donc le defaut
+     au lieu de l'attraper, et le retrait echouait en production sur une
+     violation de contrainte que le double, lui, acceptait sans rien dire.
+     FakeDB fait desormais respecter ces colonnes (voir NON_NULL). */
+  assert.equal(c['engagement_type'], '');
+  assert.equal(c['engagement_effectue_par'], '');
+  // Les colonnes de DATE sont nullables : une date absente n'est pas une date vide.
   assert.equal(c['engagement_delai'], null);
+  assert.equal(c['engagement_effectue_le'], null);
   assert.match(traces.map((t) => t.action).join(' '), /Retrait du suivi d'engagement/);
   assert.match(traces.map((t) => t.detail).join(' '), /BFE 03 Sinkase/, 'le journal garde l\'engagement retiré');
   assert.match(traces.map((t) => t.detail).join(' '), /motif : coché par erreur/);
+});
+
+test('engagement, RETRAIT : un engagement SOLDE se retire aussi, et tout est journalise', async () => {
+  /* Le cas de production : l'engagement avait ete solde, puis la destination a
+     change. Les deux colonnes NOT NULL sont alors toutes deux renseignees, et
+     c'est precisement la que le `null` cassait. */
+  const db = new FakeDB();
+  const traces: string[] = [];
+  const chef = { ...ctxRole(db, 'CHEF_BRIGADE', 'Chef Brigade'),
+    log: async (_a: string, _c: string, d: string) => { traces.push(d); } };
+  cargoEngage(db, 'ENG-R4', { engagement_effectue_le: '2026-10-20T08:00:00Z', engagement_effectue_par: 'Cne MIAWONENE Edem' });
+  await ecr.engagementRetirer(chef as never, { id: 'ENG-R4', motif: 'Destination modifiee sur le BFE04' });
+  const c = db.store['cargaisons'].find((x) => x['id'] === 'ENG-R4')!;
+  assert.equal(c['suivi_engagement'], false);
+  assert.equal(c['engagement_type'], '');
+  assert.equal(c['engagement_effectue_par'], '');
+  assert.equal(c['engagement_effectue_le'], null);
+  assert.match(traces.join(' '), /soldé le/, 'le journal dit que l engagement avait ete solde');
+  assert.match(traces.join(' '), /Destination modifiee sur le BFE04/);
+});
+
+test('FakeDB : une colonne NOT NULL refuse le null, comme la base', () => {
+  /* La garantie qui manquait. Sans elle, le double acceptait le null, le test
+     passait, et le defaut n'apparaissait qu'en production. */
+  const db = new FakeDB();
+  db.store['cargaisons'].push({ id: 'NN-1', engagement_type: 'BFE 03 Sinkase', derniere_maj: null });
+  return db.from('cargaisons').update({ engagement_type: null }).eq('id', 'NN-1').select('id')
+    .then((r: { error: { message: string } | null }) => {
+      assert.ok(r.error, 'le double aurait du refuser');
+      assert.match(r.error!.message, /not-null constraint/);
+      assert.equal(db.store['cargaisons'][0]!['engagement_type'], 'BFE 03 Sinkase', 'et ne rien ecrire');
+    });
 });
 
 test('engagement, RETRAIT : motif obligatoire, et rien à retirer sans engagement', async () => {
@@ -3134,7 +3174,7 @@ test('engagement, RETRAIT : motif obligatoire, et rien à retirer sans engagemen
   await assert.rejects(() => ecr.engagementRetirer(chef, { id: 'ENG-R2' }), /motif du retrait/i);
   assert.equal(db.store['cargaisons'].find((x) => x['id'] === 'ENG-R2')!['suivi_engagement'], true,
     'un refus ne doit rien écrire');
-  cargoEngage(db, 'ENG-R3', { suivi_engagement: false, engagement_type: null, engagement_delai: null });
+  cargoEngage(db, 'ENG-R3', { suivi_engagement: false, engagement_type: '', engagement_delai: null });
   await assert.rejects(() => ecr.engagementRetirer(chef, { id: 'ENG-R3', motif: 'x' }), /pas sous suivi d'engagement/i);
 });
 
