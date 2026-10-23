@@ -436,8 +436,23 @@ export async function engagementRetirer(ctx: Ctx, p: Record<string, unknown>) {
 
   const avant = `${String(c['engagementType'] ?? '')} · ${String(c['engagementDelai'] ?? '')}`;
   const soldeLe = aFait(c['engagementEffectueLe']) ? fmtDate(c['engagementEffectueLe']) : '';
+  /* ⚠ `engagement_type` et `engagement_effectue_par` sont NOT NULL en base
+     (migration 00180, defaut ''). Leur ecrire `null` fait echouer la requete,
+     et l'agent ne voyait qu'une « erreur technique » avec une reference :
+     c'est ce qui cassait le retrait en production (23/10/2026).
+     On les VIDE, on ne les annule pas. Les deux autres colonnes sont bien
+     nullables, et le `null` y est la bonne valeur : une date absente n'est pas
+     une date vide.
+     `engagement_effectue_par` est remis a blanc lui aussi : la cargaison
+     redevient une cargaison SANS engagement, y garder le nom de qui l'avait
+     solde laisserait une trace qui ne se rapporte plus a rien. Le journal, lui,
+     conserve tout. */
   await patchCargo(ctx, cargo, {
-    suivi_engagement: false, engagement_type: null, engagement_delai: null, engagement_effectue_le: null,
+    suivi_engagement: false,
+    engagement_type: '',
+    engagement_delai: null,
+    engagement_effectue_le: null,
+    engagement_effectue_par: '',
     engagement_pose_le: null,
   });
   await ctx.log('Retrait du suivi d\'engagement', id,

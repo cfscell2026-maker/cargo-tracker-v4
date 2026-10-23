@@ -136,6 +136,10 @@ class Query {
     const rows = this.rows();
     if (this.opType === 'insert') {
       const items = Array.isArray(this.payload) ? this.payload : [this.payload!];
+      for (const it of items) {
+        const faute = violeNonNull(this.table, it);
+        if (faute) return { data: null, error: { message: faute } };
+      }
       for (const it of items) rows.push(colonnesGenerees(this.table, structuredClone(it)));
       return { data: this.wantSelect ? items.map((r) => structuredClone(r)) : null, error: null };
     }
@@ -144,6 +148,8 @@ class Query {
       const cle = CLE_PRIMAIRE_FAKE[this.table];
       if (!cle) return { data: null, error: { message: 'upsert : cle primaire inconnue pour « ' + this.table + ' »' } };
       for (const it of items) {
+        const faute = violeNonNull(this.table, it);
+        if (faute) return { data: null, error: { message: faute } };
         if (!(cle in it)) return { data: null, error: { message: 'upsert : la cle « ' + cle + ' » manque dans la charge utile' } };
         const deja = rows.find((r) => r[cle] === it[cle]);
         if (deja) colonnesGenerees(this.table, Object.assign(deja, structuredClone(it)));
@@ -152,6 +158,8 @@ class Query {
       return { data: this.wantSelect ? items.map((r) => structuredClone(r)) : null, error: null };
     }
     if (this.opType === 'update') {
+      const faute = violeNonNull(this.table, this.payload as Row);
+      if (faute) return { data: null, error: { message: faute } };
       const matched = rows.filter((r) => match(r, this.filters));
       for (const r of matched) colonnesGenerees(this.table, Object.assign(r, structuredClone(this.payload)));
       return { data: this.wantSelect ? matched.map((r) => structuredClone(r)) : null, error: null };
@@ -182,6 +190,32 @@ class Query {
   then<T>(onF: (v: { data: unknown; error: { message: string } | null; count?: number }) => T) {
     return Promise.resolve(this.run()).then(onF);
   }
+}
+
+/**
+ * COLONNES `NOT NULL` QUE LE DOUBLE FAIT RESPECTER (2026-10-23).
+ *
+ * Ajoute apres un bug de PRODUCTION que les tests ne pouvaient pas voir : le
+ * retrait d'un engagement ecrivait `engagement_type: null` sur une colonne
+ * NOT NULL, et l'agent ne recevait qu'une « erreur technique » avec une
+ * reference. Le double acceptait ce null sans broncher, donc le test passait
+ * et ne prouvait rien.
+ *
+ * La liste est VOLONTAIREMENT COURTE : on n'y met que les colonnes dont une
+ * action ecrit reellement la valeur. Recopier tout le schema ici le ferait
+ * diverger de la base a la premiere migration, et un double qui ment sur les
+ * contraintes est pire qu'un double qui les ignore.
+ */
+const NON_NULL: Record<string, string[]> = {
+  cargaisons: ['engagement_type', 'engagement_effectue_par'],
+  verrou_application: ['actif', 'message', 'mdp_hash', 'mdp_sel'],
+};
+
+function violeNonNull(table: string, patch: Row): string | null {
+  for (const col of NON_NULL[table] ?? [])
+    if (col in patch && (patch[col] === null || patch[col] === undefined))
+      return 'null value in column "' + col + '" of relation "' + table + '" violates not-null constraint';
+  return null;
 }
 
 /** Cle primaire des tables sur lesquelles le code fait un `upsert`. */

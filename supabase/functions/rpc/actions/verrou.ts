@@ -35,8 +35,19 @@ const TABLE_ABSENTE =
   'Le verrou n\'est pas encore activé : la table « verrou_application » '
   + '(migration 00205) n\'existe pas en base.';
 
+/*
+ * ⚠ TROIS FORMULATIONS, PAS UNE. PostgREST ne dit pas « table absente » de la
+ * même façon selon d'où vient le refus :
+ *   · « relation ... does not exist », le message de Postgres lui-même ;
+ *   · « Could not find the table ... in the schema cache », quand la table
+ *     EXISTE mais que l'API ne l'a pas encore relue. C'est ce qu'ont vu les
+ *     agents le 23/10, juste après la migration : le message brut sortait tel
+ *     quel à l'écran, au lieu du notre qui dit quoi demander.
+ * Le cache se rafraîchit avec `NOTIFY pgrst, 'reload schema';`.
+ */
 function estTableAbsente(message: string): boolean {
-  return /verrou_application/.test(message) && /does not exist|relation/i.test(message);
+  return /verrou_application/.test(message)
+    && /does not exist|relation|schema cache/i.test(message);
 }
 
 /** Le verrou est une capacité À PART : ni l'ADMIN ni le SUPER_ADMIN n'y touchent. */
