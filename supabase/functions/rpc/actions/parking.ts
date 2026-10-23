@@ -39,8 +39,19 @@ const TABLES_ABSENTES =
   'Le parking n\'est pas encore activé : les tables « parking_camions » et « parking_pointages » '
   + '(migration 00201) n\'existent pas en base.';
 
+/*
+ * ⚠ TROIS FORMULATIONS, PAS UNE. PostgREST ne dit pas « table absente » de la
+ * même façon selon d'où vient le refus :
+ *   · « relation ... does not exist », le message de Postgres lui-même ;
+ *   · « Could not find the table ... in the schema cache », quand la table
+ *     EXISTE mais que l'API ne l'a pas encore relue. C'est ce qu'ont vu les
+ *     agents le 23/10, juste après la migration : le message brut sortait tel
+ *     quel à l'écran, au lieu du notre qui dit quoi demander.
+ * Le cache se rafraîchit avec `NOTIFY pgrst, 'reload schema';`.
+ */
 function estTableAbsente(message: string): boolean {
-  return /parking_(camions|pointages)/.test(message) && /does not exist|relation/i.test(message);
+  return /parking_(camions|pointages)/.test(message)
+    && /does not exist|relation|schema cache/i.test(message);
 }
 
 /**

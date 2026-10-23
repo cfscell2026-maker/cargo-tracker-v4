@@ -152,3 +152,21 @@ test('verrou : table absente, aucun verrou et rien ne tombe', async () => {
   const db = new FakeDB();   // sans `verrou_application`
   assert.deepEqual(await etatVerrou(ctxDe(db)), { actif: false, message: '' });
 });
+
+/* ------------- La table existe, mais l'API ne l'a pas encore vue --------- */
+
+test('verrou : le cache de schema PERIME est traite comme une table absente', async () => {
+  /* 23/10/2026, vu en production juste apres la migration : PostgREST repond
+     « Could not find the table ... in the schema cache » quand la table EXISTE
+     mais qu'il ne l'a pas relue. Ce libelle n'etait pas reconnu, et le message
+     brut sortait tel quel a l'ecran au lieu du notre, qui dit quoi demander. */
+  const cache = {
+    from: () => ({
+      select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null,
+        error: { message: "Could not find the table 'public.verrou_application' in the schema cache" } }) }) }),
+    }),
+  };
+  const ctx = { db: cache as never, session: { userId: 'u', username: 'x', nomComplet: 'X', role: 'CFS' as never }, log: async () => {} };
+  // L'application reste OUVERTE : un verrou ne se referme pas sur une panne.
+  assert.deepEqual(await etatVerrou(ctx), { actif: false, message: '' });
+});
