@@ -1,5 +1,14 @@
 -- ============================================================================
---  00170 — Anti-doublon camion : filet en base + dédoublonnage (2026-09-12)
+--  00171, Anti-doublon camion : filet en base + dedoublonnage (2026-09-12)
+--
+--  ⚠ RENUMEROTE LE 23/10/2026, et ce n'est pas cosmetique. Ce fichier portait
+--  le numero 00170, DEJA PRIS par « 00170_apurement_decrement_et_balise ».
+--  L'historique de Supabase ne retient que le NUMERO, pas le nom : le premier
+--  des deux a ete enregistre comme « 00170 fait », et celui-ci a ete tenu pour
+--  applique alors qu'il ne l'avait jamais ete. Il est reste absent de la base
+--  pendant six semaines, sans que la liste des migrations laisse rien
+--  paraitre. On ne s'en est apercu qu'en comparant le depot a la base, index
+--  par index.
 --
 --  CONSTAT (production) : plusieurs camions ACTIFS portant le même numéro, créés
 --  à la même seconde (ex. 732382 en 3 exemplaires). L'anti-doublon applicatif de
