@@ -7,16 +7,17 @@ import { call } from './lib/rpc.ts';
 import { useAsync } from './lib/hooks.ts';
 import { Icone } from './lib/icones.tsx';
 import { iconeDeLEcran, MENUS } from './lib/menu.ts';
-import { Spinner, StatCard, Tag, Modal, masks, toast, fmtDate, fmtJour, ChampDestination, Graphique, BarresClassees, useSuiviEngagement, useParametres, ChampCamion, roleLabel, TITLES, ChoixSegmente } from './lib/ui.tsx';
+import { Spinner, StatCard, Tag, Modal, masks, toast, fmtDate, fmtJour, ChampDestination, Graphique, BarresClassees, useSuiviEngagement, useParametres, ChampCamion, roleLabel, TITLES, ChoixSegmente, ChampAmende, AMENDE_VIDE, amendePrete, payloadAmende, fmtFcfa, type ChoixAmende } from './lib/ui.tsx';
 import { bornesDe, isoDate, normaliserPlage, type ModePeriode, repartition } from './lib/periode.ts';
-import { trierEngagements, filtrerEngagements, type TriEngagement, type SensTri } from './lib/tri-engagements.ts';
+import { lignesExportCellule, nomFichierCellule, filtrerParDesignation } from './lib/export-cellule.ts';
+import { trierEngagements, filtrerEngagements, lignesExportEngagements, numerosT1, numerosBonSortie, libelleDeclarationEngagement, type TriEngagement, type SensTri } from './lib/tri-engagements.ts';
 import { Detail, TitrePanneau } from './detail.tsx';
 import { EcranParking, ResultatsParking, useAlerteParking } from './parking.tsx';
 import { LogoVerrou } from './lib/verrou.tsx';
 import type { ReactNode } from 'react';
 import type { Nav } from './App.tsx';
 import { useNav } from './lib/contexte-nav.ts';
-import { ROLES, OPERATIONS, VEHICULE_DESTINATIONS, TYPES_DECLARATION, optionTypeDeclaration, STATUTS, SUIVENT_ENGAGEMENTS, dateDansNJours, tcValide, fileAttente, estTypeSansT1, libelleTypeSansT1, exigeControlePoids, dureeLisible,
+import { ROLES, OPERATIONS, VEHICULE_DESTINATIONS, TYPES_DECLARATION, optionTypeDeclaration, STATUTS, SUIVENT_ENGAGEMENTS, ENGAGEMENTS, dateDansNJours, tcValide, fileAttente, estTypeSansT1, libelleTypeSansT1, exigeControlePoids, exigeAmendeEffets, AMENDE_EFFETS_FORFAIT, NATURES_RAPPORT_ENGAGEMENT, dureeLisible,
   ROLES_TECHNIQUES, rangTechnique, extraireNumerosTC, aLeDroit, aPouvoirAdmin} from '../../../supabase/functions/_shared/domaine/src/index.ts';
 
 const STATUT_OPTIONS = Object.values(STATUTS);
@@ -1381,8 +1382,11 @@ function EntrepotSortie({ type, entrepots, nav }: { type: EntrepotType; entrepot
         baliseRequise: apuSansT1 ? baliseRequise : undefined,
       };
       if (estIndus(type)) payload['poids'] = qte; else payload['nbColis'] = qte;
-      const r = await call<{ restantApres: number }>('entrepot.sortie', payload);
-      toast(`Sortie enregistrée. Restant : ${r.restantApres}.`, 'ok');
+      const r = await call<{ restantApres: number; rattache?: boolean; cargaisonId?: string }>('entrepot.sortie', payload);
+      // 2026-10-21 : un camion déjà ouvert en MAD ne crée plus de seconde ligne.
+      toast(r.rattache
+        ? `Sortie enregistrée et ajoutée au camion déjà ouvert (${String(r.cargaisonId)}) : un seul dossier pour plusieurs entrées. Restant : ${r.restantApres}.`
+        : `Sortie enregistrée. Restant : ${r.restantApres}.`, 'ok');
       setQte(''); setNumCamion(''); setScelles(['', '', '']); reload();
     } catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(false); }
   }
@@ -1862,6 +1866,8 @@ SCREENS.engagements = ({ go, user }) => {
      aller-retour n'est ajoute. */
   const [typeEng, setTypeEng] = useState('');
   const [signePar, setSignePar] = useState('');
+  // Désignation de la marchandise (2026-10-09), « riz ; sucre » = l'un OU l'autre.
+  const [designation, setDesignation] = useState('');
   const changerTri = (t: TriEngagement) => {
     if (t === tri) setSens(sens === 'asc' ? 'desc' : 'asc');
     else { setTri(t); setSens('asc'); }
@@ -1876,6 +1882,7 @@ SCREENS.engagements = ({ go, user }) => {
     joursMax: jours.trim() === '' ? null : Number(jours),
     type: typeEng,
     signePar,
+    designation,
   }) as O[];
   /* Les choix proposes sont batis depuis LES LIGNES RECUES, et non depuis la
      liste des trois engagements connus : le champ est du texte libre, le chef
@@ -1887,7 +1894,7 @@ SCREENS.engagements = ({ go, user }) => {
   const signatairesPresents = valeursDe('agentValidation');
   const moi = String(user.nomComplet ?? '');
   const lignes = trierEngagements(affinees, tri, sens) as O[];
-  const affine = rechCamion.trim() !== '' || jours.trim() !== '' || typeEng !== '' || signePar !== '';
+  const affine = rechCamion.trim() !== '' || jours.trim() !== '' || typeEng !== '' || signePar !== '' || designation.trim() !== '';
   const fleche = (t: TriEngagement) => (t === tri ? (sens === 'asc' ? ' ▲' : ' ▼') : '');
   const cpt = (data?.['compte'] as O) ?? {};
   // Compteurs GLOBAUX : ils ne bougent pas avec la vue affichée, mais bien avec
@@ -1941,6 +1948,9 @@ SCREENS.engagements = ({ go, user }) => {
         {moi && signatairesPresents.includes(moi) && <option value={moi}>Mes validations</option>}
         {signatairesPresents.filter((n) => n !== moi).map((n) => <option key={n} value={n}>{n}</option>)}
       </select>
+      <input value={designation} placeholder="Désignation (riz ; sucre)"
+        onChange={(e) => setDesignation(e.target.value)}
+        title="Ne garder que les marchandises dont la désignation contient l'un de ces termes (séparés par ;)" />
       <label className="help fv-echeance">Échéance ≤
         <input inputMode="numeric" value={jours} placeholder="j"
           onChange={(e) => setJours(e.target.value.replace(/[^0-9]/g, ''))}
@@ -1948,7 +1958,13 @@ SCREENS.engagements = ({ go, user }) => {
         jours
       </label>
       {affine && <button className="ghost xs fv-raz"
-        onClick={() => { setJours(''); setRechCamion(''); setTypeEng(''); setSignePar(''); }}>Tout afficher</button>}
+        onClick={() => { setJours(''); setRechCamion(''); setTypeEng(''); setSignePar(''); setDesignation(''); }}>Tout afficher</button>}
+      {/* EXTRACTION (2026-10-08) : exactement les lignes affichées, filtres et tri compris. */}
+      <button className="ghost xs" disabled={loading || !lignes.length}
+        onClick={() => exporterEngagements(lignes, filtre, typeEng, signePar === moi ? 'mes-validations' : signePar)}
+        title="Extraire en Excel exactement les lignes affichées (filtres et tri compris)">
+        <Icone nom="telecharger" taille={15} />Excel
+      </button>
     </div>
     <div className="stats" style={{ marginTop: 10 }}>
       <StatCard n={Number(glob['encours'] ?? 0)} l="Engagements en cours" icone="sablier" tone="warn"
@@ -1973,9 +1989,11 @@ SCREENS.engagements = ({ go, user }) => {
             <thead><tr>
               <th><button className="ghost xs" onClick={() => changerTri('camion')}
                 title="Trier par camion">Camion{fleche('camion')}</button></th>
+              <th>Déclarant</th><th>Déclaration</th>
               <th>Engagement</th>
               <th><button className="ghost xs" onClick={() => changerTri('delai')}
                 title="Trier par échéance">Échéance{fleche('delai')}</button></th>
+              <th>T1</th><th>Bon de sortie</th>
               <th>État</th><th>Signé par</th><th>Actions</th>
             </tr></thead>
             <tbody>{lignes.map((l) => {
@@ -1984,8 +2002,12 @@ SCREENS.engagements = ({ go, user }) => {
               const retard = l['etat'] === 'retard';
               return <tr key={id}>
                 <td><a className="mono" onClick={() => go('detail', { id })}>{String(l['numeroCamion'] || id)}</a></td>
+                <td>{String(l['declarant'] || '—')}</td>
+                <td className="mono">{libelleDeclarationEngagement(l) || '—'}</td>
                 <td>{String(l['engagementType'] || '—')}</td>
                 <td>{fmtJour(l['engagementDelai'])}</td>
+                <td className="mono">{numerosT1(l) || '—'}</td>
+                <td className="mono">{numerosBonSortie(l) || '—'}</td>
                 <td style={{ color: retard ? 'var(--err)' : solde ? 'var(--ok)' : 'var(--warn)', fontWeight: 600 }}>
                   {String(l['libelle'] || '')}
                 </td>
@@ -3784,6 +3806,10 @@ function ValidationGroupee({ cles, fermer, go, onDone }: {
   const aPeser = idsAPeser(dossiers);
   const setPesee = (id: string, p: Pesee) => setPesees((o) => ({ ...o, [id]: p }));
   const peseesPretes = peseesLotPretes(aValider, aPeser, pesees);
+  // Amende pour effets non déclarés (2026-10-19) : une réponse PAR enlèvement.
+  const [amendes, setAmendes] = useState<Record<string, ChoixAmende>>({});
+  const aAmender = idsAmende(dossiers);
+  const amendesPretes = amendesLotPretes(aValider, aAmender, amendes);
   /* Suivi des engagements (2026-09-10), UNE valeur pour tout le lot.
    * La pesée est un fait physique propre à chaque camion ; l'engagement est un
    * régime attaché à la déclaration, et le lot est précisément l'ensemble des
@@ -3793,12 +3819,13 @@ function ValidationGroupee({ cles, fermer, go, onDone }: {
   async function signer() {
     if (!peseesPretes) { toast('Renseignez la pesée de chaque dépotage avant de signer.', 'err'); return; }
     if (!eng.pret) { toast('Renseignez le suivi des engagements avant de signer.', 'err'); return; }
+    if (!amendesPretes) { toast('Indiquez pour chaque enlèvement s\'il y a une amende pour effets non déclarés.', 'err'); return; }
     if (!window.confirm(
       `Valider et signer ${aValider.length} cargaison(s) réparties sur ${cles.length} déclaration(s) ?\n\n`
       + 'Votre signature numérique sera apposée sur chacune.')) return;
     setBusy(true);
     try {
-      const r = await call<{ compte: O; erreurs: O[] }>('cargo.validerlot', { ids: aValider, pesees: payloadPesees(aValider, pesees), ...eng.payload });
+      const r = await call<{ compte: O; erreurs: O[] }>('cargo.validerlot', { ids: aValider, pesees: payloadPesees(aValider, pesees), amendes: payloadAmendes(aValider, aAmender, amendes), ...eng.payload });
       const nb = Number(r.compte['validees'] ?? 0);
       toast(`${nb} cargaison(s) validée(s)${r.erreurs.length ? ` · ${r.erreurs.length} en erreur` : ''}.`,
         r.erreurs.length ? 'err' : 'ok');
@@ -3814,11 +3841,12 @@ function ValidationGroupee({ cles, fermer, go, onDone }: {
       {loading ? <Spinner /> : error ? <div className="err-msg">{error}</div> : <>
         {eng.champ}
         <div className="row" style={{ alignItems: 'center', marginTop: 12 }}>
-          <button disabled={busy || !peseesPretes || !eng.pret || !aValider.length} onClick={signer}>
+          <button disabled={busy || !peseesPretes || !amendesPretes || !eng.pret || !aValider.length} onClick={signer}>
             {busy ? 'Signature…' : `✔ Valider et signer les ${aValider.length} cargaison(s)`}
           </button>
           <span className="help">{!aValider.length ? 'Rien à valider dans la sélection.'
-            : peseesPretes ? 'Signature apposée sur chacune.' : 'Renseignez d\'abord la pesée de chaque camion ci-dessous.'}</span>
+            : !peseesPretes ? 'Renseignez d\'abord la pesée de chaque camion ci-dessous.'
+              : !amendesPretes ? 'Indiquez l\'amende (oui / non) de chaque enlèvement ci-dessous.' : 'Signature apposée sur chacune.'}</span>
         </div>
 
         {dossiers.map((dos, i) => {
@@ -3836,7 +3864,8 @@ function ValidationGroupee({ cles, fermer, go, onDone }: {
               ? <div key={titre} style={{ marginTop: 8 }}>
                 <div className="help" style={{ marginBottom: 4 }}>{titre} ({lst.length})</div>
                 {lst.map((r) => <LigneValidation key={String(r['id'])} r={r} go={go}
-                  pesee={pesees[String(r['id'])]} onPesee={(p) => setPesee(String(r['id']), p)} />)}
+                  pesee={pesees[String(r['id'])]} onPesee={(p) => setPesee(String(r['id']), p)}
+                  amende={amendes[String(r['id'])]} onAmende={(a) => setAmendes((o) => ({ ...o, [String(r['id'])]: a }))} />)}
               </div> : null)}
           </div>;
         })}
@@ -3866,18 +3895,23 @@ function DossierValidation({ decl, data, loading, error, reload, signee, onSigne
   const setPesee = (id: string, p: Pesee) => setPesees((o) => ({ ...o, [id]: p }));
   // Chaque DÉPOTAGE à valider doit avoir une pesée complète ; le reste est prêt d'office.
   const peseesPretes = peseesLotPretes(aValider, aPeser, pesees);
+  // Amende pour effets non déclarés (2026-10-19) : une réponse PAR enlèvement.
+  const [amendes, setAmendes] = useState<Record<string, ChoixAmende>>({});
+  const aAmender = idsAmende(data ? [data] : []);
+  const amendesPretes = amendesLotPretes(aValider, aAmender, amendes);
   // Suivi des engagements (2026-09-10), une valeur pour toute la déclaration.
   const eng = useSuiviEngagement();
 
   async function signer() {
     if (!peseesPretes) { toast('Renseignez la pesée de chaque dépotage avant de signer.', 'err'); return; }
     if (!eng.pret) { toast('Renseignez le suivi des engagements avant de signer.', 'err'); return; }
+    if (!amendesPretes) { toast('Indiquez pour chaque enlèvement s\'il y a une amende pour effets non déclarés.', 'err'); return; }
     if (!window.confirm(
       `Valider et signer ${aValider.length} cargaison(s) de la déclaration ${String(d['numeroDeclaration'] ?? decl.numeroDeclaration)} ?\n\n`
       + `${Number(cpt['conteneursAValider'] ?? 0)} conteneur(s) concerné(s). Votre signature numérique sera apposée sur chacune.`)) return;
     setBusy(true);
     try {
-      const r = await call<{ compte: O; erreurs: O[] }>('cargo.validerlot', { ids: aValider, pesees: payloadPesees(aValider, pesees), ...eng.payload });
+      const r = await call<{ compte: O; erreurs: O[] }>('cargo.validerlot', { ids: aValider, pesees: payloadPesees(aValider, pesees), amendes: payloadAmendes(aValider, aAmender, amendes), ...eng.payload });
       const nb = Number(r.compte['validees'] ?? 0);
       toast(`${nb} cargaison(s) validée(s)${r.erreurs.length ? ` · ${r.erreurs.length} en erreur` : ''}.`,
         r.erreurs.length ? 'err' : 'ok');
@@ -3916,11 +3950,13 @@ function DossierValidation({ decl, data, loading, error, reload, signee, onSigne
         {aValider.length > 0 && eng.champ}
         {aValider.length > 0
           ? <div className="row" style={{ alignItems: 'center', marginTop: 4, gap: 12, flexWrap: 'wrap' }}>
-            <button className="acte-signer" disabled={busy || !peseesPretes || !eng.pret} onClick={signer}>
+            <button className="acte-signer" disabled={busy || !peseesPretes || !amendesPretes || !eng.pret} onClick={signer}>
               <Icone nom="valider" taille={17} />
               {busy ? 'Signature…' : `Valider et signer les ${aValider.length} cargaison(s)`}
             </button>
-            <span className="help">{peseesPretes ? 'Signature apposée sur chacune ; débloque T1, Balise et Bon de sortie.' : 'Renseignez d\'abord la pesée de chaque camion ci-dessous.'}</span>
+            <span className="help">{!peseesPretes ? 'Renseignez d\'abord la pesée de chaque camion ci-dessous.'
+              : !amendesPretes ? 'Indiquez l\'amende (oui / non) de chaque enlèvement ci-dessous.'
+              : 'Signature apposée sur chacune ; débloque T1, Balise et Bon de sortie.'}</span>
           </div>
           : <div className="help" style={{ color: 'var(--ok)' }}>✓ Tout est validé pour cette déclaration.</div>}
 
@@ -3928,7 +3964,8 @@ function DossierValidation({ decl, data, loading, error, reload, signee, onSigne
         {[['Camions', cam] as const, ['Véhicules', veh] as const].map(([titre, lst]) => lst.length ? <div key={titre} style={{ marginTop: 14 }}>
           <div className="section-title">{titre} ({lst.length})</div>
           {lst.map((r) => <LigneValidation key={String(r['id'])} r={r} go={go}
-            pesee={pesees[String(r['id'])]} onPesee={(p) => setPesee(String(r['id']), p)} />)}
+            pesee={pesees[String(r['id'])]} onPesee={(p) => setPesee(String(r['id']), p)}
+            amende={amendes[String(r['id'])]} onAmende={(a) => setAmendes((o) => ({ ...o, [String(r['id'])]: a }))} />)}
         </div> : null)}
       </>}
     </div>
@@ -3964,8 +4001,30 @@ function payloadPesees(aValider: string[], pesees: Record<string, Pesee>): Recor
   return out;
 }
 
+/** 2026-10-19 : ids des ENLÈVEMENTS d'un ou plusieurs dossiers, ceux qui reçoivent la question de l'amende. */
+function idsAmende(dossiers: O[]): Set<string> {
+  const s = new Set<string>();
+  for (const dos of dossiers)
+    for (const grp of [dos['camions'], dos['vehicules']])
+      for (const r of ((grp as O[]) ?? []))
+        if (exigeAmendeEffets(r['typeOperation'])) s.add(String(r['id']));
+  return s;
+}
+function amendesLotPretes(aValider: string[], aAmender: Set<string>, amendes: Record<string, ChoixAmende>): boolean {
+  return aValider.every((id) => !aAmender.has(id) || amendePrete(amendes[id]));
+}
+/** Une entrée PAR camion : une amende de lot ne doit jamais être recopiée sur chaque camion. */
+function payloadAmendes(aValider: string[], aAmender: Set<string>, amendes: Record<string, ChoixAmende>) {
+  const out: Record<string, ReturnType<typeof payloadAmende>> = {};
+  for (const id of aValider) if (aAmender.has(id)) out[id] = payloadAmende(amendes[id] ?? AMENDE_VIDE);
+  return out;
+}
+
 /** Une cargaison du dossier : tout ce qu'il faut voir AVANT de signer. */
-function LigneValidation({ r, go, pesee, onPesee }: { r: O; go: Nav['go']; pesee?: Pesee; onPesee?: (p: Pesee) => void }) {
+function LigneValidation({ r, go, pesee, onPesee, amende, onAmende }: {
+  r: O; go: Nav['go']; pesee?: Pesee; onPesee?: (p: Pesee) => void;
+  amende?: ChoixAmende; onAmende?: (a: ChoixAmende) => void;
+}) {
   const conts = (r['conteneurs'] as O[]) ?? [];
   const sc = (r['scellesCamion'] as string[]) ?? [];
   const autres = (r['autresDeclarations'] as O[]) ?? [];
@@ -4010,6 +4069,12 @@ function LigneValidation({ r, go, pesee, onPesee }: { r: O; go: Nav['go']; pesee
         onChange={(v) => onPesee(v === 'oui' ? { enSurcharge: 'oui', poids: pe.poids } : { enSurcharge: 'non', poids: '' })} />
       {pe.enSurcharge === 'oui' && <input value={pe.poids} onChange={(e) => onPesee({ enSurcharge: 'oui', poids: e.target.value.replace(/[^0-9.,]/g, '') })}
         placeholder="Poids surcharge (kg)" style={{ maxWidth: 160 }} />}
+    </div>}
+    {/* 2026-10-19, amende pour effets non déclarés : ENLÈVEMENT seulement, par camion. */}
+    {!valide && onAmende && exigeAmendeEffets(r['typeOperation']) && <div className="row" style={{ alignItems: 'flex-start', gap: 12, flexWrap: 'wrap', marginTop: 8, paddingTop: 8, borderTop: '1px dotted var(--line)' }}>
+      <span className="help lbl-icone" style={{ fontWeight: 600, paddingTop: 6 }}>
+        <Icone nom="document" taille={15} />Amende effets non déclarés</span>
+      <ChampAmende valeur={amende ?? AMENDE_VIDE} onChange={onAmende} compact />
     </div>}
   </div>;
 }
@@ -4245,15 +4310,41 @@ function DetailCellule({ detail, du, au, op, metric, go, onClose }: {
 }) {
   const { data, loading } = useAsync<{ kind?: string; titre?: string; rows: O[] }>(
     () => call(detail, { du, au, operation: op, metric }), []);
-  const rows = data?.rows ?? [];
+  // Recherche par désignation (2026-10-09) : ne garder, à l'écran ET dans
+  // l'extraction, que certaines marchandises.
+  const [designation, setDesignation] = useState('');
+  const toutes = data?.rows ?? [];
+  const rows = filtrerParDesignation(toutes, designation);
   const estCamions = data?.['kind'] === 'camions' || metric === 'camions' || metric === 'twins';
   const ouvrir = (id: unknown) => { onClose(); if (id) go('detail', id); };
+  /* EXTRACTION (2026-10-09, demande utilisateur) : « quand on clique, on peut
+     extraire toutes les déclarations ». Les lignes affichées, dans leur ordre,
+     avec déclaration, T1, bon de sortie et date de chaque cellule. */
+  function extraire() {
+    if (!rows.length) { toast('Rien à extraire.', 'err'); return; }
+    const feuille = XLSX.utils.json_to_sheet(lignesExportCellule(rows, estCamions));
+    const classeur = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(classeur, feuille, estCamions ? 'Camions' : 'Conteneurs');
+    XLSX.writeFile(classeur, nomFichierCellule(detail.replace(/^report\./, '').replace(/detail$/, ''), op, String(data?.titre ?? metric), du, au));
+    toast(`${rows.length} ligne(s) extraite(s).`, 'ok');
+  }
   return <Modal onClose={onClose}>
-    <h2><span className="tp-pastille" aria-hidden="true"><Icone nom="liste" taille={18} /></span>{(op || 'Toutes opérations')}, {data?.titre ?? '…'} ({rows.length})</h2>
-    {loading ? <Spinner /> : rows.length === 0 ? <div className="empty">Aucun élément sur la période.</div>
+    <div className="ecran-tete">
+      <h2 style={{ flex: 1, margin: 0, minWidth: 0 }}><span className="tp-pastille" aria-hidden="true"><Icone nom="liste" taille={18} /></span>{(op || 'Toutes opérations')}, {data?.titre ?? '…'} ({rows.length})</h2>
+      <button className="ghost" disabled={loading || !rows.length} onClick={extraire}
+        title="Extraire en Excel ces lignes, avec déclaration, T1 et bon de sortie">
+        <Icone nom="telecharger" taille={15} />Excel
+      </button>
+    </div>
+    {!loading && toutes.length > 0 && <div className="row" style={{ gap: 8, margin: '8px 0', alignItems: 'center' }}>
+      <input value={designation} onChange={(e) => setDesignation(e.target.value)} style={{ maxWidth: 280 }}
+        placeholder="Désignation (riz ; sucre)" title="Ne garder que les lignes dont la désignation contient l'un de ces termes" />
+      {designation.trim() && <span className="help">{rows.length} sur {toutes.length}</span>}
+    </div>}
+    {loading ? <Spinner /> : rows.length === 0 ? <div className="empty">{toutes.length ? 'Aucune ligne pour cette désignation.' : 'Aucun élément sur la période.'}</div>
       : estCamions
-        ? <Table cols={[['numeroCamion', 'Camion'], ['typeOperation', 'Opération'], ['statut', 'Statut'], ['numeroGps', 'N° GPS'], ['nbConteneurs', 'Nb cont.']]} rows={rows} onRow={(r) => ouvrir(r['id'])} />
-        : <Table cols={[['conteneur', 'Conteneur'], ['taille', 'Taille'], ['type', 'Type'], ['scelle', 'Scellé'], ['numeroCamion', 'Camion'], ['cargaisonId', 'Cargaison']]} rows={rows} onRow={(r) => ouvrir(r['cargaisonId'] ?? r['id'])} />}
+        ? <Table cols={[['numeroCamion', 'Camion'], ['typeOperation', 'Opération'], ['statut', 'Statut'], ['declarant', 'Déclarant'], ['numeroDeclaration', 'N° décl.'], ['designation', 'Désignation'], ['numeroGps', 'N° GPS'], ['nbConteneurs', 'Nb cont.']]} rows={rows} onRow={(r) => ouvrir(r['id'])} />
+        : <Table cols={[['conteneur', 'Conteneur'], ['taille', 'Taille'], ['type', 'Type'], ['scelle', 'Scellé'], ['numeroCamion', 'Camion'], ['declarant', 'Déclarant'], ['numeroDeclaration', 'N° décl.'], ['designation', 'Désignation'], ['cargaisonId', 'Cargaison']]} rows={rows} onRow={(r) => ouvrir(r['cargaisonId'] ?? r['id'])} />}
   </Modal>;
 }
 
@@ -4269,8 +4360,11 @@ SCREENS.vehreport = () => {
   const { m, du, au } = p;
   const { data, loading } = useAsync<O>(() => call('report.vehicule', { du, au, periode: m }), [du, au]);
   const cp = (data?.['compte'] ?? {}) as O; const pd = (data?.['parDest'] ?? {}) as O;
+  const exporter = async (format: string) => telecharger(await call<O>('report.vehicule', { du, au, periode: m, format }));
   return <><BandeauModule icone="voiture" titre="Rapport véhicules" sous={<PeriodeChoisieLue c={p} />}
-    action={<div className="bm-outils"><SelecteurPeriode c={p} /></div>} />
+    action={<div className="bm-outils"><SelecteurPeriode c={p} />
+      <BoutonExcel titre="Extraire en Excel la liste des véhicules de la période" onClick={() => exporter('xlsx')} />
+      <BoutonExcel libelle="PDF" onClick={() => exporter('pdf')} /></div>} />
   <div className="card">
     {loading ? <Spinner /> : <div className="stats">
       <StatCard n={Number(cp['total'] ?? 0)} l="Total" /><StatCard n={Number(cp['attente'] ?? 0)} l="En attente" /><StatCard n={Number(cp['sortis'] ?? 0)} l="Sortis" tone="ok" />
@@ -4282,7 +4376,12 @@ SCREENS.vehreport = () => {
 SCREENS.kpi = () => {
   const { data, loading } = useAsync<O>(() => call('report.kpi', {}), []);
   const k = data ?? {};
-  return <div className="card"><h2>KPI / EVP</h2>
+  const extraireKpi = () => exporterChiffres('kpi-evp', 'situation actuelle', [{ nom: 'KPI', lignes: [
+    ['Conteneurs dépotés', 'videsDepotage'], ['Sortis scellés', 'sortisScelles'], ['Camions actifs', 'camionsActifs'],
+    ['Camions sortis', 'camionsSortis'], ['EVP dépotés', 'evpVides'], ['EVP en stock', 'evpStock'],
+  ].map(([l, cle]) => ({ Indicateur: l, Valeur: Number(k[cle!] ?? 0) })) }]);
+  return <div className="card"><div className="row" style={{ alignItems: 'center' }}><h2 style={{ flex: 1 }}>KPI / EVP</h2>
+    {!loading && <BoutonExcel onClick={extraireKpi} titre="Extraire ces indicateurs en Excel" />}</div>
     {loading ? <Spinner /> : <div className="stats">
       <StatCard n={Number(k['videsDepotage'] ?? 0)} l="Conteneurs dépotés" />
       <StatCard n={Number(k['sortisScelles'] ?? 0)} l="Sortis scellés" />
@@ -4380,6 +4479,238 @@ SCREENS.dispenses = () => {
   </>;
 };
 
+/* ===================== EXTRACTION SUR MESURE : 2026-10-09 ==================
+ *
+ * Demande utilisateur : « on fait les filtres, on les applique au tout, et on
+ * extrait juste les camions, les cargaisons ou les déclarations concernés » ;
+ * exemple : les enlèvements engagés vers le bureau BF, ou une désignation.
+ *
+ * Le filtrage se fait sur le SERVEUR (report.extraction, voir extraction.ts) :
+ * il porte sur la déclaration de chaque conteneur, ce qu'un tri des lignes
+ * déjà affichées ne saurait pas faire. L'écran ne lance la recherche qu'au clic
+ * sur « Afficher », jamais à chaque frappe : une requête qui balaie la base ne
+ * part pas sur une lettre tapée.
+ */
+const NIVEAUX_EXTRACTION = [
+  { valeur: 'camions', libelle: 'Camions' },
+  { valeur: 'conteneurs', libelle: 'Conteneurs' },
+  { valeur: 'declarations', libelle: 'Déclarations' },
+];
+const DATES_EXTRACTION: [string, string][] = [
+  ['entree', "Date d'entrée"], ['validation', 'Date de validation'], ['t1', 'Date du T1'],
+  ['bonsortie', 'Date du bon de sortie'], ['balise', 'Date de pose balise'], ['sortie', 'Date de sortie'],
+];
+const FILTRES_VIDES: O = {
+  dateRef: 'entree', operation: '', etat: '', statut: '', typeDeclaration: '', bureauDeclaration: '',
+  bureauDestination: '', destination: '', engagement: '', natureEngagement: '', declarant: '',
+  numeroDeclaration: '', designation: '', recherche: '', vehicules: 'exclure', controle: '',
+};
+
+/** « Transit national (TG) » → « transit-national-tg » : un nom de fichier lisible. */
+const slugFichier = (t: string) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  .replace(/[^A-Za-z0-9]+/g, '-').replace(/^-|-$/g, '').toLowerCase();
+
+/**
+ * Extraction en Excel à partir de filtres d'extraction sur mesure (2026-10-16).
+ * Sert à l'écran Extraction ET aux écrans qui AFFICHENT un chiffre (Contrôles…) :
+ * « on extrait depuis là où ça se voit ». Le serveur filtre et JOURNALISE
+ * l'export (RGPD-01) ; ici on ne fait qu'écrire le fichier.
+ */
+async function exporterExtraction(filtres: O, nom: string): Promise<void> {
+  const r = await call<O>('report.extraction', { ...filtres, pourExport: true }, { fraiche: true });
+  const lignes = (r['lignes'] as O[]) ?? [];
+  if (!lignes.length) { toast('Rien à extraire avec ces critères.', 'err'); return; }
+  const classeur = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(classeur, XLSX.utils.json_to_sheet(lignes), String(r['niveau'] ?? 'extraction').slice(0, 31));
+  XLSX.writeFile(classeur, `${slugFichier(nom)}-${new Date().toISOString().slice(0, 10)}.xlsx`);
+  toast(`${lignes.length} ligne(s) extraite(s).`, 'ok');
+}
+
+/**
+ * Extraction des CHIFFRES affichés par un écran de statistiques (2026-10-16) :
+ * une feuille par tableau, exactement ce que l'écran montre, plus la période.
+ */
+function exporterChiffres(nom: string, periode: string, feuilles: { nom: string; lignes: O[] }[]) {
+  const pleines = feuilles.filter((f) => f.lignes.length);
+  if (!pleines.length) { toast('Rien à extraire.', 'err'); return; }
+  const classeur = XLSX.utils.book_new();
+  for (const f of pleines) {
+    const feuille = XLSX.utils.json_to_sheet(f.lignes);
+    XLSX.utils.sheet_add_aoa(feuille, [[], ['Période', periode]], { origin: -1 });
+    XLSX.utils.book_append_sheet(classeur, feuille, f.nom.slice(0, 31));
+  }
+  XLSX.writeFile(classeur, `${slugFichier(nom)}-${new Date().toISOString().slice(0, 10)}.xlsx`);
+  toast('Chiffres extraits.', 'ok');
+}
+
+/** Bouton « Excel » des écrans de statistiques. */
+function BoutonExcel({ onClick, libelle = 'Excel', titre }: { onClick: () => void | Promise<void>; libelle?: string; titre?: string }) {
+  const [busy, setBusy] = useState(false);
+  return <button className="ghost xs" disabled={busy} title={titre}
+    onClick={async () => { setBusy(true); try { await onClick(); } catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(false); } }}>
+    <Icone nom="telecharger" taille={14} />{busy ? 'Extraction…' : libelle}
+  </button>;
+}
+/** Au-delà, l'écran montre un aperçu ; le fichier Excel, lui, contient tout. */
+const APERCU_MAX = 300;
+
+SCREENS.extraction = ({ go }) => {
+  const p = useChoixPeriode('mois');
+  const [niveau, setNiveau] = useState('camions');
+  const [f, setF] = useState<O>(FILTRES_VIDES);
+  const [res, setRes] = useState<O | null>(null);
+  const [busy, setBusy] = useState('');
+  const set = (k: string) => (e: { target: { value: string } }) => setF((x) => ({ ...x, [k]: e.target.value }));
+  const params = (): O => ({ ...f, niveau, du: p.du, au: p.au });
+
+  async function afficher() {
+    setBusy('afficher');
+    try { setRes(await call<O>('report.extraction', params(), { fraiche: true })); }
+    catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(''); }
+  }
+  async function extraireExcel() {
+    setBusy('excel');
+    try {
+      // L'export repasse par le serveur, qui le JOURNALISE (RGPD-01) : un
+      // export nominatif quitte l'application, il doit laisser une trace.
+      await exporterExtraction(params(), `extraction-${niveau}`);
+    } catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(''); }
+  }
+
+  const lignes = (res?.['lignes'] as O[]) ?? [];
+  const colonnes = (res?.['colonnes'] as string[]) ?? [];
+  const champ = (k: string, libelle: string, placeholder = '') => <div>
+    <label className="help">{libelle}</label>
+    <input value={String(f[k] ?? '')} onChange={set(k)} placeholder={placeholder}
+      onKeyDown={(e) => { if (e.key === 'Enter') afficher(); }} />
+  </div>;
+
+  return <>
+    <BandeauModule icone="telecharger" titre="Extraction sur mesure"
+      sous="Combinez les filtres, vérifiez le résultat, puis extrayez-le en Excel." />
+    <div className="card">
+      <ChoixSegmente libelle="Ce qu'on extrait" options={NIVEAUX_EXTRACTION} valeur={niveau}
+        onChange={(v) => { setNiveau(v); setRes(null); }} />
+      <p className="help" style={{ margin: '6px 0 0' }}>
+        {niveau === 'camions' ? 'Une ligne par camion, avec les seules déclarations qui répondent aux filtres.'
+          : niveau === 'conteneurs' ? 'Une ligne par conteneur, avec SA déclaration et SA désignation.'
+            : 'Une ligne par déclaration, avec ses camions et ses conteneurs.'}
+      </p>
+    </div>
+    <div className="card">
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))', gap: 12 }}>
+        <div>
+          <label className="help">La période porte sur</label>
+          <select value={String(f['dateRef'])} onChange={set('dateRef')}>
+            {DATES_EXTRACTION.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+          </select>
+        </div>
+        <div style={{ gridColumn: 'span 2' }}>
+          <label className="help">Période</label>
+          <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}><SelecteurPeriode c={p} /></div>
+          <span className="help"><PeriodeChoisieLue c={p} /></span>
+        </div>
+        <div>
+          <label className="help">Opération</label>
+          <select value={String(f['operation'])} onChange={set('operation')}>
+            <option value="">Toutes</option><option>{OPERATIONS.ENLEVEMENT}</option><option>{OPERATIONS.DEPOTAGE}</option>
+          </select>
+        </div>
+        <div>
+          <label className="help">État</label>
+          <select value={String(f['etat'])} onChange={set('etat')}>
+            <option value="">Tous</option><option value="encours">En cours</option><option value="sortis">Sortis</option>
+          </select>
+        </div>
+        <div>
+          <label className="help">Statut</label>
+          <select value={String(f['statut'])} onChange={set('statut')}>
+            <option value="">Tous les statuts</option>
+            {STATUT_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="help">Type de déclaration</label>
+          <select value={String(f['typeDeclaration'])} onChange={set('typeDeclaration')}>
+            <option value="">Tous</option>
+            {TYPES_DECLARATION.map((t) => <option key={t} value={t}>{optionTypeDeclaration(t)}</option>)}
+          </select>
+        </div>
+        {champ('bureauDeclaration', 'Bureau de déclaration', 'ex. TG120')}
+        {champ('bureauDestination', 'Bureau de destination (T1)', 'ex. BF')}
+        {champ('destination', 'Destination marchandise', 'ex. Ouaga')}
+        <div>
+          <label className="help">Engagement</label>
+          <select value={String(f['engagement'])} onChange={set('engagement')}>
+            <option value="">Tous</option><option value="oui">Engagés</option><option value="non">Non engagés</option>
+          </select>
+        </div>
+        <div>
+          <label className="help">Nature de l'engagement</label>
+          <input list="extraction-engagements" value={String(f['natureEngagement'])} onChange={set('natureEngagement')}
+            placeholder="ex. BFE 03" />
+          <datalist id="extraction-engagements">{ENGAGEMENTS.map((e) => <option key={e} value={e} />)}</datalist>
+        </div>
+        {champ('declarant', 'Déclarant')}
+        {champ('numeroDeclaration', 'N° de déclaration')}
+        {champ('designation', 'Désignation (marchandise)', 'ex. riz ; sucre')}
+        {champ('recherche', 'Camion ou conteneur', 'N° camion, conteneur ou ID')}
+        <div>
+          <label className="help">Contrôle</label>
+          <select value={String(f['controle'] ?? '')} onChange={set('controle')}>
+            <option value="">Tous</option><option value="surcharge">En surcharge</option>
+            <option value="horsGabarit">Hors gabarit</option><option value="transitNational">Transit national (TG)</option>
+          </select>
+        </div>
+        <div>
+          <label className="help">Véhicules</label>
+          <select value={String(f['vehicules'])} onChange={set('vehicules')}>
+            <option value="exclure">Sans les véhicules</option><option value="inclure">Avec les véhicules</option>
+            <option value="seulement">Véhicules seulement</option>
+          </select>
+        </div>
+      </div>
+      <p className="help" style={{ margin: '10px 0 0' }}>
+        Les champs texte acceptent un morceau de mot, sans tenir compte des majuscules ni des accents.
+        Pour la désignation, séparez plusieurs termes par « ; » : une ligne est gardée si elle en contient au moins un.
+      </p>
+      <div className="row" style={{ gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+        <button disabled={!!busy} onClick={afficher}><Icone nom="loupe" taille={15} />{busy === 'afficher' ? 'Recherche…' : 'Afficher'}</button>
+        <button className="ghost" disabled={!!busy} onClick={extraireExcel}
+          title="Extraire en Excel tout le résultat de ces filtres">
+          <Icone nom="telecharger" taille={15} />{busy === 'excel' ? 'Extraction…' : 'Excel'}
+        </button>
+        <button className="ghost xs" disabled={!!busy} onClick={() => { setF(FILTRES_VIDES); setRes(null); }}>Effacer les filtres</button>
+      </div>
+    </div>
+    {res && <div className="card">
+      <div className="help" style={{ marginBottom: 8 }}>
+        <b>{Number(res['total'] ?? 0)}</b> {niveau === 'camions' ? 'camion(s)' : niveau === 'conteneurs' ? 'conteneur(s)' : 'déclaration(s)'}
+        {' · '}{String(res['filtres'] ?? '')}
+        {lignes.length > APERCU_MAX ? ` · aperçu des ${APERCU_MAX} premières lignes, le fichier Excel contient tout` : ''}
+        {res['tronque'] ? <span style={{ color: 'var(--warn)' }}> · résultat très volumineux : affinez les filtres</span> : null}
+      </div>
+      <Table cols={colonnes.map((c) => [c, c] as [string, string])} rows={lignes.slice(0, APERCU_MAX)}
+        onRow={colonnes.includes('ID') ? (r) => go('detail', r['ID']) : undefined} />
+    </div>}
+  </>;
+};
+
+/** Extraction du volet Engagements : la vue affichée, filtres et tri compris (2026-10-08). */
+function exporterEngagements(lignes: O[], filtre: string, ...criteres: string[]) {
+  if (!lignes.length) { toast('Rien à extraire.', 'err'); return; }
+  const rows = lignesExportEngagements(lignes);
+  const feuille = XLSX.utils.json_to_sheet(rows);
+  const classeur = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(classeur, feuille, 'Engagements');
+  // Le nom du fichier dit ce qu'il contient : « engagements-tous-BFE-03-Sinkase-2026-10-08.xlsx ».
+  const suffixe = criteres.filter(Boolean)
+    .map((c) => '-' + c.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Za-z0-9]+/g, '-').replace(/^-|-$/g, ''))
+    .join('');
+  XLSX.writeFile(classeur, `engagements-${filtre}${suffixe}-${new Date().toISOString().slice(0, 10)}.xlsx`);
+  toast(`${rows.length} ligne(s) extraite(s).`, 'ok');
+}
+
 /** L'extraction suit la vue affichée, comme partout ailleurs. */
 function exporterExemptions(lignes: O[], vue: string) {
   if (!lignes.length) { toast('Rien à extraire.', 'err'); return; }
@@ -4440,10 +4771,16 @@ SCREENS.flux = () => {
     { nom: 'Camions balisés', valeurs: rows.map((r) => Number(r['baliseC'] ?? 0)) },
     { nom: 'Camions sortis', valeurs: rows.map((r) => Number(r['ppC'] ?? 0)) },
   ];
+  const COLS_FLUX: [string, string][] = [['periode', 'Période'], ['enlevesC', 'Cont. enlevés'], ['depotesC', 'Cont. dépotés'], ['tc', 'Total TC'], ['evp', 'EVP'], ['baliseC', 'Camions balisés'], ['ppC', 'Camions sortis']];
+  const extraireFlux = () => exporterChiffres('analyse-des-flux', `${du || '…'} au ${au || '…'}`, [
+    { nom: 'Détail', lignes: rows.map((r, i) => Object.fromEntries(COLS_FLUX.map(([k, l]) => [l, k === 'periode' ? cats[i] ?? r[k] : Number(r[k] ?? 0)]))) },
+    { nom: 'Totaux', lignes: COLS_FLUX.slice(1).map(([k, l]) => ({ Indicateur: l, Valeur: Number(tot[k] ?? 0) })) },
+  ]);
   return <>
     <div className="card">
       <BandeauModule icone="flux" titre="Analyse des flux" sous={<PeriodeChoisieLue c={p} />}
-        action={<div className="bm-outils"><SelecteurPeriode c={p} /></div>} />
+        action={<div className="bm-outils"><SelecteurPeriode c={p} />
+          {!loading && <BoutonExcel onClick={extraireFlux} titre="Extraire en Excel le détail chiffré" />}</div>} />
       <div className="row" style={{ alignItems: 'center', marginTop: 6 }}>
         <label className="help" style={{ margin: 0 }}>Répartition de la période</label>
         <select value={gran} onChange={(e) => setGran(e.target.value)} style={{ maxWidth: 160 }}>
@@ -4468,7 +4805,7 @@ SCREENS.flux = () => {
         <p className="help" style={{ marginTop: 0 }}>La même donnée empilée : la hauteur totale donne la charge de la période.</p>
         <Graphique cats={cats} series={series} type="barresEmpilees" ordonnee="Total" hauteur={260} /></div>
       <div className="card"><h2>Détail chiffré</h2>
-        <Table cols={[['periode', 'Période'], ['enlevesC', 'Cont. enlevés'], ['depotesC', 'Cont. dépotés'], ['tc', 'Total TC'], ['evp', 'EVP'], ['baliseC', 'Camions balisés'], ['ppC', 'Camions sortis']]} rows={rows} /></div>
+        <Table cols={COLS_FLUX} rows={rows} /></div>
     </>}
   </>;
 };
@@ -4485,11 +4822,19 @@ SCREENS.controles = () => {
      une surcharge aussi, un transit national est un régime de déclaration. Les
      deux tuiles d'un bloc disent camions et conteneurs, elles reçoivent donc
      l'icône correspondante, comme dans les tableaux. */
-  const bloc = (titre: string, o: O, icone: string, tone?: 'warn') =>
+  /* 2026-10-16 : chaque bloc s'extrait sur place, camions ou conteneurs, avec
+     les MÊMES règles que le chiffre (filtre « controle » de l'extraction). */
+  const extraireMotif = (controle: string, titre: string, niveau: string) =>
+    exporterExtraction({ controle, niveau, dateRef: 'entree', du, au, vehicules: 'exclure' }, `controle-${titre}-${niveau}`);
+  const bloc = (titre: string, o: O, icone: string, controle: string, tone?: 'warn') =>
     <div className="card">
       <div className="ecran-tete">
         <span className="tete-pastille" aria-hidden="true"><Icone nom={icone} taille={20} /></span>
         <h2 style={{ flex: 1, margin: 0, minWidth: 0 }}>{titre}</h2>
+        <BoutonExcel libelle="Camions" titre={`Extraire en Excel la liste des camions (${titre})`}
+          onClick={() => extraireMotif(controle, titre, 'camions')} />
+        <BoutonExcel libelle="Conteneurs" titre={`Extraire en Excel la liste des conteneurs (${titre})`}
+          onClick={() => extraireMotif(controle, titre, 'conteneurs')} />
       </div>
       <div className="stats">
         <StatCard n={Number(o['camions'] ?? 0)} l="Camions" tone={tone} etape="cfs" />
@@ -4514,9 +4859,190 @@ SCREENS.controles = () => {
             { nom: 'Conteneurs', valeurs: [Number(hg['conteneurs'] ?? 0), Number(su['conteneurs'] ?? 0), Number(tn['conteneurs'] ?? 0)] },
           ]}
           type="barres" ordonnee="Nombre" hauteur={250} valeursSurBarres /></div>
-      {bloc('Hors gabarit', hg, 'balance', 'warn')}
-      {bloc('Surcharge', su, 'camion', 'warn')}
-      {bloc('Transit national (TG)', tn, 'drapeau')}
+      {bloc('Hors gabarit', hg, 'balance', 'horsGabarit', 'warn')}
+      {bloc('Surcharge', su, 'camion', 'surcharge', 'warn')}
+      {bloc('Transit national (TG)', tn, 'drapeau', 'transitNational')}
+    </>}
+  </>;
+};
+
+/* ===== RAPPORTS ENGAGEMENTS PAR PÉRIODE ET AMENDES : 2026-10-19 ==========
+ *
+ * Demande utilisateur : voir, sur une période, combien de camions et de
+ * conteneurs sont partis sous BFE 03, transit national et transit côtier
+ * (comptés au moment où l'engagement a été POSÉ), et les amendes payées pour
+ * effets non déclarés. Chaque chiffre se lit en détail et s'extrait sur place.
+ */
+const APERCU_RAPPORT = 300;
+
+/** Sélecteur de maille d'une série (semaine, mois, année), commun aux deux volets. */
+function ChoixGranularite({ gran, setGran }: { gran: string; setGran: (g: string) => void }) {
+  return <div className="row" style={{ alignItems: 'center', marginTop: 6 }}>
+    <label className="help" style={{ margin: 0 }}>Répartition de la période</label>
+    <select value={gran} onChange={(e) => setGran(e.target.value)} style={{ maxWidth: 160 }}>
+      <option value="semaine">Hebdomadaire</option><option value="mois">Mensuelle</option><option value="annee">Annuelle</option>
+    </select>
+  </div>;
+}
+
+/** Extraction Excel d'un rapport : synthèse + détail. Le serveur journalise (pourExport). */
+async function exporterRapport(action: string, params: O, nom: string, synthese: O[], filtre?: (l: O) => boolean) {
+  const r = await call<O>(action, { ...params, pourExport: true }, { fraiche: true });
+  const lignes = ((r['lignes'] as O[]) ?? []).filter(filtre ?? (() => true));
+  if (!lignes.length) { toast('Rien à extraire sur cette période.', 'err'); return; }
+  const classeur = XLSX.utils.book_new();
+  const syn = XLSX.utils.json_to_sheet(synthese);
+  XLSX.utils.sheet_add_aoa(syn, [[], ['Période', `${String(params['du'] || '…')} au ${String(params['au'] || '…')}`]], { origin: -1 });
+  XLSX.utils.book_append_sheet(classeur, syn, 'Synthèse');
+  XLSX.utils.book_append_sheet(classeur, XLSX.utils.json_to_sheet(lignes), 'Détail');
+  XLSX.writeFile(classeur, `${slugFichier(nom)}-${new Date().toISOString().slice(0, 10)}.xlsx`);
+  toast(`${lignes.length} ligne(s) extraite(s).`, 'ok');
+}
+
+SCREENS.engagementsrap = ({ go }) => {
+  const p = useChoixPeriode('mois');
+  const { du, au } = p;
+  const [gran, setGran] = useState('mois');
+  // Nature dont on lit le détail ('' = toutes).
+  const [nature, setNature] = useState('');
+  const { data, loading } = useAsync<O>(() => call('report.engagementsperiode', { du, au, granularite: gran }), [du, au, gran]);
+  const natures = ((data?.['natures'] as O[]) ?? []);
+  // « Autres » n'apparaît que s'il y en a : les trois natures suivies restent toujours visibles, même à zéro.
+  const visibles = natures.filter((n) => n['nature'] !== 'Autres' || Number(n['camions']) + Number(n['vehicules']) > 0);
+  const toutes = (data?.['lignes'] as O[]) ?? [];
+  const lignes = nature ? toutes.filter((l) => l['Nature'] === nature) : toutes;
+  const sCam = (data?.['seriesCamions'] as O[]) ?? [];
+  const cats = libellesPeriode(sCam, gran);
+  const noms = NATURES_RAPPORT_ENGAGEMENT.filter((n) => visibles.some((v) => v['nature'] === n));
+  const synthese = () => visibles.map((n) => ({
+    Engagement: n['nature'], Camions: Number(n['camions']), 'Véhicules': Number(n['vehicules']),
+    Conteneurs: Number(n['conteneurs']), 'En cours': Number(n['enCours']), 'Soldés': Number(n['soldes']),
+  }));
+  const extraire = (nat: string) => exporterRapport('report.engagementsperiode', { du, au, granularite: gran },
+    `engagements-${nat || 'tous'}`, synthese(), nat ? (l) => l['Nature'] === nat : undefined);
+  const ICONES: Record<string, string> = { 'BFE 03 Sinkase': 'usine', 'Transit national': 'drapeau', 'Transit côtier': 'carte', 'Autres': 'echeance' };
+
+  return <>
+    <div className="card">
+      <BandeauModule icone="echeance" titre="Rapport des engagements" sous={<PeriodeChoisieLue c={p} />}
+        action={<div className="bm-outils"><SelecteurPeriode c={p} />
+          {!loading && <BoutonExcel onClick={() => extraire('')} titre="Extraire en Excel tous les engagements de la période" />}</div>} />
+      <ChoixGranularite gran={gran} setGran={setGran} />
+      <p className="help" style={{ margin: '6px 0 0' }}>
+        Un camion compte à la date où l'engagement a été <b>posé</b> (signature du chef, ou ajout par un chef ou l'administrateur),
+        pas à sa date d'entrée.
+      </p>
+    </div>
+    {loading ? <Spinner /> : <>
+      {visibles.map((n) => {
+        const nom = String(n['nature']);
+        return <div className="card" key={nom}>
+          <div className="ecran-tete">
+            <span className="tete-pastille" aria-hidden="true"><Icone nom={ICONES[nom] ?? 'echeance'} taille={20} /></span>
+            <h2 style={{ flex: 1, margin: 0, minWidth: 0 }}>{nom}</h2>
+            <button className={`xs ${nature === nom ? '' : 'ghost'}`} onClick={() => setNature(nature === nom ? '' : nom)}>
+              <Icone nom="liste" taille={14} />{nature === nom ? 'Détail affiché' : 'Voir le détail'}</button>
+            <BoutonExcel titre={`Extraire en Excel les camions sous « ${nom} »`} onClick={() => extraire(nom)} />
+          </div>
+          <div className="stats">
+            <StatCard n={Number(n['camions'] ?? 0)} l="Camions" etape="cfs" onClick={() => setNature(nom)} />
+            <StatCard n={Number(n['conteneurs'] ?? 0)} l="Conteneurs" etape="t1" onClick={() => setNature(nom)} />
+            {Number(n['vehicules']) > 0 && <StatCard n={Number(n['vehicules'])} l="Véhicules" icone="voiture" />}
+            <StatCard n={Number(n['enCours'] ?? 0)} l="Engagements en cours" tone="warn" />
+            <StatCard n={Number(n['soldes'] ?? 0)} l="Soldés" tone="ok" />
+          </div>
+        </div>;
+      })}
+      <div className="card"><h2>Comparaison</h2>
+        <Graphique cats={visibles.map((n) => String(n['nature']))}
+          series={[
+            { nom: 'Camions', valeurs: visibles.map((n) => Number(n['camions'] ?? 0) + Number(n['vehicules'] ?? 0)) },
+            { nom: 'Conteneurs', valeurs: visibles.map((n) => Number(n['conteneurs'] ?? 0)) },
+          ]}
+          type="barres" ordonnee="Nombre" hauteur={240} valeursSurBarres /></div>
+      {sCam.length > 1 && <div className="card"><h2>Évolution des camions engagés</h2>
+        <Graphique cats={cats} series={noms.map((nm) => ({ nom: nm, valeurs: sCam.map((r) => Number(r[nm] ?? 0)) }))}
+          type="barres" ordonnee="Camions" valeursSurBarres /></div>}
+      <div className="card">
+        <div className="row" style={{ alignItems: 'center', gap: 8 }}>
+          <h2 style={{ flex: 1, margin: 0 }}>Détail{nature ? ` · ${nature}` : ''} ({lignes.length})</h2>
+          {nature && <button className="ghost xs" onClick={() => setNature('')}>Tout afficher</button>}
+        </div>
+        {lignes.length > APERCU_RAPPORT && <p className="help">Aperçu des {APERCU_RAPPORT} premières lignes ; le fichier Excel contient tout.</p>}
+        {lignes.length
+          ? <Table cols={['Camion', 'Nature', 'Posé le', 'Échéance', 'Soldé le', 'Nb conteneurs', 'N° déclaration', 'Déclarant', 'Destination', 'Statut'].map((c) => [c, c] as [string, string])}
+            rows={lignes.slice(0, APERCU_RAPPORT)} onRow={(r) => go('detail', r['ID'])} />
+          : <div className="empty">Aucun engagement posé sur cette période.</div>}
+      </div>
+    </>}
+  </>;
+};
+
+SCREENS.amendes = ({ go }) => {
+  const p = useChoixPeriode('mois');
+  const { du, au } = p;
+  const [gran, setGran] = useState('mois');
+  const [type, setType] = useState('');
+  const { data, loading } = useAsync<O>(() => call('report.amendes', { du, au, granularite: gran }), [du, au, gran]);
+  const k = (data?.['compte'] ?? {}) as O;
+  const series = (data?.['series'] as O[]) ?? [];
+  const cats = libellesPeriode(series, gran);
+  const toutes = (data?.['lignes'] as O[]) ?? [];
+  const lignes = type ? toutes.filter((l) => l['Type'] === type) : toutes;
+  const synthese = () => [
+    { Indicateur: 'Camions ayant payé une amende', Valeur: Number(k['camions'] ?? 0) },
+    { Indicateur: 'Conteneurs concernés', Valeur: Number(k['conteneurs'] ?? 0) },
+    { Indicateur: 'Montant total (FCFA)', Valeur: Number(k['montantTotal'] ?? 0) },
+    { Indicateur: `Forfaits (${AMENDE_EFFETS_FORFAIT} FCFA)`, Valeur: Number(k['forfaits'] ?? 0) },
+    { Indicateur: 'Montant des forfaits (FCFA)', Valeur: Number(k['montantForfaits'] ?? 0) },
+    { Indicateur: 'Autres montants', Valeur: Number(k['autres'] ?? 0) },
+    { Indicateur: 'Montant des autres (FCFA)', Valeur: Number(k['montantAutres'] ?? 0) },
+  ];
+  const extraire = () => exporterRapport('report.amendes', { du, au, granularite: gran }, 'amendes-effets-non-declares', synthese(),
+    type ? (l) => l['Type'] === type : undefined);
+
+  return <>
+    <div className="card">
+      <BandeauModule icone="document" titre="Amendes, effets non déclarés" sous={<PeriodeChoisieLue c={p} />}
+        action={<div className="bm-outils"><SelecteurPeriode c={p} />
+          {!loading && <BoutonExcel onClick={extraire} titre="Extraire en Excel les amendes de la période" />}</div>} />
+      <ChoixGranularite gran={gran} setGran={setGran} />
+      <p className="help" style={{ margin: '6px 0 0' }}>
+        Renseignée par le chef de brigade à la validation des enlèvements, ou ajoutée ensuite sur la fiche du camion.
+        Comptée à la date de saisie de l'amende.
+      </p>
+    </div>
+    {loading ? <Spinner /> : <>
+      <div className="card"><div className="stats">
+        <StatCard n={Number(k['camions'] ?? 0)} l="Camions" etape="cfs" onClick={() => setType('')} />
+        <StatCard n={Number(k['conteneurs'] ?? 0)} l="Conteneurs" etape="t1" />
+        <StatCard n={fmtFcfa(k['montantTotal'])} l="Montant total" tone="ok" icone="document" />
+        <StatCard n={Number(k['forfaits'] ?? 0)} l={`Forfaits ${fmtFcfa(AMENDE_EFFETS_FORFAIT)}`} onClick={() => setType('Forfait')} />
+        <StatCard n={Number(k['autres'] ?? 0)} l="Autres montants" tone="warn" onClick={() => setType('Autre montant')} />
+      </div>
+      {Number(k['autres']) > 0 && <p className="help" style={{ marginBottom: 0 }}>
+        Forfaits : {fmtFcfa(k['montantForfaits'])} · autres montants : {fmtFcfa(k['montantAutres'])}.</p>}
+      </div>
+      {series.length > 0 && <div className="card"><h2>Évolution</h2>
+        <Graphique cats={cats} series={[
+          { nom: 'Camions', valeurs: series.map((r) => Number(r['camions'] ?? 0)) },
+          { nom: 'Conteneurs', valeurs: series.map((r) => Number(r['conteneurs'] ?? 0)) },
+        ]} type="barres" ordonnee="Nombre" valeursSurBarres />
+        <Table cols={[['periode', 'Période'], ['camions', 'Camions'], ['conteneurs', 'Conteneurs'], ['montantLu', 'Montant']]}
+          rows={series.map((r, i) => ({ ...r, periode: cats[i] ?? r['periode'], montantLu: fmtFcfa(r['montant']) }))} /></div>}
+      <div className="card">
+        <div className="row" style={{ alignItems: 'center', gap: 8 }}>
+          <h2 style={{ flex: 1, margin: 0 }}>Détail{type ? ` · ${type}` : ''} ({lignes.length})</h2>
+          {type && <button className="ghost xs" onClick={() => setType('')}>Tout afficher</button>}
+        </div>
+        {lignes.length > APERCU_RAPPORT && <p className="help">Aperçu des {APERCU_RAPPORT} premières lignes ; le fichier Excel contient tout.</p>}
+        {lignes.length
+          ? <Table cols={[['Camion', 'Camion'], ['montantLu', 'Montant'], ['Type', 'Type'], ['Saisie le', 'Saisie le'], ['Saisie par', 'Saisie par'],
+            ['Nb conteneurs', 'Conteneurs'], ['N° déclaration', 'N° déclaration'], ['Déclarant', 'Déclarant'], ['Statut', 'Statut']]}
+            rows={lignes.slice(0, APERCU_RAPPORT).map((l) => ({ ...l, montantLu: fmtFcfa(l['Montant (FCFA)']) }))}
+            onRow={(r) => go('detail', r['ID'])} />
+          : <div className="empty">Aucune amende enregistrée sur cette période.</div>}
+      </div>
     </>}
   </>;
 };
@@ -4534,10 +5060,16 @@ SCREENS.destinations = () => {
   // Une ligne par destination réellement présente sur la période (évite un fouillis de zéros).
   const actifs = codes.filter((c) => Number(parDest[c] ?? 0) > 0);
   const series = (actifs.length ? actifs : codes).map((c) => ({ nom: c, valeurs: seriesData.map((s) => Number(s[c] ?? 0)) }));
+  const extraireDest = () => exporterChiffres('repartition-par-destination', `${du || '…'} au ${au || '…'}`, [
+    { nom: 'Par destination', lignes: codes.map((c) => ({ Destination: c, 'Camions sortis': Number(parDest[c] ?? 0) })) },
+    { nom: 'Évolution', lignes: seriesData.map((s, i) => ({ 'Période': cats[i] ?? String(s['periode'] ?? ''),
+      ...Object.fromEntries(codes.map((c) => [c, Number(s[c] ?? 0)])) })) },
+  ]);
   return <>
     <div className="card">
       <BandeauModule icone="carte" titre="Répartition par destination" sous={<PeriodeChoisieLue c={p} />}
-        action={<div className="bm-outils"><SelecteurPeriode c={p} /></div>} />
+        action={<div className="bm-outils"><SelecteurPeriode c={p} />
+          {!loading && <BoutonExcel onClick={extraireDest} titre="Extraire ces chiffres en Excel" />}</div>} />
       <div className="row" style={{ alignItems: 'center', marginTop: 6 }}>
         <label className="help" style={{ margin: 0 }}>Répartition de la période</label>
         <select value={gran} onChange={(e) => setGran(e.target.value)} style={{ maxWidth: 160 }}>

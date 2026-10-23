@@ -109,6 +109,12 @@ export const PERMISSIONS: Record<string, Role[]> = {
    * réservé à l'administrateur. Le motif reste obligatoire et ce qui est retiré
    * part au journal : le retrait se relit, il ne s'efface pas. */
   'cargo.engagementretirer': [ROLES.ADMIN],
+  'cargo.engagementajouter': SUIVENT_ENGAGEMENTS, // 2026-10-09 : ajout après validation (chefs + ADMIN), motif obligatoire
+  // 2026-10-19 : rapport périodique par engagement (BFE 03, transit national, côtier),
+  // amendes pour effets non déclarés (correction après validation + statistiques).
+  'report.engagementsperiode': SUIVENT_ENGAGEMENTS,
+  'cargo.amende': SUIVENT_ENGAGEMENTS,
+  'report.amendes': SUIVENT_ENGAGEMENTS,
   /* PARAMÈTRES (2026-09-21). Lecture : tous les rôles, CBPI compris, l'écran de
      signature en tire la liste des engagements et le délai proposé. Écriture :
      l'administrateur seul, chaque modification part au journal. */
@@ -259,6 +265,7 @@ export const PERMISSIONS: Record<string, Role[]> = {
   'report.bonsortiedetail': [ROLES.BON_SORTIE, ROLES.CHEF_BRIGADE, ROLES.ADMIN],
   'report.kpi': TOUS_ROLES,
   'report.dispenses': [ROLES.BALISE, ROLES.CHEF_BRIGADE, ROLES.ADMIN],
+  'report.extraction': TOUS_ROLES, // 2026-10-09 : extraction sur mesure, mêmes droits que l'export des cargaisons
   'report.cargaisons': TOUS_ROLES, // v4.1 : export cargaisons (lecture), captaines/chefs inclus
   'report.conteneurs': TOUS_ROLES, // v4.1 : export liste conteneurs (lecture)
   'report.flux': [ROLES.CHEF_BRIGADE, ROLES.ADMIN],

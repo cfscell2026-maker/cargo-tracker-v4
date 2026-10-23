@@ -68,6 +68,12 @@ export interface FiltreEngagements {
    * c'est leur croisement qui répond.
    */
   signePar?: string;
+  /**
+   * DÉSIGNATION de la marchandise (2026-10-09, demande utilisateur) : un ou
+   * plusieurs termes séparés par « ; », la ligne est gardée si elle en
+   * contient AU MOINS UN. Recherche indulgente (casse, accents, espaces).
+   */
+  designation?: string;
 }
 
 /** Normalisation d'un n° pour la recherche : « TG-1234 BK » → « TG1234BK ». */
@@ -101,12 +107,14 @@ export function filtrerEngagements(
     ? null : Number(f.joursMax);
   const type = normLib(f.type);
   const signe = normLib(f.signePar);
+  const termes = String(f.designation ?? '').split(';').map(normLib).filter(Boolean);
   return lignes.filter((l) => {
     if (cam && !normNum(l['numeroCamion']).includes(cam)) return false;
     // Les deux filtres du 08/10 se CUMULENT avec les precedents : c'est leur
     // croisement qui repond a « mes validations qui vont vers le BFE 03 ».
     if (type && normLib(l['engagementType']) !== type) return false;
     if (signe && normLib(l['agentValidation']) !== signe) return false;
+    if (termes.length && !termes.some((t) => normLib(l['descriptionMarchandise']).includes(t))) return false;
     if (jours !== null) {
       const restant = joursAvantEcheance(l['engagementDelai'], aujourdhui);
       // Sans échéance lisible, la ligne ne peut pas répondre « oui » à une
@@ -115,4 +123,82 @@ export function filtrerEngagements(
     }
     return true;
   });
+}
+
+/* ============ EXTRACTION EXCEL : 2026-10-08 (demande utilisateur) ===========
+ *
+ * « Si on filtre pour ne voir que les BFE 03, on peut les extraire eux seuls. »
+ * L'extraction part donc des lignes DÉJÀ affinées et triées par l'écran, jamais
+ * d'une nouvelle requête qui pourrait dire autre chose que ce qui est affiché.
+ */
+
+/** « 2026-10-05… » → « 05/10/2026 » ; vide si absent. */
+const jourFr = (v: unknown) => {
+  const s = String(v ?? '').slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(s) ? `${s.slice(8, 10)}/${s.slice(5, 7)}/${s.slice(0, 4)}` : '';
+};
+
+/** Lignes du classeur Excel, dans l'ordre affiché. */
+export function lignesExportEngagements(lignes: Record<string, unknown>[]): Record<string, string>[] {
+  return lignes.map((l) => ({
+    'Camion': String(l['numeroCamion'] ?? ''),
+    'ID': String(l['id'] ?? ''),
+    'Opération': String(l['typeOperation'] ?? ''),
+    'Statut': String(l['statut'] ?? ''),
+    'Déclarant': String(l['declarant'] ?? ''),
+    'N° déclaration': String(l['numeroDeclaration'] ?? ''),
+    'Année': String(l['anneeDeclaration'] ?? ''),
+    'Bureau': String(l['bureauDeclaration'] ?? ''),
+    'Type décl.': String(l['typeDeclaration'] ?? ''),
+    'T1': numerosT1(l),
+    'Bon de sortie': numerosBonSortie(l),
+    'Désignation': String(l['descriptionMarchandise'] ?? ''),
+    'Engagement': String(l['engagementType'] ?? ''),
+    'Échéance': jourFr(l['engagementDelai']),
+    'État': String(l['libelle'] ?? ''),
+    'Effectué le': jourFr(l['engagementEffectueLe']),
+    'Signé par': String(l['agentValidation'] ?? ''),
+    'Validé le': jourFr(l['dateValidation']),
+  }));
+}
+
+/* ============ T1 ET BON DE SORTIE : 2026-10-09 (demande utilisateur) =========
+ *
+ * Les deux pièces sont stockées en JSON, sous plusieurs formes selon l'époque
+ * et le type d'opération :
+ *   · une liste par conteneur  [{ conteneur, numero }]  (T1, bon de sortie) ;
+ *   · une liste de numéros     ['T1-A', 'T1-B'] ;
+ *   · un numéro seul           "BS-12" (bon de sortie d'un dépotage).
+ * On en tire les numéros, une fois chacun, dans l'ordre de saisie.
+ */
+function numerosDe(v: unknown): string[] {
+  const liste = Array.isArray(v) ? v : v === null || v === undefined || v === '' ? [] : [v];
+  const vus: string[] = [];
+  for (const x of liste) {
+    const n = (x !== null && typeof x === 'object'
+      ? String((x as Record<string, unknown>)['numero'] ?? '')
+      : String(x ?? '')).trim();
+    if (n && !vus.includes(n)) vus.push(n);
+  }
+  return vus;
+}
+
+/** N° de T1 d'une ligne, « Non requis » si le camion saute le T1, vide sinon. */
+export function numerosT1(l: Record<string, unknown>): string {
+  const n = numerosDe(l['t1Numeros']);
+  if (n.length) return n.join(', ');
+  return l['sauteT1'] === true ? 'Non requis' : '';
+}
+
+/** N° de bon de sortie d'une ligne, « Non requis » si le camion le saute, vide sinon. */
+export function numerosBonSortie(l: Record<string, unknown>): string {
+  const n = numerosDe(l['bonSortieNumero']);
+  if (n.length) return n.join(', ');
+  return l['sauteBs'] === true || l['sauteBS'] === true ? 'Non requis' : '';
+}
+
+/** « 12345 · 2026 · TG120 · T » : la déclaration telle que le reste de l'appli l'affiche. */
+export function libelleDeclarationEngagement(l: Record<string, unknown>): string {
+  return [l['numeroDeclaration'], l['anneeDeclaration'], l['bureauDeclaration'], l['typeDeclaration']]
+    .map((v) => String(v ?? '').trim()).filter(Boolean).join(' · ');
 }

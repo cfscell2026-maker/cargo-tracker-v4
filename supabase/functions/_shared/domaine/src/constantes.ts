@@ -350,6 +350,39 @@ export const SUIVENT_ENGAGEMENTS: Role[] = [
 ];
 
 /**
+ * RAPPORT PÉRIODIQUE PAR ENGAGEMENT (2026-10-19, demande utilisateur).
+ *
+ * Le champ stocké est du texte libre ; le rapport, lui, range chaque saisie dans
+ * l'une des trois natures suivies, ou dans « Autres ». La comparaison ignore la
+ * casse, les accents et les espaces : « bfe03 », « BFE 03 SINKASE » et
+ * « Transit cotier » tombent au bon endroit.
+ */
+export const NATURES_RAPPORT_ENGAGEMENT = ['BFE 03 Sinkase', 'Transit national', 'Transit côtier', 'Autres'] as const;
+export type NatureRapportEngagement = (typeof NATURES_RAPPORT_ENGAGEMENT)[number];
+
+export function natureRapportEngagement(type: unknown): NatureRapportEngagement {
+  const s = String(type ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (s.includes('BFE03') || s.includes('SINKASE')) return 'BFE 03 Sinkase';
+  if (s.includes('TRANSITNATIONAL')) return 'Transit national';
+  if (s.includes('TRANSITCOTIER')) return 'Transit côtier';
+  return 'Autres';
+}
+
+/**
+ * AMENDE POUR EFFETS NON DÉCLARÉS (2026-10-19, demande utilisateur).
+ *
+ * Renseignée par le chef de brigade à la validation, comme l'engagement. Elle
+ * ne concerne que l'ENLÈVEMENT : c'est là que partent, entiers, les conteneurs
+ * de véhicules dont les effets ne sont pas toujours déclarés. Le forfait est la
+ * proposition par défaut ; « Autre » permet de saisir un montant différent.
+ */
+export const AMENDE_EFFETS_FORFAIT = 250000;
+
+export function exigeAmendeEffets(typeOperation: unknown): boolean {
+  return typeOperation === OPERATIONS.ENLEVEMENT;
+}
+
+/**
  * Échéance calculée à partir d'un NOMBRE DE JOURS (décision utilisateur
  * 2026-09-10) : le chef de brigade raisonne en délai (« sous 5 jours »), pas en
  * date de calendrier. C'est le logiciel qui convertit, à compter du jour de la

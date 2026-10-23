@@ -6,14 +6,14 @@ import { useEffect, useState } from 'react';
 import { call } from './lib/rpc.ts';
 import { useAsync } from './lib/hooks.ts';
 import { Icone } from './lib/icones.tsx';
-import { useParametres, Spinner, Tag, Modal, masks, toast, fmtDate, BoutonRetour, ChampDestination, useSuiviEngagement, ChampCamion, roleLabel, ChoixSegmente, BoutonBascule } from './lib/ui.tsx';
+import { useParametres, Spinner, Tag, Modal, masks, toast, fmtDate, BoutonRetour, ChampDestination, useSuiviEngagement, ChampCamion, roleLabel, ChoixSegmente, BoutonBascule, ChampAmende, AMENDE_VIDE, amendePrete, payloadAmende, fmtFcfa, type ChoixAmende } from './lib/ui.tsx';
 import type { Nav } from './App.tsx';
 import {
   STATUTS, OPERATIONS, ROLES, TYPES_DECLARATION, optionTypeDeclaration, ETATS_SORTIE, dateDansNJours,
   etapesEnAttente, etatCellules, etapePrecedenteManquante, messageEtapePrecedente, LIBELLE_ETAPE,
   estOui, tcValide, parseConteneursDetails, tailleBucket,
   groupesDeclaration, libelleDeclaration, estTypeSansT1, libelleTypeSansT1, exigeControlePoids,
-  numeroDispenseValide,
+  numeroDispenseValide, aPouvoirAdmin, exigeAmendeEffets, AMENDE_EFFETS_FORFAIT,
 } from '../../../supabase/functions/_shared/domaine/src/index.ts';
 
 type O = Record<string, unknown>;
@@ -38,7 +38,13 @@ export function Detail({ user, arg, go, retour, ecranPrecedent }: Nav) {
   const pend = etapesEnAttente(c as never);
   const cellules = etatCellules(c as never);
   const role = user.role;
-  const can = (...roles: string[]) => roles.includes(role);
+  /* LES RÔLES TECHNIQUES VOIENT CE QUE VOIT L'ADMIN (2026-10-09). `can(..., A)`
+     ne reconnaissait que « ADMIN » au sens strict : SUPER_ADMIN et INFO, qui en
+     ont les pouvoirs partout et que le SERVEUR autorise (verifierPermission),
+     ne voyaient aucun panneau réservé à l'administrateur sur la fiche. La règle
+     est la même qu'au serveur : un panneau ouvert à l'ADMIN l'est à eux. */
+  const can = (...roles: string[]) => roles.includes(role) || (roles.includes(A) && aPouvoirAdmin(role));
+  const suitEngagements = can(ROLES.CHEF_BRIGADE, ROLES.CHEF_BRIGADE_ADJOINT, ROLES.CHEF_VISITE, ROLES.CHEF_DIVISION, A);
   const dets = parseConteneursDetails(c['conteneursDetails']);
   // Chargement mixte : déduit des déclarations portées par chaque conteneur.
   const groupes = groupesDeclaration(dets.conteneurs, c);
@@ -64,12 +70,18 @@ export function Detail({ user, arg, go, retour, ecranPrecedent }: Nav) {
   // « Créée », le serveur EXIGE UN MOTIF, inscrit au journal d'audit
   // (`exigerMotifSiAvancee`). Le champ correspondant apparaît alors à l'écran.
   // Les autres rôles n'ont toujours que la correction de plaque, rendue plus bas.
-  const peutTtEditer = role === A || role === ROLES.CFS;
+  const peutTtEditer = aPouvoirAdmin(role) || role === ROLES.CFS;
 
   return (
     <div>
       <BoutonRetour retour={retour} ecranPrecedent={ecranPrecedent} secours={() => go('list')} />
       <FicheCargaison c={c} groupes={groupes} />
+      {/* 2026-10-09 : le chef a signé « Non » alors qu'il voulait « Oui ».
+          JUSTE SOUS LE RÉSUMÉ, là où se lit « Engagement : Non » : en bas de
+          fiche, replié, personne ne le trouvait. Seulement sur un camion
+          VALIDÉ et SANS engagement. */}
+      {c['suiviEngagement'] !== true && !!c['dateValidation'] && suitEngagements
+        && <PanneauEngagementAjout c={c} action={action} />}
       <ToutesLesInformations c={c} />
       <HistoriqueCargaison c={c} />
       <CarteConteneurs c={c} dets={dets} groupes={groupes} />
@@ -135,9 +147,12 @@ export function Detail({ user, arg, go, retour, ecranPrecedent }: Nav) {
       {!!c['dateBonSortie'] && can(ROLES.BON_SORTIE, A) && <PanneauBSEdit c={c} action={action} />}
       {/* 2026-09-17 : la correction reste offerte APRÈS « Effectué », un clic de
           trop ne doit pas figer un engagement mal saisi. */}
-      {c['suiviEngagement'] === true
-        && can(ROLES.CHEF_BRIGADE, ROLES.CHEF_BRIGADE_ADJOINT, ROLES.CHEF_VISITE, ROLES.CHEF_DIVISION, A)
-        && <PanneauEngagementEdit c={c} action={action} admin={role === A} />}
+      {c['suiviEngagement'] === true && suitEngagements
+        && <PanneauEngagementEdit c={c} action={action} admin={aPouvoirAdmin(role)} />}
+      {/* Amende pour effets non déclarés (2026-10-19) : enlèvement validé,
+          chefs et ADMIN, motif obligatoire. Ouverte après la sortie. */}
+      {exigeAmendeEffets(c['typeOperation']) && !!c['dateValidation'] && suitEngagements
+        && <PanneauAmendeEdit c={c} action={action} />}
       {c['statut'] === STATUTS.SORTIE && (String(c['baliseRequise']) === 'Non' || estOui(c['sauteBalise'])) && !estOui(c['arriveeBureau']) && can(ROLES.BALISE, A) &&
         <div className="card"><TitrePanneau icone="drapeau" etape="balise">Dispense, arrivée au bureau</TitrePanneau>
           <button onClick={() => action(() => call('cargo.arriveebureau', { id }), 'Arrivée confirmée.')}>Confirmer l'arrivée (solder la dispense)</button></div>}
@@ -149,7 +164,7 @@ export function Detail({ user, arg, go, retour, ecranPrecedent }: Nav) {
         <AjouterCamion c={c} go={go} />}
       {/* v4, Éditer : le CFS a la main JUSQU'À la fin de chargement ; l'ADMIN toujours. */}
       {peutTtEditer
-        ? <PanneauEditer c={c} dets={dets} action={action} apresSuppression={quitter} admin={role === A} />
+        ? <PanneauEditer c={c} dets={dets} action={action} apresSuppression={quitter} admin={aPouvoirAdmin(role)} />
         /* 2026-09-12 · décision utilisateur : la correction de plaque est de
            nouveau ouverte à TOUS les rôles (permission serveur alignée). */
         : <CorrigerCamion c={c} action={action} estVeh={estVeh} />}
@@ -170,6 +185,8 @@ type Groupe = ReturnType<typeof groupesDeclaration>[number];
  */
 function FicheCargaison({ c, groupes }: { c: O; groupes: Groupe[] }) {
   const mixte = groupes.length > 1;
+  const madMixte = c['typeOperation'] === OPERATIONS.MAGASIN && Array.isArray(c['mixteDetails'])
+    ? (c['mixteDetails'] as O[]).filter((m) => m && m['sortieId']) : [];
   // Pastille d'en-tête : camion ou véhicule selon la nature du dossier. Elle
   // donne à la fiche le même repère visuel que les tuiles et le parcours.
   const pastille = estOui(c['estVehicule']) ? 'voiture' : 'camion';
@@ -207,8 +224,26 @@ function FicheCargaison({ c, groupes }: { c: O; groupes: Groupe[] }) {
           ? ((c['engagementType'] as string) || 'Oui')
           : 'Aucun'}</div>
         : null}
+      {/* Amende pour effets non déclarés (2026-10-19), jointe par cargo.get. */}
+      {c['amendeEffets'] ? <div className="kv"><b>Amende effets non déclarés</b>{fmtFcfa(c['amendeEffets'])}
+        {Number(c['amendeEffets']) === AMENDE_EFFETS_FORFAIT ? ' (forfait)' : ''}</div> : null}
     </div>
 
+    {/* UN CAMION, PLUSIEURS ENTRÉES MAD (2026-10-21) : sans conteneurs, les
+        déclarations rattachées vivent dans l'historique du chargement mixte. */}
+    {madMixte.length > 0 && <div className="bandeau">
+      <div className="t">⊞ Chargement sur plusieurs entrées MAD, {madMixte.length + 1} déclarations sur ce camion</div>
+      <div className="l"><b>{libelleDeclaration(c)}</b>{c['declarant'] ? `, ${String(c['declarant'])}` : ''} · première sortie</div>
+      {madMixte.map((m, i) => {
+        const d = (m['declaration'] ?? {}) as O;
+        return <div key={i} className="l">
+          <b>{[d['numero'], d['annee'], d['bureau'], d['type']].filter(Boolean).join(' · ')}</b>
+          {m['declarant'] ? `, ${String(m['declarant'])}` : ''} · {String(m['quantite'] ?? '')} {String(m['unite'] ?? '')}
+          {m['designation'] ? ` · ${String(m['designation'])}` : ''} · entrée {String(m['entreeId'] ?? '')}
+          {' · '}{fmtDate(m['date'])}
+        </div>;
+      })}
+    </div>}
     {mixte && <div className="bandeau">
       <div className="t">⊞ Chargement mixte, {groupes.length} déclarations sur ce camion</div>
       {groupes.map((g) => <div key={g.cle} className="l">
@@ -850,6 +885,10 @@ function PanneauValidation({ c, action }: { c: O; action: ActionFn }) {
   // Suivi des engagements (2026-09-10), bloquant, sur toutes les opérations.
   // Le hook est partagé avec les deux écrans de validation en lot (lib/ui.tsx).
   const eng = useSuiviEngagement();
+  // Amende pour effets non déclarés (2026-10-19) : enlèvement seulement.
+  const exigeAmende = exigeAmendeEffets(c['typeOperation']);
+  const [amende, setAmende] = useState<ChoixAmende>(AMENDE_VIDE);
+  const pretAmende = !exigeAmende || amendePrete(amende);
 
   return <div className="card"><TitrePanneau icone="valider" etape="validation">Validation, chef brigade</TitrePanneau>
     {horsGab && exigePesee && <p style={{ background: 'var(--warn-soft)', color: 'var(--warn)', padding: 10, borderRadius: 6 }}>⚠ Chargement <b>hors gabarit</b> ({(c['hauteurChargement'] as string) || '?'} m).</p>}
@@ -864,14 +903,16 @@ function PanneauValidation({ c, action }: { c: O; action: ActionFn }) {
       </div>
     </> : <p className="help" style={{ marginTop: 0 }}>Opération « {String(c['typeOperation'])} » : pas de pesée ni de hors gabarit (réservés au dépotage).</p>}
     {eng.champ}
+    {exigeAmende && <ChampAmende valeur={amende} onChange={setAmende} />}
 
     <p style={{ color: '#5c6b7a', marginTop: 10 }}>Votre validation (signature numérique) débloque les cellules T1 / Balise / Bon de sortie.</p>
-    <button disabled={!pretPesee || !eng.pret}
+    <button disabled={!pretPesee || !eng.pret || !pretAmende}
       onClick={() => action(() => call('cargo.valider', {
         id,
         enSurcharge: enSurcharge === 'oui',
         poidsSurcharge: poids,
         ...eng.payload,
+        ...(exigeAmende ? payloadAmende(amende) : {}),
       }), 'Cargaison validée et signée.')}>
       Valider et signer
     </button>
@@ -1475,6 +1516,112 @@ function PanneauEngagementEdit({ c, action, admin }: { c: O; action: ActionFn; a
   </details>;
 }
 
+/**
+ * Ajout d'un engagement APRÈS la validation (2026-10-09, demande utilisateur) :
+ * le chef voulait « Oui » et a signé « Non ». Chefs et ADMIN, motif obligatoire.
+ * Mêmes règles qu'à la validation : nature et délai obligatoires, délai à venir.
+ */
+function PanneauEngagementAjout({ c, action }: { c: O; action: ActionFn }) {
+  const id = c['id'] as string;
+  const { engagementsProposes } = useParametres(); // liste réglable (Paramètres)
+  const [type, setType] = useState(engagementsProposes[0] ?? '');
+  const [libre, setLibre] = useState('');
+  const [jours, setJours] = useState('');
+  const [motif, setMotif] = useState('');
+  const delai = dateDansNJours(jours);
+  const nature = type === '__libre' ? libre.trim() : type;
+
+  async function ajouter() {
+    await action(() => call('cargo.engagementajouter', {
+      id, motif, engagementType: nature, engagementDelai: delai,
+    }), 'Engagement ajouté.');
+  }
+
+  const [ouvert, setOuvert] = useState(false);
+  if (!ouvert) return <div className="card row" style={{ alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+    <div style={{ flex: 1, minWidth: 220 }}>
+      <b>Engagement : Non</b>
+      <div className="help">Validé sans suivi d'engagement. Si c'était une erreur, vous pouvez l'ajouter.</div>
+    </div>
+    <button onClick={() => setOuvert(true)}><Icone nom="plus" taille={15} />Ajouter un engagement</button>
+  </div>;
+
+  return <div className="card">
+    <div className="row" style={{ alignItems: 'center', gap: 8 }}>
+      <h2 style={{ flex: 1, margin: 0 }}>Ajouter un engagement</h2>
+      <button className="ghost xs" onClick={() => setOuvert(false)}>Annuler</button>
+    </div>
+    <p className="help" style={{ marginTop: 10 }}>
+      Ce camion a été validé <b>sans</b> suivi d'engagement. Une fois ajouté, il rejoindra
+      le volet Engagements et l'échéancier.
+    </p>
+    <p className="help" style={{ color: 'var(--warn)' }}>
+      ⚠ La signature de la validation n'est pas refaite : l'ajout, son auteur et son motif restent au journal.
+    </p>
+    <label className="help">Engagement</label>
+    <select value={type} onChange={(e) => setType(e.target.value)}>
+      {engagementsProposes.map((e) => <option key={e} value={e}>{e}</option>)}
+      <option value="__libre">Autre (saisie libre)…</option>
+    </select>
+    {type === '__libre' && <input style={{ marginTop: 6 }} value={libre} onChange={(e) => setLibre(e.target.value)}
+      placeholder="Nature de l'engagement" />}
+    <label className="help" style={{ marginTop: 6 }}>Délai en jours (obligatoire)</label>
+    <div className="row" style={{ alignItems: 'center', gap: 8 }}>
+      <input inputMode="numeric" style={{ maxWidth: 110 }} value={jours}
+        onChange={(e) => setJours(e.target.value.replace(/[^0-9]/g, ''))} placeholder="Ex. 3" />
+      {delai ? <span style={{ fontWeight: 600 }}>→ {fmtDate(delai)}</span> : null}
+    </div>
+    <label className="help" style={{ marginTop: 6 }}>Motif de l'ajout (obligatoire)</label>
+    <input value={motif} onChange={(e) => setMotif(e.target.value)} placeholder="ex. « Non » coché par erreur à la validation" />
+    <div className="row" style={{ marginTop: 8 }}>
+      <button disabled={!motif.trim() || !nature || !delai} onClick={ajouter}>Ajouter l'engagement</button>
+    </div>
+  </div>;
+}
+
+/**
+ * AMENDE POUR EFFETS NON DÉCLARÉS, APRÈS LA VALIDATION (2026-10-19).
+ *
+ * Pour l'ajouter quand elle est constatée après la signature, la corriger, ou
+ * la retirer si elle a été saisie par erreur. Chefs et ADMIN, motif obligatoire,
+ * tout passe au journal.
+ */
+function PanneauAmendeEdit({ c, action }: { c: O; action: ActionFn }) {
+  const id = c['id'] as string;
+  const actuelle = Number(c['amendeEffets'] ?? 0);
+  const [ouvert, setOuvert] = useState(false);
+  const [amende, setAmende] = useState<ChoixAmende>(AMENDE_VIDE);
+  const [motif, setMotif] = useState('');
+  const fermer = () => { setOuvert(false); setAmende(AMENDE_VIDE); setMotif(''); };
+
+  if (!ouvert) return <div className="card row" style={{ alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+    <div style={{ flex: 1, minWidth: 220 }}>
+      <b>Amende effets non déclarés : {actuelle ? fmtFcfa(actuelle) : 'aucune'}</b>
+      <div className="help">{actuelle ? 'Vous pouvez corriger le montant ou retirer l\'amende.' : 'Constatée après la signature ? Vous pouvez l\'ajouter.'}</div>
+    </div>
+    <button className="ghost" onClick={() => setOuvert(true)}>
+      <Icone nom={actuelle ? 'crayon' : 'plus'} taille={15} />{actuelle ? 'Corriger l\'amende' : 'Ajouter une amende'}
+    </button>
+  </div>;
+
+  return <div className="card">
+    <div className="row" style={{ alignItems: 'center', gap: 8 }}>
+      <h2 style={{ flex: 1, margin: 0 }}>Amende pour effets non déclarés</h2>
+      <button className="ghost xs" onClick={fermer}>Annuler</button>
+    </div>
+    <p className="help" style={{ marginTop: 8 }}>Actuellement : <b>{actuelle ? fmtFcfa(actuelle) : 'aucune amende'}</b>.</p>
+    <ChampAmende valeur={amende} onChange={setAmende} compact />
+    <label className="help" style={{ marginTop: 8 }}>Motif (obligatoire)</label>
+    <input value={motif} onChange={(e) => setMotif(e.target.value)} placeholder="ex. amende constatée à la visite, reçu n° …" />
+    <div className="row" style={{ marginTop: 8 }}>
+      <button disabled={!motif.trim() || !amendePrete(amende)}
+        onClick={() => action(async () => { await call('cargo.amende', { id, motif, ...payloadAmende(amende) }); fermer(); }, 'Amende enregistrée.')}>
+        Enregistrer
+      </button>
+    </div>
+  </div>;
+}
+
 /* ================ TOUTES LES INFORMATIONS : ajout 2026-09-10 ==============
  *
  * La fiche du haut est un RÉSUMÉ : neuf champs choisis pour être lus d'un coup
@@ -1524,7 +1671,8 @@ const GROUPES_INFOS: [string, [string, string][]][] = [
     ['enSurcharge', 'En surcharge'], ['poidsSurcharge', 'Poids en surcharge (kg)'],
     ['suiviEngagement', "Suivi d'engagement"], ['engagementType', 'Engagement'],
     ['engagementDelai', 'Échéance'], ['engagementEffectueLe', 'Informations transmises le'],
-    ['engagementEffectuePar', 'Transmises par'],
+    ['engagementEffectuePar', 'Transmises par'], ['engagementPoseLe', 'Engagement posé le'],
+    ['amendeEffets', 'Amende effets non déclarés (FCFA)'], ['amendeEffetsLe', 'Amende saisie le'],
   ]],
   ['Cellule T1', [
     ['dateT1', 'Date T1'], ['agentT1', 'Agent T1'], ['bureauDestination', 'Bureau de destination'],

@@ -16,7 +16,8 @@ import {
   normaliserConteneur, normaliserDeclaration, parseConteneursDetails,
   declKey, typeDeRoutage, tailleBucket, construireCamion, verifierBinome, apercuConteneurs,
   etapesEnAttente, etatCellules, estOui, aFait, sautsTypeC,
-  etapePrecedenteManquante, messageEtapePrecedente, aPouvoirAdmin} from '../../_shared/domaine/src/index.ts';
+  etapePrecedenteManquante, messageEtapePrecedente, aPouvoirAdmin,
+  exigeAmendeEffets, AMENDE_EFFETS_FORFAIT} from '../../_shared/domaine/src/index.ts';
 import {
   getCargo, patchCargo, nextId, nextRapportId, ajouterConteneurs, supprimerConteneursDe,
   renommerCamionConteneurs, lierStock, delierStock, stockDisponible, stockFiche, lookupDeclaration, majApurement,
@@ -452,10 +453,49 @@ export async function engagementRetirer(ctx: Ctx, p: Record<string, unknown>) {
     engagement_delai: null,
     engagement_effectue_le: null,
     engagement_effectue_par: '',
+    engagement_pose_le: null,
   });
   await ctx.log('Retrait du suivi d\'engagement', id,
     'Retiré : ' + avant + (soldeLe ? ' · soldé le ' + soldeLe : '') + ' · motif : ' + motif);
   return { id, suiviEngagement: false };
+}
+
+/**
+ * AJOUT D'UN ENGAGEMENT APRÈS LA VALIDATION : 2026-10-09 (demande utilisateur).
+ *
+ * Le pendant du retrait : le chef de brigade voulait « Oui » et a signé « Non ».
+ * Rien ne permettait de rattraper ce sens-là : la correction refuse un camion
+ * qui n'est pas sous suivi, et le panneau de validation disparaît une fois signé.
+ *
+ * Ouvert aux CHEFS et à l'administrateur (décision utilisateur), comme la
+ * correction. Mêmes règles qu'à la validation (`engagementPatch` : nature et
+ * délai obligatoires, délai à venir), plus un MOTIF obligatoire. La signature du
+ * chef n'est PAS refaite : elle reste celle de ce qu'il a signé, et l'ajout se
+ * lit au journal, comme toute correction d'engagement.
+ *
+ * Permis APRÈS la sortie : le suivi d'un engagement se fait par nature une fois
+ * le camion parti (voir verrou-sortie.ts).
+ */
+export async function engagementAjouter(ctx: Ctx, p: Record<string, unknown>) {
+  const id = String(p['id'] ?? '').trim();
+  const motif = txt(p['motif'], 300);
+  if (!motif) throw new ErreurMetier("Indiquez le motif de l'ajout.");
+
+  const cargo = await getCargo(ctx, id);
+  const c = cargo.o;
+  if (!aFait(c['dateValidation']))
+    throw new ErreurMetier("Ce camion n'est pas encore validé : choisissez l'engagement au moment de la validation.");
+  if (c['suiviEngagement'] === true)
+    throw new ErreurMetier('Ce camion est déjà sous suivi d\'engagement : utilisez « Corriger le suivi d\'engagement ».');
+
+  const patch = engagementPatch({
+    suiviEngagement: true, engagementType: p['engagementType'], engagementDelai: p['engagementDelai'],
+  });
+  // 2026-10-19 : l'engagement est DATÉ du moment où on le pose, ici l'ajout.
+  await patchCargo(ctx, cargo, { ...patch, engagement_effectue_le: null, engagement_pose_le: new Date().toISOString() });
+  await ctx.log('Engagement ajouté après validation', id,
+    `${String(patch['engagement_type'])} · échéance ${fmtDate(patch['engagement_delai'])} · motif : ${motif}`);
+  return { id, suiviEngagement: true };
 }
 
 /* ---------------------------- declaration ------------------------------ */
@@ -674,6 +714,86 @@ function engagementPatch(p: Record<string, unknown>): Record<string, unknown> {
 }
 
 /**
+ * AMENDE POUR EFFETS NON DÉCLARÉS (2026-10-19, demande utilisateur).
+ *
+ * Même forme que `engagementPatch` : une réponse OUI/NON, puis le montant si
+ * OUI. Ne concerne que l'ENLÈVEMENT (`exigeAmendeEffets`). Rend :
+ *   · `undefined` : rien à faire (autre opération, ou champ absent : un écran
+ *     déjà déployé qui ne connaît pas encore la question, cf. la leçon du
+ *     2026-09-12 dans `engagementPatch`) ;
+ *   · `null`      : réponse « Non », pas d'amende ;
+ *   · un nombre   : le montant payé, en FCFA.
+ */
+export function amendeDe(p: Record<string, unknown>, exige: boolean): number | null | undefined {
+  if (!exige) return undefined;
+  const brut = p['amendeEffets'];
+  if (brut === undefined || brut === null || brut === '') return undefined;
+  const oui = brut === true || String(brut).toLowerCase() === 'oui' || String(brut).toLowerCase() === 'true';
+  if (!oui) return null;
+  // « 250 000 », « 250000 » ou 250000 : seuls les chiffres comptent (pas de
+  // centimes en FCFA).
+  const montant = Number(String(p['amendeMontant'] ?? '').replace(/[^0-9]/g, ''));
+  if (!Number.isSafeInteger(montant) || montant <= 0)
+    throw new ErreurMetier('Amende pour effets non déclarés : indiquez le montant payé (FCFA).');
+  if (montant > 1_000_000_000)
+    throw new ErreurMetier('Montant d\'amende invraisemblable : vérifiez la saisie.');
+  return montant;
+}
+
+const fcfa = (n: number) => n.toLocaleString('fr-FR').replace(/\u202f|\u00a0/g, ' ') + ' FCFA';
+
+/** Libellé d'une amende pour le journal : « forfait 250 000 FCFA » ou « 400 000 FCFA ». */
+export function libelleAmende(montant: number | null): string {
+  if (montant === null) return 'pas d\'amende';
+  return (montant === AMENDE_EFFETS_FORFAIT ? 'forfait ' : '') + fcfa(montant);
+}
+
+/** Écrit (ou efface) l'amende d'une cargaison : une ligne de `amendes_effets` = une amende. */
+async function enregistrerAmende(ctx: Ctx, id: string, montant: number | null): Promise<void> {
+  if (montant === null) {
+    const { error } = await ctx.db.from('amendes_effets').delete().eq('cargaison_id', id);
+    if (error) throw new Error(error.message);
+    return;
+  }
+  const { error } = await ctx.db.from('amendes_effets').upsert({
+    cargaison_id: id, montant, saisie_le: new Date().toISOString(), saisie_par: ctx.session.userId,
+  });
+  if (error) throw new Error(error.message);
+}
+
+/** Montant de l'amende déjà enregistrée, ou `null`. */
+export async function amendeActuelle(ctx: Ctx, id: string): Promise<number | null> {
+  const { data, error } = await ctx.db.from('amendes_effets').select('montant').eq('cargaison_id', id).maybeSingle();
+  if (error) throw new Error(error.message);
+  return data ? Number((data as Record<string, unknown>)['montant']) : null;
+}
+
+/**
+ * Correction de l'amende APRÈS la validation (chefs + ADMIN), motif obligatoire
+ * et tracé au journal. Sert aussi à l'ajouter quand on la découvre à la visite,
+ * une fois le camion signé. Permise après la sortie, comme le suivi des
+ * engagements : le paiement se constate souvent après coup.
+ */
+export async function amendeDefinir(ctx: Ctx, p: Record<string, unknown>) {
+  const id = String(p['id'] ?? '').trim();
+  const motif = txt(p['motif'], 300);
+  if (!motif) throw new ErreurMetier('Indiquez le motif.');
+  const cargo = await getCargo(ctx, id);
+  const c = cargo.o;
+  if (!exigeAmendeEffets(c['typeOperation']))
+    throw new ErreurMetier("L'amende pour effets non déclarés ne concerne que l'enlèvement.");
+  if (!aFait(c['dateValidation']))
+    throw new ErreurMetier("Ce camion n'est pas encore validé : renseignez l'amende au moment de la validation.");
+  const montant = amendeDe(p, true);
+  if (montant === undefined) throw new ErreurMetier("Indiquez s'il y a une amende (Oui / Non).");
+  const avant = await amendeActuelle(ctx, id);
+  await enregistrerAmende(ctx, id, montant);
+  await ctx.log('Amende effets non déclarés, correction', id,
+    'Avant : ' + libelleAmende(avant) + ' → après : ' + libelleAmende(montant) + ' · motif : ' + motif);
+  return { id, montant };
+}
+
+/**
  * Solde d'un engagement, le bouton « Effectué » de l'échéancier.
  *
  * Réservé aux rôles qui portent le suivi (voir SUIVENT_ENGAGEMENTS et la matrice
@@ -770,7 +890,15 @@ export async function valider(ctx: Ctx, p: Record<string, unknown>) {
   // Suivi des engagements (2026-09-10) : exigé sur TOUTES les opérations,
   // contrairement à la pesée qui ne concerne que le dépotage.
   const engagement = engagementPatch(p);
+  // Amende pour effets non déclarés (2026-10-19) : enlèvement seulement.
+  const amende = amendeDe(p, exigeAmendeEffets(c['typeOperation']));
   const now = new Date().toISOString();
+  /* DATE DE POSE DE L'ENGAGEMENT (2026-10-19) : le moment de la signature. Une
+     re-validation qui confirme un engagement déjà posé garde la date d'origine ;
+     « Non » l'efface avec le reste ; champ absent, on n'y touche pas. */
+  const poseLe = engagement['suivi_engagement'] === true
+    ? (c['suiviEngagement'] === true && aFait(c['engagementPoseLe']) ? String(c['engagementPoseLe']) : now)
+    : engagement['suivi_engagement'] === false ? null : undefined;
   const empreinte = await empreinteValidation(c, pesee, engagement);
   const sig = await signature(id + '|' + ctx.session.username + '|' + now + '|' + empreinte);
 
@@ -782,7 +910,9 @@ export async function valider(ctx: Ctx, p: Record<string, unknown>) {
     // déjà l'historique, on le remonte ici pour l'affichage direct.
     role_validation: ctx.session.role,
     signature_validation: sig, ...pesee, ...engagement,
+    ...(poseLe !== undefined ? { engagement_pose_le: poseLe } : {}),
   });
+  if (amende !== undefined) await enregistrerAmende(ctx, id, amende);
 
   // SEC-10 · La ligne `cargaisons` ne porte qu'UNE validation : une re-validation
   // ADMIN écrasait date, agent et signature, faisant disparaître le premier
@@ -799,6 +929,7 @@ export async function valider(ctx: Ctx, p: Record<string, unknown>) {
     dejaValidee ? 'Re-validation chef brigade' : 'Validation chef brigade',
     id,
     (pesee['en_surcharge'] ? 'SURCHARGE ' + pesee['poids_surcharge'] + ' kg' : 'hors surcharge') +
+      (amende !== undefined ? ' · amende effets non déclarés : ' + libelleAmende(amende) : '') +
       (dejaValidee ? ' · REMPLACE la validation du ' + fmtDate(c['dateValidation']) : ''),
   );
   return { id };
@@ -840,15 +971,21 @@ export async function validerLot(ctx: Ctx, p: Record<string, unknown>) {
      declaration a plusieurs camions. Le delai est devenu obligatoire apres
      l'ecriture de ce lot, et cette ligne n'a pas suivi. */
   const engagementDelai = p['engagementDelai'];
+  /* L'AMENDE EST PAR CAMION (2026-10-19), comme la pesée et non comme
+     l'engagement : un montant recopié sur chaque camion du lot serait compté
+     autant de fois qu'il y a de camions dans les statistiques. */
+  const amendes = (p['amendes'] ?? {}) as Record<string, { amendeEffets?: unknown; amendeMontant?: unknown }>;
 
   const validees: string[] = [];
   const erreurs: Record<string, unknown>[] = [];
   for (const id of ids) {
     try {
       const ps = pesees[id] ?? {};
+      const am = amendes[id] ?? {};
       await valider(ctx, {
         id, enSurcharge: ps.enSurcharge, poidsSurcharge: ps.poidsSurcharge,
         suiviEngagement, engagementType, engagementDelai,
+        amendeEffets: am.amendeEffets, amendeMontant: am.amendeMontant,
       });
       validees.push(id);
     } catch (e) {

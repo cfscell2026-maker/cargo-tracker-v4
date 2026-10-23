@@ -127,7 +127,17 @@ export async function cargoGet(ctx: Ctx, data: { id?: string }) {
   // en base (on ne détruit pas de pièce) mais n'est plus servie aux cellules.
   if (row['annule'] === true && !aPouvoirAdmin(ctx.session.role))
     throw new Error('Cargaison introuvable : ' + id);
-  return filtrerConfidentiel(versCamel(row), ctx.session.role);
+  const fiche = filtrerConfidentiel(versCamel(row), ctx.session.role);
+  /* AMENDE POUR EFFETS NON DÉCLARÉS (2026-10-19) : elle vit dans sa propre table
+     (une ligne = une amende), on la joint ici pour que la fiche la montre. Une
+     erreur de lecture ne doit pas empêcher d'ouvrir la fiche : on l'ignore. */
+  const { data: am } = await ctx.db.from('amendes_effets').select('montant, saisie_le')
+    .eq('cargaison_id', id).maybeSingle();
+  if (am) {
+    fiche['amendeEffets'] = Number((am as Record<string, unknown>)['montant']);
+    fiche['amendeEffetsLe'] = (am as Record<string, unknown>)['saisie_le'];
+  }
+  return fiche;
 }
 
 /* ----------------------------- cargo.search ---------------------------- */
@@ -643,7 +653,13 @@ export async function engagementsDus(ctx: Ctx, p: { filtre?: string } = {}) {
   const { data, error } = await ctx.db
     .from('cargaisons')
     .select('id, numero_camion, type_operation, statut, declarant, numero_declaration, '
-      + 'engagement_type, engagement_delai, engagement_effectue_le, agent_validation, date_validation')
+      + 'engagement_type, engagement_delai, engagement_effectue_le, agent_validation, date_validation, '
+      // 2026-10-09 (demande utilisateur) : la déclaration complète, le T1 et le
+      // bon de sortie, au volet comme dans son extraction Excel.
+      + 'annee_declaration, bureau_declaration, type_declaration, '
+      + 't1_numeros, saute_t1, bon_sortie_numero, saute_bs, '
+      // 2026-10-09 : la désignation, pour l'extraction et la recherche.
+      + 'description_marchandise')
     .eq('suivi_engagement', true)
     // `neq` plutôt que `eq(false)` : c'est la forme déjà employée ailleurs pour
     // SEC-12, et elle reste juste quelle que soit la valeur par défaut.

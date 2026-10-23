@@ -16,6 +16,7 @@ import { AuthError, estMessageMetier, type Ctx } from './ctx.ts';
 import { dbAdmin, exigerSession, fabriquerLog, requeteDe } from './supa.ts';
 import { ACTIONS } from './actions/registry.ts';
 import { etatVerrou } from './actions/verrou.ts';
+import { controlerApresSortie } from './actions/verrou-sortie.ts';
 
 /* -------------------------------------------------------------------------- */
 /* SEC-07 · CORS : liste blanche d'origines                                    */
@@ -178,6 +179,10 @@ Deno.serve(async (req) => {
         return json({ ok: false, error: verrou.message, verrouille: true }, 423);
     }
 
+    // VERROU APRÈS SORTIE (2026-10-09) : un dossier sorti est figé ; seul
+    // l'administrateur le corrige, motif à l'appui. Voir verrou-sortie.ts.
+    await controlerApresSortie(ctx, action, (data ?? {}) as Record<string, unknown>);
+
     const result = await handler(ctx, (data ?? {}) as never);
     return json({ ok: true, data: result });
   } catch (e) {
@@ -189,7 +194,11 @@ Deno.serve(async (req) => {
     // de contraintes. Les messages MÉTIER, eux, sont écrits pour l'agent et
     // sortent inchangés (comportement v3.6 conservé).
     if (auth || estMessageMetier(err)) {
-      return json({ ok: false, error: err.message || 'Erreur inconnue.', auth });
+      return json({
+        ok: false, error: err.message || 'Erreur inconnue.', auth,
+        // Le front demande alors le motif et rejoue l'action (verrou après sortie).
+        ...((err as { motifRequis?: boolean }).motifRequis ? { motifRequis: true } : {}),
+      });
     }
     const ref = crypto.randomUUID().slice(0, 8).toUpperCase();
     console.error(`[ERREUR ${ref}] action=${action} ip=${requete.ip} : ${err?.stack ?? err}`);

@@ -20,7 +20,9 @@ import {
   delaisDe, agreger, dureeLisible, enHeures, POSTES, LIBELLE_POSTE,
 } from '../../_shared/domaine/src/index.ts';
 import { fetchAll, lookupDeclaration } from './helpers.ts';
+import { numerosPiece, extraire, resumeFiltres, DATES_REFERENCE, type FiltresExtraction } from './extraction.ts';
 import { filtrerConfidentiel } from './lecture.ts';
+import { calculerEngagements, calculerAmendes, type Amende } from './engagements-amendes.ts';
 
 /* ------------------------------- Helpers ------------------------------- */
 
@@ -130,6 +132,54 @@ const inRange = (v: unknown, du?: string, au?: string): boolean => {
 };
 function detsDeRow(c: Record<string, unknown>) {
   return parseConteneursDetails(c['conteneursDetails']).conteneurs;
+}
+
+/* ===== DÉCLARATIONS DANS LE DÉTAIL DES RAPPORTS DE CELLULE : 2026-10-09 =====
+ *
+ * Demande utilisateur : depuis un rapport de cellule (CFS, T1, Bon de sortie,
+ * Balise, PP), cliquer une carte et EXTRAIRE les déclarations qui sont derrière.
+ * Le détail ne portait que le camion, le statut et le GPS : on y ajoute la
+ * déclaration, le déclarant, le T1, le bon de sortie et les dates de chaque
+ * cellule.
+ *
+ * LOT D : un conteneur porte SA déclaration dès qu'il en a un numéro ; sinon il
+ * relève de celle du camion. Une ligne CAMION d'un chargement mixte porte donc
+ * PLUSIEURS déclarations : elles sont listées, séparées par « / ».
+ */
+const tx = (v: unknown) => String(v ?? '').trim();
+
+/** Champs « déclaration et pièces » d'une ligne de détail : camion entier, ou un de ses conteneurs. */
+function infosDeclaration(c: Record<string, unknown>, ct?: Record<string, unknown>): Record<string, unknown> {
+  const commun = {
+    destination: tx(c['destinationMarchandise']),
+    dateCreation: c['dateCreation'], dateValidation: c['dateValidation'], dateT1: c['dateT1'],
+    dateBonSortie: c['dateBonSortie'], datePoseGps: c['datePoseGps'], dateSortie: c['dateSortie'],
+  };
+  if (ct) {
+    const src = tx(ct['numeroDeclaration']) ? ct : c;
+    return {
+      ...commun,
+      declarant: tx(src['declarant']) || tx(c['declarant']),
+      numeroDeclaration: tx(src['numeroDeclaration']), anneeDeclaration: tx(src['anneeDeclaration']),
+      bureauDeclaration: tx(src['bureauDeclaration']), typeDeclaration: tx(src['typeDeclaration']),
+      designation: tx(ct['descriptionMarchandise']) || tx(c['descriptionMarchandise']),
+      t1: numerosPiece(c['t1Numeros'], tx(ct['num'])), bonSortie: numerosPiece(c['bonSortieNumero'], tx(ct['num'])),
+    };
+  }
+  const groupes = groupesDeclaration(detsDeRow(c), c);
+  const joint = (k: 'declarant' | 'numeroDeclaration' | 'anneeDeclaration' | 'bureauDeclaration' | 'typeDeclaration') => {
+    const vals = groupes.length ? groupes.map((g) => tx(g[k])) : [tx(c[k])];
+    return [...new Set(vals.filter(Boolean))].join(' / ');
+  };
+  return {
+    ...commun,
+    declarant: joint('declarant') || tx(c['declarant']),
+    numeroDeclaration: joint('numeroDeclaration'), anneeDeclaration: joint('anneeDeclaration'),
+    bureauDeclaration: joint('bureauDeclaration'), typeDeclaration: joint('typeDeclaration'),
+    designation: [...new Set([...detsDeRow(c).map((ct) => tx((ct as unknown as Record<string, unknown>)['descriptionMarchandise'])), tx(c['descriptionMarchandise'])]
+      .filter(Boolean))].join(' / '),
+    t1: numerosPiece(c['t1Numeros']), bonSortie: numerosPiece(c['bonSortieNumero']),
+  };
 }
 /**
  * v4.1, Filtre agent d'un rapport de cellule (décision utilisateur 2026-07-27).
@@ -366,7 +416,7 @@ function collecteCFS(cargos: Record<string, unknown>[], du?: string, au?: string
     const a = parOp[op]!;
     const dets = detsDeRow(c);
     a.camions++; total.camions++;
-    camions.push({ id: c['id'], numeroCamion: c['numeroCamion'], typeOperation: op, statut: c['statut'], dateCreation: c['dateCreation'], nbConteneurs: dets.length, agentCfs: c['agentCfs'] });
+    camions.push({ ...infosDeclaration(c), id: c['id'], numeroCamion: c['numeroCamion'], typeOperation: op, statut: c['statut'], dateCreation: c['dateCreation'], nbConteneurs: dets.length, agentCfs: c['agentCfs'] });
     for (const ct of dets) {
       if (ct.partage) continue; // partagé (2026-09-14) : compté au premier dépotage
       if (ct.num && vus.has(ct.num)) continue; // conteneur partagé : déjà compté
@@ -374,7 +424,7 @@ function collecteCFS(cargos: Record<string, unknown>[], du?: string, au?: string
       const bk = tailleBucket(ct.taille); const ev = evpDeTaille(bk);
       (a as Record<string, number>)[bk]++; a.conteneurs++; a.evp += ev;
       (total as Record<string, number>)[bk]++; total.conteneurs++; total.evp += ev;
-      conteneurs.push({ id: c['id'], cargaisonId: c['id'], numeroCamion: c['numeroCamion'], typeOperation: op, conteneur: ct.num, taille: ct.taille, type: ct.type, scelle: ct.plomb, bucket: bk, dateCreation: c['dateCreation'] });
+      conteneurs.push({ ...infosDeclaration(c, ct as unknown as Record<string, unknown>), id: c['id'], cargaisonId: c['id'], numeroCamion: c['numeroCamion'], typeOperation: op, conteneur: ct.num, taille: ct.taille, type: ct.type, scelle: ct.plomb, bucket: bk, dateCreation: c['dateCreation'] });
     }
   }
   return { parOp, total, camions, conteneurs };
@@ -530,7 +580,7 @@ function collecteActivite(cargos: Record<string, unknown>[], dateCol: string, ag
     a.camions++; total.camions++;
     if (estOui(c['twins']) || c['twins'] === 'Yes') { a.twins++; total.twins++; }
     if (String(c['baliseRequise']) === 'Non' || c['baliseRequise'] === false) { a.sansBalise++; total.sansBalise++; }
-    camions.push({ id: c['id'], numeroCamion: c['numeroCamion'], typeOperation: op, statut: c['statut'], date: c[dateCol], numeroGps: c['numeroGps'], nbConteneurs: dets.length, twins: c['twins'] });
+    camions.push({ ...infosDeclaration(c), id: c['id'], numeroCamion: c['numeroCamion'], typeOperation: op, statut: c['statut'], date: c[dateCol], numeroGps: c['numeroGps'], nbConteneurs: dets.length, twins: c['twins'] });
     for (const ct of dets) {
       /* CONTENEUR PARTAGÉ : COMPTÉ UNE SEULE FOIS · 2026-09-12, règle dictée
        * par le douanier. Un conteneur dont la marchandise se répartit sur
@@ -554,7 +604,7 @@ function collecteActivite(cargos: Record<string, unknown>[], dateCol: string, ag
         (a as Record<string, number>)[bk]++; a.conteneurs++; a.evp += ev;
         (total as Record<string, number>)[bk]++; total.conteneurs++; total.evp += ev;
       }
-      conteneurs.push({ id: c['id'], cargaisonId: c['id'], numeroCamion: c['numeroCamion'], typeOperation: op, conteneur: ct.num, taille: ct.taille, type: ct.type, scelle: ct.plomb, bucket: bk, numeroGps: c['numeroGps'], date: c[dateCol] });
+      conteneurs.push({ ...infosDeclaration(c, ct as unknown as Record<string, unknown>), id: c['id'], cargaisonId: c['id'], numeroCamion: c['numeroCamion'], typeOperation: op, conteneur: ct.num, taille: ct.taille, type: ct.type, scelle: ct.plomb, bucket: bk, numeroGps: c['numeroGps'], date: c[dateCol] });
     }
   }
   return { parOp, total, camions, conteneurs };
@@ -2037,4 +2087,87 @@ export async function historiqueCargaison(ctx: Ctx, p: Record<string, unknown>) 
     id,
     lignes: (data ?? []).map((r) => versCamel(r as unknown as Record<string, unknown>)),
   };
+}
+
+/* ===================== EXTRACTION SUR MESURE : 2026-10-09 ==================
+ *
+ * Voir extraction.ts. Ici : le pré-filtre SQL sur LA date choisie (même règle
+ * que les rapports de cellule : une ligne sans cette date est écartée des deux
+ * côtés), le filtrage, et la trace d'export (RGPD-01 : un export nominatif
+ * quitte l'application, il est journalisé).
+ */
+const MAX_LIGNES_EXTRACTION = 20000;
+
+export async function rapportExtraction(ctx: Ctx, p: Record<string, unknown>) {
+  const s = (k: string) => (typeof p[k] === 'string' ? String(p[k]).trim() : '');
+  const f: FiltresExtraction = {
+    niveau: s('niveau') as FiltresExtraction['niveau'], dateRef: s('dateRef') || 'entree',
+    du: s('du'), au: s('au'), operation: s('operation'), etat: s('etat') as FiltresExtraction['etat'],
+    statut: s('statut'), typeDeclaration: s('typeDeclaration'), bureauDeclaration: s('bureauDeclaration'),
+    bureauDestination: s('bureauDestination'), destination: s('destination'),
+    engagement: s('engagement') as FiltresExtraction['engagement'], natureEngagement: s('natureEngagement'),
+    declarant: s('declarant'), numeroDeclaration: s('numeroDeclaration'), designation: s('designation'),
+    recherche: s('recherche'), vehicules: (s('vehicules') || 'exclure') as FiltresExtraction['vehicules'],
+    controle: s('controle') as FiltresExtraction['controle'],
+  };
+  const ref = DATES_REFERENCE[f.dateRef!] ?? DATES_REFERENCE['entree']!;
+  const cargos = await loadCargos(ctx, f.du || f.au ? SQL_PERIODE(ref.colSql, f.du, f.au) : undefined);
+  const r = extraire(cargos, f, { voitBalise: voitBalise(ctx) });
+  if (p['pourExport'] === true)
+    await ctx.log('Export sur mesure', '', `${r.total} ligne(s) · ${r.niveau} · ${resumeFiltres(f)}`);
+  return {
+    ...r,
+    lignes: r.lignes.slice(0, MAX_LIGNES_EXTRACTION),
+    tronque: r.total > MAX_LIGNES_EXTRACTION,
+    filtres: resumeFiltres(f),
+  };
+}
+
+/* ===== ENGAGEMENTS PAR PÉRIODE ET AMENDES : 2026-10-19 =====================
+ *
+ * Voir engagements-amendes.ts. Ici : le chargement (pré-filtré en SQL sur ce
+ * qui est sûr), le calcul, et la trace d'export (RGPD-01).
+ */
+const granulariteDe = (p: Record<string, unknown>) => {
+  const g = String(p['granularite'] ?? 'mois');
+  return ['jour', 'semaine', 'mois', 'annee'].includes(g) ? g : 'mois';
+};
+
+export async function rapportEngagementsPeriode(ctx: Ctx, p: Record<string, unknown>) {
+  const du = String(p['du'] ?? '') || undefined, au = String(p['au'] ?? '') || undefined;
+  const gran = granulariteDe(p);
+  /* Seules les cargaisons SOUS ENGAGEMENT sont rapatriées : quelques centaines
+     sur des dizaines de milliers. La période, elle, se tranche en JS, sur la
+     date de pose avec repli sur la validation : un pré-filtre SQL sur
+     `engagement_pose_le` écarterait une ligne que la migration n'aurait pas
+     calée, en silence. */
+  const cargos = await loadCargos(ctx, (q) => q.eq('suivi_engagement', true));
+  const r = calculerEngagements(cargos, { du, au, cle: (v) => periodeKey(v, gran) });
+  if (p['pourExport'] === true)
+    await ctx.log('Export rapport engagements', '', `${r.lignes.length} ligne(s) · ${du || '…'} au ${au || '…'}`);
+  return { du, au, granularite: gran, ...r };
+}
+
+/** Découpe une liste d'identifiants : un `in (...)` trop long dépasse la taille d'URL de PostgREST. */
+const paquets = <T,>(xs: T[], n = 300): T[][] => Array.from({ length: Math.ceil(xs.length / n) }, (_, i) => xs.slice(i * n, i * n + n));
+
+export async function rapportAmendes(ctx: Ctx, p: Record<string, unknown>) {
+  const du = String(p['du'] ?? '') || undefined, au = String(p['au'] ?? '') || undefined;
+  const gran = granulariteDe(p);
+  const brutes = await fetchAll(ctx, 'amendes_effets', '*', undefined, du || au ? SQL_PERIODE('saisie_le', du, au) : undefined);
+  const amendes: Amende[] = brutes.map((a) => ({
+    cargaisonId: String(a['cargaison_id']), montant: Number(a['montant']),
+    saisieLe: String(a['saisie_le'] ?? ''), saisiePar: String(a['saisie_par'] ?? ''),
+  }));
+  const cargosParId = new Map<string, Record<string, unknown>>();
+  for (const ids of paquets([...new Set(amendes.map((a) => a.cargaisonId))]))
+    for (const c of await loadCargos(ctx, (q) => q.in('id', ids))) cargosParId.set(String(c['id']), c);
+  const noms = new Map<string, string>();
+  for (const ids of paquets([...new Set(amendes.map((a) => a.saisiePar).filter(Boolean))]))
+    for (const u of await fetchAll(ctx, 'profils', 'id, nom_complet', undefined, (q) => q.in('id', ids)))
+      noms.set(String(u['id']), String(u['nom_complet'] ?? ''));
+  const r = calculerAmendes(amendes, cargosParId, noms, { du, au, cle: (v) => periodeKey(v, gran) });
+  if (p['pourExport'] === true)
+    await ctx.log('Export rapport amendes', '', `${r.lignes.length} ligne(s) · ${du || '…'} au ${au || '…'}`);
+  return { du, au, granularite: gran, ...r };
 }

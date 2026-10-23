@@ -5,7 +5,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { trierEngagements } from './tri-engagements.ts';
+import { trierEngagements, numerosT1, numerosBonSortie, libelleDeclarationEngagement, lignesExportEngagements as exporter } from './tri-engagements.ts';
 
 const L = [
   { numeroCamion: 'TG9999ZZ', engagementDelai: '2026-10-05' },
@@ -128,4 +128,67 @@ test('engagements : sans ces filtres, la liste est rendue telle quelle', () => {
 test('engagements : les nouveaux filtres se CUMULENT avec la recherche camion', () => {
   const r = filtrerEngagements(engagements(), { type: 'BFE 03 Sinkase', camion: 'tg2222' });
   assert.deepEqual(cam(r), ['TG2222BB']);
+});
+
+/* ---- Extraction Excel (2026-10-08) ---- */
+test('extraction : mêmes lignes, même ordre, dates lisibles', async () => {
+  const { lignesExportEngagements } = await import('./tri-engagements.ts');
+  const rows = lignesExportEngagements([
+    { id: 'CT-2', numeroCamion: 'TG2', engagementType: 'BFE 03 Sinkase', engagementDelai: '2026-10-20',
+      engagementEffectueLe: '2026-10-07T10:00:00Z', libelle: 'Effectué', agentValidation: 'Chef A' },
+    { id: 'CT-1', numeroCamion: 'TG1', engagementType: 'BFE 03 Sinkase', engagementDelai: '2026-10-05', libelle: 'En retard' },
+  ]);
+  assert.deepEqual(rows.map((r) => r['ID']), ['CT-2', 'CT-1'], "l'ordre affiché est conservé");
+  assert.equal(rows[0]!['Échéance'], '20/10/2026');
+  assert.equal(rows[0]!['Effectué le'], '07/10/2026');
+  assert.equal(rows[0]!['Signé par'], 'Chef A');
+  assert.equal(rows[1]!['Effectué le'], '', 'pas encore effectué');
+  assert.equal(rows[1]!['État'], 'En retard');
+});
+
+/* ---- Déclaration, T1 et bon de sortie (2026-10-09) ---- */
+test('T1 : liste par conteneur, liste simple, doublons retirés, « Non requis » si sauté', () => {
+  assert.equal(numerosT1({ t1Numeros: [{ conteneur: 'MSKU1', numero: 'T1-A' }, { conteneur: 'MSKU2', numero: 'T1-B' }] }), 'T1-A, T1-B');
+  assert.equal(numerosT1({ t1Numeros: ['T1-A', 'T1-A', 'T1-C'] }), 'T1-A, T1-C');
+  assert.equal(numerosT1({ t1Numeros: null, sauteT1: true }), 'Non requis');
+  assert.equal(numerosT1({ t1Numeros: null }), '', 'pas encore saisi');
+});
+
+test('bon de sortie : numéro seul (dépotage) ou liste par conteneur (enlèvement)', () => {
+  assert.equal(numerosBonSortie({ bonSortieNumero: 'BS-12' }), 'BS-12');
+  assert.equal(numerosBonSortie({ bonSortieNumero: [{ conteneur: 'MSKU1', t1: 'T1-A', numero: 'BS-1' }] }), 'BS-1');
+  assert.equal(numerosBonSortie({ bonSortieNumero: '', sauteBs: true }), 'Non requis');
+  assert.equal(numerosBonSortie({}), '');
+});
+
+test('déclaration : libellé complet, champs vides ignorés', () => {
+  assert.equal(libelleDeclarationEngagement({ numeroDeclaration: '12345', anneeDeclaration: '2026', bureauDeclaration: 'TG120', typeDeclaration: 'T' }), '12345 · 2026 · TG120 · T');
+  assert.equal(libelleDeclarationEngagement({ numeroDeclaration: '12345' }), '12345');
+});
+
+test('extraction : déclarant, déclaration, T1 et bon de sortie présents', () => {
+  const [r] = exporter([{ id: 'CT-1', declarant: 'STE X', numeroDeclaration: '12345', anneeDeclaration: '2026',
+    bureauDeclaration: 'TG120', typeDeclaration: 'T', t1Numeros: [{ conteneur: 'MSKU1', numero: 'T1-A' }], bonSortieNumero: 'BS-9' }]);
+  assert.equal(r!['Déclarant'], 'STE X');
+  assert.equal(r!['N° déclaration'], '12345');
+  assert.equal(r!['Bureau'], 'TG120');
+  assert.equal(r!['T1'], 'T1-A');
+  assert.equal(r!['Bon de sortie'], 'BS-9');
+});
+
+/* ---- Désignation (2026-10-09) ---- */
+test('désignation : « riz ; sucre » garde l\'un OU l\'autre, sans tenir compte des accents', () => {
+  const L2 = [
+    { id: '1', descriptionMarchandise: 'Riz blanc' },
+    { id: '2', descriptionMarchandise: 'SUCRE RAFFINÉ' },
+    { id: '3', descriptionMarchandise: 'Ciment' },
+  ];
+  assert.deepEqual(filtrerEngagements(L2, { designation: 'riz ; sucre' }).map((l) => l['id']), ['1', '2']);
+  assert.deepEqual(filtrerEngagements(L2, { designation: 'raffine' }).map((l) => l['id']), ['2']);
+  assert.equal(filtrerEngagements(L2, { designation: ' ; ' }).length, 3, 'aucun terme : tout passe');
+});
+
+test('extraction des engagements : colonne Désignation', () => {
+  const [r] = exporter([{ id: 'CT-1', descriptionMarchandise: '331 COLIS VÊTEMENTS' }]);
+  assert.equal(r!['Désignation'], '331 COLIS VÊTEMENTS');
 });
