@@ -6402,25 +6402,21 @@ SCREENS.account = ({ user }) => {
 SCREENS.reports = () => <div className="card"><h2>Rapports</h2><p className="help">Sélectionnez un rapport dans le menu (CFS, véhicules, Balise, PP, KPI, dispenses, flux, séjour).</p></div>;
 
 /**
- * EXPORT EXCEL DU SERVEUR, AVEC REPLI (2026-10-24).
+ * EXPORT EXCEL FABRIQUÉ DANS LE NAVIGATEUR (2026-10-25, décision utilisateur :
+ * « je préfère la vitesse aux couleurs »).
  *
- * Le serveur fabrique un classeur mis en forme. Pour un gros export (le CFS
- * d'un mois : plusieurs milliers de lignes de conteneurs), il peut dépasser
- * son temps de calcul et répondre 546. On redemande alors les MÊMES feuilles,
- * brutes (`brut: true`), et le navigateur fabrique le fichier lui-même : mêmes
- * colonnes et mêmes lignes, sans les couleurs. Une erreur MÉTIER (droits,
- * période…) n'est pas reprise : elle se reproduirait à l'identique.
+ * Le serveur ne fait plus que rendre les feuilles (`brut: true`) ; le navigateur
+ * fabrique le classeur : mêmes colonnes et mêmes lignes, sans les couleurs.
+ * Mesuré sur le CFS d'octobre : 2,5 s, là où le classeur coloré du serveur
+ * échouait (HTTP 546) au bout de 6,4 s.
+ *
+ * Secours : si un serveur ancien ne rend pas de feuilles brutes, on reprend son
+ * classeur habituel.
  */
 async function exporterExcelServeur(action: string, params: O): Promise<void> {
-  try {
-    telecharger(await call<O>(action, { ...params, format: 'xlsx' }, { fraiche: true, sansReprise: true }));
-  } catch (e) {
-    const err = e as Error & { statut?: number; ref?: string };
-    if (!err.ref && !(Number(err.statut) >= 500 || err.statut === 0)) throw e;
-    const r = await call<O>(action, { ...params, format: 'xlsx', brut: true }, { fraiche: true });
-    if (!Array.isArray(r['feuilles'])) throw e;
-    await telechargerFeuilles(r);
-  }
+  const r = await call<O>(action, { ...params, format: 'xlsx', brut: true }, { fraiche: true });
+  if (Array.isArray(r['feuilles'])) { await telechargerFeuilles(r); return; }
+  telecharger(r['base64'] ? r : await call<O>(action, { ...params, format: 'xlsx' }, { fraiche: true }));
 }
 
 /** Fabrique le classeur dans le navigateur, avec le même en-tête que le serveur. */
