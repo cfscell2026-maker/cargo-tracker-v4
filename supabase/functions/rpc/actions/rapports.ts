@@ -398,7 +398,12 @@ function habiller(XLSX: any, ws: any, aoa: unknown[][], nbCol: number, decalage:
     }
   }
 }
-async function fichier(nomBase: string, format: string, feuilles: { nom: string; aoa: unknown[][] }[]) {
+async function fichier(nomBase: string, format: string, feuilles: { nom: string; aoa: unknown[][] }[], brut = false) {
+  /* REPLI DE L'EXPORT (2026-10-24) : fabriquer et habiller un gros classeur peut
+     dépasser le temps de calcul du serveur (CFS d'un mois : HTTP 546). Avec
+     `brut`, on rend les feuilles telles quelles ; le navigateur fabrique le
+     fichier lui-même (sans couleurs). L'écran ne le demande qu'après un échec. */
+  if (brut) return { filename: `${nomBase}.xlsx`, feuilles, format, brut: true };
   return { filename: `${nomBase}.xlsx`, mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', base64: await xlsxBase64(feuilles), format };
 }
 const libTaille: Record<string, string> = { t20: "20'", t40: "40'", t45: "45'", autres: 'Autre / non précisé' };
@@ -547,7 +552,7 @@ export async function rapportCFS(ctx: Ctx, p: Record<string, unknown>) {
       { nom: 'Synthèse', aoa: recap },
       { nom: 'Camions', aoa: cam },
       { nom: 'Conteneurs', aoa: det },
-    ]);
+    ], p['brut'] === true);
   }
   return data;
 }
@@ -606,7 +611,7 @@ export async function rapportVehicules(ctx: Ctx, p: Record<string, unknown>) {
   if (p['format'] === 'xlsx' || p['format'] === 'pdf') {
     const aoa: unknown[][] = [['ID', 'Châssis', 'Destination', 'Statut', 'Créé le']];
     r.vehicules.forEach((v) => aoa.push([v['id'], v['chassis'], v['destination'], v['statut'], v['dateCreation']]));
-    return fichier('Rapport_vehicules', String(p['format']), [{ nom: 'Véhicules', aoa }]);
+    return fichier('Rapport_vehicules', String(p['format']), [{ nom: 'Véhicules', aoa }], p['brut'] === true);
   }
   return { periode: p['periode'], du: p['du'], au: p['au'], compte: r.compte, parDest: r.parDest };
 }
@@ -709,7 +714,7 @@ export async function rapportActivite(ctx: Ctx, p: Record<string, unknown>) {
     }
     const t = r.total;
     recap.push(['TOTAL', t.camions, t.twins, t.sansBalise, t.t20, t.t40, t.t45, t.autres, t.conteneurs, t.evp]);
-    return fichier('Rapport_' + p['kind'], String(p['format']), [{ nom: 'Récapitulatif', aoa: recap }]);
+    return fichier('Rapport_' + p['kind'], String(p['format']), [{ nom: 'Récapitulatif', aoa: recap }], p['brut'] === true);
   }
   return { kind: p['kind'], periode: p['periode'], du: p['du'], au: p['au'], parOp: r.parOp, total: r.total };
 }
@@ -810,7 +815,7 @@ export async function rapportHorodatage(ctx: Ctx, p: Record<string, unknown>) {
   if (p['format'] === 'xlsx') {
     const aoa: unknown[][] = [['Cellule', 'Agent', 'Jour', 'Début', 'Fin', 'Durée (min)', 'Camions', 'Conteneurs']];
     rows.forEach((r) => aoa.push([r.celluleLibelle, r.agent, r.jour, r.debut, r.fin, r.dureeMin, r.camions, r.conteneurs]));
-    return fichier('Horodatage_cellules', 'xlsx', [{ nom: 'Plages activité', aoa }]);
+    return fichier('Horodatage_cellules', 'xlsx', [{ nom: 'Plages activité', aoa }], p['brut'] === true);
   }
   return { du, au, rows };
 }
@@ -1173,7 +1178,7 @@ export async function rapportCargaisons(ctx: Ctx, p: Record<string, unknown>) {
   }
   if (p['format'] === 'xlsx') {
     const aoa: unknown[][] = [entetes]; rows.forEach((r) => aoa.push(ligne(r)));
-    return fichier('Cargaisons', 'xlsx', [{ nom: 'Cargaisons', aoa }]);
+    return fichier('Cargaisons', 'xlsx', [{ nom: 'Cargaisons', aoa }], p['brut'] === true);
   }
   if (p['format'] === 'pdf') return htmlTableau('Cargaisons', sousTitre, entetes, rows.map(ligne));
   return { rows, compte: { total: rows.length } };
@@ -1210,7 +1215,7 @@ export async function rapportConteneurs(ctx: Ctx, p: Record<string, unknown>) {
   const ligne = (r: Record<string, unknown>) => [r['numeroTC'], r['taille'], r['statut'], r['provenance'], fmtJ(r['dateEntree']), fmtJ(r['datePointage']), r['pointePar'], r['numeroDeclaration'], r['anneeDeclaration'], r['typeDeclaration'], r['joursSejour']];
   if (p['format'] === 'xlsx') {
     const aoa: unknown[][] = [entetes]; rows.forEach((r) => aoa.push(ligne(r)));
-    return fichier('Conteneurs', 'xlsx', [{ nom: 'Conteneurs', aoa }]);
+    return fichier('Conteneurs', 'xlsx', [{ nom: 'Conteneurs', aoa }], p['brut'] === true);
   }
   if (p['format'] === 'pdf') return htmlTableau('Liste des conteneurs', sousTitre, entetes, rows.map(ligne));
   return { rows, compte: { total: rows.length } };
@@ -1261,7 +1266,7 @@ export async function rapportDispenses(ctx: Ctx, p: Record<string, unknown>) {
     const aoa: unknown[][] = [['ID', 'Camion', 'Nature', 'Référence', 'Type décl.', 'Statut', 'Arrivée bureau']];
     rows.forEach((r) => aoa.push([r['id'], r['numeroCamion'], r['exemption'] === 'escorte' ? 'Escorte' : 'Dispense',
       r['numeroDispense'], r['typeDeclaration'], r['statut'], estOui(r['arriveeBureau']) ? 'Oui' : 'Non']));
-    return fichier('Dispenses', String(p['format']), [{ nom: 'Dispenses', aoa }]);
+    return fichier('Dispenses', String(p['format']), [{ nom: 'Dispenses', aoa }], p['brut'] === true);
   }
   return { compte, rows, mois, types };
 }
@@ -1341,7 +1346,7 @@ export async function rapportFlux(ctx: Ctx, p: Record<string, unknown>) {
     const aoa: unknown[][] = [['Période', 'Conteneurs enlevés', 'Conteneurs dépotés', 'Total conteneurs (TC)', 'EVP', 'Camions balisés', 'Camions sortis']];
     rows.forEach((r) => aoa.push([r.periode, r.enlevesC, r.depotesC, r.tc, r.evp, r.baliseC, r.ppC]));
     aoa.push(['TOTAL', tot.enlevesC, tot.depotesC, tot.tc, tot.evp, tot.baliseC, tot.ppC]);
-    return fichier('Analyse_flux', String(p['format']), [{ nom: 'Flux', aoa }]);
+    return fichier('Analyse_flux', String(p['format']), [{ nom: 'Flux', aoa }], p['brut'] === true);
   }
   return { granularite: gran, du, au, rows, totaux: tot };
 }
@@ -1377,7 +1382,7 @@ export async function rapportDestinations(ctx: Ctx, p: Record<string, unknown>) 
     const aoa: unknown[][] = [['Période', ...codes]];
     series.forEach((r) => aoa.push([r['periode'], ...codes.map((c) => r[c])]));
     aoa.push(['TOTAL', ...codes.map((c) => parDest[c])]);
-    return fichier('Repartition_destinations', String(p['format']), [{ nom: 'Destinations', aoa }]);
+    return fichier('Repartition_destinations', String(p['format']), [{ nom: 'Destinations', aoa }], p['brut'] === true);
   }
   return { granularite: gran, du, au, codes, parDest, total, series };
 }
@@ -1429,7 +1434,7 @@ export async function rapportSejour(ctx: Ctx, p: Record<string, unknown>) {
   if (p['format'] === 'xlsx' || p['format'] === 'pdf') {
     const aoa: unknown[][] = [['ID', 'Camion', 'Opération', 'Statut', 'Âge (j)']];
     instance.forEach((r) => aoa.push([r['id'], r['numeroCamion'], r['typeOperation'], r['statut'], r['age']]));
-    return fichier('Delai_sejour', String(p['format']), [{ nom: 'Camions en instance', aoa }]);
+    return fichier('Delai_sejour', String(p['format']), [{ nom: 'Camions en instance', aoa }], p['brut'] === true);
   }
   return data;
 }
@@ -1558,7 +1563,7 @@ export async function rapportTemps(ctx: Ctx, p: Record<string, unknown>) {
       { nom: 'Synthèse par poste', aoa: [[periode], [], ...[entetesPoste], ...lignesPoste] },
       { nom: 'Moyennes par jour', aoa: aoaJour },
       { nom: 'Détail par dossier', aoa: aoaDetail },
-    ]);
+    ], p['brut'] === true);
   }
   return data;
 }
@@ -2087,7 +2092,7 @@ export async function rapportListe(ctx: Ctx, p: Record<string, unknown>) {
     if (p['statut'] && c['statut'] !== p['statut']) continue;
     aoa.push([c['id'], c['dateCreation'], c['numeroCamion'], c['typeOperation'], c['statut'], c['numeroGps'], c['agentCfs'], c['dateSortie']]);
   }
-  return fichier('Cargaisons', String(p['format'] || 'xlsx'), [{ nom: 'Cargaisons', aoa }]);
+  return fichier('Cargaisons', String(p['format'] || 'xlsx'), [{ nom: 'Cargaisons', aoa }], p['brut'] === true);
 }
 
 /* ============================== Historique ============================ */
@@ -2138,7 +2143,7 @@ export async function rapportHistorique(ctx: Ctx, p: Record<string, unknown>) {
     if (rows.length < BLOC || page >= lot.pages) break;
   }
   await ctx.log('Export historique', '', `${aoa.length - 1} ligne(s)`);
-  return fichier('Historique', String(p['format'] || 'xlsx'), [{ nom: 'Historique', aoa }]);
+  return fichier('Historique', String(p['format'] || 'xlsx'), [{ nom: 'Historique', aoa }], p['brut'] === true);
 }
 
 /**

@@ -445,8 +445,8 @@ function ExportCargaisons({ statutListe, searchListe }: { statutListe?: string; 
     if (searchListe && searchListe.trim()) params['search'] = searchListe.trim();
     setBusy(true);
     try {
-      const r = await call<O>('report.cargaisons', params);
-      if (fmt === 'pdf') imprimerHtml(String(r['html'] ?? '')); else telecharger(r);
+      if (fmt === 'xlsx') await exporterExcelServeur('report.cargaisons', params);
+      else imprimerHtml(String((await call<O>('report.cargaisons', params))['html'] ?? ''));
     } catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(false); }
   }
   /* BOUTON D'EN-TÊTE + FENÊTRE (2026-09-11, demande utilisateur). Le panneau
@@ -3243,8 +3243,8 @@ function ExportConteneurs({ statutDefaut }: { statutDefaut: string }) {
   async function exporter(fmt: 'xlsx' | 'pdf') {
     setBusy(true);
     try {
-      const r = await call<O>('report.conteneurs', { statut, du: p.du, au: p.au, format: fmt });
-      if (fmt === 'pdf') imprimerHtml(String(r['html'] ?? '')); else telecharger(r);
+      if (fmt === 'xlsx') await exporterExcelServeur('report.conteneurs', { statut, du: p.du, au: p.au });
+      else imprimerHtml(String((await call<O>('report.conteneurs', { statut, du: p.du, au: p.au, format: fmt }))['html'] ?? ''));
     } catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(false); }
   }
   return <details style={{ border: '1px solid var(--line)', borderRadius: 6, padding: '8px 12px', margin: '6px 0 10px' }}>
@@ -4256,7 +4256,11 @@ function RapportCellule({ action, detail, titre, twins, camLabel, go, etape, ico
   const [op, setOp] = useState('');
   const { data, loading } = useAsync<O>(() => call(action, { du, au, periode: m, operation: op }), [du, au, op]);
   const [modal, setModal] = useState<{ op: string; metric: MetriqueCellule } | null>(null);
-  async function exporter(fmt: string) { const f = await call<O>(action, { du, au, periode: m, operation: op, format: fmt }); telecharger(f); }
+  async function exporter(fmt: string) {
+    const params: O = { du, au, periode: m, operation: op };
+    if (fmt === 'xlsx') { await exporterExcelServeur(action, params); return; }
+    telecharger(await call<O>(action, { ...params, format: fmt }));
+  }
 
   const parOp = (data?.['parOp'] ?? {}) as Record<string, O>;
   const total = (data?.['total'] ?? {}) as O;
@@ -4376,7 +4380,9 @@ SCREENS.vehreport = () => {
   const { m, du, au } = p;
   const { data, loading } = useAsync<O>(() => call('report.vehicule', { du, au, periode: m }), [du, au]);
   const cp = (data?.['compte'] ?? {}) as O; const pd = (data?.['parDest'] ?? {}) as O;
-  const exporter = async (format: string) => telecharger(await call<O>('report.vehicule', { du, au, periode: m, format }));
+  const exporter = async (format: string) => (format === 'xlsx'
+    ? exporterExcelServeur('report.vehicule', { du, au, periode: m })
+    : telecharger(await call<O>('report.vehicule', { du, au, periode: m, format })));
   return <><BandeauModule icone="voiture" titre="Rapport véhicules" sous={<PeriodeChoisieLue c={p} />}
     action={<div className="bm-outils"><SelecteurPeriode c={p} />
       <BoutonExcel titre="Extraire en Excel la liste des véhicules de la période" onClick={() => exporter('xlsx')} />
@@ -5136,8 +5142,9 @@ SCREENS.temps = ({ go }) => {
   async function exporter(fmt: 'xlsx' | 'pdf') {
     setBusy(true);
     try {
-      const r = await call<O>('report.temps', { du, au, format: fmt, ...(avecVeh ? {} : { vehicules: false }) });
-      if (fmt === 'pdf') imprimerHtml(String(r['html'] ?? '')); else telecharger(r);
+      const params: O = { du, au, ...(avecVeh ? {} : { vehicules: false }) };
+      if (fmt === 'xlsx') await exporterExcelServeur('report.temps', params);
+      else imprimerHtml(String((await call<O>('report.temps', { ...params, format: fmt }))['html'] ?? ''));
     } catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(false); }
   }
 
@@ -5286,7 +5293,7 @@ SCREENS.horodatage = () => {
   const [busy, setBusy] = useState(false);
   async function exporter() {
     setBusy(true);
-    try { telecharger(await call<O>('report.horodatage', { du, au, cellule, format: 'xlsx' })); }
+    try { await exporterExcelServeur('report.horodatage', { du, au, cellule }); }
     catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(false); }
   }
   return <><BandeauModule icone="horloge" titre="Plage d'activité par cellule" sous={<PeriodeChoisieLue c={p} />}
@@ -6393,6 +6400,44 @@ SCREENS.account = ({ user }) => {
 };
 
 SCREENS.reports = () => <div className="card"><h2>Rapports</h2><p className="help">Sélectionnez un rapport dans le menu (CFS, véhicules, Balise, PP, KPI, dispenses, flux, séjour).</p></div>;
+
+/**
+ * EXPORT EXCEL DU SERVEUR, AVEC REPLI (2026-10-24).
+ *
+ * Le serveur fabrique un classeur mis en forme. Pour un gros export (le CFS
+ * d'un mois : plusieurs milliers de lignes de conteneurs), il peut dépasser
+ * son temps de calcul et répondre 546. On redemande alors les MÊMES feuilles,
+ * brutes (`brut: true`), et le navigateur fabrique le fichier lui-même : mêmes
+ * colonnes et mêmes lignes, sans les couleurs. Une erreur MÉTIER (droits,
+ * période…) n'est pas reprise : elle se reproduirait à l'identique.
+ */
+async function exporterExcelServeur(action: string, params: O): Promise<void> {
+  try {
+    telecharger(await call<O>(action, { ...params, format: 'xlsx' }, { fraiche: true, sansReprise: true }));
+  } catch (e) {
+    const err = e as Error & { statut?: number; ref?: string };
+    if (!err.ref && !(Number(err.statut) >= 500 || err.statut === 0)) throw e;
+    const r = await call<O>(action, { ...params, format: 'xlsx', brut: true }, { fraiche: true });
+    if (!Array.isArray(r['feuilles'])) throw e;
+    await telechargerFeuilles(r);
+  }
+}
+
+/** Fabrique le classeur dans le navigateur, avec le même en-tête que le serveur. */
+async function telechargerFeuilles(r: O): Promise<void> {
+  const XLSX = await chargerExcel();
+  const classeur = XLSX.utils.book_new();
+  for (const f of r['feuilles'] as { nom: string; aoa: unknown[][] }[]) {
+    const nbCol = Math.max(1, ...f.aoa.map((l) => l.length));
+    const feuille = XLSX.utils.aoa_to_sheet([['PIA Dry Port, Adétikopé · Suivi des cargaisons'], [f.nom], [], ...f.aoa]);
+    feuille['!cols'] = Array.from({ length: nbCol }, (_, c) => ({
+      wch: Math.min(60, Math.max(8, ...f.aoa.map((l) => String(l[c] ?? '').length + 2))),
+    }));
+    if (nbCol > 1) feuille['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: nbCol - 1 } }, { s: { r: 1, c: 0 }, e: { r: 1, c: nbCol - 1 } }];
+    XLSX.utils.book_append_sheet(classeur, feuille, String(f.nom).slice(0, 31));
+  }
+  XLSX.writeFile(classeur, String(r['filename'] ?? 'export.xlsx'));
+}
 
 function telecharger(f: O) {
   const b64 = String(f['base64'] ?? ''); if (!b64) return;
