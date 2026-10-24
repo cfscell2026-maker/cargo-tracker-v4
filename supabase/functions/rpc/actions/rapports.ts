@@ -57,6 +57,32 @@ async function loadCargos(ctx: Ctx, affiner?: (q: any) => any): Promise<Record<s
   return data.filter((r) => r['annule'] !== true && r['archive'] !== true).map((r) => versCamel(r));
 }
 
+/**
+ * Cargaisons ALLÉGÉES pour les statistiques (2026-10-24, vitesse) : la vue
+ * `v_cargaisons_stats` (00208) ne rend que les colonnes simples utiles et des
+ * conteneurs réduits à num / taille / type / partage. Mêmes filtres que
+ * `loadCargos` (annulés et archivés écartés). À réserver aux rapports qui
+ * n'utilisent RIEN d'autre (vérifié champ par champ : Flux, Contrôles).
+ *
+ * Vue absente (migration pas encore passée) : retour sur `loadCargos`, sans
+ * erreur. Le déploiement du serveur ne dépend donc pas de la migration.
+ */
+// deno-lint-ignore no-explicit-any
+async function loadCargosStats(ctx: Ctx, affiner?: (q: any) => any): Promise<Record<string, unknown>[]> {
+  // deno-lint-ignore no-explicit-any
+  const vivantes = (q: any) => {
+    const v = q.not('annule', 'is', true).not('archive', 'is', true);
+    return affiner ? affiner(v) : v;
+  };
+  try {
+    const data = await fetchAll(ctx, 'v_cargaisons_stats', '*', undefined, vivantes);
+    return data.filter((r) => r['annule'] !== true && r['archive'] !== true).map((r) => versCamel(r));
+  } catch (e) {
+    if (!/v_cargaisons_stats|PGRST205|schema cache|does not exist/i.test((e as Error).message)) throw e;
+    return loadCargos(ctx, affiner);
+  }
+}
+
 /* ===== PRÉ-FILTRES SQL DES ÉCRANS DE VALIDATION, 2026-09-11 ==============
  *
  * Mesuré sur la base réelle : `report.validationdecl` tenait 5,4 s en moyenne et
@@ -1026,7 +1052,7 @@ export async function rapportKPI(ctx: Ctx, p: Record<string, unknown>) {
 export async function rapportControles(ctx: Ctx, p: Record<string, unknown>) {
   const du = p['du'] as string | undefined;
   const au = p['au'] as string | undefined;
-  const cargos = await loadCargos(ctx, SQL_PERIODE('date_creation', du, au));
+  const cargos = await loadCargosStats(ctx, SQL_PERIODE('date_creation', du, au));
   const vide = () => ({ camions: 0, conteneurs: 0 });
   const r = { horsGabarit: vide(), surcharge: vide(), transitNational: vide() };
   for (const c of cargos) {
@@ -1234,7 +1260,7 @@ export async function rapportFlux(ctx: Ctx, p: Record<string, unknown>) {
   const du = String(p['du'] ?? '') || undefined;
   const au = String(p['au'] ?? '') || undefined;
   const dansPeriode = (v: unknown) => (!du && !au) || inRange(v, du, au);
-  const cargos = await loadCargos(ctx, SQL_UNE_DATE_DEPUIS(['date_creation', 'date_pose_gps', 'date_sortie'], du));
+  const cargos = await loadCargosStats(ctx, SQL_UNE_DATE_DEPUIS(['date_creation', 'date_pose_gps', 'date_sortie'], du));
   const map: Record<string, FluxLigne> = {};
   const bump = (k: string | null) => { if (!k) return null; if (!map[k]) map[k] = fluxVide(k); return map[k]; };
   const tot = fluxVide('');

@@ -45,20 +45,30 @@ export async function exigerSession(db: SupabaseClient, authHeader: string | nul
   // ⚠ ORDRE IMPORTANT : `getUser` valide la SIGNATURE du jeton auprès du serveur
   // d'authentification. Le décodage de `aal` ci-dessous porte donc sur un jeton
   // déjà authentifié, ne jamais inverser ces deux étapes.
-  const { data, error } = await db.auth.getUser(jwt);
-  if (error || !data?.user) throw new AuthError('Session expirée. Veuillez vous reconnecter.');
+  /* VITESSE, 2026-10-24 : la vérification du jeton et la lecture du profil
+     partent EN MÊME TEMPS (un aller-retour de moins à chaque appel). Le profil
+     est lu sur l'identifiant que le jeton ANNONCE, puis n'est retenu que si
+     `getUser` confirme le jeton ET ce même identifiant : la sécurité reste celle
+     de `getUser`, on a seulement cessé d'attendre pour lire le profil. */
+  const annonce = String(jwtPayload(jwt)['sub'] ?? '');
+  const [{ data, error }, { data: profil, error: pErr }] = await Promise.all([
+    db.auth.getUser(jwt),
+    db.from('profils')
+      .select('id, username, nom_complet, role, actif, doit_changer_mdp, derniere_connexion')
+      .eq('id', annonce)
+      .maybeSingle(),
+  ]);
+  if (error || !data?.user || data.user.id !== annonce) throw new AuthError('Session expirée. Veuillez vous reconnecter.');
   if (MFA_REQUISE && String(jwtPayload(jwt)['aal'] ?? '') !== 'aal2')
     throw new AuthError('Double authentification requise. Veuillez valider votre code.');
-
-  const { data: profil, error: pErr } = await db
-    .from('profils')
-    .select('id, username, nom_complet, role, actif, doit_changer_mdp')
-    .eq('id', data.user.id)
-    .single();
   if (pErr || !profil) throw new AuthError('Session expirée. Veuillez vous reconnecter.');
   if (!profil.actif) throw new AuthError("Compte désactivé. Contactez l'administrateur.");
-  // Trace de dernière connexion (best-effort).
-  db.from('profils').update({ derniere_connexion: new Date().toISOString() }).eq('id', profil.id).then(() => {});
+  /* Trace de dernière connexion (best-effort) : écrite au plus toutes les
+     10 minutes, et non plus à CHAQUE appel. Une écriture par clic, pour chaque
+     agent, consommait des E/S disque sans rien apprendre de plus. */
+  const derniere = Date.parse(String(profil.derniere_connexion ?? ''));
+  if (!(derniere > Date.now() - 10 * 60_000))
+    db.from('profils').update({ derniere_connexion: new Date().toISOString() }).eq('id', profil.id).then(() => {});
   return {
     userId: profil.id,
     username: profil.username,

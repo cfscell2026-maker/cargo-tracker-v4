@@ -108,11 +108,26 @@ async function lire(ctx: Ctx): Promise<LigneVerrou | null> {
  * qui se refermerait sur une panne de base bloquerait tout le port sans que
  * personne l'ait demandé, et sans qu'on puisse rouvrir.
  */
+/* ÉTAT DU VERROU GARDÉ 10 s (2026-10-24, vitesse). Il était relu en base à
+   CHAQUE appel de CHAQUE agent. Une instance du serveur le garde 10 s ; toute
+   écriture du verrou ci-dessous le vide aussitôt. Clé : la connexion à la base,
+   pour que deux bases (tests) ne se partagent jamais un état. */
+const ETAT_TTL_MS = 10_000;
+const etatEnCache = new WeakMap<object, { expire: number; etat: Promise<{ actif: boolean; message: string }> }>();
+const oublierEtat = (ctx: Ctx) => { etatEnCache.delete(ctx.db as unknown as object); };
+
 export async function etatVerrou(ctx: Ctx): Promise<{ actif: boolean; message: string }> {
-  try {
-    const l = await lire(ctx);
-    return { actif: l?.actif === true, message: String(l?.message ?? '') };
-  } catch { return { actif: false, message: '' }; }
+  const cle = ctx.db as unknown as object;
+  const e = etatEnCache.get(cle);
+  if (e && e.expire > Date.now()) return e.etat;
+  const etat = (async () => {
+    try {
+      const l = await lire(ctx);
+      return { actif: l?.actif === true, message: String(l?.message ?? '') };
+    } catch { return { actif: false, message: '' }; }
+  })();
+  etatEnCache.set(cle, { expire: Date.now() + ETAT_TTL_MS, etat });
+  return etat;
 }
 
 /** Ce que le panneau de l'INFO affiche. Le hash n'en fait PAS partie. */
@@ -155,6 +170,7 @@ export async function verrouDefinir(ctx: Ctx, p: Record<string, unknown>) {
   const sel = b64(crypto.getRandomValues(new Uint8Array(16)).buffer);
   const hash = await deriver(nouveau, sel);
   const maintenant = new Date().toISOString();
+  oublierEtat(ctx);
   const { error } = await ctx.db.from('verrou_application').upsert({
     cle: CLE, actif: existant?.actif === true, message: String(existant?.message ?? ''),
     mdp_hash: hash, mdp_sel: sel, mdp_tours: TOURS, mdp_defini_le: maintenant, maj_le: maintenant,
@@ -172,6 +188,7 @@ export async function verrouBloquer(ctx: Ctx, p: Record<string, unknown>) {
   if (!message)
     throw new ErreurMetier('Indiquez la raison du blocage : c\'est ce que les agents verront à l\'écran.');
   const maintenant = new Date().toISOString();
+  oublierEtat(ctx);
   const { error } = await ctx.db.from('verrou_application')
     .update({ actif: true, message, bloque_le: maintenant, bloque_par: ctx.session.nomComplet, maj_le: maintenant })
     .eq('cle', CLE);
@@ -185,6 +202,7 @@ export async function verrouOuvrir(ctx: Ctx, p: Record<string, unknown>) {
   exigerInfo(ctx);
   await verifier(ctx, p['motDePasse']);
   const maintenant = new Date().toISOString();
+  oublierEtat(ctx);
   const { error } = await ctx.db.from('verrou_application')
     .update({ actif: false, message: '', ouvert_le: maintenant, ouvert_par: ctx.session.nomComplet, maj_le: maintenant })
     .eq('cle', CLE);

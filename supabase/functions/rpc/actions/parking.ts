@@ -26,7 +26,7 @@ import {
   alphaNumMaj, camionValide, messageCamionFormat, maj, normAlphaNum,
   fileAttente, LIBELLE_ETAPE, STATUTS,
 } from '../../_shared/domaine/src/index.ts';
-import { nextRef } from './helpers.ts';
+import { nextRef, fetchAll } from './helpers.ts';
 
 const PRESENT = 'Présent';
 const SORTI = 'Sorti';
@@ -127,15 +127,21 @@ export async function parkingList(ctx: Ctx, p: Record<string, unknown>) {
   const du = String(p['du'] ?? '').slice(0, 10);
   const au = String(p['au'] ?? '').slice(0, 10);
 
-  let q = ctx.db.from('parking_camions').select('*').order('date_entree', { ascending: false });
-  if (statut === 'presents') q = q.eq('statut', PRESENT);
-  else if (statut === 'sortis') q = q.eq('statut', SORTI);
-  if (du) q = q.gte('date_entree', du + 'T00:00:00');
-  if (au) q = q.lte('date_entree', au + 'T23:59:59.999');
-  const { data, error } = await q;
-  if (error) {
-    if (estTableAbsente(error.message)) return { lignes: [], compte: { presents: 0, pointes: 0, restants: 0 }, active: false };
-    throw new Error(error.message);
+  /* VITESSE ET JUSTESSE, 2026-10-24 : lecture COMPLÈTE par clé (`fetchAll`).
+     La requête directe plafonnait en silence à 1 000 lignes (limite de l'API). */
+  let data: Record<string, unknown>[];
+  try {
+    // deno-lint-ignore no-explicit-any
+    data = await fetchAll(ctx, 'parking_camions', '*', { colonne: 'date_entree', ascendant: false }, (q: any) => {
+      if (statut === 'presents') q = q.eq('statut', PRESENT);
+      else if (statut === 'sortis') q = q.eq('statut', SORTI);
+      if (du) q = q.gte('date_entree', du + 'T00:00:00');
+      if (au) q = q.lte('date_entree', au + 'T23:59:59.999');
+      return q;
+    });
+  } catch (e) {
+    if (estTableAbsente((e as Error).message)) return { lignes: [], compte: { presents: 0, pointes: 0, restants: 0 }, active: false };
+    throw e;
   }
 
   const lignes = (data ?? []).map((r) => versCamel(r as Record<string, unknown>) as LigneParking)
@@ -145,9 +151,21 @@ export async function parkingList(ctx: Ctx, p: Record<string, unknown>) {
   const aujourdhui = jour();
   const pointesAujourdhui = new Set<string>();
   const dernier = new Map<string, string>();
-  const { data: pts, error: e2 } = await ctx.db.from('parking_pointages').select('parking_id, jour, pointe_par');
-  if (e2 && !estTableAbsente(e2.message)) throw new Error(e2.message);
-  for (const r of (pts ?? []) as Record<string, unknown>[]) {
+  /* 2026-10-24 : seulement les pointages des lignes AFFICHÉES (index parking_id,
+     jour), et non plus tous ceux depuis l'ouverture du parking, qui de plus
+     plafonnaient à 1 000 lignes. Par paquets, pour une URL de taille raisonnable. */
+  const pts: Record<string, unknown>[] = [];
+  const ids = lignes.map((l) => String(l['id']));
+  try {
+    for (let i = 0; i < ids.length; i += 300) {
+      const paquet = ids.slice(i, i + 300);
+      // deno-lint-ignore no-explicit-any
+      pts.push(...await fetchAll(ctx, 'parking_pointages', 'parking_id, jour, pointe_par', undefined, (q: any) => q.in('parking_id', paquet)));
+    }
+  } catch (e) {
+    if (!estTableAbsente((e as Error).message)) throw e;
+  }
+  for (const r of pts) {
     const id = String(r['parking_id']);
     const j = String(r['jour'] ?? '').slice(0, 10);
     if (j === aujourdhui) pointesAujourdhui.add(id);

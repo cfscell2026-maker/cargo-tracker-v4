@@ -249,8 +249,38 @@ export class FakeDB {
         .map((c) => this.resume(colonnesGenerees('cargaisons', { ...c })));
       return q;
     }
+    /* Vue allégée des statistiques (00208), même calcul que le SQL. Absente
+       du magasin tant qu'un test ne l'active pas (`vueStats`) : on teste ainsi
+       les deux chemins, vue et repli sur la table. */
+    if (table === 'v_cargaisons_stats' && this.vueStats) {
+      const allege = (e: unknown) => {
+        const o = (e && typeof e === 'object' ? e : {}) as Row;
+        const r: Row = {};
+        for (const k of ['num', 'taille', 'type', 'partage']) if (o[k] !== null && o[k] !== undefined) r[k] = o[k];
+        return r;
+      };
+      this.store['__stats'] = this.store['cargaisons'].map((c) => {
+        const cd = c['conteneurs_details'] as unknown;
+        let slim: unknown = cd;
+        if (cd && typeof cd === 'object' && !Array.isArray(cd) && Array.isArray((cd as Row)['conteneurs']))
+          slim = { conteneurs: ((cd as Row)['conteneurs'] as unknown[]).map(allege), scellesCamion: [] };
+        else if (Array.isArray(cd)) slim = cd.map(allege);
+        const r: Row = {};
+        for (const k of ['id', 'numero_camion', 'type_operation', 'statut', 'est_vehicule', 'agent_cfs', 'date_creation',
+          'date_validation', 'date_t1', 'date_bon_sortie', 'date_pose_gps', 'date_sortie', 'hors_gabarit', 'en_surcharge',
+          'destination_marchandise', 'annule', 'archive']) if (k in c) r[k] = c[k];
+        r['conteneurs_details'] = slim;
+        return r;
+      });
+      return new Query(this.store, '__stats');
+    }
+    if (table === 'v_cargaisons_stats')
+      return { select: () => { throw new Error("Could not find the table 'public.v_cargaisons_stats' in the schema cache"); } } as never;
     return new Query(this.store, table);
   }
+
+  /** Active la vue allégée 00208 dans ce magasin (sinon : vue absente). */
+  vueStats = false;
 
   private resume(c: Row): Row {
     return { ...c };
