@@ -1363,8 +1363,7 @@ export async function rapportDestinations(ctx: Ctx, p: Record<string, unknown>) 
   const au = String(p['au'] ?? '') || undefined;
   const dansPeriode = (v: unknown) => (!du && !au) || inRange(v, du, au);
   const codes = [...DESTINATION_CODES, 'Autres'];
-  // 2026-10-25 : vue allégée (date de sortie, destination, véhicule suffisent) ; échouait en 546 sur l'année.
-  const cargos = await loadCargosStats(ctx, SQL_PERIODE('date_sortie', du, au));
+  const cargos = await loadCargos(ctx, SQL_PERIODE('date_sortie', du, au));
   const parDest: Record<string, number> = {}; codes.forEach((c) => (parDest[c] = 0));
   const map: Record<string, Record<string, unknown>> = {};
   let total = 0;

@@ -59,16 +59,3 @@ test('vue allégée : ce qu\'elle transmet est bien réduit', async () => {
   const ct = (data[0]!['conteneurs_details'] as { conteneurs: Record<string, unknown>[] }).conteneurs[0]!;
   assert.deepEqual(Object.keys(ct).sort(), ['num', 'taille', 'type']);
 });
-
-test('vue allégée : Répartition par destination identique avec et sans la vue (2026-10-25)', async () => {
-  const P2 = { du: '2026-01-01', au: '2026-12-31', granularite: 'mois' };
-  const ajoutSorties = (ctx: Ctx) => {
-    const db = ctx.db as never as FakeDB;
-    for (const c of db.store['cargaisons']) if (!c['date_sortie']) c['date_sortie'] = '2026-10-09T10:00:00Z';
-    return ctx;
-  };
-  const sans = await rap.rapportDestinations(ajoutSorties(base(false)), P2);
-  const avec = await rap.rapportDestinations(ajoutSorties(base(true)), P2);
-  assert.deepEqual(avec, sans);
-  assert.ok((sans as { total: number }).total >= 3);
-});
