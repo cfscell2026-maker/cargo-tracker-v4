@@ -724,9 +724,23 @@ SCREENS.dash = (nav) => {
   const [tic, setTic] = useState(0);
   // Fréquence réglable dans les Paramètres (2026-09-21), 60 s par défaut.
   const { actualisationSecondes } = useParametres();
+  /* ONGLET CACHÉ = PAS D'APPEL (2026-10-24, budget d'E/S disque épuisé).
+     Un tableau de bord laissé ouvert toute la journée, et la nuit, relançait
+     la requête toutes les 60 s pour personne : plus de 1 400 relectures de
+     `cargaisons` par jour et par onglet. On ne rafraîchit donc que l'onglet
+     VISIBLE, et on rattrape au retour si l'intervalle est écoulé. */
   useEffect(() => {
-    const t = window.setInterval(() => setTic((x) => x + 1), actualisationSecondes * 1000);
-    return () => window.clearInterval(t);
+    const periode = actualisationSecondes * 1000;
+    let dernier = Date.now();
+    const rafraichir = () => { dernier = Date.now(); setTic((x) => x + 1); };
+    const t = window.setInterval(() => {
+      if (document.visibilityState === 'visible') rafraichir();
+    }, periode);
+    const auRetour = () => {
+      if (document.visibilityState === 'visible' && Date.now() - dernier >= periode) rafraichir();
+    };
+    document.addEventListener('visibilitychange', auRetour);
+    return () => { window.clearInterval(t); document.removeEventListener('visibilitychange', auRetour); };
   }, [actualisationSecondes]);
   const { data, loading } = useAsync<O>(() => call('dashboard.stats', { du, au }), [du, au, tic]);
   const s = data ?? {};
