@@ -58,6 +58,30 @@ async function loadCargos(ctx: Ctx, affiner?: (q: any) => any): Promise<Record<s
 }
 
 /**
+ * CALCUL PAR LA BASE (00209, 2026-10-24) : appelle une fonction SQL qui rend
+ * directement le résultat d'un rapport. Rend `null` quand il faut garder le
+ * calcul JavaScript : fonction absente (migration pas encore passée), erreur,
+ * ou réponse vide. Le rapport reste donc juste dans tous les cas.
+ */
+async function calculEnBase(ctx: Ctx, fonction: string, args: Record<string, unknown>): Promise<Record<string, unknown> | null> {
+  try {
+    const { data, error } = await ctx.db.rpc(fonction, args);
+    if (error) {
+      if (!/could not find|does not exist|PGRST202|schema cache/i.test(error.message))
+        console.error(`[CALCUL-BASE] ${fonction} : ${error.message}`);
+      return null;
+    }
+    return data && typeof data === 'object' ? data as Record<string, unknown> : null;
+  } catch { return null; }
+}
+/** Une borne de période utilisable en SQL : vide, ou AAAA-MM-JJ. Sinon `undefined` (calcul JS). */
+const borneSql = (v: unknown): string | null | undefined => {
+  const t = typeof v === 'string' ? v.trim() : '';
+  if (!t) return null;
+  return /^\d{4}-\d{2}-\d{2}$/.test(t) ? t : undefined;
+};
+
+/**
  * Cargaisons ALLÉGÉES pour les statistiques (2026-10-24, vitesse) : la vue
  * `v_cargaisons_stats` (00208) ne rend que les colonnes simples utiles et des
  * conteneurs réduits à num / taille / type / partage. Mêmes filtres que
@@ -481,6 +505,14 @@ function collecteCFS(cargos: Record<string, unknown>[], du?: string, au?: string
 
 export async function rapportCFS(ctx: Ctx, p: Record<string, unknown>) {
   const agentLc = agentForce(ctx, ROLES.CFS, p['agentCFS']);
+  /* 2026-10-24 : à l'écran et sans filtre par agent, les totaux sont calculés
+     dans la base (00209), mêmes règles. L'export garde le calcul JavaScript,
+     qui fournit aussi les listes de camions et de conteneurs. */
+  const [cDu, cAu] = [borneSql(p['du']), borneSql(p['au'])];
+  if (p['format'] !== 'xlsx' && p['format'] !== 'pdf' && !agentLc && cDu !== undefined && cAu !== undefined) {
+    const r = await calculEnBase(ctx, 'fn_rapport_cfs', { p_du: cDu, p_au: cAu });
+    if (r && r['parOp'] && r['total']) return { periode: p['periode'], du: p['du'], au: p['au'], parOp: r['parOp'], total: r['total'] };
+  }
   const cargos = await loadCargos(ctx, SQL_PERIODE('date_creation', p['du'], p['au']));
   const r = collecteCFS(cargos, p['du'] as string, p['au'] as string, agentLc || undefined);
   const data = { periode: p['periode'], du: p['du'], au: p['au'], parOp: r.parOp, total: r.total };
@@ -1260,6 +1292,12 @@ export async function rapportFlux(ctx: Ctx, p: Record<string, unknown>) {
   const du = String(p['du'] ?? '') || undefined;
   const au = String(p['au'] ?? '') || undefined;
   const dansPeriode = (v: unknown) => (!du && !au) || inRange(v, du, au);
+  // 2026-10-24 : à l'écran, le calcul se fait dans la base (00209), mêmes règles.
+  const [bDu, bAu] = [borneSql(du), borneSql(au)];
+  if (p['format'] !== 'xlsx' && p['format'] !== 'pdf' && bDu !== undefined && bAu !== undefined) {
+    const r = await calculEnBase(ctx, 'fn_rapport_flux', { p_du: bDu, p_au: bAu, p_gran: gran });
+    if (r && Array.isArray(r['rows'])) return { granularite: gran, du, au, rows: r['rows'], totaux: r['totaux'] };
+  }
   const cargos = await loadCargosStats(ctx, SQL_UNE_DATE_DEPUIS(['date_creation', 'date_pose_gps', 'date_sortie'], du));
   const map: Record<string, FluxLigne> = {};
   const bump = (k: string | null) => { if (!k) return null; if (!map[k]) map[k] = fluxVide(k); return map[k]; };
