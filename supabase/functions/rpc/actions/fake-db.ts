@@ -31,6 +31,7 @@ function match(row: Row, filters: [string, string, unknown][]): boolean {
     // `undefined`. Les traiter différemment faisait échouer des filtres qui
     // passent en base, le double doit imiter Postgres, pas JavaScript.
     if (op === 'is') return val === null ? (v === null || v === undefined) : v === val;
+    if (op === 'not.is') return !(val === null ? (v === null || v === undefined) : v === val);
     if (op === 'in') return Array.isArray(val) && (val as unknown[]).includes(v);
     if (op === 'gte') return String(v) >= String(val);
     if (op === 'lte') return String(v) <= String(val);
@@ -119,6 +120,13 @@ class Query {
      terme inconnu leve, plutot que de filtrer a cote en silence. */
   or(expr: string) { this.filters.push(['', 'or', expr]); return this; }
   is(c: string, v: unknown) { this.filters.push([c, 'is', v]); return this; }
+  /* `not` ajoute le 2026-10-19 (lenteur) : `annule IS NOT TRUE`. Seul `is` est
+     traduit, le seul employe ; il garde la semantique SQL, une colonne NULL (ici
+     absente de l'objet) passe le filtre. */
+  not(c: string, op: string, v: unknown) {
+    if (op !== 'is') throw new Error('FakeDB.not : operateur « ' + op + ' » non gere');
+    this.filters.push([c, 'not.is', v]); return this;
+  }
   in(c: string, v: unknown[]) { this.filters.push([c, 'in', v]); return this; }
   gte(c: string, v: unknown) { this.filters.push([c, 'gte', v]); return this; }
   lte(c: string, v: unknown) { this.filters.push([c, 'lte', v]); return this; }
@@ -233,7 +241,12 @@ export class FakeDB {
     // La vue résumé est calculée à la volée depuis cargaisons.
     if (table === 'v_cargaisons_resume') {
       const q = new Query(this.store, '__resume');
-      this.store['__resume'] = this.store['cargaisons'].map((c) => this.resume(c));
+      /* Comme la vraie vue (00190) : `where not annule and not archive`, et la
+         colonne générée calculée même pour une ligne posée directement dans le
+         magasin par un test (2026-10-19). */
+      this.store['__resume'] = this.store['cargaisons']
+        .filter((c) => c['annule'] !== true && c['archive'] !== true)
+        .map((c) => this.resume(colonnesGenerees('cargaisons', { ...c })));
       return q;
     }
     return new Query(this.store, table);

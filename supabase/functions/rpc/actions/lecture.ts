@@ -146,7 +146,13 @@ export async function cargoGet(ctx: Ctx, data: { id?: string }) {
 export async function cargoSearch(ctx: Ctx, data: { valeur?: string }) {
   const q = normAlphaNum(data.valeur);
   if (!q) return [];
-  const all = await chargerResume(ctx);
+  /* LENTEUR, 2026-10-19 : la vue ENTIÈRE (plus de 14 000 dossiers) était
+     rapatriée à chaque recherche pour n'en garder que quelques-uns. Le filtre
+     part désormais en SQL, sur `numero_camion_norm`, la colonne que la base
+     calcule elle-même (majuscules, sans espaces ni ponctuation) : c'est la même
+     normalisation que `normAlphaNum`, et `q` n'est fait que de lettres et de
+     chiffres, donc sans joker. Le tri JS ci-dessous reste juge. */
+  const all = await chargerResume(ctx, (sql: any) => sql.like('numero_camion_norm', '%' + q + '%'));
   const res: Record<string, unknown>[] = [];
   for (const r of all) {
     const norm = normAlphaNum(r['numeroCamion']);
@@ -315,7 +321,27 @@ export async function cargoCheckdup(
   } = { camion: [], conteneurs: {}, similaires: [] };
   for (const k of conts) res.conteneurs[k] = [];
 
-  const resume = await chargerResume(ctx);
+  /* LENTEUR, 2026-10-19 : ce contrôle part à CHAQUE création de camion, et
+     rapatriait la vue entière. Trois lectures ciblées le remplacent, sans rien
+     changer à ce qu'il trouve :
+       · le N° identique, quel que soit le statut (égalité sur la colonne
+         normalisée, celle que la base calcule) ;
+       · les camions ENCORE DANS L'ENCEINTE, seuls candidats aux quasi-doublons
+         (`actif` = statut différent de la sortie, comme plus bas) ;
+       · plus loin, les dossiers des conteneurs déjà vus, par leur identifiant. */
+  const [exacts, actifs] = numCam
+    ? await Promise.all([
+      chargerResume(ctx, (q: any) => q.eq('numero_camion_norm', numCam)),
+      chargerResume(ctx, (q: any) => q.neq('statut', STATUTS.SORTIE)),
+    ])
+    : [[], []];
+  const vusIds = new Set<string>();
+  const resume = [...exacts, ...actifs].filter((r) => {
+    const id = String(r['id']);
+    if (vusIds.has(id)) return false;
+    vusIds.add(id);
+    return true;
+  }).sort((a, b) => ts(b['dateCreation']) - ts(a['dateCreation']));
   const similaires: { id: string; statut: string; dateCreation: unknown; numeroCamion: string; similarite: number }[] = [];
   const infoById: Record<string, { id: string; statut: string; dateCreation: unknown; numeroCamion: string; actif: boolean }> = {};
   for (const r of resume) {
@@ -346,6 +372,17 @@ export async function cargoCheckdup(
       .select('cargaison_id, conteneur, numero_camion')
       .in('conteneur', conts);
     if (error) throw new Error(error.message);
+    // Les dossiers de ces conteneurs, s'ils ne sont pas déjà connus.
+    const manquants = [...new Set<string>((data ?? []).map((r: { cargaison_id: unknown }) => String(r.cargaison_id)))].filter((id) => !infoById[id]);
+    if (manquants.length) {
+      for (const r of await chargerResume(ctx, (q: any) => q.in('id', manquants))) {
+        const id = String(r['id']);
+        infoById[id] = {
+          id, statut: String(r['statut'] ?? ''), dateCreation: r['dateCreation'],
+          numeroCamion: String(r['numeroCamion'] ?? ''), actif: r['statut'] !== STATUTS.SORTIE,
+        };
+      }
+    }
     for (const row of data ?? []) {
       const cid = String(row.cargaison_id);
       if (cid === exclude) continue;
