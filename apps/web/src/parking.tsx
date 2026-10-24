@@ -14,7 +14,7 @@
  * ============================================================================
  */
 import { useEffect, useState } from 'react';
-import * as XLSX from 'xlsx';
+import { chargerExcel } from './lib/excel.ts';
 import { call } from './lib/rpc.ts';
 import { useAsync } from './lib/hooks.ts';
 import { Icone } from './lib/icones.tsx';
@@ -346,7 +346,8 @@ function dureeTitre(l: O): string {
  * la recherche et la période en cours sont déjà appliquées aux lignes reçues,
  * donc on n'exporte jamais autre chose que ce qu'on a sous les yeux.
  */
-function exporterExcel(lignes: O[], statut: string) {
+async function exporterExcel(lignes: O[], statut: string) {
+  const XLSX = await chargerExcel();
   if (!lignes.length) { toast('Rien à extraire.', 'err'); return; }
   const rows = lignes.map((l) => ({
     'N° camion': s(l['numeroCamion']),

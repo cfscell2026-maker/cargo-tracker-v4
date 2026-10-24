@@ -117,3 +117,30 @@ test('annonce : les compteurs rendus sont ceux de la liste des annonces', async 
   for (const k of ['annonces', 'aConfirmer', 'confirmes', 'tauxTransfert'] as const) assert.equal(r[k], liste[k], k);
   assert.deepEqual([r['annonces'], r['aConfirmer'], r['confirmes'], r['tauxTransfert']], [1, 2, 1, 25]);
 });
+
+test('E/S disque (2026-10-24) : lecture par clé, chaque ligne ne transite qu\'une fois, sans comptage', async () => {
+  const db = base();
+  const lots: number[] = [];
+  let comptages = 0;
+  const origine = db.from.bind(db);
+  (db as unknown as { from: (t: string) => unknown }).from = (t: string) => {
+    type Lot = { data: unknown[] };
+    type Requete = { select: (c?: string, o?: { count?: string }) => Requete; limit: (n: number) => Requete; then: (f: (v: Lot) => unknown) => unknown };
+    const q = origine(t) as unknown as Requete;
+    const select = q.select.bind(q);
+    q.select = (c?: string, o?: { count?: string }) => { if (o?.count) comptages++; return select(c); };
+    const limit = q.limit.bind(q);
+    q.limit = (n: number) => {
+      const r = limit(n);
+      const suite = r.then.bind(r);
+      r.then = (f) => suite((v) => { lots.push((v.data ?? []).length); return f(v); });
+      return r;
+    };
+    return q;
+  };
+  const lignes = await fetchAll(ctxAvec(db), 'cargaisons', 'date_creation');
+  assert.equal(lignes.length, 3500);
+  assert.deepEqual(lots, [1000, 1000, 1000, 500], '3 500 lignes transmises en tout, aucune relue');
+  assert.equal(comptages, 0, 'plus de comptage préalable');
+  assert.ok(lignes.every((r) => typeof r['id'] === 'string'), 'la clé est ajoutée aux colonnes pour reprendre');
+});
