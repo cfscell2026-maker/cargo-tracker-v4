@@ -32,9 +32,10 @@ async function chargerResume(
   ctx: Ctx,
   // deno-lint-ignore no-explicit-any
   affiner?: (q: any) => any,
+  colonnes = '*',
 ): Promise<Record<string, unknown>[]> {
   // fetchAll : pagine pour ne PAS tronquer au-delà de ~1000 lignes (5000+ migrées).
-  const data = await fetchAll(ctx, 'v_cargaisons_resume', '*', { colonne: 'date_creation', ascendant: false }, affiner);
+  const data = await fetchAll(ctx, 'v_cargaisons_resume', colonnes, { colonne: 'date_creation', ascendant: false }, affiner);
   return data.map((r) => versCamel(r));
 }
 
@@ -68,6 +69,20 @@ async function chargerResume(
  */
 // deno-lint-ignore no-explicit-any
 const SQL_PAS_SORTI = (q: any) => q.neq('statut', STATUTS.SORTIE).is('date_sortie', null);
+
+/**
+ * Toutes les colonnes de `v_cargaisons_resume` (00190) SAUF les huit extraites
+ * du JSON des conteneurs (conteneur1..4, plomb1..4). Les demander oblige la base
+ * à ouvrir ce gros bloc pour CHAQUE dossier ; le tableau de bord ne s'en sert
+ * pas (2026-10-24, vitesse). Tout autre champ reste disponible, à l'identique.
+ */
+const COLONNES_RESUME_SANS_CONTENEURS = [
+  'id', 'reference', 'date_creation', 'numero_camion', 'numero_camion_norm', 'type_operation', 'statut',
+  'numero_gps', 'date_sortie', 'agent_cfs', 'rapport_id', 'est_vehicule', 'conteneur_origine',
+  'saute_t1', 'saute_balise', 'saute_bs', 'balise_requise', 'arrivee_bureau', 'date_t1', 'date_pose_gps',
+  'bon_sortie_numero', 'date_validation', 'etat_sortie', 'nb_conteneurs', 'twins', 'type_declaration',
+  'date_bon_sortie', 'suivi_engagement', 'engagement_delai', 'engagement_effectue_le',
+].join(', ');
 
 function ts(v: unknown): number {
   if (!v) return 0;
@@ -182,6 +197,36 @@ export async function cargoList(
   const pageSize = Math.min(200, Number(opts.pageSize || APP.PAGE_SIZE));
   const search = String(opts.search ?? '').trim().toLowerCase();
   const engagement = String(opts.engagement ?? '').trim();
+
+  /* LA PAGE DEMANDÉE, DIRECTEMENT EN SQL (2026-10-24, vitesse). Mesuré : la
+     liste « Cargaisons » mettait 5,4 s pour afficher 50 dossiers, parce que la
+     vue ENTIÈRE (22 000 dossiers) était rapatriée puis triée et découpée en
+     mémoire. Sans recherche ni file d'attente, chaque critère se traduit
+     EXACTEMENT en SQL, colonne par colonne (toutes `not null`, sauf
+     `suivi_engagement`, traité en `is true` / `is not true` comme le JS) ; le
+     tri est le même (entrée décroissante, puis identifiant). La base rend la
+     page et le total ; rien d'autre ne transite. En cas d'erreur (page hors
+     limite, vue ancienne…), on retombe sur la lecture complète ci-dessous. */
+  if (!etape && !search) {
+    const debut = (page - 1) * pageSize;
+    // deno-lint-ignore no-explicit-any
+    let q: any = ctx.db.from('v_cargaisons_resume').select('*', { count: 'exact' });
+    if (actifs) q = q.neq('statut', STATUTS.SORTIE);
+    if (statut !== 'tous') q = q.eq('statut', statut);
+    if (categorie === 'vehicule') q = q.eq('est_vehicule', true);
+    else if (categorie !== 'tous') q = q.eq('est_vehicule', false);
+    if (engagement === 'avec') q = q.is('suivi_engagement', true);
+    else if (engagement === 'sans') q = q.not('suivi_engagement', 'is', true);
+    const { data, error, count } = await q
+      .order('date_creation', { ascending: false }).order('id', { ascending: true })
+      .range(debut, debut + pageSize - 1);
+    if (!error && typeof count === 'number') {
+      return {
+        rows: ((data ?? []) as Record<string, unknown>[]).map((r) => versCamel(r)),
+        total: count, page, pages: Math.max(1, Math.ceil(count / pageSize)),
+      };
+    }
+  }
 
   /* Le pré-filtre est composé ICI, à partir des seuls critères traduisibles.
      Il est passé à SQL ; le tri JS qui suit reste en place, inchangé, et
@@ -530,10 +575,10 @@ export async function dashboardStats(ctx: Ctx, opts: { du?: string; au?: string 
 
   const [utiles, engagements] = await Promise.all([
     // deno-lint-ignore no-explicit-any
-    chargerResume(ctx, ouFiltre ? (q: any) => q.or(ouFiltre) : undefined),
+    chargerResume(ctx, ouFiltre ? (q: any) => q.or(ouFiltre) : undefined, COLONNES_RESUME_SANS_CONTENEURS),
     // Engagements encore dus, quel que soit l'age du dossier.
     // deno-lint-ignore no-explicit-any
-    chargerResume(ctx, (q: any) => q.eq('suivi_engagement', true).is('engagement_effectue_le', null)),
+    chargerResume(ctx, (q: any) => q.eq('suivi_engagement', true).is('engagement_effectue_le', null), COLONNES_RESUME_SANS_CONTENEURS),
   ]);
   const parId = new Map<string, Record<string, unknown>>();
   for (const r of utiles) parId.set(String(r['id']), r);
