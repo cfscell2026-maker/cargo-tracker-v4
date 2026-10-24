@@ -188,9 +188,10 @@ export async function compter(
 
 /** Clé primaire des tables lues par `fetchAll` : dernier critère de tri, pour un ordre stable. */
 const CLE_PRIMAIRE: Record<string, string> = {
-  cargaisons: 'id', v_cargaisons_resume: 'id', conteneurs: 'id', declarations: 'cle',
+  cargaisons: 'id', v_cargaisons_resume: 'id', v_cargaisons_stats: 'id', conteneurs: 'id', declarations: 'cle',
   stock: 'numero_tc', stock_annonce: 'numero_tc',
   entrepots: 'code', entrepot_entrees: 'id', entrepot_sorties: 'id',
+  parking_camions: 'id', parking_pointages: 'id',
 };
 
 /**
