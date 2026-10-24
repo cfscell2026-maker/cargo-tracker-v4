@@ -57,59 +57,7 @@ async function loadCargos(ctx: Ctx, affiner?: (q: any) => any): Promise<Record<s
   return data.filter((r) => r['annule'] !== true && r['archive'] !== true).map((r) => versCamel(r));
 }
 
-/**
- * TOUTES LES COLONNES DE `cargaisons` (00010 et migrations suivantes). Un test
- * (lecture-legere.test.ts) la compare aux migrations : une colonne ajoutée sans
- * être reportée ici le fait échouer, elle ne peut pas disparaître en silence.
- */
-export const COLONNES_CARGAISONS: readonly string[] = [
-  'id', 'reference', 'date_creation', 'numero_camion', 'numero_camion_norm', 'type_operation', 'twins',
-  'declarant', 'contact_declarant', 'destination_marchandise', 'bureau_declaration', 'type_declaration',
-  'numero_declaration', 'annee_declaration', 'description_marchandise', 'observations_cfs', 'agent_cfs',
-  'agent_cfs_id', 'statut', 'numero_gps', 'date_pose_gps', 'agent_balise', 'agent_balise_id',
-  'observations_balise', 'balise_requise', 't1_correct', 'numero_dispense', 'infos_validees', 'date_sortie',
-  'agent_pp', 'agent_pp_id', 'observations_pp', 'pp_checklist', 'derniere_maj', 'rapport_id',
-  'conteneurs_details', 'nb_conteneurs', 'chargement_mixte', 'mixte_details', 'est_vehicule',
-  'vehicule_details', 'conteneur_origine', 'bureau_destination', 't1_numeros', 'date_t1', 'agent_t1',
-  'agent_t1_id', 'observations_t1', 'bon_sortie_numero', 'date_bon_sortie', 'agent_bon_sortie',
-  'agent_bon_sortie_id', 'observations_bon_sortie', 'saute_t1', 'saute_balise', 'saute_bs', 'arrivee_bureau',
-  'date_arrivee_bureau', 'agent_arrivee_bureau', 'routage_entree', 'agent_entree', 'agent_entree_id',
-  'etat_sortie', 'nb_colis', 'hors_gabarit', 'hauteur_chargement', 'date_validation', 'agent_validation',
-  'agent_validation_id', 'signature_validation', 'ouillage_numero', 'ouillage_date', 'en_surcharge',
-  'poids_surcharge', 'annule', 'annule_le', 'annule_par', 'annule_par_id', 'annule_motif',
-  'date_fin_chargement', 'role_validation', 'archive', 'archive_le', 'archive_par', 'archive_par_id',
-  'archive_motif', 'suivi_engagement', 'engagement_type', 'engagement_delai', 'engagement_effectue_le',
-  'engagement_effectue_par', 'type_exemption', 'engagement_pose_le',
-];
-
-/** Les blocs JSON volumineux, que bien des rapports n'ouvrent jamais. */
-export const BLOCS_JSON_LOURDS = ['conteneurs_details', 'mixte_details', 'vehicule_details', 'pp_checklist'] as const;
-
-/**
- * LECTURE LÉGÈRE (2026-10-25, vitesse) : toutes les colonnes SAUF celles qu'on
- * écarte, pour les rapports qui n'en ont pas l'usage (vérifié pour chacun et pour
- * les règles qu'il appelle). Mesuré : Goulots 8,9 s, Dispenses 8,6 s, Délai 8,6 s,
- * Temps de passage 9,2 s, tous à rapatrier les blocs de conteneurs de 22 000
- * dossiers. Mêmes filtres que `loadCargos` ; en cas d'erreur, repli sur lui.
- */
-// deno-lint-ignore no-explicit-any
-async function loadCargosSauf(ctx: Ctx, exclues: readonly string[], affiner?: (q: any) => any): Promise<Record<string, unknown>[]> {
-  const colonnes = COLONNES_CARGAISONS.filter((c) => !exclues.includes(c)).join(', ');
-  // deno-lint-ignore no-explicit-any
-  const vivantes = (q: any) => {
-    const v = q.not('annule', 'is', true).not('archive', 'is', true);
-    return affiner ? affiner(v) : v;
-  };
-  try {
-    const data = await fetchAll(ctx, 'cargaisons', colonnes, undefined, vivantes);
-    return data.filter((r) => r['annule'] !== true && r['archive'] !== true).map((r) => versCamel(r));
-  } catch (e) {
-    console.error('[LECTURE-LEGERE] repli sur la lecture complète : ' + (e as Error).message);
-    return loadCargos(ctx, affiner);
-  }
-}
-
-/**
+/**
  * CALCUL PAR LA BASE (00209, 2026-10-24) : appelle une fonction SQL qui rend
  * directement le résultat d'un rapport. Rend `null` quand il faut garder le
  * calcul JavaScript : fonction absente (migration pas encore passée), erreur,
@@ -756,7 +704,7 @@ export async function rapportActivite(ctx: Ctx, p: Record<string, unknown>) {
      ligne sans cette date est ecartee des deux cotes. Sans lui, ces rapports
      chargeaient toute la table et le worker etait tue (mesure : rapport
      Balise, 546 en 6,6 s). */
-  const r = collecteActivite(await loadCargosSauf(ctx, ['mixte_details', 'vehicule_details', 'pp_checklist'], SQL_PERIODE(cfg.colSql, p['du'], p['au'])),
+  const r = collecteActivite(await loadCargos(ctx, SQL_PERIODE(cfg.colSql, p['du'], p['au'])),
     cfg.dateCol, cfg.agentCol, p['du'] as string, p['au'] as string, agentLc || undefined);
   if (p['format'] === 'xlsx' || p['format'] === 'pdf') {
     // v4.1, détail par taille ajouté à l'export (comme le rapport CFS).
@@ -779,7 +727,7 @@ export async function rapportActiviteDetail(ctx: Ctx, p: Record<string, unknown>
      ligne sans cette date est ecartee des deux cotes. Sans lui, ces rapports
      chargeaient toute la table et le worker etait tue (mesure : rapport
      Balise, 546 en 6,6 s). */
-  const r = collecteActivite(await loadCargosSauf(ctx, ['mixte_details', 'vehicule_details', 'pp_checklist'], SQL_PERIODE(cfg.colSql, p['du'], p['au'])),
+  const r = collecteActivite(await loadCargos(ctx, SQL_PERIODE(cfg.colSql, p['du'], p['au'])),
     cfg.dateCol, cfg.agentCol, p['du'] as string, p['au'] as string, agentLc || undefined);
   const op = String(p['operation'] ?? '');
   const metric = String(p['metric'] ?? 'camions');
@@ -885,7 +833,7 @@ const LIB_ETAPE_GOULOT: Record<string, string> = {
 };
 export async function rapportGoulots(ctx: Ctx, p: Record<string, unknown>) {
   const joursMin = Math.max(0, Math.floor(Number(p['joursMin'] ?? 0)));
-  const cargos = await loadCargosSauf(ctx, BLOCS_JSON_LOURDS); // exclut annulés + archivés ; sans blocs JSON (2026-10-25)
+  const cargos = await loadCargos(ctx); // exclut annulés + archivés
   const now = Date.now();
   const bornes: [string, number][] = [['0–7 j', 7], ['8–30 j', 30], ['31–90 j', 90], ['91–180 j', 180], ['+180 j', Infinity]];
   const trancheDe = (j: number) => bornes.find(([, max]) => j <= max)![0];
@@ -1276,7 +1224,7 @@ export async function rapportConteneurs(ctx: Ctx, p: Record<string, unknown>) {
 /* ============================= Dispenses ============================== */
 
 export async function rapportDispenses(ctx: Ctx, p: Record<string, unknown>) {
-  const cargos = await loadCargosSauf(ctx, BLOCS_JSON_LOURDS); // sans blocs JSON (2026-10-25)
+  const cargos = await loadCargos(ctx);
   const rows: Record<string, unknown>[] = [];
   /* Une exemption = décision prise à la cellule Balise + référence réelle. Sa
      NATURE (dispense ou escorte) vient de `type_exemption`, ou se déduit de la
@@ -1415,8 +1363,7 @@ export async function rapportDestinations(ctx: Ctx, p: Record<string, unknown>) 
   const au = String(p['au'] ?? '') || undefined;
   const dansPeriode = (v: unknown) => (!du && !au) || inRange(v, du, au);
   const codes = [...DESTINATION_CODES, 'Autres'];
-  // 2026-10-25 : vue allégée (date de sortie, destination, véhicule suffisent) ; échouait en 546 sur l'année.
-  const cargos = await loadCargosStats(ctx, SQL_PERIODE('date_sortie', du, au));
+  const cargos = await loadCargos(ctx, SQL_PERIODE('date_sortie', du, au));
   const parDest: Record<string, number> = {}; codes.forEach((c) => (parDest[c] = 0));
   const map: Record<string, Record<string, unknown>> = {};
   let total = 0;
@@ -1462,7 +1409,7 @@ export async function rapportFluxDetail(ctx: Ctx, p: Record<string, unknown>) {
 export async function rapportSejour(ctx: Ctx, p: Record<string, unknown>) {
   // Seuil d'alerte : réglage du volet Paramètres (90 jours par défaut).
   const seuilSejour = (await chargerParametres(ctx)).sejourAlerteJours;
-  const cargos = await loadCargosSauf(ctx, BLOCS_JSON_LOURDS); // sans blocs JSON (2026-10-25)
+  const cargos = await loadCargos(ctx);
   const now = new Date();
   const dist: Record<string, { tranche: string; instance: number; sortis: number }> = {};
   TRANCHES_SEJOUR.forEach((t) => (dist[t] = { tranche: t, instance: 0, sortis: 0 }));
@@ -1524,7 +1471,7 @@ export async function rapportSejourDetail(ctx: Ctx, p: Record<string, unknown>) 
  * ne sont jamais comptées zéro (voir delais.ts).
  */
 export async function rapportTemps(ctx: Ctx, p: Record<string, unknown>) {
-  const cargos = await loadCargosSauf(ctx, BLOCS_JSON_LOURDS); // sans blocs JSON (2026-10-25)
+  const cargos = await loadCargos(ctx);
   const du = p['du'] as string | undefined;
   const au = p['au'] as string | undefined;
   const sansVeh = p['vehicules'] === false;
