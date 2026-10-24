@@ -98,7 +98,11 @@ export function viderCacheLecture(): void {
 export async function call<T = unknown>(
   action: string,
   data: Record<string, unknown> = {},
-  options: { fraiche?: boolean } = {},
+  /* `sansReprise` (2026-10-24) : pas de rejeu automatique après une panne.
+     L'export Excel le demande, parce qu'il a sa propre solution de repli :
+     rejouer trois fois un calcul trop lourd ferait attendre l'agent 12 s
+     avant d'y arriver. */
+  options: { fraiche?: boolean; sansReprise?: boolean } = {},
 ): Promise<T> {
   const sansEffet = estSansEffet(action);
 
@@ -113,20 +117,20 @@ export async function call<T = unknown>(
     if (eu !== undefined) return eu as T;
     const deja = enVol.get(k);
     if (deja) return deja as Promise<T>;
-    const promesse = appelComplet<T>(action, data, sansEffet)
+    const promesse = appelComplet<T>(action, data, sansEffet, options.sansReprise ? 0 : REPRISES_MAX)
       .then((v) => { cacheLecture.poser(k, v); return v; })
       .finally(() => { enVol.delete(k); });
     enVol.set(k, promesse);
     return promesse;
   }
 
-  const res = await appelComplet<T>(action, data, sansEffet);
+  const res = await appelComplet<T>(action, data, sansEffet, options.sansReprise ? 0 : REPRISES_MAX);
   if (!sansEffet) viderCacheLecture();
   return res;
 }
 
 /** L'appel lui-meme : enveloppe, diagnostic et rejeu. Inchange. */
-async function appelComplet<T>(action: string, data: Record<string, unknown>, sansEffet: boolean): Promise<T> {
+async function appelComplet<T>(action: string, data: Record<string, unknown>, sansEffet: boolean, reprises = REPRISES_MAX): Promise<T> {
 
   for (let essai = 0; ; essai++) {
     const { statut, corps } = await unAppel(action, data);
@@ -143,7 +147,7 @@ async function appelComplet<T>(action: string, data: Record<string, unknown>, sa
       if (corps.motifRequis && !String(data['motif'] ?? '').trim()) {
         const motif = window.prompt(
           (corps.error || 'Ce dossier est sorti.') + '\n\nMotif de la correction (obligatoire) :', '');
-        if (motif && motif.trim()) return appelComplet<T>(action, { ...data, motif: motif.trim() }, sansEffet);
+        if (motif && motif.trim()) return appelComplet<T>(action, { ...data, motif: motif.trim() }, sansEffet, reprises);
         throw new Error('Correction abandonnée : un motif est obligatoire pour modifier un dossier sorti.');
       }
 
@@ -165,7 +169,7 @@ async function appelComplet<T>(action: string, data: Record<string, unknown>, sa
 
     // Pas notre enveloppe : l'hébergeur a flanché avant nous. On rejoue si et
     // seulement si l'action ne modifie rien (cf. `reprise.ts`).
-    if (sansEffet && estTransitoire(statut) && essai < REPRISES_MAX) {
+    if (sansEffet && estTransitoire(statut) && essai < reprises) {
       await pause(attenteAvantReprise(essai + 1));
       continue;
     }
