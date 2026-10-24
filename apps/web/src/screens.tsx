@@ -2,7 +2,7 @@
  * Registre de tous les écrans (reproduction de SCREENS v3.6).
  */
 import { useEffect, useRef, useState } from 'react';
-import * as XLSX from 'xlsx';
+import { chargerExcel } from './lib/excel.ts';
 import { call } from './lib/rpc.ts';
 import { useAsync } from './lib/hooks.ts';
 import { Icone } from './lib/icones.tsx';
@@ -3430,7 +3430,8 @@ function ImportExcel({ action, titre, cols, conflits }: { action: string; titre:
   const [analyse, setAnalyse] = useState<O | null>(null);
   function lire(file: File) {
     const reader = new FileReader();
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
+      const XLSX = await chargerExcel();
       const wb = XLSX.read(e.target?.result, { type: 'binary', cellDates: true });
       const sheet = wb.Sheets[wb.SheetNames[0]!];
       const rows = (XLSX.utils.sheet_to_json(sheet!, { header: 1 }) as unknown[][]).slice(1);
@@ -4334,7 +4335,8 @@ function DetailCellule({ detail, du, au, op, metric, go, onClose }: {
   /* EXTRACTION (2026-10-09, demande utilisateur) : « quand on clique, on peut
      extraire toutes les déclarations ». Les lignes affichées, dans leur ordre,
      avec déclaration, T1, bon de sortie et date de chaque cellule. */
-  function extraire() {
+  async function extraire() {
+    const XLSX = await chargerExcel();
     if (!rows.length) { toast('Rien à extraire.', 'err'); return; }
     const feuille = XLSX.utils.json_to_sheet(lignesExportCellule(rows, estCamions));
     const classeur = XLSX.utils.book_new();
@@ -4531,6 +4533,7 @@ const slugFichier = (t: string) => t.normalize('NFD').replace(/[\u0300-\u036f]/g
  * l'export (RGPD-01) ; ici on ne fait qu'écrire le fichier.
  */
 async function exporterExtraction(filtres: O, nom: string): Promise<void> {
+  const XLSX = await chargerExcel();
   const r = await call<O>('report.extraction', { ...filtres, pourExport: true }, { fraiche: true });
   const lignes = (r['lignes'] as O[]) ?? [];
   if (!lignes.length) { toast('Rien à extraire avec ces critères.', 'err'); return; }
@@ -4544,7 +4547,8 @@ async function exporterExtraction(filtres: O, nom: string): Promise<void> {
  * Extraction des CHIFFRES affichés par un écran de statistiques (2026-10-16) :
  * une feuille par tableau, exactement ce que l'écran montre, plus la période.
  */
-function exporterChiffres(nom: string, periode: string, feuilles: { nom: string; lignes: O[] }[]) {
+async function exporterChiffres(nom: string, periode: string, feuilles: { nom: string; lignes: O[] }[]) {
+  const XLSX = await chargerExcel();
   const pleines = feuilles.filter((f) => f.lignes.length);
   if (!pleines.length) { toast('Rien à extraire.', 'err'); return; }
   const classeur = XLSX.utils.book_new();
@@ -4711,7 +4715,8 @@ SCREENS.extraction = ({ go }) => {
 };
 
 /** Extraction du volet Engagements : la vue affichée, filtres et tri compris (2026-10-08). */
-function exporterEngagements(lignes: O[], filtre: string, ...criteres: string[]) {
+async function exporterEngagements(lignes: O[], filtre: string, ...criteres: string[]) {
+  const XLSX = await chargerExcel();
   if (!lignes.length) { toast('Rien à extraire.', 'err'); return; }
   const rows = lignesExportEngagements(lignes);
   const feuille = XLSX.utils.json_to_sheet(rows);
@@ -4726,7 +4731,8 @@ function exporterEngagements(lignes: O[], filtre: string, ...criteres: string[])
 }
 
 /** L'extraction suit la vue affichée, comme partout ailleurs. */
-function exporterExemptions(lignes: O[], vue: string) {
+async function exporterExemptions(lignes: O[], vue: string) {
+  const XLSX = await chargerExcel();
   if (!lignes.length) { toast('Rien à extraire.', 'err'); return; }
   const rows = lignes.map((r) => ({
     'ID': String(r['id'] ?? ''),
@@ -4901,6 +4907,7 @@ function ChoixGranularite({ gran, setGran }: { gran: string; setGran: (g: string
 
 /** Extraction Excel d'un rapport : synthèse + détail. Le serveur journalise (pourExport). */
 async function exporterRapport(action: string, params: O, nom: string, synthese: O[], filtre?: (l: O) => boolean) {
+  const XLSX = await chargerExcel();
   const r = await call<O>(action, { ...params, pourExport: true }, { fraiche: true });
   const lignes = ((r['lignes'] as O[]) ?? []).filter(filtre ?? (() => true));
   if (!lignes.length) { toast('Rien à extraire sur cette période.', 'err'); return; }
@@ -5491,7 +5498,8 @@ const TC_PAR_PAGE = 50;
  * recherche comprises — et non la seule page à l'écran : on exporte ce qu'on a
  * sous les yeux, pas cinquante lignes sur quatre mille.
  */
-function exporterSejour(lignes: O[], vue: string) {
+async function exporterSejour(lignes: O[], vue: string) {
+  const XLSX = await chargerExcel();
   if (!lignes.length) { toast('Rien à extraire.', 'err'); return; }
   const rows = lignes.map((r) => ({
     'N° conteneur': String(r['numeroTC'] ?? ''),
@@ -5702,7 +5710,8 @@ const PERIMETRES_ACP: { valeur: string; libelle: string; aide: string; icone: st
   { valeur: 'alerte', libelle: 'En alerte', icone: 'sablier', aide: 'Ceux qui dépassent le seuil de séjour. « De votre liste, lesquels traînent ? »' },
 ];
 
-function exporterACP(lignes: O[], vue: string) {
+async function exporterACP(lignes: O[], vue: string) {
+  const XLSX = await chargerExcel();
   if (!lignes.length) { toast('Rien à extraire.', 'err'); return; }
   const rows = lignes.map((r) => ({
     'N° conteneur': String(r['numeroTC'] ?? ''),
@@ -5733,7 +5742,8 @@ const lignesACPVersFeuille = (lignes: O[]) => lignes.map((r) => ({
  * de numéros reçue par courriel ne dit ni de quand elle date ni sur quoi elle
  * portait.
  */
-function exporterRapprochement(r: O) {
+async function exporterRapprochement(r: O) {
+  const XLSX = await chargerExcel();
   const cpt = (r['compte'] ?? {}) as Record<string, number>;
   const classeur = XLSX.utils.book_new();
   const entete = [
@@ -5803,7 +5813,8 @@ function PanneauRapprochementACP() {
   /** Toutes les feuilles, toutes les cellules : le fichier est pris tel quel. */
   function lire(f: File) {
     const reader = new FileReader();
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
+      const XLSX = await chargerExcel();
       try {
         const wb = XLSX.read(e.target?.result, { type: 'binary' });
         const cellules: unknown[] = [];
