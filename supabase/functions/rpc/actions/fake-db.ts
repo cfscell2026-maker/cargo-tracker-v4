@@ -32,6 +32,11 @@ function match(row: Row, filters: [string, string, unknown][]): boolean {
     // passent en base, le double doit imiter Postgres, pas JavaScript.
     if (op === 'is') return val === null ? (v === null || v === undefined) : v === val;
     if (op === 'not.is') return !(val === null ? (v === null || v === undefined) : v === val);
+    if (op === 'not.ilike') {
+      // `%motif%` sans tenir compte de la casse (seule forme employée).
+      const noyau = String(val).replace(/^%/, '').replace(/%$/, '').toLowerCase();
+      return String(v ?? '').toLowerCase().indexOf(noyau) < 0;
+    }
     if (op === 'in') return Array.isArray(val) && (val as unknown[]).includes(v);
     if (op === 'gte') return String(v) >= String(val);
     if (op === 'lte') return String(v) <= String(val);
@@ -66,6 +71,10 @@ function match(row: Row, filters: [string, string, unknown][]): boolean {
        lui, la recherche « contient » se faisait en JS APRES un `limit`, ce qui
        tronquait silencieusement le parc. Seuls les jokers `%` en tete et en
        queue sont traduits, les seuls que le code emploie. */
+    if (op === 'ilike') {
+      const noyau = String(val).replace(/^%/, '').replace(/%$/, '').toLowerCase();
+      return String(v ?? '').toLowerCase().indexOf(noyau) >= 0;
+    }
     if (op === 'like') {
       const motif = String(val);
       const noyau = motif.replace(/^%/, '').replace(/%$/, '');
@@ -97,7 +106,21 @@ class Query {
     this.table = table;
   }
 
-  select(_c?: string) { this.wantSelect = true; return this; }
+  /* COLONNES DEMANDÉES RESPECTÉES (2026-10-25). Le double rendait la ligne
+     entière quelles que soient les colonnes demandées : un rapport qui lisait un
+     champ non demandé passait le test et rendait « undefined » en base. Seule
+     une liste simple de colonnes est projetée ; `*` et toute syntaxe plus riche
+     (jointures, alias) rendent la ligne entière, comme avant. */
+  private colonnes: string[] | null = null;
+  /* `head: true` (2026-10-25) : comme PostgREST, le compte seul, aucune ligne. */
+  private teteSeule = false;
+  select(c?: string, o?: { head?: boolean }) {
+    this.wantSelect = true;
+    this.teteSeule = o?.head === true;
+    const t = String(c ?? '*').trim();
+    this.colonnes = t && t !== '*' && /^[a-z_0-9]+(\s*,\s*[a-z_0-9]+)*$/.test(t) ? t.split(',').map((x) => x.trim()) : null;
+    return this;
+  }
   insert(p: Row | Row[]) { this.opType = 'insert'; this.payload = p; return this; }
   update(p: Row) { this.opType = 'update'; this.payload = p; return this; }
   /* `upsert` ajoute le 2026-10-07 (verrou de l'application), meme lecon que
@@ -112,6 +135,7 @@ class Query {
   eq(c: string, v: unknown) { this.filters.push([c, 'eq', v]); return this; }
   neq(c: string, v: unknown) { this.filters.push([c, 'neq', v]); return this; }
   like(c: string, v: string) { this.filters.push([c, 'like', v]); return this; }
+  ilike(c: string, v: string) { this.filters.push([c, 'ilike', v]); return this; }
   /* `or` ajoute le 2026-09-30, meme lecon que `like` et `lt`/`gt` avant lui :
      sans lui, le double ne sait pas exprimer ce que le code fait, et un test
      qui passe ne prouve rien. On accepte la syntaxe PostgREST reellement
@@ -124,6 +148,7 @@ class Query {
      traduit, le seul employe ; il garde la semantique SQL, une colonne NULL (ici
      absente de l'objet) passe le filtre. */
   not(c: string, op: string, v: unknown) {
+    if (op === 'ilike') { this.filters.push([c, 'not.ilike', v]); return this; }
     if (op !== 'is') throw new Error('FakeDB.not : operateur « ' + op + ' » non gere');
     this.filters.push([c, 'not.is', v]); return this;
   }
@@ -177,7 +202,12 @@ class Query {
       return { data: null, error: null };
     }
     // select
-    let res = rows.filter((r) => match(r, this.filters)).map((r) => structuredClone(r));
+    /* MODE « FILTRES IGNORÉS » (tests d'équivalence, 2026-10-25) : une lecture
+       rend toutes les lignes, sauf la reprise de pagination (`gt`). On compare
+       ainsi un rapport AVEC ses filtres SQL et SANS : ils ne doivent rien changer. */
+    const filtres = (this.store as unknown as { __sansFiltres?: boolean }).__sansFiltres
+      ? this.filters.filter(([, op]) => op === 'gt') : this.filters;
+    let res = rows.filter((r) => match(r, filtres)).map((r) => structuredClone(r));
     if (this.ordres.length) {
       res.sort((a, b) => {
         for (const { col, asc } of this.ordres) {
@@ -191,6 +221,11 @@ class Query {
     const count = res.length;
     if (this.borne) res = res.slice(this.borne[0], this.borne[1] + 1);
     if (this.limitN != null) res = res.slice(0, this.limitN);
+    if (this.colonnes && this.opType === 'select') {
+      const cols = this.colonnes;
+      res = res.map((r) => Object.fromEntries(cols.filter((k) => k in r).map((k) => [k, r[k]])));
+    }
+    if (this.teteSeule) return { data: null, error: null, count };
     if (this.wantSingle) return { data: res[0] ?? null, error: null };
     return { data: res, error: null, count };
   }

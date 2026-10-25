@@ -177,9 +177,12 @@ export async function compter(
   table: string,
   // deno-lint-ignore no-explicit-any
   affiner?: (q: any) => any,
+  /* 'estimated' (2026-10-25) : exact sous le plafond de l'API, estimation du
+     planificateur au-delà, sans parcourir la table. Pour un total indicatif. */
+  mode: 'exact' | 'estimated' = 'exact',
 ): Promise<number> {
   // deno-lint-ignore no-explicit-any
-  let q: any = ctx.db.from(table).select('*', { count: 'exact', head: true });
+  let q: any = ctx.db.from(table).select('*', { count: mode, head: true });
   if (affiner) q = affiner(q);
   const { count, error } = await q;
   if (error) throw new Error(error.message);
