@@ -588,7 +588,9 @@ export async function dashboardStats(ctx: Ctx, opts: { du?: string; au?: string 
   /* `total` compte TOUTE la base, il ne se deduit pas des lignes chargees.
      `compter` interroge PostgreSQL sans rapatrier une seule ligne. */
   // deno-lint-ignore no-explicit-any
-  stats.total = await compter(ctx, 'v_cargaisons_resume', (q: any) => q.neq('est_vehicule', true));
+  // 2026-10-25 : estimé. Ce total n'est affiché nulle part (champ de compatibilité) ; le compter
+  // exactement parcourait toute la table à chaque rafraîchissement, pour chaque chef connecté.
+  stats.total = await compter(ctx, 'v_cargaisons_resume', (q: any) => q.neq('est_vehicule', true), 'estimated');
   const today = new Date();
   for (const r of data) {
     const veh = estOui(r['estVehicule']);
