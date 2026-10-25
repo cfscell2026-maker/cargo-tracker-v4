@@ -515,3 +515,35 @@ export async function signature(base: string): Promise<string> {
   const hex = Array.from(new Uint8Array(buf), (b) => b.toString(16).padStart(2, '0')).join('');
   return hex.slice(0, 16).toUpperCase();
 }
+
+/**
+ * LIGNES DU STOCK EN UN ALLER-RETOUR (00212, 2026-10-25). La base rend d'un
+ * coup les colonnes du stock dont le serveur se sert, dans l'ordre de la clé :
+ * une réponse au lieu de dix-huit pages de mille lignes lues l'une après
+ * l'autre (2,2 s mesurées en production). Bornes sur la date d'entrée
+ * (incluses) et statut exact, chacun facultatif, comme les filtres de la
+ * lecture paginée.
+ *
+ * Tant que la fonction n'existe pas (script SQL pas encore passé), ou en cas
+ * d'erreur, on retombe sur la lecture paginée avec les mêmes filtres.
+ */
+export async function lignesStock(
+  ctx: Ctx,
+  f: { du?: string; au?: string; statut?: string },
+  colonnes: string,
+): Promise<Record<string, unknown>[]> {
+  try {
+    const { data, error } = await ctx.db.rpc('fn_stock_lignes', { p_du: f.du || null, p_au: f.au || null, p_statut: f.statut || null });
+    if (!error && Array.isArray(data)) return data as Record<string, unknown>[];
+    if (error && !/could not find|does not exist|PGRST202|schema cache/i.test(error.message))
+      console.error('[STOCK-LIGNES] repli sur la lecture paginée : ' + error.message);
+  } catch { /* repli ci-dessous */ }
+  // deno-lint-ignore no-explicit-any
+  return fetchAll(ctx, 'stock', colonnes, undefined, (q: any) => {
+    let r = q;
+    if (f.du) r = r.gte('date_entree', f.du);
+    if (f.au) r = r.lte('date_entree', f.au);
+    if (f.statut) r = r.eq('statut', f.statut);
+    return r;
+  });
+}
