@@ -77,9 +77,20 @@ export async function stockLookup(ctx: Ctx, p: { numeroTC?: string }) {
   };
 }
 
-export async function stockList(ctx: Ctx, opts: { statut?: string }) {
+/* COLONNES LUES (2026-10-25, audit des requêtes) : exactement celles que la liste
+   et ses compteurs emploient, au lieu de la ligne entière. */
+const COLONNES_LISTE_STOCK = 'numero_tc, taille, type_conteneur, provenance, statut, date_entree, date_pointage, pointe_par, cargaison_id, annee_declaration, type_declaration, numero_declaration, nb_sejours_import';
+
+export async function stockList(ctx: Ctx, opts: { statut?: string; lignesSeules?: boolean }) {
   const statut = opts?.statut || 'tous';
-  const data = await fetchAll(ctx, 'stock', '*');
+  /* LIGNES SEULES (2026-10-25) : les écrans de saisie (création de camion,
+     panneau CFS) ne veulent que les conteneurs d'UN statut pour les proposer à
+     la frappe, pas les compteurs du parc. Le statut part alors en SQL : quelques
+     centaines de lignes au lieu des 17 000 du stock, et aucun compteur rendu
+     (il ne porterait que sur ce sous-ensemble). */
+  const seules = opts?.lignesSeules === true && statut !== 'tous';
+  // deno-lint-ignore no-explicit-any
+  const data = await fetchAll(ctx, 'stock', COLONNES_LISTE_STOCK, undefined, seules ? (q: any) => q.eq('statut', statut) : undefined);
   const now = new Date();
   const rows: unknown[] = [];
   // v4.1, positionneJour = positionnés AUJOURD'HUI ; restes = positionnés un
@@ -109,6 +120,7 @@ export async function stockList(ctx: Ctx, opts: { statut?: string }) {
       anneeDeclaration: o['anneeDeclaration'], typeDeclaration: o['typeDeclaration'], numeroDeclaration: o['numeroDeclaration'],
     });
   }
+  if (seules) return { rows };
   compte.sejourMoyen = nJ ? Math.round(sommeJ / nJ) : 0;
   compte.tranches = TRANCHES_SEJOUR.map((t) => ({ tranche: t, n: dist[t]! }));
   return { rows, compte };
@@ -551,7 +563,7 @@ export async function rapportStock(ctx: Ctx, p: Record<string, unknown> = {}) {
      les totaux sans qu'on sache de quand elle date. */
   const du = String(p['du'] ?? '').slice(0, 10);
   const au = String(p['au'] ?? '').slice(0, 10);
-  const data = await fetchAll(ctx, 'stock', '*', undefined, (q: unknown) => {
+  const data = await fetchAll(ctx, 'stock', 'numero_tc, taille, statut, provenance, date_entree, date_pointage, date_depote, nb_sejours_import', undefined, (q: unknown) => {
     // deno-lint-ignore no-explicit-any
     let r = q as any;
     if (du) r = r.gte('date_entree', du + 'T00:00:00');

@@ -80,7 +80,10 @@ for (let i = 0; i < N; i++) {
     type_operation: c['type_operation'], ordre: k + 1, conteneur: ct.num, scelle: ct.plomb, taille: ct.taille, type_conteneur: ct.type }));
 }
 for (let i = 0; i < 17000; i++) db.store['stock'].push({ numero_tc: 'TCLU' + String(i).padStart(7, '0'), taille: pick(["20'", "40'"]), type_conteneur: 'DRY',
-  provenance: 'PAL', date_entree: jour(0, 365), statut: pick(['En stock', 'Positionné', 'Dépoté', 'Sorti']), observations: '', nb_sejours_import: 0 });
+  provenance: 'PAL', date_entree: jour(0, 365), date_positionne: null, date_pointage: r() < 0.5 ? jour(0, 365) : null, pointe_par: 'agent', date_depote: r() < 0.5 ? jour(0, 365) : null,
+  cargaison_id: null, annee_declaration: '2026', type_declaration: 'T', numero_declaration: 'D ' + i,
+  // Ordre de grandeur réel : quelques centaines de positionnés pour des milliers en stock et dépotés.
+  statut: r() < 0.02 ? 'Positionné' : pick(['En stock', 'Dépoté']), observations: r() < 0.2 ? 'Entrée magasin 2D, conteneur ouvert pour visite' : '', nb_sejours_import: 0 });
 for (let i = 0; i < 3000; i++) db.store['stock_annonce'].push({ numero_tc: 'ANNU' + String(i).padStart(7, '0'), taille: "20'", statut: pick(['Annoncé', 'Pointé', 'Confirmé']), date_annonce: jour(0, 365) });
 db.store['audit_log'] = Array.from({ length: 60000 }, (_, i) => ({ id: i + 1, ts: jour(0, 365), username: 'agent' + (i % 30), nom_complet: 'Agent ' + (i % 30),
   role: 'CFS', action: pick(['Validation chef brigade', 'Entrée camion (vide)', 'T1', 'Sortie PP']), cargaison_id: 'CT-' + String(i % N).padStart(6, '0'), details: 'détail ' + i, prev_hash: 'x', hash: 'y' }));
@@ -157,6 +160,7 @@ const ACTIONS: [string, () => Promise<unknown>][] = [
   ['report.dwell (Délai & instance)', () => rap.rapportSejour(ctx, {})],
   ['report.stock (Séjour conteneurs)', () => stk.rapportStock(ctx, {} as never)],
   ['stock.list', () => stk.stockList(ctx, {} as never)],
+  ['stock.list (saisie, positionnés)', () => stk.stockList(ctx, { statut: 'Positionné', lignesSeules: true })],
   ['stockannonce.list', () => stk.annonceList(ctx, {} as never)],
   ['report.extraction', () => rap.rapportExtraction(ctx, { niveau: 'camions', ...MOIS })],
   ['entrepot.list', () => entrepot.entrepotList(ctx, {} as never)],

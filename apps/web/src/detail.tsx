@@ -607,7 +607,7 @@ function PanneauCFS({ c, dets, action, prefillDecl }: { c: O; dets: ReturnType<t
   // v4, propose les TC de la bonne source à la frappe : dépotage → stock du jour
   // (Positionné) ; enlèvement → stock du PIA (En stock).
   const statutStock = estEnl ? 'En stock' : 'Positionné';
-  const { data: stk } = useAsync<{ rows: O[] }>(() => call('stock.list', { statut: statutStock }), [statutStock]);
+  const { data: stk } = useAsync<{ rows: O[] }>(() => call('stock.list', { statut: statutStock, lignesSeules: true }), [statutStock]);
   const stockRows = (stk?.rows ?? []) as O[];
   const tcOptions = stockRows.map((r) => String(r['numeroTC'] ?? '')).filter(Boolean);
   const stockByTc = Object.fromEntries(stockRows.map((r) => [String(r['numeroTC'] ?? ''), r]));
