@@ -38,8 +38,9 @@ function match(row: Row, filters: [string, string, unknown][]): boolean {
       return String(v ?? '').toLowerCase().indexOf(noyau) < 0;
     }
     if (op === 'in') return Array.isArray(val) && (val as unknown[]).includes(v);
-    if (op === 'gte') return String(v) >= String(val);
-    if (op === 'lte') return String(v) <= String(val);
+    // Une colonne NULL est écartée, comme en SQL (2026-10-25 : gte/lte la gardaient, « null » > « 2026 »).
+    if (op === 'gte') return v !== null && v !== undefined && String(v) >= String(val);
+    if (op === 'lte') return v !== null && v !== undefined && String(v) <= String(val);
     /* `lt` / `gt` ajoutes le 2026-09-12. Ils MANQUAIENT, et leur absence ne se
        voyait pas : le double levait `q.lt is not a function` seulement quand un
        test empruntait enfin ce chemin. Un double qui ne sait pas exprimer ce que
@@ -303,7 +304,9 @@ export class FakeDB {
         const r: Row = {};
         for (const k of ['id', 'numero_camion', 'type_operation', 'statut', 'est_vehicule', 'agent_cfs', 'date_creation',
           'date_validation', 'date_t1', 'date_bon_sortie', 'date_pose_gps', 'date_sortie', 'hors_gabarit', 'en_surcharge',
-          'destination_marchandise', 'annule', 'archive']) if (k in c) r[k] = c[k];
+          'destination_marchandise', 'annule', 'archive',
+          // 00212 : agents de chaque cellule et nombre de conteneurs déclaré.
+          'agent_entree', 'agent_validation', 'agent_t1', 'agent_bon_sortie', 'agent_balise', 'agent_pp', 'nb_conteneurs']) if (k in c) r[k] = c[k];
         r['conteneurs_details'] = slim;
         return r;
       });

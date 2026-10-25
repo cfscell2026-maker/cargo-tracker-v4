@@ -14,7 +14,7 @@ import {
 
 /** Cargaison sortie de l'enceinte : ne rend plus un conteneur indisponible. */
 const STATUTS_SORTIE = STATUTS.SORTIE;
-import { lookupDeclaration, fetchAll, compter } from './helpers.ts';
+import { lookupDeclaration, fetchAll, compter, lignesStock } from './helpers.ts';
 
 const normTC = (v: unknown) => String(v ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 // v4, N° de déclaration réduit aux CHIFFRES (décision utilisateur 2026-07-17).
@@ -89,8 +89,7 @@ export async function stockList(ctx: Ctx, opts: { statut?: string; lignesSeules?
      centaines de lignes au lieu des 17 000 du stock, et aucun compteur rendu
      (il ne porterait que sur ce sous-ensemble). */
   const seules = opts?.lignesSeules === true && statut !== 'tous';
-  // deno-lint-ignore no-explicit-any
-  const data = await fetchAll(ctx, 'stock', COLONNES_LISTE_STOCK, undefined, seules ? (q: any) => q.eq('statut', statut) : undefined);
+  const data = await lignesStock(ctx, { statut: seules ? statut : undefined }, COLONNES_LISTE_STOCK);
   const now = new Date();
   const rows: unknown[] = [];
   // v4.1, positionneJour = positionnés AUJOURD'HUI ; restes = positionnés un
@@ -563,13 +562,8 @@ export async function rapportStock(ctx: Ctx, p: Record<string, unknown> = {}) {
      les totaux sans qu'on sache de quand elle date. */
   const du = String(p['du'] ?? '').slice(0, 10);
   const au = String(p['au'] ?? '').slice(0, 10);
-  const data = await fetchAll(ctx, 'stock', 'numero_tc, taille, statut, provenance, date_entree, date_pointage, date_depote, nb_sejours_import', undefined, (q: unknown) => {
-    // deno-lint-ignore no-explicit-any
-    let r = q as any;
-    if (du) r = r.gte('date_entree', du + 'T00:00:00');
-    if (au) r = r.lte('date_entree', au + 'T23:59:59.999');
-    return r;
-  });
+  const data = await lignesStock(ctx, { du: du ? du + 'T00:00:00' : undefined, au: au ? au + 'T23:59:59.999' : undefined },
+    'numero_tc, taille, statut, provenance, date_entree, date_pointage, date_depote, nb_sejours_import');
   const now = new Date();
   const dist: Record<string, { tranche: string; n: number }> = {};
   TRANCHES_SEJOUR.forEach((t) => (dist[t] = { tranche: t, n: 0 }));

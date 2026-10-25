@@ -19,7 +19,7 @@ import {
   // v4.2, temps de passage par poste
   delaisDe, agreger, dureeLisible, enHeures, POSTES, LIBELLE_POSTE,
 } from '../../_shared/domaine/src/index.ts';
-import { fetchAll, lookupDeclaration } from './helpers.ts';
+import { fetchAll, lookupDeclaration, lignesStock } from './helpers.ts';
 import { numerosPiece, extraire, resumeFiltres, DATES_REFERENCE, type FiltresExtraction } from './extraction.ts';
 import { filtrerConfidentiel } from './lecture.ts';
 import { calculerEngagements, calculerAmendes, type Amende } from './engagements-amendes.ts';
@@ -168,14 +168,14 @@ const borneSql = (v: unknown): string | null | undefined => {
  * erreur. Le déploiement du serveur ne dépend donc pas de la migration.
  */
 // deno-lint-ignore no-explicit-any
-async function loadCargosStats(ctx: Ctx, affiner?: (q: any) => any): Promise<Record<string, unknown>[]> {
+async function loadCargosStats(ctx: Ctx, affiner?: (q: any) => any, colonnes = '*'): Promise<Record<string, unknown>[]> {
   // deno-lint-ignore no-explicit-any
   const vivantes = (q: any) => {
     const v = q.not('annule', 'is', true).not('archive', 'is', true);
     return affiner ? affiner(v) : v;
   };
   try {
-    const data = await fetchAll(ctx, 'v_cargaisons_stats', '*', undefined, vivantes);
+    const data = await fetchAll(ctx, 'v_cargaisons_stats', colonnes, undefined, vivantes);
     return data.filter((r) => r['annule'] !== true && r['archive'] !== true).map((r) => versCamel(r));
   } catch (e) {
     if (!/v_cargaisons_stats|PGRST205|schema cache|does not exist/i.test((e as Error).message)) throw e;
@@ -851,9 +851,14 @@ export async function rapportHorodatage(ctx: Ctx, p: Record<string, unknown>) {
   const du = p['du'] as string | undefined;
   const au = p['au'] as string | undefined;
   const celluleFiltre = String(p['cellule'] ?? '').trim(); // '' = toutes
-  // 2026-10-25 : chaque compte est daté par une cellule ; conteneurs gardés (nombre par dossier).
-  const cargos = await loadCargosSauf(ctx, ['mixte_details', 'vehicule_details', 'pp_checklist'],
-    SQL_UNE_DATE_DEPUIS(['date_creation', 'date_validation', 'date_t1', 'date_bon_sortie', 'date_pose_gps', 'date_sortie'], du));
+  /* 2026-10-25 : chaque compte est daté par une cellule. Vue allégée (00212) :
+     les conteneurs n'y servent qu'à être COMPTÉS, inutile de rapatrier leurs
+     blocs complets. Colonnes nommées : si la vue n'a pas encore les agents (script
+     SQL pas passé), la base refuse et l'on retombe sur la table. */
+  const cargos = await loadCargosStats(ctx,
+    SQL_UNE_DATE_DEPUIS(['date_creation', 'date_validation', 'date_t1', 'date_bon_sortie', 'date_pose_gps', 'date_sortie'], du),
+    'id, annule, archive, date_creation, date_validation, date_t1, date_bon_sortie, date_pose_gps, date_sortie, '
+    + 'agent_cfs, agent_entree, agent_validation, agent_t1, agent_bon_sortie, agent_balise, agent_pp, nb_conteneurs, conteneurs_details');
 
   interface Grp { cellule: string; celluleLibelle: string; agent: string; jour: string; debut: Date; fin: Date; camions: number; conteneurs: number }
   const map = new Map<string, Grp>();
@@ -1139,6 +1144,12 @@ export async function ficheBord(ctx: Ctx, p: Record<string, unknown>) {
 /* ================================ KPI ================================= */
 
 export async function rapportKPI(ctx: Ctx, p: Record<string, unknown>) {
+  // 2026-10-25 : calcul par la base (00212), mêmes règles ; repli JS si la fonction manque.
+  const [kDu, kAu] = [borneSql(p['du']), borneSql(p['au'])];
+  if (kDu !== undefined && kAu !== undefined) {
+    const r = await calculEnBase(ctx, 'fn_rapport_kpi', { p_du: kDu, p_au: kAu });
+    if (r && r['stock'] && typeof r['camionsSortis'] === 'number') return r;
+  }
   const cargos = await loadCargosStats(ctx, (q: any) => q.not('est_vehicule', 'is', true)); // vue allégée, véhicules écartés comme dans le JS (2026-10-25)
   const kpi = { videsDepotage: 0, sortisScelles: 0, camionsActifs: 0, camionsSortis: 0, evpVides: 0, evpSortis: 0, evpStock: 0, stock: { t20: 0, t40: 0, t45: 0, autres: 0 } };
   for (const c of cargos) {
@@ -1154,7 +1165,7 @@ export async function rapportKPI(ctx: Ctx, p: Record<string, unknown>) {
       if (op === OPERATIONS.ENLEVEMENT && sorti) { kpi.sortisScelles++; kpi.evpSortis += ev; }
     }
   }
-  const stock = await fetchAll(ctx, 'stock', 'taille, statut');
+  const stock = await lignesStock(ctx, {}, 'taille, statut');
   for (const s of stock) {
     if (s.statut === 'Dépoté') continue;
     const bk = tailleBucket(s.taille); (kpi.stock as Record<string, number>)[bk]++; kpi.evpStock += evpDeTaille(bk);
@@ -1278,8 +1289,8 @@ export async function rapportConteneurs(ctx: Ctx, p: Record<string, unknown>) {
   const du = p['du'] as string | undefined, au = p['au'] as string | undefined;
   const now = new Date();
   // Colonnes employées seulement ; le statut exact part en SQL (2026-10-25).
-  const data = await fetchAll(ctx, 'stock', 'numero_tc, taille, statut, provenance, date_entree, date_pointage, pointe_par, numero_declaration, annee_declaration, type_declaration, cargaison_id', undefined,
-    statut ? (q: any) => q.eq('statut', statut) : undefined);
+  const data = await lignesStock(ctx, { statut: statut || undefined },
+    'numero_tc, taille, statut, provenance, date_entree, date_pointage, pointe_par, numero_declaration, annee_declaration, type_declaration, cargaison_id');
   const rows: Record<string, unknown>[] = [];
   for (const r of data) {
     const o = versCamel(r);
@@ -1568,8 +1579,13 @@ export async function rapportSejourDetail(ctx: Ctx, p: Record<string, unknown>) 
  * Les durées non mesurables restent `null` et sont exclues des moyennes ; elles
  * ne sont jamais comptées zéro (voir delais.ts).
  */
+/** Ce que lisent `delaisDe`, `libelleDeclaration` et le détail du rapport. */
+const COLONNES_TEMPS = ['id', 'numero_camion', 'type_operation', 'statut', 'est_vehicule', 'date_creation', 'date_fin_chargement',
+  'date_validation', 'date_t1', 'date_pose_gps', 'date_bon_sortie', 'date_sortie', 'saute_t1', 'saute_balise', 'saute_bs',
+  'numero_declaration', 'annee_declaration', 'bureau_declaration', 'type_declaration'] as const;
 export async function rapportTemps(ctx: Ctx, p: Record<string, unknown>) {
-  const cargos = await loadCargosSauf(ctx, BLOCS_JSON_LOURDS, SQL_PERIODE('date_creation', p['du'], p['au'])); // le JS ne garde que les entrées de la période (2026-10-25)
+  // Entrées de la période seulement, et les seules colonnes des délais et du détail (2026-10-25).
+  const cargos = await loadCargosColonnes(ctx, COLONNES_TEMPS, SQL_PERIODE('date_creation', p['du'], p['au']));
   const du = p['du'] as string | undefined;
   const au = p['au'] as string | undefined;
   const sansVeh = p['vehicules'] === false;
