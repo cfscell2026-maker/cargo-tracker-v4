@@ -74,3 +74,13 @@ for (const statut of ['', 'En stock', 'Positionné', 'Dépoté'])
     const p = { statut, du: '2026-05-01', au: '2026-09-30' };
     assert.deepEqual(await rap.rapportConteneurs(base(false), p), await rap.rapportConteneurs(base(true), p));
   });
+
+const CHAMPS_ECRAN_STOCK = ['numeroTC', 'taille', 'statut', 'provenance', 'numeroDeclaration', 'joursSejour'];
+for (const statut of ['tous', 'En stock', 'Dépoté'])
+  test(`liste allégée de l'écran Stock (${statut}) : les champs affichés, mêmes compteurs`, async () => {
+    const legere = await stk.stockList(base(false), { statut, allege: true }) as { rows: Record<string, unknown>[]; compte: unknown };
+    const complete = await stk.stockList(base(true), { statut }) as { rows: Record<string, unknown>[]; compte: unknown };
+    assert.ok(legere.rows.length > 0);
+    assert.deepEqual(legere.compte, complete.compte);
+    assert.deepEqual(legere.rows, complete.rows.map((r) => Object.fromEntries(CHAMPS_ECRAN_STOCK.map((k) => [k, r[k]]))));
+  });
