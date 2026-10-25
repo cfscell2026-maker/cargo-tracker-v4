@@ -1293,7 +1293,7 @@ function EntrepotEntree({ type, entrepots }: { type: EntrepotType; entrepots: O[
   const set = (k: string, v: unknown) => setD((o) => ({ ...o, [k]: v }));
   const majArt = (i: number, k: string, v: unknown) => setArts((a) => a.map((x, j) => j === i ? { ...x, [k]: v } : x));
   const { data: stk } = useAsync<{ rows: O[] }>(
-    () => (conteneurise && !manuelTC ? call('stock.list', { statut: 'Positionné' }) : Promise.resolve({ rows: [] })),
+    () => (conteneurise && !manuelTC ? call('stock.list', { statut: 'Positionné', lignesSeules: true }) : Promise.resolve({ rows: [] })),
     [conteneurise, manuelTC],
   );
   const tcs = ((stk?.rows ?? []) as O[]).map((r) => String(r['numeroTC'] ?? '')).filter(Boolean);
@@ -2662,7 +2662,7 @@ SCREENS.lotcamions = ({ go }) => {
 
   // Conteneurs proposés à la frappe : enlèvement → stock PIA, dépotage → positionnés du jour.
   const statutStock = estEnl ? 'En stock' : 'Positionné';
-  const { data: stk } = useAsync<{ rows: O[] }>(() => call('stock.list', { statut: statutStock }), [statutStock]);
+  const { data: stk } = useAsync<{ rows: O[] }>(() => call('stock.list', { statut: statutStock, lignesSeules: true }), [statutStock]);
   const stockRows = (stk?.rows ?? []) as O[];
   const stockByTc = Object.fromEntries(stockRows.map((r) => [String(r['numeroTC'] ?? ''), r]));
 
@@ -2846,7 +2846,7 @@ function FormVehicule({ go }: { go: Nav['go'] }) {
   const majVeh = (i: number, k: string, val: unknown) => setVs((a) => a.map((v, j) => (j === i ? { ...v, [k]: val } : v)));
 
   // v4, le TC d'origine est OBLIGATOIRE et se choisit dans les TC POSITIONNÉS au CFS.
-  const { data: stk, loading: stkLoading } = useAsync<{ rows: O[] }>(() => call('stock.list', { statut: 'Positionné' }), []);
+  const { data: stk, loading: stkLoading } = useAsync<{ rows: O[] }>(() => call('stock.list', { statut: 'Positionné', lignesSeules: true }), []);
   const tcs = ((stk?.rows ?? []) as O[]).map((r) => String(r['numeroTC'] ?? '')).filter(Boolean);
 
   const majCam = (i: number, patch: Partial<CamEffets>) => setCams((a) => a.map((c, j) => (j === i ? { ...c, ...patch } : c)));

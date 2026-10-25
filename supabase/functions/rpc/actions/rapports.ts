@@ -1277,7 +1277,9 @@ export async function rapportConteneurs(ctx: Ctx, p: Record<string, unknown>) {
   const statut = String(p['statut'] ?? '').trim();  // '', 'En stock', 'Positionné', 'Dépoté'
   const du = p['du'] as string | undefined, au = p['au'] as string | undefined;
   const now = new Date();
-  const data = await fetchAll(ctx, 'stock', '*');
+  // Colonnes employées seulement ; le statut exact part en SQL (2026-10-25).
+  const data = await fetchAll(ctx, 'stock', 'numero_tc, taille, statut, provenance, date_entree, date_pointage, pointe_par, numero_declaration, annee_declaration, type_declaration, cargaison_id', undefined,
+    statut ? (q: any) => q.eq('statut', statut) : undefined);
   const rows: Record<string, unknown>[] = [];
   for (const r of data) {
     const o = versCamel(r);
