@@ -3180,7 +3180,8 @@ function StatsDepotage() {
   </div></>;
 }
 function StockList({ statut, titre }: { statut: string; titre?: string }) {
-  const { data, loading, error } = useAsync<{ rows: O[]; compte: O }>(() => call('stock.list', { statut }), [statut]);
+  // `allege` : seulement les colonnes affichées (et fouillées) ci-dessous.
+  const { data, loading, error } = useAsync<{ rows: O[]; compte: O }>(() => call('stock.list', { statut, allege: true }), [statut]);
   return <div className="card"><h2>{titre ?? 'Stock conteneurs'}</h2>
     <ExportConteneurs statutDefaut={statut === 'tous' ? '' : statut} />
     {loading ? <Spinner /> : error ? <div className="err-msg">{error}</div> : <>

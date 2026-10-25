@@ -81,7 +81,7 @@ export async function stockLookup(ctx: Ctx, p: { numeroTC?: string }) {
    et ses compteurs emploient, au lieu de la ligne entière. */
 const COLONNES_LISTE_STOCK = 'numero_tc, taille, type_conteneur, provenance, statut, date_entree, date_pointage, pointe_par, cargaison_id, annee_declaration, type_declaration, numero_declaration, nb_sejours_import';
 
-export async function stockList(ctx: Ctx, opts: { statut?: string; lignesSeules?: boolean }) {
+export async function stockList(ctx: Ctx, opts: { statut?: string; lignesSeules?: boolean; allege?: boolean }) {
   const statut = opts?.statut || 'tous';
   /* LIGNES SEULES (2026-10-25) : les écrans de saisie (création de camion,
      panneau CFS) ne veulent que les conteneurs d'UN statut pour les proposer à
@@ -112,6 +112,12 @@ export async function stockList(ctx: Ctx, opts: { statut?: string; lignesSeules?
     const j = o['dateEntree'] ? jours(new Date(String(o['dateEntree'])), now) : Number(o['nbSejoursImport'] || 0) || 0;
     if (o['statut'] !== STOCK_STATUTS.DEPOTE) { dist[trancheAge(j)]++; sommeJ += j; nJ++; }
     if (statut !== 'tous' && o['statut'] !== statut) continue;
+    /* LISTE ALLÉGÉE (2026-10-25) : l'écran « Stock conteneurs » n'affiche et ne
+       fouille que ces six champs ; les 17 000 lignes complètes pesaient 5,6 Mo. */
+    if (opts?.allege === true) {
+      rows.push({ numeroTC: o['numeroTc'], taille: o['taille'], statut: o['statut'], provenance: o['provenance'], numeroDeclaration: o['numeroDeclaration'], joursSejour: j });
+      continue;
+    }
     rows.push({
       numeroTC: o['numeroTc'], taille: o['taille'], typeConteneur: o['typeConteneur'], provenance: o['provenance'],
       statut: o['statut'], dateEntree: o['dateEntree'], datePointage: o['datePointage'], pointePar: o['pointePar'],
