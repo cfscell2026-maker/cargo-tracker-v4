@@ -10,3 +10,4 @@ export * from './construction.ts';
 export * from './permissions.ts';
 export * from './parametres.ts';
 export * from './rapprochement.ts';
+export * from './transmission.ts';

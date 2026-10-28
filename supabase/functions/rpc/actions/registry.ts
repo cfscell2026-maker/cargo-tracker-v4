@@ -17,6 +17,7 @@ import * as prm from './parametres.ts';
 import * as prk from './parking.ts';
 import * as acp from './rapprochement.ts';
 import * as vrr from './verrou.ts';
+import * as trn from './transmission.ts';
 
 type H = (ctx: Ctx, data: never) => Promise<unknown>;
 const d = <T>(fn: (ctx: Ctx, data: T) => Promise<unknown>): H => fn as H;
@@ -171,6 +172,11 @@ export const ACTIONS: Record<string, H> = {
   'acp.detail': d(acp.rapprochementDetail),
 
   /* ----- Verrou de l'application (2026-10-07) ----- */
+  /* ----- Transmission d'un engagement (2026-10-28) ----- */
+  'engagement.transmission': d(trn.transmissionLire),
+  'engagement.depart': d(trn.transmissionDepart),
+  'engagement.arrivee': d(trn.transmissionArrivee),
+
   'verrou.etat': d(vrr.verrouEtat),
   'verrou.definir': d(vrr.verrouDefinir),
   'verrou.bloquer': d(vrr.verrouBloquer),

@@ -17,7 +17,8 @@ import { LogoVerrou } from './lib/verrou.tsx';
 import type { ReactNode } from 'react';
 import type { Nav } from './App.tsx';
 import { useNav } from './lib/contexte-nav.ts';
-import { ROLES, OPERATIONS, VEHICULE_DESTINATIONS, TYPES_DECLARATION, optionTypeDeclaration, STATUTS, SUIVENT_ENGAGEMENTS, ENGAGEMENTS, aRoleParmi, dateDansNJours, tcValide, fileAttente, estTypeSansT1, libelleTypeSansT1, exigeControlePoids, exigeAmendeEffets, AMENDE_EFFETS_FORFAIT, NATURES_RAPPORT_ENGAGEMENT, dureeLisible,
+import { ROLES, OPERATIONS, VEHICULE_DESTINATIONS, TYPES_DECLARATION, optionTypeDeclaration, STATUTS, SUIVENT_ENGAGEMENTS, ENGAGEMENTS, aRoleParmi,
+  nombreOuNull, ecartLigne, totauxTransmission, manqueAuDepart, manqueALArrivee, dateDansNJours, tcValide, fileAttente, estTypeSansT1, libelleTypeSansT1, exigeControlePoids, exigeAmendeEffets, AMENDE_EFFETS_FORFAIT, NATURES_RAPPORT_ENGAGEMENT, dureeLisible,
   ROLES_TECHNIQUES, rangTechnique, extraireNumerosTC, aLeDroit, aPouvoirAdmin} from '../../../supabase/functions/_shared/domaine/src/index.ts';
 
 const STATUT_OPTIONS = Object.values(STATUTS);
@@ -553,27 +554,19 @@ export function BandeauModule({ icone, titre, sous, action, sansRetour, auto }: 
 const SCREENS: Record<string, Screen> = {};
 
 /**
- * ÉCHÉANCIER DES ENGAGEMENTS (2026-09-10) : bandeau du tableau de bord.
+ * L'ENGAGEMENT AU TABLEAU DE BORD : UNE TUILE, PLUS UNE LISTE (2026-10-28,
+ * demande utilisateur).
  *
- * N'apparaît que pour les rôles qui portent le suivi, et seulement s'il reste
- * quelque chose à envoyer : un bandeau permanent et vide se met à ne plus être
- * lu, et c'est précisément ce qu'on ne veut pas d'une relance.
+ * L'encadré déroulait tous les engagements en attente. Avec 138 d'entre eux il
+ * mesurait ONZE MILLE PIXELS de haut : le tableau de bord devenait illisible,
+ * et le reste de la page passait sous l'horizon.
  *
- * L'alerte s'allume à J-1 (« à envoyer demain »), passe à « échéance
- * aujourd'hui », puis compte les jours de retard, et ne disparaît qu'au clic
- * sur « Effectué ». Elle ne bloque rien : le camion sort normalement (décision
- * du 2026-09-10).
+ * Il ne reste que le chiffre, et ce qu'il faut pour décider d'y aller : le
+ * nombre en attente, ceux en retard, et le plus urgent. Le détail est à un
+ * clic, dans le volet qui est fait pour ça et qui sait paginer.
  */
 function BandeauEngagements({ role, go }: { role: string; go: Nav['go'] }) {
-  const [n, setN] = useState(0); // force le rechargement après un solde
-  const { data, loading } = useAsync<O>(() => call('report.engagements'), [n]);
-  const [busy, setBusy] = useState('');
-  /* 2026-09-17 (demande utilisateur) : la correction s'ouvre ICI, là où le chef
-     voit ses engagements, elle existait, mais au fond de la fiche du camion.
-     ⚠ DECLARE AVANT les `return null` de garde ci-dessous : un hook place apres
-     change de nombre d'un rendu a l'autre, et React refuse alors de rendre
-     l'encadre entier (« Rendered more hooks than during the previous render »). */
-  const [corrige, setCorrige] = useState<O | null>(null);
+  const { data, loading } = useAsync<O>(() => call('report.engagements'), []);
 
   /* `aRoleParmi` et non `includes` : SUIVENT_ENGAGEMENTS a ete ecrite avant
      les roles techniques et ne les nomme pas. Un INFO, que le serveur autorise
@@ -584,53 +577,33 @@ function BandeauEngagements({ role, go }: { role: string; go: Nav['go'] }) {
   const lignes = (data['lignes'] as O[]) ?? [];
   if (!lignes.length) return null;
   const cpt = (data['compte'] as O) ?? {};
-
-  async function solder(id: string) {
-    setBusy(id);
-    try {
-      await call('cargo.engagementfait', { id });
-      toast('Engagement soldé : informations marquées comme transmises.', 'ok');
-      setN((x) => x + 1);
-    } catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(''); }
-  }
-
   const retard = Number(cpt['retard'] ?? 0);
-  return <div className="card" style={{
-    marginTop: 10,
-    borderLeft: `4px solid var(--${retard ? 'err' : 'warn'})`,
-  }}>
-    <h2 style={{ margin: 0 }}>
-      Engagements à transmettre, {lignes.length}
-      {retard ? <span style={{ color: 'var(--err)' }}> · {retard} en retard</span> : null}
-    </h2>
-    <div className="help" style={{ marginBottom: 8 }}>
-      Ces cargaisons doivent faire l'objet d'un envoi d'informations. Cliquez sur
-      « Effectué » une fois l'envoi réalisé.
-      {/* 2026-09-17 : l'encadré ne montre que ce qui alerte, le volet montre tout. */}
-      {' '}<a onClick={() => go('engagements')}>Voir tous les engagements</a>
+
+  /* LE PLUS URGENT, et lui seul. `report.engagements` rend déjà la liste triée
+     par échéance : la première ligne est celle qui presse. L'afficher évite
+     d'ouvrir le volet pour savoir s'il y a péril. */
+  const premier = lignes[0] as O;
+
+  return <div className="card eng-tuile" style={{ borderLeft: `4px solid var(--${retard ? 'err' : 'warn'})` }}
+    role="button" tabIndex={0}
+    onClick={() => go('engagements')}
+    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go('engagements'); } }}
+    title="Ouvrir le volet des engagements">
+    <span className="eng-tuile-icone" aria-hidden="true"><Icone nom="echeance" taille={20} /></span>
+    <div className="eng-tuile-corps">
+      <div className="eng-tuile-chiffre">
+        <b>{lignes.length}</b>
+        <span>engagement(s) à transmettre</span>
+      </div>
+      <div className="help eng-tuile-detail">
+        {retard
+          ? <span className="eng-tuile-retard"><Icone nom="sablier" taille={13} />{retard} en retard</span>
+          : <span>Aucun retard pour l'instant.</span>}
+        {premier ? <span> · le plus urgent : <b className="mono">{String(premier['numeroCamion'] ?? '')}</b>
+          {premier['libelle'] ? <> , {String(premier['libelle'])}</> : null}</span> : null}
+      </div>
     </div>
-    {lignes.map((l) => {
-      const id = String(l['id']);
-      const enRetard = l['etat'] === 'retard';
-      return <div key={id} className="row" style={{
-        alignItems: 'center', gap: 10, flexWrap: 'wrap',
-        padding: '6px 0', borderTop: '1px solid var(--line)',
-      }}>
-        <a className="mono" style={{ minWidth: 120 }} onClick={() => nav_go(go, id)}>{String(l['numeroCamion'] || id)}</a>
-        <span style={{ flex: 1, minWidth: 160 }}>{String(l['engagementType'] || '—')}</span>
-        <span className="help" style={{ minWidth: 130 }}>{fmtJour(l['engagementDelai'])}</span>
-        <span style={{ color: `var(--${enRetard ? 'err' : 'warn'})`, fontWeight: 600, minWidth: 150 }}>
-          {String(l['libelle'] || '')}
-        </span>
-        <button className="ghost" onClick={() => setCorrige(l)}>✎ Corriger</button>
-        <button disabled={busy === id} onClick={() => solder(id)}>
-          {busy === id ? '…' : '✔ Effectué'}
-        </button>
-      </div>;
-    })}
-    {corrige && <ModaleCorrigerEngagement ligne={corrige} admin={aPouvoirAdmin(role)}
-      onClose={() => setCorrige(null)}
-      onFait={() => { setCorrige(null); setN((x) => x + 1); }} />}
+    <span className="eng-tuile-aller" aria-hidden="true"><Icone nom="chevron" taille={16} /></span>
   </div>;
 }
 
@@ -1852,6 +1825,194 @@ function AvisApresSignature({ error, signee }: { error: string; signee: number }
 }
 
 SCREENS.completer = (nav) => <CargoList {...nav} filtre={{ etape: 'CFS' }} titre="À compléter (CFS)" />;
+/* ===== TRANSMETTRE UN ENGAGEMENT (2026-10-28, demande utilisateur) =======
+ *
+ * Le bouton « Effectué » soldait l'engagement en un clic : on savait QUE les
+ * informations étaient parties, jamais LESQUELLES. Un engagement soldé sans
+ * trace de son contenu ne prouve rien lors d'un contrôle.
+ *
+ * DEUX VOLETS, ET DEUX MOMENTS. Le DÉPART se saisit quand on transmet, et
+ * c'est lui qui solde l'engagement. L'ARRIVÉE se saisit plus tard, quand le
+ * pays de destination répond, parfois des semaines après : la fiche se rouvre
+ * autant de fois qu'il faut.
+ *
+ * L'ÉCART NE S'AFFICHE QUE SUR CE QUI EST CONSTATÉ. Une ligne dont l'arrivée
+ * est inconnue n'entre dans aucun total d'écart : la compter ferait apparaître
+ * un manquant imaginaire, qui grossirait à chaque marchandise ajoutée.
+ * ====================================================================== */
+type LigneM = { designation: string; quantiteDepart: string; quantiteArrivee: string };
+
+const marchandiseVide = (): LigneM => ({ designation: '', quantiteDepart: '', quantiteArrivee: '' });
+
+/**
+ * LE LOGO ENTRE DEUX FLUX QUI PARTENT ET REVIENNENT.
+ *
+ * Même grammaire que les deux autres emblèmes de l'application : le `Spinner`
+ * fait tourner un conteneur (« ça travaille »), le verrou l'arrête contre une
+ * barrière (« c'est suspendu »). Ici, une boîte s'éloigne du logo vers la
+ * droite puis une autre en revient : c'est l'aller de la déclaration et le
+ * retour de la réponse du pays de destination, le geste même de la fiche.
+ */
+function LogoTransmission({ taille = 64 }: { taille?: number }) {
+  return <div className="trn-logo" style={{ ['--t' as string]: taille + 'px' }} aria-hidden="true">
+    <span className="trn-onde trn-onde-1" />
+    <span className="trn-onde trn-onde-2" />
+    <span className="trn-flux trn-aller"><i /></span>
+    <span className="trn-flux trn-retour"><i /></span>
+    <img className="logo-rond" src="/logo.png" alt=""
+      onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />
+  </div>;
+}
+
+function ModaleTransmission({ ligne, onClose, onFait }: { ligne: O; onClose: () => void; onFait: () => void }) {
+  const id = String(ligne['id']);
+  const { data, loading } = useAsync<O>(() => call('engagement.transmission', { id }), [id]);
+  const [pays, setPays] = useState('');
+  const [im4, setIm4] = useState('');
+  const [lignes, setLignes] = useState<LigneM[]>([marchandiseVide()]);
+  const [busy, setBusy] = useState('');
+  const [pret, setPret] = useState(false);
+
+  // La fiche existante remplit le formulaire, une seule fois : après quoi
+  // c'est la saisie qui fait foi, sinon chaque rechargement l'écraserait.
+  useEffect(() => {
+    if (pret || loading || !data) return;
+    const t = (data['transmission'] ?? null) as O | null;
+    const ms = ((data['marchandises'] ?? []) as O[]);
+    if (t) { setPays(String(t['pays_destination'] ?? '')); setIm4(String(t['numero_im4'] ?? '')); }
+    if (ms.length) {
+      setLignes(ms.map((m) => ({
+        designation: String(m['designation'] ?? ''),
+        quantiteDepart: m['quantiteDepart'] === null || m['quantiteDepart'] === undefined ? '' : String(m['quantiteDepart']),
+        quantiteArrivee: m['quantiteArrivee'] === null || m['quantiteArrivee'] === undefined ? '' : String(m['quantiteArrivee']),
+      })));
+    }
+    setPret(true);
+  }, [data, loading, pret]);
+
+  const existe = !!(data?.['transmission']);
+  const pourDomaine = lignes.map((l) => ({
+    designation: l.designation,
+    quantiteDepart: nombreOuNull(l.quantiteDepart) ?? 0,
+    quantiteArrivee: nombreOuNull(l.quantiteArrivee),
+  }));
+  const totaux = totauxTransmission(pourDomaine);
+  const manqueDepart = manqueAuDepart({ paysDestination: pays, numeroIm4: im4 }, pourDomaine);
+  const manqueArrivee = manqueALArrivee(pourDomaine);
+
+  const majLigne = (i: number, champ: keyof LigneM, v: string) =>
+    setLignes((ls) => ls.map((l, k) => (k === i ? { ...l, [champ]: v } : l)));
+
+  async function envoyer(action: 'engagement.depart' | 'engagement.arrivee', dit: string) {
+    setBusy(action);
+    try {
+      await call(action, { id, paysDestination: pays, numeroIm4: im4, marchandises: pourDomaine });
+      toast(dit, 'ok'); onFait();
+    } catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(''); }
+  }
+
+  const nombre = (v: number) => v.toLocaleString('fr-FR');
+
+  return <Modal onClose={() => !busy && onClose()}>
+    <div className="trn-fenetre">
+      <LogoTransmission taille={64} />
+      <h2>Transmettre l'engagement</h2>
+      <p className="help trn-sous">
+        <b className="mono">{String(ligne['numeroCamion'] ?? '')}</b>
+        {ligne['engagementType'] ? <> · {String(ligne['engagementType'])}</> : null}
+        {existe ? <> · fiche déjà ouverte, vous la complétez</> : null}
+      </p>
+
+      {loading ? <Spinner /> : <>
+        {/* ---- L'en-tête : où vont les marchandises, et sous quel numéro ---- */}
+        <div className="trn-section">
+          <h3><Icone nom="carte" taille={15} />Destination</h3>
+          <div className="trn-grille">
+            <label className="help">Pays de destination
+              <input value={pays} onChange={(e) => setPays(e.target.value)}
+                placeholder="Burkina Faso, Niger, Mali…" maxLength={120} />
+            </label>
+            <label className="help">N° IM4 du pays de destination
+              <input className="mono" value={im4} onChange={(e) => setIm4(e.target.value)}
+                placeholder="IM4-2026-000" maxLength={60} />
+            </label>
+          </div>
+        </div>
+
+        {/* ---- Les marchandises : départ à gauche, arrivée à droite ---- */}
+        <div className="trn-section">
+          <h3><Icone nom="boites" taille={15} />Marchandises
+            <span className="help trn-compte">{lignes.length} ligne(s)</span>
+          </h3>
+          <div className="trn-entetes help">
+            <span>Désignation</span>
+            <span>Déclaré au départ</span>
+            <span>Constaté à l'arrivée</span>
+            <span>Écart</span>
+            <span />
+          </div>
+          {lignes.map((l, i) => {
+            const e = ecartLigne(pourDomaine[i]!);
+            return <div className="trn-ligne" key={i}>
+              <input value={l.designation} placeholder="Riz 50 kg, sucre, ciment…" maxLength={200}
+                onChange={(ev) => majLigne(i, 'designation', ev.target.value)} />
+              <input inputMode="decimal" value={l.quantiteDepart} placeholder="0"
+                onChange={(ev) => majLigne(i, 'quantiteDepart', ev.target.value.replace(/[^0-9.,]/g, ''))} />
+              <input inputMode="decimal" value={l.quantiteArrivee} placeholder="—"
+                title="À renseigner quand le pays de destination répond"
+                onChange={(ev) => majLigne(i, 'quantiteArrivee', ev.target.value.replace(/[^0-9.,]/g, ''))} />
+              {/* L'écart ne se saisit pas : il se déduit. Le rendre modifiable
+                  permettrait d'écrire un chiffre que les quantités démentent. */}
+              <span className={`trn-ecart ${e === null ? 'attente' : e < 0 ? 'manque' : e > 0 ? 'surplus' : 'juste'}`}>
+                {e === null ? 'en attente' : e > 0 ? `+${nombre(e)}` : nombre(e)}
+              </span>
+              <button className="ghost xs trn-retirer" title="Retirer cette marchandise"
+                disabled={lignes.length <= 1}
+                onClick={() => setLignes((ls) => ls.filter((_, k) => k !== i))}>✕</button>
+            </div>;
+          })}
+          <button className="ghost xs trn-ajouter" onClick={() => setLignes((ls) => [...ls, marchandiseVide()])}>
+            <Icone nom="plus" taille={14} />Ajouter une marchandise
+          </button>
+        </div>
+
+        {/* ---- Les totaux : le chiffre que le service vient chercher ---- */}
+        <div className="trn-totaux">
+          <div><span className="help">Total déclaré au départ</span><b>{nombre(totaux.depart)}</b></div>
+          <div><span className="help">Total constaté à l'arrivée</span><b>{nombre(totaux.arrivee)}</b></div>
+          <div className={`trn-total-ecart ${totaux.ecart === null ? 'attente' : totaux.ecart < 0 ? 'manque' : totaux.ecart > 0 ? 'surplus' : 'juste'}`}>
+            <span className="help">Écart</span>
+            <b>{totaux.ecart === null ? '—' : totaux.ecart > 0 ? `+${nombre(totaux.ecart)}` : nombre(totaux.ecart)}</b>
+          </div>
+        </div>
+        {totaux.enAttente > 0 && <div className="help trn-attente">
+          <Icone nom="sablier" taille={13} />
+          {totaux.enAttente} ligne(s) sans arrivée connue : elles ne comptent pas dans l'écart.
+        </div>}
+
+        {/* Ce qui manque est DIT, au lieu de griser un bouton sans raison. */}
+        {(manqueDepart || manqueArrivee) && <div className="trn-manque">{manqueDepart ?? manqueArrivee}</div>}
+
+        <div className="trn-pied">
+          <button className="ghost" disabled={!!busy} onClick={onClose}>Annuler</button>
+          <button disabled={!!busy || !!manqueDepart}
+            onClick={() => envoyer('engagement.depart', existe ? 'Transmission corrigée.' : 'Engagement transmis.')}>
+            <Icone nom="megaphone" taille={15} />
+            {busy === 'engagement.depart' ? 'Enregistrement…' : existe ? 'Corriger le départ' : 'Transmettre'}
+          </button>
+          {/* L'arrivée ne s'enregistre qu'une fois le départ connu : sans lui,
+              il n'y a rien à quoi comparer. */}
+          {existe && <button className="trn-arrivee" disabled={!!busy || !!manqueArrivee}
+            onClick={() => envoyer('engagement.arrivee', 'Arrivée enregistrée.')}>
+            <Icone nom="valider" taille={15} />
+            {busy === 'engagement.arrivee' ? 'Enregistrement…' : "Enregistrer l'arrivée"}
+          </button>}
+        </div>
+      </>}
+    </div>
+  </Modal>;
+}
+
 /* ===================== VOLET ENGAGEMENTS : 2026-09-17 =====================
  *
  * Demande utilisateur. Les engagements étaient dispersés : l'encadré du tableau
@@ -1892,6 +2053,7 @@ SCREENS.engagements = ({ go, user }) => {
   };
   const [corrige, setCorrige] = useState<O | null>(null);
   const [retire, setRetire] = useState<O | null>(null);
+  const [transmet, setTransmet] = useState<O | null>(null);
   const [busy, setBusy] = useState('');
   const { data, loading, error, reload } = useAsync<O>(() => call('report.engagements', { filtre }), [filtre]);
   const recues = ((data?.['lignes'] as O[]) ?? []);
@@ -2036,9 +2198,15 @@ SCREENS.engagements = ({ go, user }) => {
                         Le sous-titre du bandeau portait ces trois explications,
                         ce qui lui faisait trois lignes ; elles ont leur place
                         ici, la ou l'on hesite avant de cliquer. */}
-                    {peut && !solde && <button className="ghost xs" disabled={busy === id} onClick={() => solder(id)}
-                      title="Les informations ont été transmises : l'engagement est tenu.">
-                      {busy === id ? '…' : '✔ Effectué'}
+                    {/* « Effectue » soldait en un clic, sans dire CE QUI avait
+                        ete transmis. La fiche le dit, et c'est son depart qui
+                        solde desormais. Elle reste ouvrable apres le solde :
+                        l'arrivee se renseigne plus tard. */}
+                    {peut && <button className="ghost xs" onClick={() => setTransmet(l)}
+                      title={solde
+                        ? "Voir ou completer la transmission : pays, N° IM4, marchandises, arrivée."
+                        : "Transmettre : pays de destination, N° IM4, marchandises déclarées."}>
+                      {solde ? '↻ Transmission' : '↗ Transmettre'}
                     </button>}
                     {peut && <button className="ghost xs" onClick={() => setCorrige(l)}
                       title="Engagement ou délai erroné : corriger la saisie.">✎ Corriger</button>}
@@ -2053,6 +2221,9 @@ SCREENS.engagements = ({ go, user }) => {
           </table></div>}
       </>}
     </div>
+    {transmet && <ModaleTransmission ligne={transmet}
+      onClose={() => setTransmet(null)}
+      onFait={() => { setTransmet(null); reload(); }} />}
     {corrige && <ModaleCorrigerEngagement ligne={corrige} admin={admin}
       onClose={() => setCorrige(null)}
       onFait={() => { setCorrige(null); reload(); }} />}

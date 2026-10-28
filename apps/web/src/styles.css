@@ -3697,3 +3697,159 @@ button.modal-fermer:focus-visible{outline:2px solid #0e5a8a;outline-offset:2px}
   .filtres-verre select,.filtres-verre .champ-loupe{flex:1 1 100%;max-width:none}
   .filtres-verre .fv-raz{margin-left:0;width:100%}
 }
+
+/* ============ TRANSMISSION D'UN ENGAGEMENT, 2026-10-28 =================
+ *
+ * Demande utilisateur : le bandeau deroulait TOUS les engagements en attente.
+ * Avec 138 d'entre eux il mesurait onze mille pixels de haut. Il devient une
+ * tuile ; le detail est a un clic, dans le volet qui sait paginer.
+ */
+.eng-tuile{
+  display:flex;align-items:center;gap:14px;cursor:pointer;
+  padding:14px 16px;
+  transition:transform .14s ease,box-shadow .18s ease;
+}
+.eng-tuile:hover{transform:translateY(-1px);box-shadow:0 14px 34px rgba(15,35,55,.14)}
+.eng-tuile:active{transform:translateY(1px)}
+.eng-tuile:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.eng-tuile-icone{
+  flex:none;display:grid;place-items:center;width:44px;height:44px;border-radius:13px;
+  color:var(--warn);background:color-mix(in srgb,var(--warn) 13%,#fff);
+}
+.eng-tuile-corps{flex:1;min-width:0}
+.eng-tuile-chiffre{display:flex;align-items:baseline;gap:8px}
+.eng-tuile-chiffre b{font-size:26px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1}
+.eng-tuile-chiffre span{font-size:14px}
+.eng-tuile-detail{margin:3px 0 0}
+.eng-tuile-retard{color:var(--err);font-weight:600;display:inline-flex;align-items:center;gap:4px}
+.eng-tuile-aller{flex:none;color:#93a3b2}
+.eng-tuile:hover .eng-tuile-aller{color:var(--accent)}
+
+/* ---- LE LOGO ENTRE DEUX FLUX QUI PARTENT ET REVIENNENT ----
+ *
+ * Meme grammaire que les deux autres emblemes : le `Spinner` fait tourner un
+ * conteneur (« ca travaille »), le verrou l'arrete contre une barriere
+ * (« c'est suspendu »). Ici une boite s'eloigne vers la droite, une autre en
+ * revient : l'aller de la declaration, le retour de la reponse du pays de
+ * destination. C'est le geste meme de la fiche.
+ */
+.trn-logo{
+  --t:64px;
+  position:relative;width:calc(var(--t) * 2.6);height:var(--t);
+  margin:4px auto 0;display:grid;place-items:center;
+}
+.trn-logo .logo-rond{
+  width:var(--t);height:var(--t);border-radius:50%;position:relative;z-index:2;
+}
+/* Deux ondes qui s'ecartent du logo : l'emission, avant meme que la boite parte. */
+.trn-onde{
+  position:absolute;width:var(--t);height:var(--t);border-radius:50%;
+  border:1.5px solid rgba(14,90,138,.35);z-index:1;
+  animation:trn-onde 3.4s ease-out infinite;
+}
+.trn-onde-2{animation-delay:1.7s}
+@keyframes trn-onde{
+  0%   { transform:scale(1);opacity:.65 }
+  70%  { transform:scale(1.9);opacity:0 }
+  100% { transform:scale(1.9);opacity:0 }
+}
+/* Les deux flux. L'ALLER part du logo vers la droite, le RETOUR revient de la
+   droite : ils ne se croisent jamais, ils se succedent. */
+.trn-flux{position:absolute;top:50%;left:50%;width:calc(var(--t) * 1.15);height:2px;margin-top:-1px}
+.trn-flux i{
+  position:absolute;top:-4px;width:9px;height:9px;border-radius:2.5px;
+  background:linear-gradient(135deg,var(--accent),#0e5a8a);
+  box-shadow:0 2px 6px rgba(14,90,138,.4);
+}
+.trn-aller i{animation:trn-aller 3.4s ease-in-out infinite}
+.trn-retour{transform:scaleX(-1)}
+.trn-retour i{
+  background:linear-gradient(135deg,#1f7a5c,#2a9d78);
+  box-shadow:0 2px 6px rgba(31,122,92,.4);
+  animation:trn-retour 3.4s ease-in-out infinite;
+}
+/* L'aller occupe la premiere moitie du cycle, le retour la seconde : jamais
+   les deux a la fois, sans quoi on verrait un va-et-vient, pas un echange. */
+@keyframes trn-aller{
+  0%   { left:calc(var(--t) * .42);opacity:0 }
+  12%  { opacity:1 }
+  42%  { left:100%;opacity:1 }
+  50%  { left:100%;opacity:0 }
+  100% { left:100%;opacity:0 }
+}
+@keyframes trn-retour{
+  0%,50% { left:100%;opacity:0 }
+  58%    { left:100%;opacity:1 }
+  88%    { left:calc(var(--t) * .42);opacity:1 }
+  100%   { left:calc(var(--t) * .42);opacity:0 }
+}
+@media (prefers-reduced-motion:reduce){
+  .trn-onde,.trn-aller i,.trn-retour i{animation:none}
+  .trn-retour i{left:calc(var(--t) * .42)}
+  .trn-aller i{left:100%}
+}
+
+/* ---- La fenetre ---- */
+.trn-fenetre{display:flex;flex-direction:column}
+.trn-fenetre h2{margin:12px 0 2px;text-align:center}
+.trn-fenetre .trn-sous{text-align:center;margin:0 auto 16px}
+.trn-section{margin-top:14px}
+.trn-section h3{
+  display:flex;align-items:center;gap:7px;margin:0 0 9px;
+  font-size:13px;letter-spacing:.03em;text-transform:uppercase;color:var(--muted);
+}
+.trn-section h3 .ic{color:var(--accent)}
+.trn-compte{margin-left:auto;text-transform:none;letter-spacing:0}
+.trn-grille{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px}
+.trn-grille label{margin:0}
+.trn-grille input{margin-top:4px}
+
+/* Les marchandises : une grille, pour que les colonnes restent alignees d'une
+   ligne a l'autre. L'ecart n'est PAS un champ : il se deduit. */
+.trn-entetes,.trn-ligne{
+  display:grid;grid-template-columns:1fr 110px 110px 92px 32px;
+  gap:8px;align-items:center;
+}
+.trn-entetes{margin-bottom:5px;font-size:11px;letter-spacing:.03em;text-transform:uppercase}
+.trn-ligne{margin-bottom:7px}
+.trn-ligne input{margin:0}
+.trn-ecart{
+  font-size:13px;font-weight:600;text-align:right;font-variant-numeric:tabular-nums;
+}
+.trn-ecart.attente{color:var(--muted);font-weight:400;font-size:11.5px}
+.trn-ecart.manque{color:var(--err)}
+.trn-ecart.surplus{color:var(--warn)}
+.trn-ecart.juste{color:var(--ok)}
+.trn-retirer{color:var(--err)}
+.trn-ajouter{margin-top:4px;display:inline-flex;align-items:center;gap:6px}
+
+.trn-totaux{
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;
+  margin-top:14px;padding:12px 14px;border-radius:13px;
+  background:rgba(14,90,138,.06);border:1px solid rgba(14,90,138,.16);
+}
+.trn-totaux > div{display:flex;flex-direction:column;gap:2px}
+.trn-totaux b{font-size:19px;font-variant-numeric:tabular-nums}
+.trn-total-ecart.manque b{color:var(--err)}
+.trn-total-ecart.surplus b{color:var(--warn)}
+.trn-total-ecart.juste b{color:var(--ok)}
+.trn-total-ecart.attente b{color:var(--muted)}
+.trn-attente{display:flex;align-items:center;gap:6px;margin:8px 0 0;color:var(--muted)}
+
+.trn-manque{
+  margin-top:10px;font-size:12.5px;color:var(--warn);
+  padding:8px 12px;border-radius:10px;
+  background:rgba(180,83,31,.07);border:1px solid rgba(180,83,31,.2);
+}
+.trn-pied{display:flex;gap:9px;justify-content:flex-end;margin-top:18px;flex-wrap:wrap}
+.trn-pied button{display:inline-flex;align-items:center;gap:7px}
+.trn-arrivee{background:var(--ok) !important;background-image:none !important;border-color:var(--ok) !important;color:#fff !important}
+
+@media (max-width:640px){
+  .trn-entetes{display:none}
+  .trn-ligne{grid-template-columns:1fr 1fr;gap:6px}
+  .trn-ligne input:first-child{grid-column:1 / -1}
+  .trn-ecart{text-align:left}
+  .trn-pied{flex-direction:column-reverse}
+  .trn-pied button{width:100%;justify-content:center}
+}
