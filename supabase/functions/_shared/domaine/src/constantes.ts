@@ -133,6 +133,28 @@ export function aPouvoirAdmin(role: unknown): boolean {
 }
 
 /**
+ * CE ROLE FIGURE-T-IL DANS CETTE LISTE ? (2026-10-28, defaut signale par
+ * l'utilisateur : l'echeancier des engagements n'apparaissait pas au tableau
+ * de bord d'un compte INFO.)
+ *
+ * Meme regle que le serveur, mot pour mot : on appartient a la liste, OU l'on
+ * herite de l'ADMIN quand il y figure. Les listes de roles du domaine
+ * (`SUIVENT_ENGAGEMENTS`, `CHEFS_HORSGABARIT`, `VOIENT_HORSGABARIT`) ont ete
+ * ecrites avant les roles techniques et ne les nomment pas : un `includes`
+ * brut repond donc NON a un INFO, la ou `verifierPermission` repond OUI.
+ * L'ecran cachait ce que le serveur autorisait.
+ *
+ * `aPouvoirAdmin` traite les comparaisons `role === ADMIN` ; celle-ci traite
+ * les appartenances a une liste. Les deux disent la meme chose, sur les deux
+ * formes que prend la question dans le code.
+ */
+export function aRoleParmi(role: unknown, roles: readonly Role[]): boolean {
+  const r = String(role ?? '') as Role;
+  if (roles.indexOf(r) >= 0) return true;
+  return roles.indexOf(ROLES.ADMIN) >= 0 && estRoleTechnique(r);
+}
+
+/**
  * RANG D'UN ROLE TECHNIQUE (2026-10-03, precision utilisateur).
  *
  * Les deux roles techniques ne sont PAS a egalite : l'INFO est au-dessus du

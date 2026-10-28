@@ -17,7 +17,7 @@ import { LogoVerrou } from './lib/verrou.tsx';
 import type { ReactNode } from 'react';
 import type { Nav } from './App.tsx';
 import { useNav } from './lib/contexte-nav.ts';
-import { ROLES, OPERATIONS, VEHICULE_DESTINATIONS, TYPES_DECLARATION, optionTypeDeclaration, STATUTS, SUIVENT_ENGAGEMENTS, ENGAGEMENTS, dateDansNJours, tcValide, fileAttente, estTypeSansT1, libelleTypeSansT1, exigeControlePoids, exigeAmendeEffets, AMENDE_EFFETS_FORFAIT, NATURES_RAPPORT_ENGAGEMENT, dureeLisible,
+import { ROLES, OPERATIONS, VEHICULE_DESTINATIONS, TYPES_DECLARATION, optionTypeDeclaration, STATUTS, SUIVENT_ENGAGEMENTS, ENGAGEMENTS, aRoleParmi, dateDansNJours, tcValide, fileAttente, estTypeSansT1, libelleTypeSansT1, exigeControlePoids, exigeAmendeEffets, AMENDE_EFFETS_FORFAIT, NATURES_RAPPORT_ENGAGEMENT, dureeLisible,
   ROLES_TECHNIQUES, rangTechnique, extraireNumerosTC, aLeDroit, aPouvoirAdmin} from '../../../supabase/functions/_shared/domaine/src/index.ts';
 
 const STATUT_OPTIONS = Object.values(STATUTS);
@@ -575,7 +575,11 @@ function BandeauEngagements({ role, go }: { role: string; go: Nav['go'] }) {
      l'encadre entier (« Rendered more hooks than during the previous render »). */
   const [corrige, setCorrige] = useState<O | null>(null);
 
-  if (!SUIVENT_ENGAGEMENTS.includes(role as never)) return null;
+  /* `aRoleParmi` et non `includes` : SUIVENT_ENGAGEMENTS a ete ecrite avant
+     les roles techniques et ne les nomme pas. Un INFO, que le serveur autorise
+     (report.engagements est ouvert a l'ADMIN), ne voyait donc pas l'echeancier
+     ici. L'ecran cachait ce que le serveur accordait. */
+  if (!aRoleParmi(role, SUIVENT_ENGAGEMENTS)) return null;
   if (loading || !data) return null;
   const lignes = (data['lignes'] as O[]) ?? [];
   if (!lignes.length) return null;
@@ -1086,7 +1090,7 @@ function EcranEntrepot({ nav, type }: { nav: Nav; type: EntrepotType }) {
   const [onglet, setOnglet] = useState<'entree' | 'sortie' | 'stats' | 'gerer'>('entree');
   const { data, loading, reload } = useAsync<{ rows: O[] }>(() => call('entrepot.list', { type }), [type]);
   const entrepots = (data?.rows ?? []) as O[];
-  const peutGerer = ['ADMIN', 'CHEF_BRIGADE', 'CHEF_DIVISION'].includes(nav.user.role);
+  const peutGerer = aRoleParmi(nav.user.role, [ROLES.ADMIN, ROLES.CHEF_BRIGADE, ROLES.CHEF_DIVISION]);
   const T: [string, string][] = [['entree', 'Entrée'], ['sortie', 'Sortie (apurement)'], ['stats', 'Statistiques']];
   if (peutGerer) T.push(['gerer', 'Entrepôts']);
   return <>
@@ -1900,7 +1904,7 @@ SCREENS.engagements = ({ go, user }) => {
   // Compteurs GLOBAUX : ils ne bougent pas avec la vue affichée, mais bien avec
   // ce qu'on fait, solder un engagement le fait passer de l'un à l'autre.
   const glob = (data?.['global'] as O) ?? {};
-  const peut = SUIVENT_ENGAGEMENTS.includes(user.role as never);
+  const peut = aRoleParmi(user.role, SUIVENT_ENGAGEMENTS);   // cf. echeancier : les roles techniques en sont
   const admin = aPouvoirAdmin(user.role);
 
   async function solder(id: string) {

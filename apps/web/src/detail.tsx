@@ -13,8 +13,7 @@ import {
   etapesEnAttente, etatCellules, etapePrecedenteManquante, messageEtapePrecedente, LIBELLE_ETAPE,
   estOui, tcValide, parseConteneursDetails, tailleBucket,
   groupesDeclaration, libelleDeclaration, estTypeSansT1, libelleTypeSansT1, exigeControlePoids,
-  numeroDispenseValide, aPouvoirAdmin, exigeAmendeEffets, AMENDE_EFFETS_FORFAIT,
-} from '../../../supabase/functions/_shared/domaine/src/index.ts';
+  numeroDispenseValide, aPouvoirAdmin, exigeAmendeEffets, AMENDE_EFFETS_FORFAIT, aRoleParmi} from '../../../supabase/functions/_shared/domaine/src/index.ts';
 
 type O = Record<string, unknown>;
 const A = ROLES.ADMIN;
@@ -43,7 +42,7 @@ export function Detail({ user, arg, go, retour, ecranPrecedent }: Nav) {
      ont les pouvoirs partout et que le SERVEUR autorise (verifierPermission),
      ne voyaient aucun panneau réservé à l'administrateur sur la fiche. La règle
      est la même qu'au serveur : un panneau ouvert à l'ADMIN l'est à eux. */
-  const can = (...roles: string[]) => roles.includes(role) || (roles.includes(A) && aPouvoirAdmin(role));
+  const can = (...roles: string[]) => aRoleParmi(role, roles as never);
   const suitEngagements = can(ROLES.CHEF_BRIGADE, ROLES.CHEF_BRIGADE_ADJOINT, ROLES.CHEF_VISITE, ROLES.CHEF_DIVISION, A);
   const dets = parseConteneursDetails(c['conteneursDetails']);
   // Chargement mixte : déduit des déclarations portées par chaque conteneur.
