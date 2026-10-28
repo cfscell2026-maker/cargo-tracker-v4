@@ -271,10 +271,15 @@ export function StatCard({ n, l, tone, onClick, variation, comparable, etape, pa
         qu'on ait lu le libellé. */}
     {(icone || etape) && <span className="stat-icone" aria-hidden="true">
       <Icone nom={icone ?? ICONE_ETAPE[etape!] ?? 'tableau'} taille={17} /></span>}
-    {/* LE SIGNAL, posé sur la pastille. `title` en donne la raison au survol ;
-        `aria-label` la donne aux lecteurs d'écran, pour qui un point qui
-        clignote n'existe pas. */}
-    {alerte && <span className="stat-signal" role="img" aria-label={alerte} title={alerte} />}
+    {/* LE SIGNAL : le triangle d'ATTENTION, et non un point. Un point rouge
+        attire l'œil sans rien dire ; ce signe-là se lit sans légende.
+        L'INFOBULLE EST À NOUS, pas celle du navigateur : la native met une
+        seconde à paraître, et on a déjà détourné le regard. `aria-label` dit
+        la même chose à qui ne voit pas clignoter. */}
+    {alerte && <span className="stat-signal" role="img" aria-label={alerte}>
+      <Icone nom="attention" taille={15} />
+      <span className="stat-signal-bulle" aria-hidden="true">{alerte}</span>
+    </span>}
     <div className="n">{n}</div>
     <div className="l">{l}</div>
     {part !== undefined && part !== null && <div className="evo evo-part">

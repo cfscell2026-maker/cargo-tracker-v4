@@ -155,6 +155,14 @@ const TRACES: Record<string, string | string[]> = {
   sablier: 'M7 3h10M7 21h10M8 3v3.5c0 2.2 4 3.5 4 5.5s-4 3.3-4 5.5V21M16 3v3.5c0 2.2-4 3.5-4 5.5s4 3.3 4 5.5V21',
   attente: 'M12 4a8 8 0 100 16 8 8 0 000-16zM12 8v4h3.5',
 
+  /* ATTENTION (2026-10-28, demande utilisateur) : le triangle et son point
+     d'exclamation, le signe que tout le monde lit sans legende. Il remplace le
+     point rouge du signal d'alerte, qui ne disait pas de quoi il s'agissait.
+     Les trois traits sont separes pour que le point reste un POINT a petite
+     taille : trace d'un seul coup, il se confondait avec la barre au-dessus
+     de lui des 10 px. */
+  attention: 'M12 3.6L1.8 20.4h20.4L12 3.6zM12 10v4.2M12 17.4h.01',
+
   /* LES QUATRE FILES D'ATTENTE (2026-09-24, demande utilisateur). Elles
      partageaient une seule horloge : on ne distinguait pas « En attente T1 »
      de « En attente sortie » dans le menu. Chacune reprend maintenant le

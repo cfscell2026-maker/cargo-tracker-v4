@@ -3952,35 +3952,64 @@ button.modal-fermer:focus-visible{outline:2px solid #0e5a8a;outline-offset:2px}
 
 /* ---- LE SIGNAL D'ALERTE D'UNE TUILE, 2026-10-28 (demande utilisateur) ----
  *
- * Un point rouge qui clignote sur la pastille, et la tuile qui vire au rouge.
+ * LE TRIANGLE D'ATTENTION, et non un point rouge. Un point attire l'oeil sans
+ * rien dire ; ce signe-la se lit sans legende, et c'est ce que l'utilisateur
+ * appelait « plus professionnel ».
  *
- * `tone="warn"` ne suffisait pas : au tableau de bord, `.bento .stat` impose
- * la couleur de l'etape sur le lisere gauche et l'emporte sur `.stat.warn`.
- * La tuile des engagements s'affichait donc en BLEU alors qu'elle annoncait
- * 110 retards. C'est cette classe qui tranche.
+ * `tone="warn"` ne suffisait pas a teinter la tuile : au tableau de bord,
+ * `.bento .stat` impose la couleur de l'etape sur le lisere gauche et l'emporte
+ * sur `.stat.warn`. La tuile des engagements s'affichait donc en BLEU alors
+ * qu'elle annoncait 110 retards. C'est cette classe qui tranche.
  */
 .stat-en-alerte{border-left-color:var(--err) !important}
 .stat-signal{
-  position:absolute;top:10px;left:10px;z-index:2;
-  width:10px;height:10px;border-radius:50%;
-  background:var(--err);box-shadow:0 0 0 2px rgba(255,255,255,.9);
+  position:absolute;top:8px;left:8px;z-index:3;
+  display:grid;place-items:center;width:22px;height:22px;border-radius:50%;
+  color:var(--err);background:rgba(255,255,255,.92);
+  box-shadow:0 1px 4px rgba(150,30,30,.25);
   animation:stat-signal 1.8s ease-in-out infinite;
 }
-/* Un halo qui s'echappe du point : il se voit du coin de l'oeil sur un
+/* Un halo qui s'echappe du triangle : il se voit du coin de l'oeil sur un
    tableau de bord laisse ouvert, sans le clignotement dur d'un gyrophare. */
 .stat-signal::after{
-  content:'';position:absolute;inset:0;border-radius:50%;
-  background:var(--err);animation:stat-signal-halo 1.8s ease-out infinite;
+  content:'';position:absolute;inset:0;border-radius:50%;z-index:-1;
+  border:1.5px solid rgba(196,48,48,.5);
+  animation:stat-signal-halo 1.8s ease-out infinite;
 }
 @keyframes stat-signal{
-  0%,100%{opacity:1} 55%{opacity:.45}
+  0%,100%{opacity:1} 55%{opacity:.5}
 }
 @keyframes stat-signal-halo{
-  0%  {transform:scale(1);opacity:.5}
-  70% {transform:scale(2.6);opacity:0}
-  100%{transform:scale(2.6);opacity:0}
+  0%  {transform:scale(1);opacity:.6}
+  70% {transform:scale(2.1);opacity:0}
+  100%{transform:scale(2.1);opacity:0}
 }
-/* Immobile, le point reste ROUGE et visible : le signal tient sans le
+
+/* L'INFOBULLE EST A NOUS, pas celle du navigateur : la native met une seconde
+   a paraitre, et le regard est deja parti. Celle-ci se montre AU SURVOL ET AU
+   CLAVIER, tout de suite. */
+.stat-signal-bulle{
+  position:absolute;left:0;top:calc(100% + 7px);z-index:4;
+  padding:6px 10px;border-radius:9px;white-space:nowrap;
+  font-size:12px;font-weight:600;line-height:1.2;
+  color:#fff;background:#8f1f1f;
+  box-shadow:0 6px 18px rgba(150,30,30,.35);
+  opacity:0;transform:translateY(-3px);pointer-events:none;
+  transition:opacity .15s ease,transform .15s ease;
+}
+/* La fleche, pour qu'on voie D'OU elle parle. */
+.stat-signal-bulle::before{
+  content:'';position:absolute;left:7px;top:-4px;
+  width:8px;height:8px;background:inherit;transform:rotate(45deg);
+}
+.stat-signal:hover .stat-signal-bulle,
+.stat:hover .stat-signal-bulle,
+.stat:focus-visible .stat-signal-bulle{opacity:1;transform:none}
+/* Le signal cesse de clignoter tant qu'on le regarde : on a compris, et une
+   infobulle qui palpite se lit mal. */
+.stat-signal:hover,.stat:hover .stat-signal{animation:none;opacity:1}
+
+/* Immobile, le triangle reste ROUGE et lisible : le signal tient sans le
    mouvement, c'est le minimum pour une alerte. */
 @media (prefers-reduced-motion:reduce){
   .stat-signal,.stat-signal::after{animation:none}
