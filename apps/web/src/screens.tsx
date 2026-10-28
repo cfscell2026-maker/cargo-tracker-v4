@@ -758,6 +758,7 @@ SCREENS.dash = (nav) => {
       <StatCard n={Number(s['engagementsEnCours'] ?? 0)} icone="sablier"
         l={retardEng ? `Engagements · ${retardEng} en retard` : 'Engagements en cours'}
         tone={retardEng ? 'warn' : undefined}
+        alerte={retardEng ? `${retardEng} engagement(s) en retard` : undefined}
         onClick={() => nav.go('engagements', retardEng ? { filtre: 'retard' } : undefined)}
         comparable={!!flux('ENGAGEMENTS')} repartition={rep('ENGAGEMENTS')} />
     </div></div>}

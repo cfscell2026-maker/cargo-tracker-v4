@@ -213,7 +213,7 @@ const ICONE_ETAPE: Record<string, string> = {
   balise: 'balise', bs: 'bonSortie', pp: 'sortie', vehicule: 'voiture',
 };
 
-export function StatCard({ n, l, tone, onClick, variation, comparable, etape, part, icone, repartition }: {
+export function StatCard({ n, l, tone, onClick, variation, comparable, etape, part, icone, repartition, alerte }: {
   n: ReactNode; l: string; tone?: 'ok' | 'warn'; onClick?: () => void;
   variation?: Variation | null; comparable?: boolean;
   /**
@@ -244,10 +244,24 @@ export function StatCard({ n, l, tone, onClick, variation, comparable, etape, pa
    * Les deux font 100 %. Fournie, elle REMPLACE l'indicateur d'évolution.
    */
   repartition?: { arrivees: number; departs: number } | null;
+  /**
+   * SIGNAL D'ALERTE CLIGNOTANT (2026-10-28, demande utilisateur), avec sa
+   * raison en infobulle : « 110 en retard ».
+   *
+   * RÉSERVÉ À CE QUI APPELLE UN GESTE, et pas au simple dépassement d'un
+   * seuil. Une pastille qui clignote sur trois tuiles à la fois n'attire plus
+   * l'œil nulle part, et la première qu'on apprend à ignorer est aussi celle
+   * qui comptait.
+   *
+   * Elle teinte la tuile en ROUGE : `tone` ne suffisait pas ici, la règle du
+   * tableau de bord (`.bento .stat`) impose la couleur de l'étape et l'emporte
+   * sur `.stat.warn`.
+   */
+  alerte?: string;
 }) {
   const cliquable = !!onClick;
   return <div
-    className={`stat ${tone ?? ''} ${cliquable ? 'cliquable' : ''} ${etape ? 'et-' + etape : ''}`}
+    className={`stat ${tone ?? ''} ${cliquable ? 'cliquable' : ''} ${etape ? 'et-' + etape : ''} ${alerte ? 'stat-en-alerte' : ''}`}
     onClick={onClick}
     role={cliquable ? 'button' : undefined}
     tabIndex={cliquable ? 0 : undefined}
@@ -257,6 +271,10 @@ export function StatCard({ n, l, tone, onClick, variation, comparable, etape, pa
         qu'on ait lu le libellé. */}
     {(icone || etape) && <span className="stat-icone" aria-hidden="true">
       <Icone nom={icone ?? ICONE_ETAPE[etape!] ?? 'tableau'} taille={17} /></span>}
+    {/* LE SIGNAL, posé sur la pastille. `title` en donne la raison au survol ;
+        `aria-label` la donne aux lecteurs d'écran, pour qui un point qui
+        clignote n'existe pas. */}
+    {alerte && <span className="stat-signal" role="img" aria-label={alerte} title={alerte} />}
     <div className="n">{n}</div>
     <div className="l">{l}</div>
     {part !== undefined && part !== null && <div className="evo evo-part">
