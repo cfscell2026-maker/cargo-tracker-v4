@@ -3831,3 +3831,60 @@ button.modal-fermer:focus-visible{outline:2px solid #0e5a8a;outline-offset:2px}
   .trn-pied{flex-direction:column-reverse}
   .trn-pied button{width:100%;justify-content:center}
 }
+
+/* ========== RAPPEL DES ENGAGEMENTS EN RETARD, 2026-10-28 ===============
+ *
+ * Demande utilisateur : une fenetre qui revient toutes les cinq heures, se
+ * ferme, et mene au volet deja filtre sur les seuls retards.
+ *
+ * Elle se pose EN HAUT DU TABLEAU DE BORD, a l'interieur du flux : une
+ * fenetre modale bloquerait le travail pour une relance, et un bandeau
+ * flottant masquerait ce qu'on est venu lire. Celle-ci pousse le contenu vers
+ * le bas, se voit, et se range des qu'on la ferme.
+ */
+.alerte-eng{
+  display:flex;align-items:stretch;gap:0;margin-bottom:14px;
+  border-radius:16px;overflow:hidden;
+  background:linear-gradient(115deg,rgba(255,255,255,.90) 0%,rgba(196,48,48,.16) 70%,rgba(196,48,48,.24) 100%);
+  backdrop-filter:blur(20px) saturate(165%);
+  -webkit-backdrop-filter:blur(20px) saturate(165%);
+  border:1px solid rgba(255,255,255,.75);
+  border-left:4px solid var(--err);
+  box-shadow:0 10px 28px rgba(150,30,30,.14),inset 0 1px 0 rgba(255,255,255,.9);
+  animation:alerte-eng-entree .32s ease-out;
+}
+/* Une entree BREVE : elle signale son arrivee, elle ne fait pas un numero. */
+@keyframes alerte-eng-entree{
+  from{opacity:0;transform:translateY(-6px)}
+  to{opacity:1;transform:none}
+}
+.alerte-eng-corps{
+  flex:1;display:flex;align-items:center;gap:13px;text-align:left;
+  padding:13px 16px;cursor:pointer;
+  background:none !important;background-image:none !important;
+  border:0 !important;box-shadow:none !important;color:var(--ink) !important;
+  border-radius:0;
+}
+.alerte-eng-corps:hover{background:rgba(255,255,255,.35) !important;transform:none !important}
+.alerte-eng-icone{
+  flex:none;display:grid;place-items:center;width:42px;height:42px;border-radius:13px;
+  color:var(--err);background:rgba(196,48,48,.12);
+}
+.alerte-eng-texte{display:flex;flex-direction:column;gap:2px;min-width:0}
+.alerte-eng-texte b{font-size:15.5px;color:var(--err)}
+.alerte-eng-texte span{font-size:12.5px;color:var(--muted)}
+.alerte-eng-aller{flex:none;color:var(--err);opacity:.7}
+.alerte-eng-corps:hover .alerte-eng-aller{opacity:1;transform:translateX(2px)}
+.alerte-eng-fermer{
+  flex:none;width:42px;align-self:stretch;
+  background:none !important;background-image:none !important;
+  border:0 !important;border-left:1px solid rgba(196,48,48,.18) !important;
+  box-shadow:none !important;color:var(--muted) !important;
+  border-radius:0;font-size:15px;
+}
+.alerte-eng-fermer:hover{background:rgba(196,48,48,.08) !important;color:var(--err) !important;transform:none !important}
+
+@media (max-width:560px){
+  .alerte-eng-texte span{display:none}
+}
+@media (prefers-reduced-motion:reduce){ .alerte-eng{animation:none} }

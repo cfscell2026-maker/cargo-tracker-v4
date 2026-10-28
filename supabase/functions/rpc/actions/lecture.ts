@@ -494,6 +494,11 @@ export async function dashboardStats(ctx: Ctx, opts: { du?: string; au?: string 
        Le compte BAISSE des qu'un engagement est marqué « Effectué » : c'est ce
        qui reste à transmettre, pas ce qui a été pris. */
     engagementsEnCours: 0,
+    /* EN RETARD (2026-10-28, demande utilisateur), sous-ensemble du precedent.
+       Compte ICI, dans la boucle qui parcourt deja ces lignes, et non par un
+       second appel : le tableau de bord venait d'etre allege de ses
+       aller-retours, en rajouter un pour un seul chiffre serait le defaire. */
+    engagementsRetard: 0,
     // Divers / compat.
     total: 0, sortie: 0, aujourdHui: 0,
   };
@@ -617,7 +622,13 @@ export async function dashboardStats(ctx: Ctx, opts: { du?: string; au?: string 
       continue;
     }
     // `stats.total` vient de SQL (voir plus haut) : ne pas le recompter ici.
-    if (r['suiviEngagement'] === true && !aFait(r['engagementEffectueLe'])) stats.engagementsEnCours++;
+    if (r['suiviEngagement'] === true && !aFait(r['engagementEffectueLe'])) {
+      stats.engagementsEnCours++;
+      // Meme regle que le volet et que l'echeancier : une seule definition du
+      // retard, sinon deux ecrans annonceraient deux chiffres differents.
+      if (etatEngagement(r['engagementDelai'], r['engagementEffectueLe']).etat === 'retard')
+        stats.engagementsRetard++;
+    }
     /* ARRIVÉES / DÉPARTS DES ENGAGEMENTS sur la période (2026-09-21, demande
        utilisateur), mêmes indicateurs que les tuiles d'étape. Un engagement
        ARRIVE à la signature du chef de brigade, qui le pose ; il PART quand il

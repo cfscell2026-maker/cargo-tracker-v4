@@ -85,3 +85,16 @@ test('roles : aRoleParmi et la matrice des droits disent la meme chose', () => {
       assert.equal(aRoleParmi(r, SUIVENT_ENGAGEMENTS), aLeDroit(r, action),
         `${r} / ${action} : l'ecran et le serveur divergent`);
 });
+
+/* ------- Qui est prevenu des engagements en retard (2026-10-28) --------- */
+
+test('alerte retards : prevenue, l administration ; epargnees, les cellules', () => {
+  /* Le rappel s'adresse a ceux qui PEUVENT agir. Relancer une cellule
+     d'execution sur un engagement dont elle n'a pas la charge, toutes les cinq
+     heures, apprendrait seulement a ignorer les alertes. */
+  for (const r of [ROLES.ADMIN, ROLES.SUPER_ADMIN, ROLES.INFO,
+    ROLES.CHEF_BRIGADE, ROLES.CHEF_BRIGADE_ADJOINT, ROLES.CHEF_VISITE, ROLES.CHEF_DIVISION])
+    assert.equal(aRoleParmi(r, SUIVENT_ENGAGEMENTS), true, String(r));
+  for (const r of [ROLES.CFS, ROLES.T1, ROLES.BALISE, ROLES.BON_SORTIE, ROLES.PP, ROLES.CBPI])
+    assert.equal(aRoleParmi(r, SUIVENT_ENGAGEMENTS), false, String(r));
+});

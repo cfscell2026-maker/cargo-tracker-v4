@@ -14,6 +14,7 @@ import { trierEngagements, filtrerEngagements, lignesExportEngagements, numerosT
 import { Detail, TitrePanneau } from './detail.tsx';
 import { EcranParking, ResultatsParking, useAlerteParking } from './parking.tsx';
 import { LogoVerrou } from './lib/verrou.tsx';
+import { AlerteEngagements, useAlerteEngagements } from './lib/alerte-engagements.tsx';
 import type { ReactNode } from 'react';
 import type { Nav } from './App.tsx';
 import { useNav } from './lib/contexte-nav.ts';
@@ -553,40 +554,6 @@ export function BandeauModule({ icone, titre, sous, action, sansRetour, auto }: 
 /* ------------------------------ Écrans --------------------------------- */
 const SCREENS: Record<string, Screen> = {};
 
-/**
- * L'ENGAGEMENT AU TABLEAU DE BORD : UNE TUILE PARMI LES AUTRES (2026-10-28,
- * demande utilisateur).
- *
- * L'encadre deroulait tous les engagements en attente. Avec 138 d'entre eux il
- * mesurait ONZE MILLE PIXELS de haut : le tableau de bord devenait illisible.
- *
- * Il devient un `StatCard` POSE DANS LA GRILLE BENTO, et non une carte a part :
- * c'est ce qui lui donne le format et les dimensions des autres KPI, sans
- * regle de style propre a maintenir. Le detail est a un clic, dans le volet
- * qui sait paginer.
- *
- * Le RETARD vit dans le libelle : aucune prop de `StatCard` ne porte un second
- * chiffre, et en inventer une pour ce seul usage aurait touche toutes les
- * tuiles de l'application.
- */
-function TuileEngagements({ role, go }: { role: string; go: Nav['go'] }) {
-  const { data, loading } = useAsync<O>(() => call('report.engagements'), []);
-
-  /* `aRoleParmi` et non `includes` : SUIVENT_ENGAGEMENTS a ete ecrite avant
-     les roles techniques et ne les nomme pas. Un INFO, que le serveur autorise
-     (report.engagements est ouvert a l'ADMIN), ne voyait donc rien ici.
-     L'ecran cachait ce que le serveur accordait. */
-  if (!aRoleParmi(role, SUIVENT_ENGAGEMENTS)) return null;
-  if (loading || !data) return null;
-  const lignes = (data['lignes'] as O[]) ?? [];
-  if (!lignes.length) return null;
-  const retard = Number(((data['compte'] as O) ?? {})['retard'] ?? 0);
-
-  return <StatCard n={lignes.length} icone="echeance"
-    l={retard ? `À transmettre · ${retard} en retard` : 'À transmettre'}
-    tone={retard ? 'warn' : undefined}
-    onClick={() => go('engagements')} />;
-}
 
 /**
  * CORRECTION D'UN ENGAGEMENT, depuis l'échéancier, 2026-09-17 (demande utilisateur).
@@ -721,10 +688,19 @@ SCREENS.dash = (nav) => {
   const part = (cle: string): number | null =>
     fileTotale > 0 ? Math.round((Number(s[cle] ?? 0) / fileTotale) * 100) : null;
   const go = (statut: string) => nav.go('list', { statut });
+  const retardEng = Number(s['engagementsRetard'] ?? 0);
+  /* LE RAPPEL DES RETARDS (2026-10-28, demande utilisateur) : toutes les cinq
+     heures, pour ceux qui SUIVENT les engagements. On n'importune pas une
+     cellule d'execution avec une relance dont elle n'a pas la charge. */
+  const suitEng = aRoleParmi(nav.user.role, SUIVENT_ENGAGEMENTS);
+  const alerte = useAlerteEngagements(retardEng, suitEng);
   /* `ecran-dash` (2026-09-11) : le tableau de bord (et lui seul) se détache
      sur un fond bleu profond. Les cartes y deviennent des plaques de verre
      claires, et c'est ce contraste sombre/clair qui rend l'effet lisible. */
   return <div className="ecran-dash">
+    {alerte.visible && <AlerteEngagements retard={retardEng}
+      onFermer={alerte.fermer}
+      onVoir={() => nav.go('engagements', { filtre: 'retard' })} />}
     {/* Le tableau de bord est l'ecran de DEPART : `sansRetour` y coupe le bouton,
         qui ne menerait nulle part. La note de lecture passe en sous-titre du
         bandeau, ou elle herite du blanc. */}
@@ -753,9 +729,6 @@ SCREENS.dash = (nav) => {
         n'avaient RIEN à dépolir, elles ressemblaient à de simples cartes
         blanches. Les halos qu'il porte sont ce que le verre diffuse. */}
     {loading && !data ? <Spinner /> : <div className="bento-cadre"><div className="stats bento">
-      {/* EN TETE DE GRILLE : c'est la seule tuile qui appelle une action, les
-          autres rendent compte. Elle se lit donc en premier. */}
-      <TuileEngagements role={nav.user.role} go={nav.go} />
       {/* Événements datés sur la période, le travail EFFECTIF de chaque cellule
           sur la période, compté à la date de la cellule (pas à la création). */}
       <StatCard n={Number(s['creesPeriode'] ?? 0)} l="Entrées CFS (période)" onClick={() => nav.go('cfsreport')}
@@ -777,9 +750,15 @@ SCREENS.dash = (nav) => {
       <StatCard n={Number(s['attPP'] ?? 0)} l="Attente sortie" onClick={() => nav.go('wait_sortie')} etape="pp" part={part('attPP')} />
       <StatCard n={Number(s['vehiculesAttente'] ?? 0)} l="Véhicules en attente" onClick={() => nav.go('vehicules')} etape="vehicule" part={part('vehiculesAttente')} />
       {/* ENGAGEMENTS (2026-09-17, demande utilisateur) : ce qui reste à transmettre.
-          Le clic ouvre le volet, trié par échéance, le plus urgent en tête. */}
-      <StatCard n={Number(s['engagementsEnCours'] ?? 0)} l="Engagements en cours"
-        onClick={() => nav.go('engagements')} icone="sablier"
+          UNE SEULE TUILE (2026-10-28) : j'en avais ajouté une seconde, qui disait
+          la même chose avec son propre appel au serveur. Le retard rejoint donc
+          celle-ci, et le compte vient du tableau de bord, sans requête de plus.
+          LE CLIC EMMÈNE AU BON ENDROIT : vers les seuls retards quand il y en a,
+          vers tout le reste sinon. */}
+      <StatCard n={Number(s['engagementsEnCours'] ?? 0)} icone="sablier"
+        l={retardEng ? `Engagements · ${retardEng} en retard` : 'Engagements en cours'}
+        tone={retardEng ? 'warn' : undefined}
+        onClick={() => nav.go('engagements', retardEng ? { filtre: 'retard' } : undefined)}
         comparable={!!flux('ENGAGEMENTS')} repartition={rep('ENGAGEMENTS')} />
     </div></div>}
     {/* Neuf tuiles disent COMBIEN, aucune ne dit OÙ ÇA BLOQUE : c'est pourtant
@@ -2008,8 +1987,17 @@ const FILTRES_ENGAGEMENT: [string, string][] = [
   ['encours', 'En cours'], ['retard', 'En retard'], ['solde', 'Soldés'], ['tous', 'Tous'],
 ];
 
-SCREENS.engagements = ({ go, user }) => {
-  const [filtre, setFiltre] = useState('encours');
+SCREENS.engagements = ({ go, user, arg }) => {
+  /* LE VOLET S'OUVRE SUR CE QU'ON EST VENU VOIR (2026-10-28, demande
+     utilisateur). La tuile du tableau de bord et l'alerte des retards
+     emmenent ici AVEC leur filtre : arriver sur « en cours » apres avoir
+     clique « 110 en retard » obligerait a refaire le tri a la main, juste
+     apres l'avoir demande.
+     Valeur LUE UNE FOIS, a l'ouverture : ensuite c'est le menu qui commande,
+     sinon le filtre se remettrait tout seul a chaque rendu. */
+  const filtreVoulu = String((arg as { filtre?: unknown } | null)?.filtre ?? '');
+  const [filtre, setFiltre] = useState(
+    FILTRES_ENGAGEMENT.some(([v]) => v === filtreVoulu) ? filtreVoulu : 'encours');
   // Tri demandé par l'utilisateur (17/09) : par camion et par délai, dans les
   // deux sens. Par défaut le plus urgent d'abord, c'est ce qu'on vient traiter.
   const [tri, setTri] = useState<TriEngagement>('delai');
