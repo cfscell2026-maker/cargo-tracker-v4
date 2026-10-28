@@ -32,9 +32,10 @@ async function chargerResume(
   ctx: Ctx,
   // deno-lint-ignore no-explicit-any
   affiner?: (q: any) => any,
+  colonnes = '*',
 ): Promise<Record<string, unknown>[]> {
   // fetchAll : pagine pour ne PAS tronquer au-delà de ~1000 lignes (5000+ migrées).
-  const data = await fetchAll(ctx, 'v_cargaisons_resume', '*', { colonne: 'date_creation', ascendant: false }, affiner);
+  const data = await fetchAll(ctx, 'v_cargaisons_resume', colonnes, { colonne: 'date_creation', ascendant: false }, affiner);
   return data.map((r) => versCamel(r));
 }
 
@@ -68,6 +69,20 @@ async function chargerResume(
  */
 // deno-lint-ignore no-explicit-any
 const SQL_PAS_SORTI = (q: any) => q.neq('statut', STATUTS.SORTIE).is('date_sortie', null);
+
+/**
+ * Toutes les colonnes de `v_cargaisons_resume` (00190) SAUF les huit extraites
+ * du JSON des conteneurs (conteneur1..4, plomb1..4). Les demander oblige la base
+ * à ouvrir ce gros bloc pour CHAQUE dossier ; le tableau de bord ne s'en sert
+ * pas (2026-10-24, vitesse). Tout autre champ reste disponible, à l'identique.
+ */
+const COLONNES_RESUME_SANS_CONTENEURS = [
+  'id', 'reference', 'date_creation', 'numero_camion', 'numero_camion_norm', 'type_operation', 'statut',
+  'numero_gps', 'date_sortie', 'agent_cfs', 'rapport_id', 'est_vehicule', 'conteneur_origine',
+  'saute_t1', 'saute_balise', 'saute_bs', 'balise_requise', 'arrivee_bureau', 'date_t1', 'date_pose_gps',
+  'bon_sortie_numero', 'date_validation', 'etat_sortie', 'nb_conteneurs', 'twins', 'type_declaration',
+  'date_bon_sortie', 'suivi_engagement', 'engagement_delai', 'engagement_effectue_le',
+].join(', ');
 
 function ts(v: unknown): number {
   if (!v) return 0;
@@ -146,7 +161,13 @@ export async function cargoGet(ctx: Ctx, data: { id?: string }) {
 export async function cargoSearch(ctx: Ctx, data: { valeur?: string }) {
   const q = normAlphaNum(data.valeur);
   if (!q) return [];
-  const all = await chargerResume(ctx);
+  /* LENTEUR, 2026-10-19 : la vue ENTIÈRE (plus de 14 000 dossiers) était
+     rapatriée à chaque recherche pour n'en garder que quelques-uns. Le filtre
+     part désormais en SQL, sur `numero_camion_norm`, la colonne que la base
+     calcule elle-même (majuscules, sans espaces ni ponctuation) : c'est la même
+     normalisation que `normAlphaNum`, et `q` n'est fait que de lettres et de
+     chiffres, donc sans joker. Le tri JS ci-dessous reste juge. */
+  const all = await chargerResume(ctx, (sql: any) => sql.like('numero_camion_norm', '%' + q + '%'));
   const res: Record<string, unknown>[] = [];
   for (const r of all) {
     const norm = normAlphaNum(r['numeroCamion']);
@@ -176,6 +197,36 @@ export async function cargoList(
   const pageSize = Math.min(200, Number(opts.pageSize || APP.PAGE_SIZE));
   const search = String(opts.search ?? '').trim().toLowerCase();
   const engagement = String(opts.engagement ?? '').trim();
+
+  /* LA PAGE DEMANDÉE, DIRECTEMENT EN SQL (2026-10-24, vitesse). Mesuré : la
+     liste « Cargaisons » mettait 5,4 s pour afficher 50 dossiers, parce que la
+     vue ENTIÈRE (22 000 dossiers) était rapatriée puis triée et découpée en
+     mémoire. Sans recherche ni file d'attente, chaque critère se traduit
+     EXACTEMENT en SQL, colonne par colonne (toutes `not null`, sauf
+     `suivi_engagement`, traité en `is true` / `is not true` comme le JS) ; le
+     tri est le même (entrée décroissante, puis identifiant). La base rend la
+     page et le total ; rien d'autre ne transite. En cas d'erreur (page hors
+     limite, vue ancienne…), on retombe sur la lecture complète ci-dessous. */
+  if (!etape && !search) {
+    const debut = (page - 1) * pageSize;
+    // deno-lint-ignore no-explicit-any
+    let q: any = ctx.db.from('v_cargaisons_resume').select('*', { count: 'exact' });
+    if (actifs) q = q.neq('statut', STATUTS.SORTIE);
+    if (statut !== 'tous') q = q.eq('statut', statut);
+    if (categorie === 'vehicule') q = q.eq('est_vehicule', true);
+    else if (categorie !== 'tous') q = q.eq('est_vehicule', false);
+    if (engagement === 'avec') q = q.is('suivi_engagement', true);
+    else if (engagement === 'sans') q = q.not('suivi_engagement', 'is', true);
+    const { data, error, count } = await q
+      .order('date_creation', { ascending: false }).order('id', { ascending: true })
+      .range(debut, debut + pageSize - 1);
+    if (!error && typeof count === 'number') {
+      return {
+        rows: ((data ?? []) as Record<string, unknown>[]).map((r) => versCamel(r)),
+        total: count, page, pages: Math.max(1, Math.ceil(count / pageSize)),
+      };
+    }
+  }
 
   /* Le pré-filtre est composé ICI, à partir des seuls critères traduisibles.
      Il est passé à SQL ; le tri JS qui suit reste en place, inchangé, et
@@ -315,7 +366,27 @@ export async function cargoCheckdup(
   } = { camion: [], conteneurs: {}, similaires: [] };
   for (const k of conts) res.conteneurs[k] = [];
 
-  const resume = await chargerResume(ctx);
+  /* LENTEUR, 2026-10-19 : ce contrôle part à CHAQUE création de camion, et
+     rapatriait la vue entière. Trois lectures ciblées le remplacent, sans rien
+     changer à ce qu'il trouve :
+       · le N° identique, quel que soit le statut (égalité sur la colonne
+         normalisée, celle que la base calcule) ;
+       · les camions ENCORE DANS L'ENCEINTE, seuls candidats aux quasi-doublons
+         (`actif` = statut différent de la sortie, comme plus bas) ;
+       · plus loin, les dossiers des conteneurs déjà vus, par leur identifiant. */
+  const [exacts, actifs] = numCam
+    ? await Promise.all([
+      chargerResume(ctx, (q: any) => q.eq('numero_camion_norm', numCam)),
+      chargerResume(ctx, (q: any) => q.neq('statut', STATUTS.SORTIE)),
+    ])
+    : [[], []];
+  const vusIds = new Set<string>();
+  const resume = [...exacts, ...actifs].filter((r) => {
+    const id = String(r['id']);
+    if (vusIds.has(id)) return false;
+    vusIds.add(id);
+    return true;
+  }).sort((a, b) => ts(b['dateCreation']) - ts(a['dateCreation']));
   const similaires: { id: string; statut: string; dateCreation: unknown; numeroCamion: string; similarite: number }[] = [];
   const infoById: Record<string, { id: string; statut: string; dateCreation: unknown; numeroCamion: string; actif: boolean }> = {};
   for (const r of resume) {
@@ -346,6 +417,17 @@ export async function cargoCheckdup(
       .select('cargaison_id, conteneur, numero_camion')
       .in('conteneur', conts);
     if (error) throw new Error(error.message);
+    // Les dossiers de ces conteneurs, s'ils ne sont pas déjà connus.
+    const manquants = [...new Set<string>((data ?? []).map((r: { cargaison_id: unknown }) => String(r.cargaison_id)))].filter((id) => !infoById[id]);
+    if (manquants.length) {
+      for (const r of await chargerResume(ctx, (q: any) => q.in('id', manquants))) {
+        const id = String(r['id']);
+        infoById[id] = {
+          id, statut: String(r['statut'] ?? ''), dateCreation: r['dateCreation'],
+          numeroCamion: String(r['numeroCamion'] ?? ''), actif: r['statut'] !== STATUTS.SORTIE,
+        };
+      }
+    }
     for (const row of data ?? []) {
       const cid = String(row.cargaison_id);
       if (cid === exclude) continue;
@@ -493,10 +575,10 @@ export async function dashboardStats(ctx: Ctx, opts: { du?: string; au?: string 
 
   const [utiles, engagements] = await Promise.all([
     // deno-lint-ignore no-explicit-any
-    chargerResume(ctx, ouFiltre ? (q: any) => q.or(ouFiltre) : undefined),
+    chargerResume(ctx, ouFiltre ? (q: any) => q.or(ouFiltre) : undefined, COLONNES_RESUME_SANS_CONTENEURS),
     // Engagements encore dus, quel que soit l'age du dossier.
     // deno-lint-ignore no-explicit-any
-    chargerResume(ctx, (q: any) => q.eq('suivi_engagement', true).is('engagement_effectue_le', null)),
+    chargerResume(ctx, (q: any) => q.eq('suivi_engagement', true).is('engagement_effectue_le', null), COLONNES_RESUME_SANS_CONTENEURS),
   ]);
   const parId = new Map<string, Record<string, unknown>>();
   for (const r of utiles) parId.set(String(r['id']), r);
@@ -506,7 +588,9 @@ export async function dashboardStats(ctx: Ctx, opts: { du?: string; au?: string 
   /* `total` compte TOUTE la base, il ne se deduit pas des lignes chargees.
      `compter` interroge PostgreSQL sans rapatrier une seule ligne. */
   // deno-lint-ignore no-explicit-any
-  stats.total = await compter(ctx, 'v_cargaisons_resume', (q: any) => q.neq('est_vehicule', true));
+  // 2026-10-25 : estimé. Ce total n'est affiché nulle part (champ de compatibilité) ; le compter
+  // exactement parcourait toute la table à chaque rafraîchissement, pour chaque chef connecté.
+  stats.total = await compter(ctx, 'v_cargaisons_resume', (q: any) => q.neq('est_vehicule', true), 'estimated');
   const today = new Date();
   for (const r of data) {
     const veh = estOui(r['estVehicule']);

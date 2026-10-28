@@ -17,6 +17,10 @@ import { dbAdmin, exigerSession, fabriquerLog, requeteDe } from './supa.ts';
 import { ACTIONS } from './actions/registry.ts';
 import { etatVerrou } from './actions/verrou.ts';
 import { controlerApresSortie } from './actions/verrou-sortie.ts';
+import { CachePartage } from './cache-partage.ts';
+
+/** Une instance par worker : voir cache-partage.ts. */
+const CACHE = new CachePartage();
 
 /* -------------------------------------------------------------------------- */
 /* SEC-07 · CORS : liste blanche d'origines                                    */
@@ -183,7 +187,13 @@ Deno.serve(async (req) => {
     // l'administrateur le corrige, motif à l'appui. Voir verrou-sortie.ts.
     await controlerApresSortie(ctx, action, (data ?? {}) as Record<string, unknown>);
 
-    const result = await handler(ctx, (data ?? {}) as never);
+    // Lectures communes partagées quelques secondes, cache vidé par toute écriture (cache-partage.ts).
+    let result: unknown;
+    try {
+      result = await CACHE.servir(action, data, () => handler(ctx, (data ?? {}) as never));
+    } finally {
+      CACHE.apres(action);
+    }
     return json({ ok: true, data: result });
   } catch (e) {
     const err = e as Error & { isAuth?: boolean };

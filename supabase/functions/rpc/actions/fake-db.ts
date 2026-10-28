@@ -31,9 +31,16 @@ function match(row: Row, filters: [string, string, unknown][]): boolean {
     // `undefined`. Les traiter différemment faisait échouer des filtres qui
     // passent en base, le double doit imiter Postgres, pas JavaScript.
     if (op === 'is') return val === null ? (v === null || v === undefined) : v === val;
+    if (op === 'not.is') return !(val === null ? (v === null || v === undefined) : v === val);
+    if (op === 'not.ilike') {
+      // `%motif%` sans tenir compte de la casse (seule forme employée).
+      const noyau = String(val).replace(/^%/, '').replace(/%$/, '').toLowerCase();
+      return String(v ?? '').toLowerCase().indexOf(noyau) < 0;
+    }
     if (op === 'in') return Array.isArray(val) && (val as unknown[]).includes(v);
-    if (op === 'gte') return String(v) >= String(val);
-    if (op === 'lte') return String(v) <= String(val);
+    // Une colonne NULL est écartée, comme en SQL (2026-10-25 : gte/lte la gardaient, « null » > « 2026 »).
+    if (op === 'gte') return v !== null && v !== undefined && String(v) >= String(val);
+    if (op === 'lte') return v !== null && v !== undefined && String(v) <= String(val);
     /* `lt` / `gt` ajoutes le 2026-09-12. Ils MANQUAIENT, et leur absence ne se
        voyait pas : le double levait `q.lt is not a function` seulement quand un
        test empruntait enfin ce chemin. Un double qui ne sait pas exprimer ce que
@@ -65,6 +72,10 @@ function match(row: Row, filters: [string, string, unknown][]): boolean {
        lui, la recherche « contient » se faisait en JS APRES un `limit`, ce qui
        tronquait silencieusement le parc. Seuls les jokers `%` en tete et en
        queue sont traduits, les seuls que le code emploie. */
+    if (op === 'ilike') {
+      const noyau = String(val).replace(/^%/, '').replace(/%$/, '').toLowerCase();
+      return String(v ?? '').toLowerCase().indexOf(noyau) >= 0;
+    }
     if (op === 'like') {
       const motif = String(val);
       const noyau = motif.replace(/^%/, '').replace(/%$/, '');
@@ -96,7 +107,21 @@ class Query {
     this.table = table;
   }
 
-  select(_c?: string) { this.wantSelect = true; return this; }
+  /* COLONNES DEMANDÉES RESPECTÉES (2026-10-25). Le double rendait la ligne
+     entière quelles que soient les colonnes demandées : un rapport qui lisait un
+     champ non demandé passait le test et rendait « undefined » en base. Seule
+     une liste simple de colonnes est projetée ; `*` et toute syntaxe plus riche
+     (jointures, alias) rendent la ligne entière, comme avant. */
+  private colonnes: string[] | null = null;
+  /* `head: true` (2026-10-25) : comme PostgREST, le compte seul, aucune ligne. */
+  private teteSeule = false;
+  select(c?: string, o?: { head?: boolean }) {
+    this.wantSelect = true;
+    this.teteSeule = o?.head === true;
+    const t = String(c ?? '*').trim();
+    this.colonnes = t && t !== '*' && /^[a-z_0-9]+(\s*,\s*[a-z_0-9]+)*$/.test(t) ? t.split(',').map((x) => x.trim()) : null;
+    return this;
+  }
   insert(p: Row | Row[]) { this.opType = 'insert'; this.payload = p; return this; }
   update(p: Row) { this.opType = 'update'; this.payload = p; return this; }
   /* `upsert` ajoute le 2026-10-07 (verrou de l'application), meme lecon que
@@ -111,6 +136,7 @@ class Query {
   eq(c: string, v: unknown) { this.filters.push([c, 'eq', v]); return this; }
   neq(c: string, v: unknown) { this.filters.push([c, 'neq', v]); return this; }
   like(c: string, v: string) { this.filters.push([c, 'like', v]); return this; }
+  ilike(c: string, v: string) { this.filters.push([c, 'ilike', v]); return this; }
   /* `or` ajoute le 2026-09-30, meme lecon que `like` et `lt`/`gt` avant lui :
      sans lui, le double ne sait pas exprimer ce que le code fait, et un test
      qui passe ne prouve rien. On accepte la syntaxe PostgREST reellement
@@ -119,6 +145,14 @@ class Query {
      terme inconnu leve, plutot que de filtrer a cote en silence. */
   or(expr: string) { this.filters.push(['', 'or', expr]); return this; }
   is(c: string, v: unknown) { this.filters.push([c, 'is', v]); return this; }
+  /* `not` ajoute le 2026-10-19 (lenteur) : `annule IS NOT TRUE`. Seul `is` est
+     traduit, le seul employe ; il garde la semantique SQL, une colonne NULL (ici
+     absente de l'objet) passe le filtre. */
+  not(c: string, op: string, v: unknown) {
+    if (op === 'ilike') { this.filters.push([c, 'not.ilike', v]); return this; }
+    if (op !== 'is') throw new Error('FakeDB.not : operateur « ' + op + ' » non gere');
+    this.filters.push([c, 'not.is', v]); return this;
+  }
   in(c: string, v: unknown[]) { this.filters.push([c, 'in', v]); return this; }
   gte(c: string, v: unknown) { this.filters.push([c, 'gte', v]); return this; }
   lte(c: string, v: unknown) { this.filters.push([c, 'lte', v]); return this; }
@@ -169,7 +203,12 @@ class Query {
       return { data: null, error: null };
     }
     // select
-    let res = rows.filter((r) => match(r, this.filters)).map((r) => structuredClone(r));
+    /* MODE « FILTRES IGNORÉS » (tests d'équivalence, 2026-10-25) : une lecture
+       rend toutes les lignes, sauf la reprise de pagination (`gt`). On compare
+       ainsi un rapport AVEC ses filtres SQL et SANS : ils ne doivent rien changer. */
+    const filtres = (this.store as unknown as { __sansFiltres?: boolean }).__sansFiltres
+      ? this.filters.filter(([, op]) => op === 'gt') : this.filters;
+    let res = rows.filter((r) => match(r, filtres)).map((r) => structuredClone(r));
     if (this.ordres.length) {
       res.sort((a, b) => {
         for (const { col, asc } of this.ordres) {
@@ -183,6 +222,11 @@ class Query {
     const count = res.length;
     if (this.borne) res = res.slice(this.borne[0], this.borne[1] + 1);
     if (this.limitN != null) res = res.slice(0, this.limitN);
+    if (this.colonnes && this.opType === 'select') {
+      const cols = this.colonnes;
+      res = res.map((r) => Object.fromEntries(cols.filter((k) => k in r).map((k) => [k, r[k]])));
+    }
+    if (this.teteSeule) return { data: null, error: null, count };
     if (this.wantSingle) return { data: res[0] ?? null, error: null };
     return { data: res, error: null, count };
   }
@@ -233,11 +277,48 @@ export class FakeDB {
     // La vue résumé est calculée à la volée depuis cargaisons.
     if (table === 'v_cargaisons_resume') {
       const q = new Query(this.store, '__resume');
-      this.store['__resume'] = this.store['cargaisons'].map((c) => this.resume(c));
+      /* Comme la vraie vue (00190) : `where not annule and not archive`, et la
+         colonne générée calculée même pour une ligne posée directement dans le
+         magasin par un test (2026-10-19). */
+      this.store['__resume'] = this.store['cargaisons']
+        .filter((c) => c['annule'] !== true && c['archive'] !== true)
+        .map((c) => this.resume(colonnesGenerees('cargaisons', { ...c })));
       return q;
     }
+    /* Vue allégée des statistiques (00208), même calcul que le SQL. Absente
+       du magasin tant qu'un test ne l'active pas (`vueStats`) : on teste ainsi
+       les deux chemins, vue et repli sur la table. */
+    if (table === 'v_cargaisons_stats' && this.vueStats) {
+      const allege = (e: unknown) => {
+        const o = (e && typeof e === 'object' ? e : {}) as Row;
+        const r: Row = {};
+        for (const k of ['num', 'taille', 'type', 'partage']) if (o[k] !== null && o[k] !== undefined) r[k] = o[k];
+        return r;
+      };
+      this.store['__stats'] = this.store['cargaisons'].map((c) => {
+        const cd = c['conteneurs_details'] as unknown;
+        let slim: unknown = cd;
+        if (cd && typeof cd === 'object' && !Array.isArray(cd) && Array.isArray((cd as Row)['conteneurs']))
+          slim = { conteneurs: ((cd as Row)['conteneurs'] as unknown[]).map(allege), scellesCamion: [] };
+        else if (Array.isArray(cd)) slim = cd.map(allege);
+        const r: Row = {};
+        for (const k of ['id', 'numero_camion', 'type_operation', 'statut', 'est_vehicule', 'agent_cfs', 'date_creation',
+          'date_validation', 'date_t1', 'date_bon_sortie', 'date_pose_gps', 'date_sortie', 'hors_gabarit', 'en_surcharge',
+          'destination_marchandise', 'annule', 'archive',
+          // 00212 : agents de chaque cellule et nombre de conteneurs déclaré.
+          'agent_entree', 'agent_validation', 'agent_t1', 'agent_bon_sortie', 'agent_balise', 'agent_pp', 'nb_conteneurs']) if (k in c) r[k] = c[k];
+        r['conteneurs_details'] = slim;
+        return r;
+      });
+      return new Query(this.store, '__stats');
+    }
+    if (table === 'v_cargaisons_stats')
+      return { select: () => { throw new Error("Could not find the table 'public.v_cargaisons_stats' in the schema cache"); } } as never;
     return new Query(this.store, table);
   }
+
+  /** Active la vue allégée 00208 dans ce magasin (sinon : vue absente). */
+  vueStats = false;
 
   private resume(c: Row): Row {
     return { ...c };

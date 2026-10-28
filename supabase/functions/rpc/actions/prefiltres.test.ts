@@ -135,14 +135,21 @@ test('le pré-filtre agit : la base ne renvoie plus que les lignes utiles', asyn
   const lignesRenvoyees: number[] = [];
   const origine = db.from.bind(db);
   (db as unknown as { from: (t: string) => unknown }).from = (t: string) => {
-    const q = origine(t) as { range: (a: number, b: number) => Promise<{ data: unknown[] }> };
+    // 2026-10-24 : la lecture se fait par clé (`limit`), plus par décalage (`range`).
+    type Lot = { data: unknown[] };
+    // 2026-10-24 : la liste sans recherche lit directement sa page (`range`).
+    type Requete = { limit: (n: number) => Requete; range: (a: number, b: number) => Requete; then: (f: (v: Lot) => unknown) => unknown };
+    const q = origine(t) as Requete;
     if (t === 'v_cargaisons_resume') {
-      const range = q.range.bind(q);
-      q.range = async (a: number, b: number) => {
-        const r = await range(a, b);
-        lignesRenvoyees.push((r.data ?? []).length);
+      const espionner = (r: Requete) => {
+        const suite = r.then.bind(r);
+        r.then = (f) => suite((v) => { lignesRenvoyees.push((v.data ?? []).length); return f(v); });
         return r;
       };
+      const limit = q.limit.bind(q);
+      q.limit = (n: number) => espionner(limit(n));
+      const range = q.range.bind(q);
+      q.range = (a: number, b: number) => espionner(range(a, b));
     }
     return q;
   };

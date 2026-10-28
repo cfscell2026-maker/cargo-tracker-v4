@@ -2,7 +2,7 @@
  * Registre de tous les écrans (reproduction de SCREENS v3.6).
  */
 import { useEffect, useRef, useState } from 'react';
-import * as XLSX from 'xlsx';
+import { chargerExcel } from './lib/excel.ts';
 import { call } from './lib/rpc.ts';
 import { useAsync } from './lib/hooks.ts';
 import { Icone } from './lib/icones.tsx';
@@ -445,8 +445,8 @@ function ExportCargaisons({ statutListe, searchListe }: { statutListe?: string; 
     if (searchListe && searchListe.trim()) params['search'] = searchListe.trim();
     setBusy(true);
     try {
-      const r = await call<O>('report.cargaisons', params);
-      if (fmt === 'pdf') imprimerHtml(String(r['html'] ?? '')); else telecharger(r);
+      if (fmt === 'xlsx') await exporterExcelServeur('report.cargaisons', params);
+      else imprimerHtml(String((await call<O>('report.cargaisons', params))['html'] ?? ''));
     } catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(false); }
   }
   /* BOUTON D'EN-TÊTE + FENÊTRE (2026-09-11, demande utilisateur). Le panneau
@@ -728,9 +728,23 @@ SCREENS.dash = (nav) => {
   const [tic, setTic] = useState(0);
   // Fréquence réglable dans les Paramètres (2026-09-21), 60 s par défaut.
   const { actualisationSecondes } = useParametres();
+  /* ONGLET CACHÉ = PAS D'APPEL (2026-10-24, budget d'E/S disque épuisé).
+     Un tableau de bord laissé ouvert toute la journée, et la nuit, relançait
+     la requête toutes les 60 s pour personne : plus de 1 400 relectures de
+     `cargaisons` par jour et par onglet. On ne rafraîchit donc que l'onglet
+     VISIBLE, et on rattrape au retour si l'intervalle est écoulé. */
   useEffect(() => {
-    const t = window.setInterval(() => setTic((x) => x + 1), actualisationSecondes * 1000);
-    return () => window.clearInterval(t);
+    const periode = actualisationSecondes * 1000;
+    let dernier = Date.now();
+    const rafraichir = () => { dernier = Date.now(); setTic((x) => x + 1); };
+    const t = window.setInterval(() => {
+      if (document.visibilityState === 'visible') rafraichir();
+    }, periode);
+    const auRetour = () => {
+      if (document.visibilityState === 'visible' && Date.now() - dernier >= periode) rafraichir();
+    };
+    document.addEventListener('visibilitychange', auRetour);
+    return () => { window.clearInterval(t); document.removeEventListener('visibilitychange', auRetour); };
   }, [actualisationSecondes]);
   const { data, loading } = useAsync<O>(() => call('dashboard.stats', { du, au }), [du, au, tic]);
   const s = data ?? {};
@@ -1283,7 +1297,7 @@ function EntrepotEntree({ type, entrepots }: { type: EntrepotType; entrepots: O[
   const set = (k: string, v: unknown) => setD((o) => ({ ...o, [k]: v }));
   const majArt = (i: number, k: string, v: unknown) => setArts((a) => a.map((x, j) => j === i ? { ...x, [k]: v } : x));
   const { data: stk } = useAsync<{ rows: O[] }>(
-    () => (conteneurise && !manuelTC ? call('stock.list', { statut: 'Positionné' }) : Promise.resolve({ rows: [] })),
+    () => (conteneurise && !manuelTC ? call('stock.list', { statut: 'Positionné', lignesSeules: true }) : Promise.resolve({ rows: [] })),
     [conteneurise, manuelTC],
   );
   const tcs = ((stk?.rows ?? []) as O[]).map((r) => String(r['numeroTC'] ?? '')).filter(Boolean);
@@ -2652,7 +2666,7 @@ SCREENS.lotcamions = ({ go }) => {
 
   // Conteneurs proposés à la frappe : enlèvement → stock PIA, dépotage → positionnés du jour.
   const statutStock = estEnl ? 'En stock' : 'Positionné';
-  const { data: stk } = useAsync<{ rows: O[] }>(() => call('stock.list', { statut: statutStock }), [statutStock]);
+  const { data: stk } = useAsync<{ rows: O[] }>(() => call('stock.list', { statut: statutStock, lignesSeules: true }), [statutStock]);
   const stockRows = (stk?.rows ?? []) as O[];
   const stockByTc = Object.fromEntries(stockRows.map((r) => [String(r['numeroTC'] ?? ''), r]));
 
@@ -2836,7 +2850,7 @@ function FormVehicule({ go }: { go: Nav['go'] }) {
   const majVeh = (i: number, k: string, val: unknown) => setVs((a) => a.map((v, j) => (j === i ? { ...v, [k]: val } : v)));
 
   // v4, le TC d'origine est OBLIGATOIRE et se choisit dans les TC POSITIONNÉS au CFS.
-  const { data: stk, loading: stkLoading } = useAsync<{ rows: O[] }>(() => call('stock.list', { statut: 'Positionné' }), []);
+  const { data: stk, loading: stkLoading } = useAsync<{ rows: O[] }>(() => call('stock.list', { statut: 'Positionné', lignesSeules: true }), []);
   const tcs = ((stk?.rows ?? []) as O[]).map((r) => String(r['numeroTC'] ?? '')).filter(Boolean);
 
   const majCam = (i: number, patch: Partial<CamEffets>) => setCams((a) => a.map((c, j) => (j === i ? { ...c, ...patch } : c)));
@@ -3170,7 +3184,8 @@ function StatsDepotage() {
   </div></>;
 }
 function StockList({ statut, titre }: { statut: string; titre?: string }) {
-  const { data, loading, error } = useAsync<{ rows: O[]; compte: O }>(() => call('stock.list', { statut }), [statut]);
+  // `allege` : seulement les colonnes affichées (et fouillées) ci-dessous.
+  const { data, loading, error } = useAsync<{ rows: O[]; compte: O }>(() => call('stock.list', { statut, allege: true }), [statut]);
   return <div className="card"><h2>{titre ?? 'Stock conteneurs'}</h2>
     <ExportConteneurs statutDefaut={statut === 'tous' ? '' : statut} />
     {loading ? <Spinner /> : error ? <div className="err-msg">{error}</div> : <>
@@ -3233,8 +3248,8 @@ function ExportConteneurs({ statutDefaut }: { statutDefaut: string }) {
   async function exporter(fmt: 'xlsx' | 'pdf') {
     setBusy(true);
     try {
-      const r = await call<O>('report.conteneurs', { statut, du: p.du, au: p.au, format: fmt });
-      if (fmt === 'pdf') imprimerHtml(String(r['html'] ?? '')); else telecharger(r);
+      if (fmt === 'xlsx') await exporterExcelServeur('report.conteneurs', { statut, du: p.du, au: p.au });
+      else imprimerHtml(String((await call<O>('report.conteneurs', { statut, du: p.du, au: p.au, format: fmt }))['html'] ?? ''));
     } catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(false); }
   }
   return <details style={{ border: '1px solid var(--line)', borderRadius: 6, padding: '8px 12px', margin: '6px 0 10px' }}>
@@ -3420,7 +3435,8 @@ function ImportExcel({ action, titre, cols, conflits }: { action: string; titre:
   const [analyse, setAnalyse] = useState<O | null>(null);
   function lire(file: File) {
     const reader = new FileReader();
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
+      const XLSX = await chargerExcel();
       const wb = XLSX.read(e.target?.result, { type: 'binary', cellDates: true });
       const sheet = wb.Sheets[wb.SheetNames[0]!];
       const rows = (XLSX.utils.sheet_to_json(sheet!, { header: 1 }) as unknown[][]).slice(1);
@@ -4245,7 +4261,11 @@ function RapportCellule({ action, detail, titre, twins, camLabel, go, etape, ico
   const [op, setOp] = useState('');
   const { data, loading } = useAsync<O>(() => call(action, { du, au, periode: m, operation: op }), [du, au, op]);
   const [modal, setModal] = useState<{ op: string; metric: MetriqueCellule } | null>(null);
-  async function exporter(fmt: string) { const f = await call<O>(action, { du, au, periode: m, operation: op, format: fmt }); telecharger(f); }
+  async function exporter(fmt: string) {
+    const params: O = { du, au, periode: m, operation: op };
+    if (fmt === 'xlsx') { await exporterExcelServeur(action, params); return; }
+    telecharger(await call<O>(action, { ...params, format: fmt }));
+  }
 
   const parOp = (data?.['parOp'] ?? {}) as Record<string, O>;
   const total = (data?.['total'] ?? {}) as O;
@@ -4324,7 +4344,8 @@ function DetailCellule({ detail, du, au, op, metric, go, onClose }: {
   /* EXTRACTION (2026-10-09, demande utilisateur) : « quand on clique, on peut
      extraire toutes les déclarations ». Les lignes affichées, dans leur ordre,
      avec déclaration, T1, bon de sortie et date de chaque cellule. */
-  function extraire() {
+  async function extraire() {
+    const XLSX = await chargerExcel();
     if (!rows.length) { toast('Rien à extraire.', 'err'); return; }
     const feuille = XLSX.utils.json_to_sheet(lignesExportCellule(rows, estCamions));
     const classeur = XLSX.utils.book_new();
@@ -4364,7 +4385,9 @@ SCREENS.vehreport = () => {
   const { m, du, au } = p;
   const { data, loading } = useAsync<O>(() => call('report.vehicule', { du, au, periode: m }), [du, au]);
   const cp = (data?.['compte'] ?? {}) as O; const pd = (data?.['parDest'] ?? {}) as O;
-  const exporter = async (format: string) => telecharger(await call<O>('report.vehicule', { du, au, periode: m, format }));
+  const exporter = async (format: string) => (format === 'xlsx'
+    ? exporterExcelServeur('report.vehicule', { du, au, periode: m })
+    : telecharger(await call<O>('report.vehicule', { du, au, periode: m, format })));
   return <><BandeauModule icone="voiture" titre="Rapport véhicules" sous={<PeriodeChoisieLue c={p} />}
     action={<div className="bm-outils"><SelecteurPeriode c={p} />
       <BoutonExcel titre="Extraire en Excel la liste des véhicules de la période" onClick={() => exporter('xlsx')} />
@@ -4521,6 +4544,7 @@ const slugFichier = (t: string) => t.normalize('NFD').replace(/[\u0300-\u036f]/g
  * l'export (RGPD-01) ; ici on ne fait qu'écrire le fichier.
  */
 async function exporterExtraction(filtres: O, nom: string): Promise<void> {
+  const XLSX = await chargerExcel();
   const r = await call<O>('report.extraction', { ...filtres, pourExport: true }, { fraiche: true });
   const lignes = (r['lignes'] as O[]) ?? [];
   if (!lignes.length) { toast('Rien à extraire avec ces critères.', 'err'); return; }
@@ -4534,7 +4558,8 @@ async function exporterExtraction(filtres: O, nom: string): Promise<void> {
  * Extraction des CHIFFRES affichés par un écran de statistiques (2026-10-16) :
  * une feuille par tableau, exactement ce que l'écran montre, plus la période.
  */
-function exporterChiffres(nom: string, periode: string, feuilles: { nom: string; lignes: O[] }[]) {
+async function exporterChiffres(nom: string, periode: string, feuilles: { nom: string; lignes: O[] }[]) {
+  const XLSX = await chargerExcel();
   const pleines = feuilles.filter((f) => f.lignes.length);
   if (!pleines.length) { toast('Rien à extraire.', 'err'); return; }
   const classeur = XLSX.utils.book_new();
@@ -4701,7 +4726,8 @@ SCREENS.extraction = ({ go }) => {
 };
 
 /** Extraction du volet Engagements : la vue affichée, filtres et tri compris (2026-10-08). */
-function exporterEngagements(lignes: O[], filtre: string, ...criteres: string[]) {
+async function exporterEngagements(lignes: O[], filtre: string, ...criteres: string[]) {
+  const XLSX = await chargerExcel();
   if (!lignes.length) { toast('Rien à extraire.', 'err'); return; }
   const rows = lignesExportEngagements(lignes);
   const feuille = XLSX.utils.json_to_sheet(rows);
@@ -4716,7 +4742,8 @@ function exporterEngagements(lignes: O[], filtre: string, ...criteres: string[])
 }
 
 /** L'extraction suit la vue affichée, comme partout ailleurs. */
-function exporterExemptions(lignes: O[], vue: string) {
+async function exporterExemptions(lignes: O[], vue: string) {
+  const XLSX = await chargerExcel();
   if (!lignes.length) { toast('Rien à extraire.', 'err'); return; }
   const rows = lignes.map((r) => ({
     'ID': String(r['id'] ?? ''),
@@ -4891,6 +4918,7 @@ function ChoixGranularite({ gran, setGran }: { gran: string; setGran: (g: string
 
 /** Extraction Excel d'un rapport : synthèse + détail. Le serveur journalise (pourExport). */
 async function exporterRapport(action: string, params: O, nom: string, synthese: O[], filtre?: (l: O) => boolean) {
+  const XLSX = await chargerExcel();
   const r = await call<O>(action, { ...params, pourExport: true }, { fraiche: true });
   const lignes = ((r['lignes'] as O[]) ?? []).filter(filtre ?? (() => true));
   if (!lignes.length) { toast('Rien à extraire sur cette période.', 'err'); return; }
@@ -5119,8 +5147,9 @@ SCREENS.temps = ({ go }) => {
   async function exporter(fmt: 'xlsx' | 'pdf') {
     setBusy(true);
     try {
-      const r = await call<O>('report.temps', { du, au, format: fmt, ...(avecVeh ? {} : { vehicules: false }) });
-      if (fmt === 'pdf') imprimerHtml(String(r['html'] ?? '')); else telecharger(r);
+      const params: O = { du, au, ...(avecVeh ? {} : { vehicules: false }) };
+      if (fmt === 'xlsx') await exporterExcelServeur('report.temps', params);
+      else imprimerHtml(String((await call<O>('report.temps', { ...params, format: fmt }))['html'] ?? ''));
     } catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(false); }
   }
 
@@ -5269,7 +5298,7 @@ SCREENS.horodatage = () => {
   const [busy, setBusy] = useState(false);
   async function exporter() {
     setBusy(true);
-    try { telecharger(await call<O>('report.horodatage', { du, au, cellule, format: 'xlsx' })); }
+    try { await exporterExcelServeur('report.horodatage', { du, au, cellule }); }
     catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(false); }
   }
   return <><BandeauModule icone="horloge" titre="Plage d'activité par cellule" sous={<PeriodeChoisieLue c={p} />}
@@ -5481,7 +5510,8 @@ const TC_PAR_PAGE = 50;
  * recherche comprises — et non la seule page à l'écran : on exporte ce qu'on a
  * sous les yeux, pas cinquante lignes sur quatre mille.
  */
-function exporterSejour(lignes: O[], vue: string) {
+async function exporterSejour(lignes: O[], vue: string) {
+  const XLSX = await chargerExcel();
   if (!lignes.length) { toast('Rien à extraire.', 'err'); return; }
   const rows = lignes.map((r) => ({
     'N° conteneur': String(r['numeroTC'] ?? ''),
@@ -5692,7 +5722,8 @@ const PERIMETRES_ACP: { valeur: string; libelle: string; aide: string; icone: st
   { valeur: 'alerte', libelle: 'En alerte', icone: 'sablier', aide: 'Ceux qui dépassent le seuil de séjour. « De votre liste, lesquels traînent ? »' },
 ];
 
-function exporterACP(lignes: O[], vue: string) {
+async function exporterACP(lignes: O[], vue: string) {
+  const XLSX = await chargerExcel();
   if (!lignes.length) { toast('Rien à extraire.', 'err'); return; }
   const rows = lignes.map((r) => ({
     'N° conteneur': String(r['numeroTC'] ?? ''),
@@ -5723,7 +5754,8 @@ const lignesACPVersFeuille = (lignes: O[]) => lignes.map((r) => ({
  * de numéros reçue par courriel ne dit ni de quand elle date ni sur quoi elle
  * portait.
  */
-function exporterRapprochement(r: O) {
+async function exporterRapprochement(r: O) {
+  const XLSX = await chargerExcel();
   const cpt = (r['compte'] ?? {}) as Record<string, number>;
   const classeur = XLSX.utils.book_new();
   const entete = [
@@ -5793,7 +5825,8 @@ function PanneauRapprochementACP() {
   /** Toutes les feuilles, toutes les cellules : le fichier est pris tel quel. */
   function lire(f: File) {
     const reader = new FileReader();
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
+      const XLSX = await chargerExcel();
       try {
         const wb = XLSX.read(e.target?.result, { type: 'binary' });
         const cellules: unknown[] = [];
@@ -6372,6 +6405,40 @@ SCREENS.account = ({ user }) => {
 };
 
 SCREENS.reports = () => <div className="card"><h2>Rapports</h2><p className="help">Sélectionnez un rapport dans le menu (CFS, véhicules, Balise, PP, KPI, dispenses, flux, séjour).</p></div>;
+
+/**
+ * EXPORT EXCEL FABRIQUÉ DANS LE NAVIGATEUR (2026-10-25, décision utilisateur :
+ * « je préfère la vitesse aux couleurs »).
+ *
+ * Le serveur ne fait plus que rendre les feuilles (`brut: true`) ; le navigateur
+ * fabrique le classeur : mêmes colonnes et mêmes lignes, sans les couleurs.
+ * Mesuré sur le CFS d'octobre : 2,5 s, là où le classeur coloré du serveur
+ * échouait (HTTP 546) au bout de 6,4 s.
+ *
+ * Secours : si un serveur ancien ne rend pas de feuilles brutes, on reprend son
+ * classeur habituel.
+ */
+async function exporterExcelServeur(action: string, params: O): Promise<void> {
+  const r = await call<O>(action, { ...params, format: 'xlsx', brut: true }, { fraiche: true });
+  if (Array.isArray(r['feuilles'])) { await telechargerFeuilles(r); return; }
+  telecharger(r['base64'] ? r : await call<O>(action, { ...params, format: 'xlsx' }, { fraiche: true }));
+}
+
+/** Fabrique le classeur dans le navigateur, avec le même en-tête que le serveur. */
+async function telechargerFeuilles(r: O): Promise<void> {
+  const XLSX = await chargerExcel();
+  const classeur = XLSX.utils.book_new();
+  for (const f of r['feuilles'] as { nom: string; aoa: unknown[][] }[]) {
+    const nbCol = Math.max(1, ...f.aoa.map((l) => l.length));
+    const feuille = XLSX.utils.aoa_to_sheet([['PIA Dry Port, Adétikopé · Suivi des cargaisons'], [f.nom], [], ...f.aoa]);
+    feuille['!cols'] = Array.from({ length: nbCol }, (_, c) => ({
+      wch: Math.min(60, Math.max(8, ...f.aoa.map((l) => String(l[c] ?? '').length + 2))),
+    }));
+    if (nbCol > 1) feuille['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: nbCol - 1 } }, { s: { r: 1, c: 0 }, e: { r: 1, c: nbCol - 1 } }];
+    XLSX.utils.book_append_sheet(classeur, feuille, String(f.nom).slice(0, 31));
+  }
+  XLSX.writeFile(classeur, String(r['filename'] ?? 'export.xlsx'));
+}
 
 function telecharger(f: O) {
   const b64 = String(f['base64'] ?? ''); if (!b64) return;

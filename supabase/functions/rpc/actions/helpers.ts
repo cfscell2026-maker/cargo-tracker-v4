@@ -52,6 +52,73 @@ export async function fetchAll(
   // deno-lint-ignore no-explicit-any
   affiner?: (q: any) => any,
 ): Promise<Record<string, unknown>[]> {
+  /* E/S DISQUE — 2026-10-24 : PAGINATION PAR CLÉ.
+   *
+   * L'ancienne lecture comptait d'abord TOUTES les lignes (`count: exact`, un
+   * parcours complet), puis demandait les blocs par DÉCALAGE (`range`). Or un
+   * décalage n'évite rien : pour servir le bloc 20, PostgreSQL relit et trie
+   * les 19 000 lignes qui le précèdent. Une lecture de 22 000 dossiers coûtait
+   * ainsi une vingtaine de parcours de la table ; c'est ce qui a vidé le budget
+   * d'E/S disque du projet (7,8 milliards de lignes lues sur `cargaisons`) et
+   * rendu la connexion impossible.
+   *
+   * Désormais chaque bloc demande « les 1 000 lignes APRÈS la dernière clé
+   * reçue » (`clé > dernière`, trié sur la clé) : l'index de la clé primaire
+   * mène droit au bon endroit, et chaque ligne n'est lue qu'UNE fois. Pas de
+   * comptage préalable.
+   *
+   * ORDRE DEMANDÉ SUR UNE AUTRE COLONNE (la vue résumé, par date d'entrée) : on
+   * lit par clé, puis on trie en mémoire sur (colonne, clé), exactement l'ordre
+   * SQL d'avant (`order by colonne, clé`, NULL en tête en décroissant, en
+   * queue en croissant, comme PostgreSQL).
+   *
+   * Table sans clé connue : l'ancienne lecture par décalage, inchangée. */
+  const BLOC = 1000;
+  const cle = CLE_PRIMAIRE[table];
+  if (!cle) return fetchAllParDecalage(ctx, table, select, order, affiner);
+
+  // La clé doit figurer dans les colonnes lues pour savoir où reprendre.
+  const colonnes = select.trim() === '*' || new RegExp(`(^|,)\\s*${cle}\\s*(,|$)`).test(select)
+    ? select : `${select}, ${cle}`;
+  const out: Record<string, unknown>[] = [];
+  let derniere: unknown = null;
+  for (;;) {
+    // deno-lint-ignore no-explicit-any
+    let q: any = ctx.db.from(table).select(colonnes);
+    if (affiner) q = affiner(q);
+    if (derniere !== null) q = q.gt(cle, derniere);
+    const { data, error } = await q.order(cle, { ascending: true }).limit(BLOC);
+    if (error) throw new Error(error.message);
+    const lot = (data ?? []) as Record<string, unknown>[];
+    out.push(...lot);
+    if (lot.length < BLOC) break;
+    derniere = lot[lot.length - 1]![cle];
+  }
+  if (order && order.colonne !== cle) {
+    const asc = order.ascendant !== false;
+    const col = order.colonne;
+    out.sort((a, b) => {
+      const x = a[col], y = b[col];
+      const xn = x === null || x === undefined, yn = y === null || y === undefined;
+      if (xn !== yn) return (xn ? 1 : -1) * (asc ? 1 : -1); // NULLS LAST en croissant, FIRST en décroissant
+      if (!xn && String(x) !== String(y)) return (String(x) < String(y) ? -1 : 1) * (asc ? 1 : -1);
+      return String(a[cle]) < String(b[cle]) ? -1 : String(a[cle]) > String(b[cle]) ? 1 : 0;
+    });
+  } else if (order && order.ascendant === false) {
+    out.reverse();
+  }
+  return out;
+}
+
+/** Ancienne lecture par décalage, gardée pour les tables sans clé primaire connue. */
+async function fetchAllParDecalage(
+  ctx: Ctx,
+  table: string,
+  select: string,
+  order: { colonne: string; ascendant?: boolean } | undefined,
+  // deno-lint-ignore no-explicit-any
+  affiner?: (q: any) => any,
+): Promise<Record<string, unknown>[]> {
   /* LENTEUR — 2026-09-24. Les blocs partaient UN PAR UN : quinze allers-retours
    * enchaînés pour 14 000 dossiers, soit l'essentiel des ~3,7 s mesurées sur
    * chaque liste. Le premier bloc rapporte le nombre total de lignes ; les
@@ -110,9 +177,12 @@ export async function compter(
   table: string,
   // deno-lint-ignore no-explicit-any
   affiner?: (q: any) => any,
+  /* 'estimated' (2026-10-25) : exact sous le plafond de l'API, estimation du
+     planificateur au-delà, sans parcourir la table. Pour un total indicatif. */
+  mode: 'exact' | 'estimated' = 'exact',
 ): Promise<number> {
   // deno-lint-ignore no-explicit-any
-  let q: any = ctx.db.from(table).select('*', { count: 'exact', head: true });
+  let q: any = ctx.db.from(table).select('*', { count: mode, head: true });
   if (affiner) q = affiner(q);
   const { count, error } = await q;
   if (error) throw new Error(error.message);
@@ -121,9 +191,10 @@ export async function compter(
 
 /** Clé primaire des tables lues par `fetchAll` : dernier critère de tri, pour un ordre stable. */
 const CLE_PRIMAIRE: Record<string, string> = {
-  cargaisons: 'id', v_cargaisons_resume: 'id', conteneurs: 'id', declarations: 'cle',
+  cargaisons: 'id', v_cargaisons_resume: 'id', v_cargaisons_stats: 'id', conteneurs: 'id', declarations: 'cle',
   stock: 'numero_tc', stock_annonce: 'numero_tc',
   entrepots: 'code', entrepot_entrees: 'id', entrepot_sorties: 'id',
+  parking_camions: 'id', parking_pointages: 'id',
 };
 
 /**
@@ -443,4 +514,36 @@ export async function signature(base: string): Promise<string> {
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(base));
   const hex = Array.from(new Uint8Array(buf), (b) => b.toString(16).padStart(2, '0')).join('');
   return hex.slice(0, 16).toUpperCase();
+}
+
+/**
+ * LIGNES DU STOCK EN UN ALLER-RETOUR (00212, 2026-10-25). La base rend d'un
+ * coup les colonnes du stock dont le serveur se sert, dans l'ordre de la clé :
+ * une réponse au lieu de dix-huit pages de mille lignes lues l'une après
+ * l'autre (2,2 s mesurées en production). Bornes sur la date d'entrée
+ * (incluses) et statut exact, chacun facultatif, comme les filtres de la
+ * lecture paginée.
+ *
+ * Tant que la fonction n'existe pas (script SQL pas encore passé), ou en cas
+ * d'erreur, on retombe sur la lecture paginée avec les mêmes filtres.
+ */
+export async function lignesStock(
+  ctx: Ctx,
+  f: { du?: string; au?: string; statut?: string },
+  colonnes: string,
+): Promise<Record<string, unknown>[]> {
+  try {
+    const { data, error } = await ctx.db.rpc('fn_stock_lignes', { p_du: f.du || null, p_au: f.au || null, p_statut: f.statut || null });
+    if (!error && Array.isArray(data)) return data as Record<string, unknown>[];
+    if (error && !/could not find|does not exist|PGRST202|schema cache/i.test(error.message))
+      console.error('[STOCK-LIGNES] repli sur la lecture paginée : ' + error.message);
+  } catch { /* repli ci-dessous */ }
+  // deno-lint-ignore no-explicit-any
+  return fetchAll(ctx, 'stock', colonnes, undefined, (q: any) => {
+    let r = q;
+    if (f.du) r = r.gte('date_entree', f.du);
+    if (f.au) r = r.lte('date_entree', f.au);
+    if (f.statut) r = r.eq('statut', f.statut);
+    return r;
+  });
 }
