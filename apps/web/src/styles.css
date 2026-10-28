@@ -3698,32 +3698,10 @@ button.modal-fermer:focus-visible{outline:2px solid #0e5a8a;outline-offset:2px}
   .filtres-verre .fv-raz{margin-left:0;width:100%}
 }
 
-/* ============ TRANSMISSION D'UN ENGAGEMENT, 2026-10-28 =================
- *
- * Demande utilisateur : le bandeau deroulait TOUS les engagements en attente.
- * Avec 138 d'entre eux il mesurait onze mille pixels de haut. Il devient une
- * tuile ; le detail est a un clic, dans le volet qui sait paginer.
- */
-.eng-tuile{
-  display:flex;align-items:center;gap:14px;cursor:pointer;
-  padding:14px 16px;
-  transition:transform .14s ease,box-shadow .18s ease;
-}
-.eng-tuile:hover{transform:translateY(-1px);box-shadow:0 14px 34px rgba(15,35,55,.14)}
-.eng-tuile:active{transform:translateY(1px)}
-.eng-tuile:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
-.eng-tuile-icone{
-  flex:none;display:grid;place-items:center;width:44px;height:44px;border-radius:13px;
-  color:var(--warn);background:color-mix(in srgb,var(--warn) 13%,#fff);
-}
-.eng-tuile-corps{flex:1;min-width:0}
-.eng-tuile-chiffre{display:flex;align-items:baseline;gap:8px}
-.eng-tuile-chiffre b{font-size:26px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1}
-.eng-tuile-chiffre span{font-size:14px}
-.eng-tuile-detail{margin:3px 0 0}
-.eng-tuile-retard{color:var(--err);font-weight:600;display:inline-flex;align-items:center;gap:4px}
-.eng-tuile-aller{flex:none;color:#93a3b2}
-.eng-tuile:hover .eng-tuile-aller{color:var(--accent)}
+/* La tuile des engagements n'a plus de style propre : c'est un `StatCard`
+   pose dans la grille bento (2026-10-28). Une carte a part aurait demande
+   d'entretenir ses dimensions en parallele de celles des autres KPI, et
+   elles auraient diverge a la premiere retouche. */
 
 /* ---- LE LOGO ENTRE DEUX FLUX QUI PARTENT ET REVIENNENT ----
  *

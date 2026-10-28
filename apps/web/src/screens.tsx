@@ -554,57 +554,38 @@ export function BandeauModule({ icone, titre, sous, action, sansRetour, auto }: 
 const SCREENS: Record<string, Screen> = {};
 
 /**
- * L'ENGAGEMENT AU TABLEAU DE BORD : UNE TUILE, PLUS UNE LISTE (2026-10-28,
+ * L'ENGAGEMENT AU TABLEAU DE BORD : UNE TUILE PARMI LES AUTRES (2026-10-28,
  * demande utilisateur).
  *
- * L'encadré déroulait tous les engagements en attente. Avec 138 d'entre eux il
- * mesurait ONZE MILLE PIXELS de haut : le tableau de bord devenait illisible,
- * et le reste de la page passait sous l'horizon.
+ * L'encadre deroulait tous les engagements en attente. Avec 138 d'entre eux il
+ * mesurait ONZE MILLE PIXELS de haut : le tableau de bord devenait illisible.
  *
- * Il ne reste que le chiffre, et ce qu'il faut pour décider d'y aller : le
- * nombre en attente, ceux en retard, et le plus urgent. Le détail est à un
- * clic, dans le volet qui est fait pour ça et qui sait paginer.
+ * Il devient un `StatCard` POSE DANS LA GRILLE BENTO, et non une carte a part :
+ * c'est ce qui lui donne le format et les dimensions des autres KPI, sans
+ * regle de style propre a maintenir. Le detail est a un clic, dans le volet
+ * qui sait paginer.
+ *
+ * Le RETARD vit dans le libelle : aucune prop de `StatCard` ne porte un second
+ * chiffre, et en inventer une pour ce seul usage aurait touche toutes les
+ * tuiles de l'application.
  */
-function BandeauEngagements({ role, go }: { role: string; go: Nav['go'] }) {
+function TuileEngagements({ role, go }: { role: string; go: Nav['go'] }) {
   const { data, loading } = useAsync<O>(() => call('report.engagements'), []);
 
   /* `aRoleParmi` et non `includes` : SUIVENT_ENGAGEMENTS a ete ecrite avant
      les roles techniques et ne les nomme pas. Un INFO, que le serveur autorise
-     (report.engagements est ouvert a l'ADMIN), ne voyait donc pas l'echeancier
-     ici. L'ecran cachait ce que le serveur accordait. */
+     (report.engagements est ouvert a l'ADMIN), ne voyait donc rien ici.
+     L'ecran cachait ce que le serveur accordait. */
   if (!aRoleParmi(role, SUIVENT_ENGAGEMENTS)) return null;
   if (loading || !data) return null;
   const lignes = (data['lignes'] as O[]) ?? [];
   if (!lignes.length) return null;
-  const cpt = (data['compte'] as O) ?? {};
-  const retard = Number(cpt['retard'] ?? 0);
+  const retard = Number(((data['compte'] as O) ?? {})['retard'] ?? 0);
 
-  /* LE PLUS URGENT, et lui seul. `report.engagements` rend déjà la liste triée
-     par échéance : la première ligne est celle qui presse. L'afficher évite
-     d'ouvrir le volet pour savoir s'il y a péril. */
-  const premier = lignes[0] as O;
-
-  return <div className="card eng-tuile" style={{ borderLeft: `4px solid var(--${retard ? 'err' : 'warn'})` }}
-    role="button" tabIndex={0}
-    onClick={() => go('engagements')}
-    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go('engagements'); } }}
-    title="Ouvrir le volet des engagements">
-    <span className="eng-tuile-icone" aria-hidden="true"><Icone nom="echeance" taille={20} /></span>
-    <div className="eng-tuile-corps">
-      <div className="eng-tuile-chiffre">
-        <b>{lignes.length}</b>
-        <span>engagement(s) à transmettre</span>
-      </div>
-      <div className="help eng-tuile-detail">
-        {retard
-          ? <span className="eng-tuile-retard"><Icone nom="sablier" taille={13} />{retard} en retard</span>
-          : <span>Aucun retard pour l'instant.</span>}
-        {premier ? <span> · le plus urgent : <b className="mono">{String(premier['numeroCamion'] ?? '')}</b>
-          {premier['libelle'] ? <> , {String(premier['libelle'])}</> : null}</span> : null}
-      </div>
-    </div>
-    <span className="eng-tuile-aller" aria-hidden="true"><Icone nom="chevron" taille={16} /></span>
-  </div>;
+  return <StatCard n={lignes.length} icone="echeance"
+    l={retard ? `À transmettre · ${retard} en retard` : 'À transmettre'}
+    tone={retard ? 'warn' : undefined}
+    onClick={() => go('engagements')} />;
 }
 
 /**
@@ -744,7 +725,6 @@ SCREENS.dash = (nav) => {
      sur un fond bleu profond. Les cartes y deviennent des plaques de verre
      claires, et c'est ce contraste sombre/clair qui rend l'effet lisible. */
   return <div className="ecran-dash">
-    <BandeauEngagements role={nav.user.role} go={nav.go} />
     {/* Le tableau de bord est l'ecran de DEPART : `sansRetour` y coupe le bouton,
         qui ne menerait nulle part. La note de lecture passe en sous-titre du
         bandeau, ou elle herite du blanc. */}
@@ -773,6 +753,9 @@ SCREENS.dash = (nav) => {
         n'avaient RIEN à dépolir, elles ressemblaient à de simples cartes
         blanches. Les halos qu'il porte sont ce que le verre diffuse. */}
     {loading && !data ? <Spinner /> : <div className="bento-cadre"><div className="stats bento">
+      {/* EN TETE DE GRILLE : c'est la seule tuile qui appelle une action, les
+          autres rendent compte. Elle se lit donc en premier. */}
+      <TuileEngagements role={nav.user.role} go={nav.go} />
       {/* Événements datés sur la période, le travail EFFECTIF de chaque cellule
           sur la période, compté à la date de la cellule (pas à la création). */}
       <StatCard n={Number(s['creesPeriode'] ?? 0)} l="Entrées CFS (période)" onClick={() => nav.go('cfsreport')}
