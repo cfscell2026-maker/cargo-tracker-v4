@@ -4054,8 +4054,30 @@ button.modal-fermer:focus-visible{outline:2px solid #0e5a8a;outline-offset:2px}
 .trn-destination{margin-bottom:11px;padding-bottom:11px;border-bottom:1px dashed rgba(15,45,70,.16)}
 .trn-volet-arrivee .trn-destination{border-bottom-color:rgba(31,122,92,.2)}
 
-.trn-g2{grid-template-columns:1fr 130px 32px}
-.trn-g3{grid-template-columns:1fr 130px 110px}
+/* ---- CHAQUE CHAMP PORTE SON SIGNE, 2026-10-29 (demande utilisateur) ----
+ *
+ * Meme emballage que le bloc des filtres : l'icone se pose dans le champ, le
+ * texte lui laisse la place. Les en-tetes de colonne disparaissent sous
+ * 640 px, et il ne restait alors que des cases blanches ; le signe et le
+ * texte d'invite disent de quoi il s'agit a toutes les largeurs.
+ */
+.trn-champ{position:relative;display:flex;align-items:center;min-width:0}
+.trn-champ > .ic{
+  position:absolute;left:13px;z-index:1;pointer-events:none;
+  color:var(--muted);opacity:.75;
+}
+.trn-champ > input{width:100%;padding-left:36px;margin:0}
+/* LES BORDS S'ARRONDISSENT, comme les champs du bloc des filtres et la
+   notification du tableau de bord : la fenetre etait la derniere a garder des
+   coins a dix pixels. */
+.trn-fenetre input{border-radius:999px;background-color:#fff}
+.trn-fenetre .ghost{border-radius:999px}
+
+/* 36 px pour la pastille de retrait, qui a la taille des autres. */
+/* 178 px et non 130 : l'icone mange 36 px de retrait, et « Quantité
+   déclarée » s'y coupait en « Quantité déc… ». */
+.trn-g2{grid-template-columns:1fr 178px 36px}
+.trn-g3{grid-template-columns:1fr 178px 96px}
 
 /* Le volet se detache du fond de la fenetre : sans cadre, les deux listes se
    suivaient sans qu'on voie ou l'une finissait. */
@@ -4083,6 +4105,7 @@ button.modal-fermer:focus-visible{outline:2px solid #0e5a8a;outline-offset:2px}
 .trn-entetes{margin-bottom:5px;font-size:11px;letter-spacing:.03em;text-transform:uppercase}
 .trn-ligne{margin-bottom:7px}
 .trn-ligne input{margin:0}
+.trn-grille .trn-champ{margin-top:4px}
 .trn-ecart{
   font-size:13px;font-weight:600;text-align:right;font-variant-numeric:tabular-nums;
 }
@@ -4090,7 +4113,9 @@ button.modal-fermer:focus-visible{outline:2px solid #0e5a8a;outline-offset:2px}
 .trn-ecart.manque{color:var(--err)}
 .trn-ecart.surplus{color:var(--warn)}
 .trn-ecart.juste{color:var(--ok)}
-.trn-retirer{color:var(--err)}
+/* La pastille porte deja sa couleur et son relief : il ne reste qu'a la
+   centrer dans sa colonne. */
+.trn-retirer{justify-self:center}
 .trn-ajouter{margin-top:4px;display:inline-flex;align-items:center;gap:6px}
 
 .trn-totaux{
@@ -4124,10 +4149,10 @@ button.modal-fermer:focus-visible{outline:2px solid #0e5a8a;outline-offset:2px}
    un champ, tombait seule a la ligne suivante. */
 @media (max-width:640px){
   .trn-entetes{display:none}
-  .trn-g2{grid-template-columns:1fr 40px;gap:6px}
-  .trn-g2 input:first-child{grid-column:1 / -1}
+  .trn-g2{grid-template-columns:1fr 38px;gap:6px}
+  .trn-g2 > .trn-champ:first-child{grid-column:1 / -1}
   .trn-g3{grid-template-columns:1fr auto;gap:6px}
-  .trn-g3 input:first-child{grid-column:1 / -1}
+  .trn-g3 > .trn-champ:first-child{grid-column:1 / -1}
   .trn-pied{flex-direction:column-reverse}
   .trn-pied button{width:100%;justify-content:center}
 }

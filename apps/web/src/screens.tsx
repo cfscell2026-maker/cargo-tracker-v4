@@ -1923,12 +1923,18 @@ function ModaleTransmission({ ligne, onClose, onFait }: { ligne: O; onClose: () 
               MEMES valeurs : corriger le numero IM4 ici le corrige la-bas. */}
           <div className="trn-grille trn-destination">
             <label className="help">Pays de destination
-              <input value={pays} onChange={(e) => setPays(e.target.value)}
-                placeholder="Burkina Faso, Niger, Mali…" maxLength={120} />
+              <span className="trn-champ">
+                <Icone nom="carte" taille={15} />
+                <input value={pays} onChange={(e) => setPays(e.target.value)}
+                  placeholder="Burkina Faso, Niger, Mali…" maxLength={120} />
+              </span>
             </label>
             <label className="help">N° IM4 du pays de destination
-              <input className="mono" value={im4} onChange={(e) => setIm4(e.target.value)}
-                placeholder="IM4-2026-000" maxLength={60} />
+              <span className="trn-champ">
+                <Icone nom="document" taille={15} />
+                <input className="mono" value={im4} onChange={(e) => setIm4(e.target.value)}
+                  placeholder="IM4-2026-000" maxLength={60} />
+              </span>
             </label>
           </div>
           <div className="trn-entetes trn-g2 help">
@@ -1937,13 +1943,36 @@ function ModaleTransmission({ ligne, onClose, onFait }: { ligne: O; onClose: () 
             <span />
           </div>
           {lignes.map((l, i) => <div className="trn-ligne trn-g2" key={i}>
-            <input value={l.designation} placeholder="Riz 50 kg, sucre, ciment…" maxLength={200}
-              onChange={(ev) => majLigne(i, 'designation', ev.target.value)} />
-            <input inputMode="decimal" value={l.quantiteDepart} placeholder="0"
-              onChange={(ev) => majLigne(i, 'quantiteDepart', ev.target.value.replace(/[^0-9.,]/g, ''))} />
-            <button className="ghost xs trn-retirer" title="Retirer cette marchandise"
-              disabled={lignes.length <= 1}
-              onClick={() => setLignes((ls) => ls.filter((_, k) => k !== i))}>✕</button>
+            {/* CHAQUE CHAMP SE NOMME ET PORTE SON SIGNE (2026-10-29, demande
+                utilisateur). Les en-tetes de colonne disparaissent sous
+                640 px : il ne restait alors que deux cases blanches, dont une
+                avec « 0 » pour tout indice. Le texte d'invite dit desormais
+                de quoi il s'agit, et l'icone se reconnait sans lecture. */}
+            <span className="trn-champ">
+              <Icone nom="boites" taille={15} />
+              <input value={l.designation} placeholder="Désignation : riz 50 kg, sucre…" maxLength={200}
+                onChange={(ev) => majLigne(i, 'designation', ev.target.value)} />
+            </span>
+            <span className="trn-champ">
+              <Icone nom="balance" taille={15} />
+              <input inputMode="decimal" value={l.quantiteDepart} placeholder="Quantité déclarée"
+                onChange={(ev) => majLigne(i, 'quantiteDepart', ev.target.value.replace(/[^0-9.,]/g, ''))} />
+            </span>
+            {/* UN BOUTON QUI FAIT TOUJOURS QUELQUE CHOSE (2026-10-29, demande
+                utilisateur : « ce bouton ne marche pas »). Il etait GRISE sur
+                la derniere ligne, parce que la fiche en exige au moins une :
+                un controle mort, sans un mot pour dire pourquoi. Sur la
+                derniere ligne il la VIDE au lieu de la retirer, ce qui est le
+                geste reellement voulu quand on s'est trompe de marchandise, et
+                la fiche garde sa ligne. */}
+            <button className="ghost xs acts-ic acts-suppr trn-retirer"
+              aria-label={lignes.length > 1 ? 'Retirer cette marchandise' : 'Vider cette ligne'}
+              data-bulle={lignes.length > 1 ? 'Retirer' : 'Vider'}
+              onClick={() => setLignes((ls) => (ls.length > 1
+                ? ls.filter((_, k) => k !== i)
+                : [marchandiseVide()]))}>
+              <Icone nom="poubelle" taille={15} />
+            </button>
           </div>)}
           <button className="ghost xs trn-ajouter" onClick={() => setLignes((ls) => [...ls, marchandiseVide()])}>
             <Icone nom="plus" taille={14} />Ajouter une marchandise
@@ -1959,12 +1988,18 @@ function ModaleTransmission({ ligne, onClose, onFait }: { ligne: O; onClose: () 
           {/* Les memes champs qu'au depart, sur les memes valeurs. */}
           <div className="trn-grille trn-destination">
             <label className="help">Pays de destination
-              <input value={pays} onChange={(e) => setPays(e.target.value)}
-                placeholder="Burkina Faso, Niger, Mali…" maxLength={120} />
+              <span className="trn-champ">
+                <Icone nom="carte" taille={15} />
+                <input value={pays} onChange={(e) => setPays(e.target.value)}
+                  placeholder="Burkina Faso, Niger, Mali…" maxLength={120} />
+              </span>
             </label>
             <label className="help">N° IM4 du pays de destination
-              <input className="mono" value={im4} onChange={(e) => setIm4(e.target.value)}
-                placeholder="IM4-2026-000" maxLength={60} />
+              <span className="trn-champ">
+                <Icone nom="document" taille={15} />
+                <input className="mono" value={im4} onChange={(e) => setIm4(e.target.value)}
+                  placeholder="IM4-2026-000" maxLength={60} />
+              </span>
             </label>
           </div>
           <div className="trn-entetes trn-g3 help">
@@ -1981,11 +2016,17 @@ function ModaleTransmission({ ligne, onClose, onFait }: { ligne: O; onClose: () 
                   desalignees des la premiere faute de frappe, et la
                   difference aurait compare deux marchandises differentes
                   sans que rien ne le signale. */}
-              <input value={l.designation} placeholder="Riz 50 kg, sucre, ciment…" maxLength={200}
-                onChange={(ev) => majLigne(i, 'designation', ev.target.value)} />
-              <input inputMode="decimal" value={l.quantiteArrivee} placeholder="—"
-                title="À renseigner quand le pays de destination répond"
-                onChange={(ev) => majLigne(i, 'quantiteArrivee', ev.target.value.replace(/[^0-9.,]/g, ''))} />
+              <span className="trn-champ">
+                <Icone nom="boites" taille={15} />
+                <input value={l.designation} placeholder="Désignation : riz 50 kg, sucre…" maxLength={200}
+                  onChange={(ev) => majLigne(i, 'designation', ev.target.value)} />
+              </span>
+              <span className="trn-champ">
+                <Icone nom="balance" taille={15} />
+                <input inputMode="decimal" value={l.quantiteArrivee} placeholder="Quantité constatée"
+                  title="À renseigner quand le pays de destination répond"
+                  onChange={(ev) => majLigne(i, 'quantiteArrivee', ev.target.value.replace(/[^0-9.,]/g, ''))} />
+              </span>
               {/* La différence ne se saisit pas : elle se déduit. La rendre
                   modifiable permettrait d'écrire un chiffre que les quantités
                   démentent. */}
