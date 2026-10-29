@@ -3182,39 +3182,87 @@ tr:hover .avatar-u{
 
 /* Modifier / Supprimer en bout de ligne (2026-09-12). */
 .acts-dossier{display:flex;gap:6px;flex-wrap:nowrap;white-space:nowrap}
-.acts-dossier .acts-suppr{color:var(--err);border-color:currentColor}
+.acts-dossier .acts-suppr:not(.acts-ic){color:var(--err);border-color:currentColor}
 
-/* ---- LES ACTIONS DE LIGNE EN PASTILLES, 2026-10-29 (demande utilisateur) --
+/* ====== LES ACTIONS DE LIGNE EN PASTILLES, 2026-10-29 ===================
  *
- * Trois boutons libelles, repetes sur deux cents lignes, mesuraient 296 px par
- * rangee : la colonne poussait le tableau hors de l'ecran et il fallait le
- * faire defiler de cote pour l'atteindre. Trois pastilles en font 114.
+ * Demande utilisateur, en deux temps : des icones plutot que des mots, puis
+ * le meme dessin PARTOUT dans la plateforme.
  *
- * LA COULEUR PORTE LA GRAVITE, et c'est elle qui remplace le mot : bleu pour
- * transmettre, ambre pour corriger, rouge pour retirer. Au repos la pastille
- * est claire et le dessin colore ; au survol elle se remplit. Un bouton plein
- * en permanence aurait fait trois taches vives par ligne, soit six cents sur
- * la page, et plus rien n'aurait ressorti.
+ * Trois boutons libelles, repetes sur deux cents lignes, mesuraient 296 px
+ * par rangee : la colonne poussait le tableau hors de l'ecran et il fallait
+ * le faire defiler de cote pour l'atteindre. Trois pastilles en font 120.
+ *
+ * LA COULEUR PORTE LA GRAVITE, et c'est elle qui remplace le mot : bleu on
+ * transmet, ambre on corrige, rouge on retire ou l'on supprime. Au repos la
+ * pastille est teintee tres clair et le dessin colore ; au survol elle se
+ * remplit et se souleve. Pleines en permanence, trois taches vives par ligne
+ * en auraient fait six cents sur la page, et plus rien n'en serait ressorti.
+ *
+ * `currentColor` fait tout le travail : chaque regle de couleur se resume a
+ * une ligne (`color: var(--err)`), et le fond, le bord, l'ombre et le relief
+ * s'en deduisent. Ajouter une quatrieme action demandera cette ligne-la,
+ * et rien d'autre.
+ *
+ * La classe est posee A LA RACINE, et non sous `.acts-dossier` : les listes
+ * de depots et d'apurements ont leurs propres actions, hors de ce conteneur,
+ * et doivent porter le meme dessin.
  */
-.acts-dossier .acts-ic{
+button.acts-ic,
+.acts-ic{
   width:34px;height:34px;min-width:34px;padding:0;
   display:inline-grid;place-items:center;border-radius:50%;
-  border:1px solid currentColor;background:#fff;
-  transition:background .16s ease,color .16s ease,box-shadow .16s ease,transform .16s ease;
+  color:var(--accent);
+  border:1px solid color-mix(in srgb,currentColor 34%,transparent);
+  /* Le meme galet que les pastilles d'icone du tableau de bord : lumiere en
+     haut a gauche, fond tres dilue, ombre interne en bas, ombre portee. */
+  background:
+    radial-gradient(circle at 34% 24%, rgba(255,255,255,.92), rgba(255,255,255,0) 62%),
+    color-mix(in srgb,currentColor 10%,#fff);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.92),
+    inset 0 -2px 4px color-mix(in srgb,currentColor 14%,transparent),
+    0 2px 5px rgba(20,35,50,.12);
+  transition:background .16s ease,border-color .16s ease,box-shadow .18s ease,transform .16s ease;
 }
-.acts-dossier .acts-ic:hover:not(:disabled){
-  background:currentColor;box-shadow:0 3px 9px rgba(15,35,55,.18);transform:translateY(-1px);
+.acts-ic > .ic{transition:color .16s ease}
+/* `button.ghost:hover` pese (0,3,1) : ecrite sur la seule classe, cette
+   regle perdait et la pastille survolee redevenait BLANCHE, avec un trait
+   blanc sur fond blanc, donc invisible. Le selecteur reprend le meme poids. */
+button.acts-ic:hover:not(:disabled){
+  background:linear-gradient(145deg,
+    color-mix(in srgb,currentColor 82%,#fff) 0%,
+    currentColor 60%,
+    color-mix(in srgb,currentColor 86%,#000) 100%);
+  border-color:currentColor;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.4),
+    0 6px 15px color-mix(in srgb,currentColor 40%,transparent);
+  transform:translateY(-2px);
 }
-/* Le dessin prend le blanc du fond rempli. `currentColor` teint la pastille,
-   il ne peut donc plus teinter le trait : on le force. */
-.acts-dossier .acts-ic:hover:not(:disabled) > .ic{color:#fff}
-.acts-dossier .acts-ic-transmet{color:var(--accent)}
-.acts-dossier .acts-ic-corrige{color:var(--warn)}
-/* !important (2026-09-24) : la regle generale des boutons (chaine de :not())
-   pose un degrade bleu plus specifique. Le bouton d'une action IRREVERSIBLE
-   s'affichait donc en bleu, comme un bouton ordinaire, « Retirer
-   l'engagement » comme « Supprimer » au parking. Il doit porter sa couleur. */
-button.acts-suppr-plein{background-color:var(--err) !important;background-image:none !important;color:#fff !important}
+/* `currentColor` teint desormais la pastille : il ne peut plus teinter le
+   trait, on le force au blanc. */
+button.acts-ic:hover:not(:disabled) > .ic{color:#fff}
+/* Au clic la pastille retombe et s'enfonce : le geste se sent. */
+button.acts-ic:active:not(:disabled){
+  transform:translateY(0);
+  box-shadow:inset 0 2px 5px color-mix(in srgb,currentColor 55%,transparent);
+}
+button.acts-ic:focus-visible{outline:2px solid currentColor;outline-offset:2px}
+button.acts-ic:disabled{opacity:.42;box-shadow:none}
+
+/* Une ligne par action, et rien d'autre a declarer.
+   DEUX CLASSES, ET NON UNE : `button.ghost{color:var(--accent)}` pese (0,1,1)
+   et l'emportait sur une classe seule. « Corriger » sortait donc en BLEU,
+   comme « Transmettre », et la couleur ne distinguait plus rien. */
+.acts-ic.acts-ic-transmet{color:var(--accent)}
+.acts-ic.acts-ic-corrige{color:var(--warn)}
+.acts-ic.acts-suppr{color:var(--err)}
+
+@media (prefers-reduced-motion:reduce){
+  .acts-ic,.acts-ic > .ic{transition:none}
+  button.acts-ic:hover:not(:disabled),button.acts-ic:active:not(:disabled){transform:none}
+}
 
 /* Croix de fermeture des fenetres (2026-09-12). */
 .modal-fermer-rail{position:sticky;top:0;height:0;z-index:5;display:flex;justify-content:flex-end}
@@ -3243,7 +3291,7 @@ button.modal-fermer:focus-visible{outline:2px solid #0e5a8a;outline-offset:2px}
   }
   .acts-dossier .acts-lib{display:none}
   .acts-dossier button{min-width:36px;min-height:36px;justify-content:center;font-size:15px}
-  .acts-dossier .acts-ic{width:36px;height:36px;min-width:36px}
+  .acts-ic{width:36px;height:36px;min-width:36px}
 }
 
 

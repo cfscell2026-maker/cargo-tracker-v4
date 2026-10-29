@@ -247,11 +247,16 @@ function ActionsDossier({ r, admin, onFait }: { r: O; admin: boolean; onFait: ()
   const fermer = () => setOuvert('');
   const fait = () => { setOuvert(''); onFait(); };
   return <div className="acts-dossier">
-    <button className="ghost xs" title="Corriger le N° de camion / châssis" aria-label="Modifier" onClick={() => setOuvert('modifier')}>
-      ✎<span className="acts-lib"> Modifier</span>
+    {/* MEMES PASTILLES QU'AILLEURS (2026-10-29, demande utilisateur). Les
+        caracteres ✎ et ✕ dependaient de la police du poste et n'avaient pas
+        la meme graisse que les autres icones de l'application. */}
+    <button className="ghost xs acts-ic acts-ic-corrige" title="Corriger le N° de camion / châssis"
+      aria-label="Modifier" onClick={() => setOuvert('modifier')}>
+      <Icone nom="crayon" taille={16} />
     </button>
-    {admin && <button className="ghost xs acts-suppr" title="Supprimer ce dossier (doublon)" aria-label="Supprimer" onClick={() => setOuvert('supprimer')}>
-      ✕<span className="acts-lib"> Supprimer</span>
+    {admin && <button className="ghost xs acts-ic acts-suppr" title="Supprimer ce dossier (doublon)"
+      aria-label="Supprimer" onClick={() => setOuvert('supprimer')}>
+      <Icone nom="poubelle" taille={16} />
     </button>}
     {ouvert === 'modifier' && <ModaleCorrigerNumero r={r} onClose={fermer} onFait={fait} />}
     {ouvert === 'supprimer' && <ModaleSupprimerDossier r={r} onClose={fermer} onFait={fait} />}
@@ -1547,8 +1552,10 @@ function DetailEntrepotStats({ entrepot, unite, lib, role, onClose, onFait }: {
             </tr>)}</tbody>
           </table></div>
           <div className="row depot-actions">
-            <button className="ghost xs" onClick={() => setEdite(e)}>Modifier</button>
-            {admin && <button className="ghost xs acts-suppr" onClick={() => setSupprime(e)}>Supprimer</button>}
+            <button className="ghost xs acts-ic acts-ic-corrige" aria-label="Modifier"
+              title="Modifier ce dépôt" onClick={() => setEdite(e)}><Icone nom="crayon" taille={16} /></button>
+            {admin && <button className="ghost xs acts-ic acts-suppr" aria-label="Supprimer"
+              title="Supprimer ce dépôt" onClick={() => setSupprime(e)}><Icone nom="poubelle" taille={16} /></button>}
           </div>
         </div>)}
         {!cherche && (reste > 0 || tout) && <div className="row" style={{ justifyContent: 'center', marginTop: 12 }}>
@@ -1681,8 +1688,10 @@ function DetailApurements({ code, apur, unite, role, onClose, onFait }: {
       : <Table cols={[['declaration', 'Déclaration d\'apurement'], [champ, `Quantité (${unite})`], ['dateSortie', 'Date'], ['camion', 'Camion / scellés'], ['agent', 'Agent']]}
         rows={rows}
         actions={(r) => <>
-          <button className="ghost xs" onClick={() => setEdite(r)}>Modifier</button>
-          {admin && <button className="ghost xs acts-suppr" onClick={() => setSupprime(r)}>Supprimer</button>}
+          <button className="ghost xs acts-ic acts-ic-corrige" aria-label="Modifier"
+            title="Modifier cet apurement" onClick={() => setEdite(r)}><Icone nom="crayon" taille={16} /></button>
+          {admin && <button className="ghost xs acts-ic acts-suppr" aria-label="Supprimer"
+            title="Supprimer cet apurement" onClick={() => setSupprime(r)}><Icone nom="poubelle" taille={16} /></button>}
         </>} />}
     {edite && <ModaleModifierApurement sortie={edite} unite={unite} onClose={() => setEdite(null)}
       onFait={() => { setEdite(null); rafraichir(); }} />}
