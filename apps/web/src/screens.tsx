@@ -578,7 +578,7 @@ function ModaleCorrigerEngagement({ ligne, onClose, onFait, admin }: { ligne: O;
     setBusy(true);
     try {
       await call('cargo.engagementedit', { id, motif, engagementType: type, ...(nouveauDelai ? { engagementDelai: nouveauDelai } : {}) });
-      toast('Engagement corrigé.', 'ok');
+      toast('Engagement modifié.', 'ok');
       onFait();
     } catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(false); }
   }
@@ -596,7 +596,7 @@ function ModaleCorrigerEngagement({ ligne, onClose, onFait, admin }: { ligne: O;
   }
 
   return <Modal onClose={onClose}>
-    <h2>Corriger l'engagement</h2>
+    <h2>Modifier le type ou le délai</h2>
     <p className="help">
       Camion <b className="mono">{String(ligne['numeroCamion'] || id)}</b> · dossier <b className="mono">{id}</b>.
       Actuel : <b>{String(ligne['engagementType'] || '—')}</b> · échéance <b>{fmtJour(ligne['engagementDelai'])}</b>.
@@ -2357,8 +2357,13 @@ SCREENS.engagements = ({ go, user, arg }) => {
                           d'envoi. C'est le geste que nomme le bouton. */}
                       <Icone nom={solde ? 'miseAJour' : 'presse'} taille={16} />
                     </button>}
+                    {/* « Corriger » ne disait pas QUOI (2026-10-29, demande
+                        utilisateur : trouver un mot plus explicite). La fenetre
+                        change le type d'engagement et son delai : l'etiquette
+                        le nomme, puisqu'elle a la place de le dire. */}
                     {peut && <button className="ghost xs acts-ic acts-ic-corrige" onClick={() => setCorrige(l)}
-                      aria-label="Corriger" data-bulle="Corriger">
+                      aria-label="Modifier le type ou le délai"
+                      data-bulle="Modifier le type ou le délai">
                       <Icone nom="crayon" taille={16} />
                     </button>}
                     {/* RETRAIT (2026-09-17) : un bouton à lui, sur la ligne, il était
