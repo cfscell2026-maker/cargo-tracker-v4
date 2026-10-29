@@ -1338,7 +1338,12 @@ tr.clk{cursor:pointer} tr.clk:hover{background:var(--accent-soft)}
   border:1px solid rgba(255,255,255,.72);
   /* LA COULEUR DU BORD RESTE : c'est elle qui identifie l'étape d'un coup d'œil. */
   border-left:4px solid var(--teinte,var(--accent));
-  border-radius:18px;
+  /* 28 px et non 18 (2026-10-29, demande utilisateur, en deux fois) : les
+     tuiles etaient les seules formes anguleuses parmi des cartes et une
+     notification en capsule. L'arrondi les remet dans la meme famille.
+     C'est le maximum utile ici : au-dela, les coins mordraient sur la
+     pastille d'etape, haute de 38 px et collee au bord gauche. */
+  border-radius:28px;
   padding:14px 16px;
   background:rgba(255,255,255,.72);
   backdrop-filter:blur(20px) saturate(175%);
@@ -1353,7 +1358,7 @@ tr.clk{cursor:pointer} tr.clk:hover{background:var(--accent-soft)}
   display:grid;place-items:center;
   /* 38 px au lieu de 46 : la pastille situe l'étape, elle ne doit pas peser
      autant que le chiffre. */
-  width:38px;height:38px;border-radius:12px;
+  width:38px;height:38px;border-radius:16px;
   color:var(--teinte,var(--accent));
   background:color-mix(in srgb,var(--teinte,var(--accent)) 13%,#fff);
 }
@@ -1869,7 +1874,7 @@ tr.clk{cursor:pointer} tr.clk:hover{background:var(--accent-soft)}
   align-items:center;column-gap:10px;
   min-height:0;padding:8px 12px;border-radius:12px;
 }
-.stats.compacts .stat .stat-icone{grid-area:pastille;width:32px;height:32px;border-radius:10px}
+.stats.compacts .stat .stat-icone{grid-area:pastille;width:32px;height:32px;border-radius:14px}
 .stats.compacts .stat .n{grid-area:nombre;font-size:19px;line-height:1.15}
 .stats.compacts .stat .l{grid-area:libelle;font-size:11.5px;line-height:1.2}
 /* « Supprimer » porte la couleur de l'irréversible, comme sur les dossiers. */
@@ -2036,7 +2041,9 @@ tr.clk:hover{background:rgba(14,90,138,.06)}
 .bandeau{border-radius:12px}
 .modal{border-radius:18px}
 .toast{border-radius:12px}
-.stat{border-radius:14px}
+/* Hors tableau de bord, les tuiles sont plus petites : 22 px y font le meme
+   effet que 28 px sur les grandes. */
+.stat{border-radius:22px}
 
 @media (prefers-reduced-motion:reduce){
   input,select,textarea,button{transition:none}
@@ -3995,27 +4002,43 @@ button.modal-fermer:focus-visible{outline:2px solid #0e5a8a;outline-offset:2px}
  * qu'elle annoncait 110 retards. C'est cette classe qui tranche.
  */
 .stat-en-alerte{border-left-color:var(--err) !important}
+/* UN ROUGE FRANC, et non le bordeaux des messages d'erreur (2026-10-29,
+ * demande utilisateur). `--err` vaut #b00020 : un rouge sombre, concu pour du
+ * TEXTE sur fond blanc, ou il faut du contraste. A quinze pixels et en trait
+ * de 1,8 px, il tire sur le brun, et le signal perdait son urgence. Celui-ci
+ * est plus clair et plus sature : il reste rouge a petite taille.
+ * Il ne remplace pas `--err` ailleurs, ou le texte en a besoin. */
 .stat-signal{
+  --sig:#e01b2b;
   position:absolute;top:8px;left:8px;z-index:3;
   display:grid;place-items:center;width:22px;height:22px;border-radius:50%;
-  color:var(--err);background:rgba(255,255,255,.92);
-  box-shadow:0 1px 4px rgba(150,30,30,.25);
+  color:var(--sig);background:#fff;
   animation:stat-signal 1.8s ease-in-out infinite;
 }
-/* Un halo qui s'echappe du triangle : il se voit du coin de l'oeil sur un
-   tableau de bord laisse ouvert, sans le clignotement dur d'un gyrophare. */
+/* LE BATTEMENT EST ROUGE, et n'est plus une variation d'opacite.
+ *
+ * L'ancienne version faisait palir le triangle une fois sur deux. A mi-course
+ * il paraissait GRIS, et un signe qui s'eteint a moitie du temps se lit comme
+ * un element desactive : exactement le contraire de ce qu'une alerte doit
+ * dire. Le triangle reste donc PLEIN en permanence, et c'est une lueur rouge
+ * qui enfle autour de lui. */
+@keyframes stat-signal{
+  0%,100%{box-shadow:0 0 0 0 rgba(224,27,43,.55),0 1px 4px rgba(150,30,30,.3)}
+  55%    {box-shadow:0 0 0 6px rgba(224,27,43,0),0 1px 4px rgba(150,30,30,.3)}
+}
+/* DEUX ANNEAUX, decales d'une demi-mesure : une onde part toujours quand
+   l'autre s'efface. Le signal respire, au lieu de cligner. */
+.stat-signal::before,
 .stat-signal::after{
   content:'';position:absolute;inset:0;border-radius:50%;z-index:-1;
-  border:1.5px solid rgba(196,48,48,.5);
+  border:1.5px solid var(--sig);
   animation:stat-signal-halo 1.8s ease-out infinite;
 }
-@keyframes stat-signal{
-  0%,100%{opacity:1} 55%{opacity:.5}
-}
+.stat-signal::before{animation-delay:.9s}
 @keyframes stat-signal-halo{
-  0%  {transform:scale(1);opacity:.6}
-  70% {transform:scale(2.1);opacity:0}
-  100%{transform:scale(2.1);opacity:0}
+  0%  {transform:scale(1);opacity:.75}
+  70% {transform:scale(2.2);opacity:0}
+  100%{transform:scale(2.2);opacity:0}
 }
 
 /* L'INFOBULLE EST A NOUS, pas celle du navigateur : la native met une seconde
@@ -4025,8 +4048,8 @@ button.modal-fermer:focus-visible{outline:2px solid #0e5a8a;outline-offset:2px}
   position:absolute;left:0;top:calc(100% + 7px);z-index:4;
   padding:6px 10px;border-radius:9px;white-space:nowrap;
   font-size:12px;font-weight:600;line-height:1.2;
-  color:#fff;background:#8f1f1f;
-  box-shadow:0 6px 18px rgba(150,30,30,.35);
+  color:#fff;background:#b31421;
+  box-shadow:0 6px 18px rgba(179,20,33,.38);
   opacity:0;transform:translateY(-3px);pointer-events:none;
   transition:opacity .15s ease,transform .15s ease;
 }
@@ -4045,6 +4068,97 @@ button.modal-fermer:focus-visible{outline:2px solid #0e5a8a;outline-offset:2px}
 /* Immobile, le triangle reste ROUGE et lisible : le signal tient sans le
    mouvement, c'est le minimum pour une alerte. */
 @media (prefers-reduced-motion:reduce){
-  .stat-signal,.stat-signal::after{animation:none}
-  .stat-signal::after{display:none}
+  .stat-signal,.stat-signal::before,.stat-signal::after{animation:none}
+  .stat-signal::before,.stat-signal::after{display:none}
+  .stat-signal{box-shadow:0 0 0 3px rgba(224,27,43,.22),0 1px 4px rgba(150,30,30,.3)}
+}
+
+
+/* ========== UN LEGER RELIEF SUR LES PASTILLES D'ICONE, 2026-10-29 ==========
+ *
+ * Demande utilisateur : un effet 3D discret sur les icones.
+ *
+ * LE RELIEF EST SUR LE SUPPORT, PAS SUR LE TRAIT. Les icones de
+ * l'application sont des traits ouverts d'1,8 px ; leur donner une ombre
+ * portee les epaissirait et les rendrait floues aux petites tailles. C'est
+ * donc la PASTILLE qui se bombe, et le trait se contente d'un souffle d'ombre
+ * qui le decolle de son support.
+ *
+ * Trois couches, et chacune fait un travail precis :
+ *   · une lumiere en haut a gauche, comme si l'eclairage venait de la fenetre ;
+ *   · une ombre interne en bas, qui creuse le bord inferieur ;
+ *   · une ombre portee courte, qui pose la pastille sur le fond.
+ * Ensemble elles font un galet. Separement, aucune ne se remarque, et c'est
+ * exactement ce qu'on veut : le relief doit se sentir, pas se voir.
+ *
+ * Le vocabulaire n'est pas invente ici : c'est celui de `.avatar-u`, qui etait
+ * deja bombe. L'appliquer aux autres pastilles rend l'ecran coherent au lieu
+ * d'y ajouter un style de plus.
+ */
+
+/* --- Les pastilles CLAIRES, sur fond blanc (tuiles KPI, notification) ----- */
+.stat-icone,
+.alerte-eng-icone{
+  background-image:
+    radial-gradient(circle at 32% 24%, rgba(255,255,255,.75), rgba(255,255,255,0) 58%),
+    radial-gradient(circle at 50% 120%, rgba(0,0,0,.14), rgba(0,0,0,0) 55%);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.9),
+    inset 0 -2px 4px rgba(20,35,50,.10),
+    0 2px 5px rgba(20,35,50,.13);
+}
+/* La pastille de l'alerte est rouge PLEINE : son degrade porte deja le volume,
+   on ne lui ajoute que la lumiere et l'ombre portee, sinon elle se delave. */
+.alerte-eng-icone{
+  background-image:
+    radial-gradient(circle at 34% 24%, rgba(255,255,255,.42), rgba(255,255,255,0) 56%),
+    linear-gradient(145deg,#d8493c 0%,#c4302f 55%,#a81f24 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.45),
+    inset 0 -3px 6px rgba(90,10,14,.35),
+    0 3px 9px rgba(168,31,36,.40);
+}
+
+/* --- La pastille du bandeau, sur le bleu profond ------------------------- */
+.bm-pastille{
+  background-image:
+    radial-gradient(circle at 32% 24%, rgba(255,255,255,.42), rgba(255,255,255,.06) 52%, rgba(255,255,255,0) 66%),
+    radial-gradient(circle at 50% 122%, rgba(0,0,0,.30), rgba(0,0,0,0) 54%);
+  box-shadow:
+    inset 0 1.5px 0 rgba(255,255,255,.45),
+    inset 0 -3px 6px rgba(0,0,0,.26),
+    0 3px 8px rgba(6,30,50,.32);
+}
+
+/* --- L'onglet actif de la barre du bas ----------------------------------- */
+/* Meme point de bascule que la barre elle-meme (820 px) : un relief qui
+   s'appliquerait a un onglet invisible n'aurait pas de sens. */
+@media(max-width:820px){
+  .nm-onglet.actif svg{
+    background-image:
+      radial-gradient(circle at 32% 24%, rgba(255,255,255,.45), rgba(255,255,255,0) 58%),
+      linear-gradient(160deg,var(--accent),#0b4870);
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,.42),
+      inset 0 -3px 6px rgba(0,0,0,.26),
+      0 4px 12px rgba(14,90,138,.34);
+  }
+}
+
+/* --- LE TRAIT, decolle de son support ------------------------------------
+ * Un seul pixel d'ombre, et seulement dans une pastille : ailleurs, les
+ * icones vivent dans du texte courant, ou une ombre ferait sale. */
+.stat-icone > .ic,
+.bm-pastille > .ic,
+.alerte-eng-icone > .ic{
+  filter:drop-shadow(0 1px 1px rgba(10,25,40,.28));
+}
+
+/* Un ecran qui demande moins de contraste demande aussi moins d'esbroufe :
+   le relief disparait, les pastilles redeviennent plates et lisibles. */
+@media (prefers-contrast:more){
+  .stat-icone,.alerte-eng-icone,.bm-pastille,.nm-onglet.actif svg{
+    background-image:none;box-shadow:none;
+  }
+  .stat-icone > .ic,.bm-pastille > .ic,.alerte-eng-icone > .ic{filter:none}
 }
