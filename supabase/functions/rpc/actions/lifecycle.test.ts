@@ -4044,3 +4044,72 @@ test("INFO peut signer une etape hors de son tour, comme l'ADMIN", async () => {
   await ecr.gps(ctxRole(db, 'INFO', 'Sam'), { id, baliseRequise: 'Oui', t1Correct: 'Oui', numeroGPS: 'G2' });
   assert.equal(versCamel(db.store['cargaisons'][0]!)['numeroGps'], 'G2');
 });
+
+/* ============ DÉPOTAGE MIXTE, APRÈS FINALISATION : 2026-10-29 ============
+ *
+ * Demande utilisateur : « un camion peut dépoter plusieurs articles ». Un
+ * camion ouvre plusieurs conteneurs, qui relèvent souvent de déclarations
+ * différentes. C'était déjà possible AVANT la finalisation ; après elle,
+ * l'écran ne le proposait plus.
+ *
+ * Ce test fixe ce qui doit rester vrai côté SERVEUR, puisque c'est lui qui
+ * décide : il faut qu'un ajout au statut « Créée » soit accepté, qu'il
+ * rattache le nouveau conteneur à sa fiche de parc, qu'il garde la déclaration
+ * propre à chaque ligne, et qu'il RENVOIE le camion en chargement pour que la
+ * hauteur, les colis et les scellés soient refaits sur le chargement réel.
+ */
+test('dépotage mixte : un second dépotage s\'ajoute APRÈS la finalisation', async () => {
+  const db = new FakeDB();
+  db.store['stock'].push(
+    { numero_tc: 'MSKU3333333', taille: "20'", statut: 'Positionné' },
+    { numero_tc: 'TCLU4444444', taille: "40'", statut: 'Positionné' },
+  );
+  const cfs = ctxAvec(db);
+  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'MIXDEP/RM01', routage: 'Dépotage' })) as { id: string };
+
+  // Premier dépotage, puis finalisation : le camion passe à « Créée ».
+  await ecr.cfs(cfs, { id, conteneur: { num: 'MSKU3333333', taille: "20'", type: 'DRY' }, declaration: DECL_OK });
+  await ecr.declaration(cfs, { id, hauteurChargement: '3,2', nbColis: '120', scellesCamion: ['SC1', 'SC2'] });
+  assert.equal(db.store['cargaisons'][0]!['statut'], 'Créée');
+
+  // Second dépotage, sous une AUTRE déclaration.
+  await ecr.cfs(cfs, {
+    id, conteneur: { num: 'TCLU4444444', taille: "40'", type: 'DRY' },
+    declaration: { ...DECL_OK, numeroDeclaration: '9999', typeDeclaration: 'C' },
+  });
+
+  const cargo = versCamel(db.store['cargaisons'][0]!);
+  const dets = cargo['conteneursDetails'] as { conteneurs: Record<string, unknown>[] };
+  assert.equal(dets.conteneurs.length, 2, 'les deux conteneurs sont sur le camion');
+  assert.equal(dets.conteneurs[0]!['numeroDeclaration'], DECL_OK.numeroDeclaration);
+  assert.equal(dets.conteneurs[1]!['numeroDeclaration'], '9999', 'chaque ligne garde SA déclaration');
+  assert.equal(groupesDeclaration(dets.conteneurs as never, cargo as never).length, 2, 'le mixte se déduit');
+
+  // LE PARC SUIT : le conteneur ajouté est marqué dépoté, sinon il resterait
+  // « Positionné » pour toujours et le parc afficherait un conteneur parti.
+  const fiche = db.store['stock'].find((x) => x['numero_tc'] === 'TCLU4444444')!;
+  assert.equal(fiche['statut'], 'Dépoté');
+  assert.equal(fiche['cargaison_id'], id);
+
+  // ET LE CAMION REDESCEND EN CHARGEMENT : la hauteur, les colis et les
+  // scellés ne valent plus pour un chargement qui vient de changer.
+  assert.equal(cargo['statut'], 'En cours de chargement');
+});
+
+test('dépotage mixte : plus aucun ajout une fois le camion engagé en aval', async () => {
+  /* La porte s'arrete a « Creee ». Au-dela, le dossier est signe et les
+     cellules suivantes travaillent dessus : y ajouter de la marchandise
+     fausserait ce qui a deja ete valide. */
+  const db = new FakeDB();
+  db.store['stock'].push({ numero_tc: 'MSKU5555555', taille: "20'", statut: 'Positionné' });
+  const cfs = ctxAvec(db);
+  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'MIXDEP2/RM01', routage: 'Dépotage' })) as { id: string };
+  await ecr.cfs(cfs, { id, conteneur: { num: 'MSKU5555555', taille: "20'", type: 'DRY' }, declaration: DECL_OK });
+  await ecr.declaration(cfs, { id, hauteurChargement: '3', nbColis: '10', scellesCamion: ['A', 'B'] });
+  db.store['cargaisons'][0]!['statut'] = 'T1 saisi';
+
+  db.store['stock'].push({ numero_tc: 'TCLU6666666', taille: "20'", statut: 'Positionné' });
+  await assert.rejects(
+    () => ecr.cfs(cfs, { id, conteneur: { num: 'TCLU6666666', taille: "20'", type: 'DRY' } }),
+    /Ajout impossible/);
+});
