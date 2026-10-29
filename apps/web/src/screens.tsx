@@ -6958,15 +6958,24 @@ function LigneArchive({ r, go }: { r: O; go: Nav['go'] }) {
  * Meme grammaire que les autres emblemes : le `Spinner` fait tourner un
  * conteneur, le verrou l'arrete contre une barriere, la soumission l'encadre
  * d'un aller et d'un retour, le bon de chargement le pose sur un tapis. Ici,
- * trois anneaux s'eloignent lentement et s'effacent : le temps qui passe, et
- * l'anciennete, seul sujet de cet ecran.
+ * des feuilles tombent une a une et se rangent dans une boite, sous un anneau
+ * qui s'eloigne : c'est l'archivage lui-meme, le geste que fait l'ecran.
  *
- * Huit secondes par cycle, trois anneaux decales : il en part un toutes les
- * deux secondes et demie. C'est un ecran de consultation, on y reste.
+ * LES ANNEAUX SEULS NE DISAIENT RIEN (premiere version, corrigee le jour
+ * meme) : ils parlaient du temps qui passe, pas du rangement. Un dessin qui
+ * illustre l'idee generale au lieu de l'action laisse le lecteur deviner.
+ *
+ * Six secondes par cycle, trois feuilles decalees d'un tiers : il y en a
+ * toujours une en vol, jamais plus d'une qui arrive. C'est un ecran de
+ * consultation, on y reste, et un defile rapide y deviendrait une gene.
  */
 function LogoArchive({ taille = 52 }: { taille?: number }) {
   return <div className="arc-logo" style={{ ['--t' as string]: taille + 'px' }} aria-hidden="true">
-    <span className="arc-onde" /><span className="arc-onde" /><span className="arc-onde" />
+    <span className="arc-onde" />
+    {/* Trois feuilles qui tombent et se rangent, decalees d'un tiers de
+        cycle : il y en a toujours une en vol. */}
+    <span className="arc-feuille" /><span className="arc-feuille" /><span className="arc-feuille" />
+    <span className="arc-boite"><i /></span>
     <img className="logo-rond" src="/logo.png" alt=""
       onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />
   </div>;
@@ -6984,9 +6993,14 @@ SCREENS.archive = ({ go }) => {
   const choixMois = Array.from(new Set([params.archiveMois, 12, 24, 36, 60])).sort((a, b) => a - b);
   const [recherche, setRecherche] = useState('');
   const [q, setQ] = useState(''); // terme réellement envoyé (validé par Entrée)
+  /* DEUX LECTURES, ET LA BONNE PAR DEFAUT (2026-10-29, signalé par
+     l'utilisateur : « corrige le filtre »). L'écran ne savait lire que
+     l'ancienneté d'ENTRÉE et annonçait « 0 dossier » pendant que 19 615
+     dormaient dans l'archive, rangés sur leur date de SORTIE. */
+  const [vue, setVue] = useState('archives');
   const { data, loading, error } = useAsync<O>(
-    () => call('report.archive', { page, pageSize: 50, mois: moisChoisi ?? undefined, search: q }),
-    [page, moisChoisi, q],
+    () => call('report.archive', { page, pageSize: 50, vue, mois: moisChoisi ?? undefined, search: q }),
+    [page, vue, moisChoisi, q],
   );
 
   const rows = (data?.['rows'] as O[]) ?? [];
@@ -6994,40 +7008,46 @@ SCREENS.archive = ({ go }) => {
   const pages = Math.max(1, Math.ceil(total / 50));
 
   return <>
+    {/* LES FILTRES REMONTENT DANS LA BANDE (2026-10-29, demande utilisateur).
+        Ils occupaient un bloc entier sous le bandeau, qui repoussait la liste
+        sous la ligne de flottaison : on ouvrait l'archive et on ne voyait
+        aucun dossier. Le bandeau les porte, comme partout ailleurs. */}
     <BandeauModule icone="archive" titre="Archive"
-      sous={<>Dossiers entrés il y a plus de <b>{mois} mois</b>{data?.['total'] ? <>, <b>{String(data['total'])}</b> dossier(s)</> : null}</>} />
-    <div className="card filtres-verre arc-barre">
-      {/* LE LOGO DANS SES ANNEAUX (2026-10-29, demande utilisateur). Trois
-          cercles s'eloignent lentement : le temps qui passe, et l'anciennete
-          qui est le seul sujet de cet ecran. */}
-      <LogoArchive taille={52} />
-      <p className="help arc-note">
-        Cargaisons entrées avant le <b>{fmtJour(data?.['seuil'])}</b>. Elles restent
-        entièrement consultables : cet écran est une vue par ancienneté, aucune
-        donnée n'a été déplacée ni retirée des recherches.
-      </p>
-      <div className="row arc-filtres">
-        <div>
-          <label className="help">Ancienneté</label>
-          <span className="champ-ic"><Icone nom="echeance" taille={15} />
-          <select value={mois} onChange={(e) => { setMois(Number(e.target.value)); setPage(1); }}>
-            {choixMois.map((m) => <option key={m} value={m}>
-              {m % 12 === 0 ? `Plus de ${m / 12} an${m > 12 ? 's' : ''}` : `Plus de ${m} mois`}
-            </option>)}
-          </select></span>
-        </div>
-        <div style={{ flex: 1, minWidth: 200 }}>
-          <label className="help">Rechercher un camion</label>
-          <span className="champ-ic"><Icone nom="camion" taille={15} />
-          <input className="mono" value={recherche} placeholder="TG2489BK/2725BP"
+      sous={vue === 'archives'
+        ? <>Dossiers archivés{total ? <>, <b>{total}</b> au total</> : null}</>
+        : <>Dossiers entrés il y a plus de <b>{mois} mois</b>{total ? <>, <b>{total}</b> dossier(s)</> : null}</>}
+      action={<div className="bm-outils">
+        <select value={vue} onChange={(e) => { setVue(e.target.value); setPage(1); }}
+          title="Ce qui est archivé, ou une lecture par ancienneté d'entrée">
+          <option value="archives">Dossiers archivés</option>
+          <option value="anciennete">Par ancienneté d'entrée</option>
+        </select>
+        {vue === 'anciennete' && <select value={mois} title="Ancienneté"
+          onChange={(e) => { setMois(Number(e.target.value)); setPage(1); }}>
+          {choixMois.map((m) => <option key={m} value={m}>
+            {m % 12 === 0 ? `Plus de ${m / 12} an${m > 12 ? 's' : ''}` : `Plus de ${m} mois`}
+          </option>)}
+        </select>}
+        <span className="champ-loupe">
+          <Icone nom="loupe" taille={15} />
+          <input className="mono" value={recherche} placeholder="N° camion" style={{ width: 170 }}
             onChange={(e) => setRecherche(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') { setQ(recherche); setPage(1); } }} /></span>
-        </div>
-        <button className="ghost arc-btn" onClick={() => { setQ(recherche); setPage(1); }}>
-          <Icone nom="loupe" taille={15} />Rechercher</button>
-        {q && <button className="ghost arc-btn" onClick={() => { setRecherche(''); setQ(''); setPage(1); }}>
-          <Icone nom="nettoyage" taille={15} />Effacer</button>}
-      </div>
+            onKeyDown={(e) => { if (e.key === 'Enter') { setQ(recherche); setPage(1); } }} />
+        </span>
+        <button onClick={() => { setQ(recherche); setPage(1); }}>Rechercher</button>
+        {q && <button onClick={() => { setRecherche(''); setQ(''); setPage(1); }}>Effacer</button>}
+      </div>} />
+
+    <div className="card filtres-verre arc-barre">
+      <LogoArchive taille={56} />
+      <p className="help arc-note">
+        {vue === 'archives'
+          ? <>Dossiers <b>sortis</b> depuis plus de {params.archiveAutoJours} jours, rangés chaque
+            nuit. Ils quittent les listes de travail mais restent <b>entièrement consultables</b>,
+            et les rapports continuent de les compter.</>
+          : <>Cargaisons entrées avant le <b>{fmtJour(data?.['seuil'])}</b>. Lecture par ancienneté :
+            aucune donnée n'a été déplacée ni retirée des recherches.</>}
+      </p>
     </div>
 
     {loading ? <Spinner /> : error ? <div className="err-msg">{error}</div> : <div className="card">

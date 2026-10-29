@@ -858,6 +858,19 @@ export async function archiveAncienne(ctx: Ctx, p: Record<string, unknown>) {
   const pageSize = Math.min(200, Math.max(10, Number(p['pageSize'] ?? 50)));
   const debut = (page - 1) * pageSize;
   const recherche = String(p['search'] ?? '').trim();
+  /* DEUX VUES, ET LA BONNE PAR DEFAUT (2026-10-29, signale par l'utilisateur :
+   * « corrige le filtre »).
+   *
+   * L'ecran ne savait filtrer que par ANCIENNETE D'ENTREE, heritage du temps
+   * ou « archive » n'etait qu'un regard sur les vieux dossiers. Depuis
+   * l'archivage automatique, ce qui est archive l'est sur la DATE DE SORTIE,
+   * a quatorze jours : l'ecran annoncait donc « 0 dossier » pendant que 19 615
+   * dormaient dans l'archive. Il montrait la mauvaise chose, et sans le dire.
+   *
+   * « archives » devient la vue par defaut, puisque c'est le nom de l'ecran.
+   * L'ancienne lecture par anciennete reste disponible : elle repond a une
+   * autre question, « qu'est-ce qui traine depuis des annees ? ». */
+  const vue = String(p['vue'] ?? 'archives') === 'anciennete' ? 'anciennete' : 'archives';
 
   let q = ctx.db
     .from('cargaisons')
@@ -869,8 +882,14 @@ export async function archiveAncienne(ctx: Ctx, p: Record<string, unknown>) {
       + 'numero_gps, date_pose_gps, balise_requise, arrivee_bureau, '
       + 'suivi_engagement, engagement_type, engagement_delai, engagement_effectue_le, '
       + 'archive, archive_auto, archive_motif', { count: 'exact' })
-    .lt('date_creation', seuil + 'T00:00:00')
     .neq('annule', true);
+
+  if (vue === 'archives') {
+    // Les deux drapeaux : l'archivage de nuit ET les goulots posés à la main.
+    q = q.or('archive.eq.true,archive_auto.eq.true');
+  } else {
+    q = q.lt('date_creation', seuil + 'T00:00:00');
+  }
 
   // Recherche sur la plaque NORMALISÉE : l'agent tape « TG 2489 BK » ou
   // « tg2489bk/2725bp », on retrouve la même chose.
@@ -882,6 +901,7 @@ export async function archiveAncienne(ctx: Ctx, p: Record<string, unknown>) {
   if (error) throw new Error(error.message);
 
   return {
+    vue,
     seuil,
     mois,
     page,
