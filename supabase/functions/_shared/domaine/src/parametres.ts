@@ -56,68 +56,58 @@ export const PARAMETRES: readonly DefParametre[] = [
   {
     cle: 'sejourAlerteJours', groupe: 'Conteneurs', libelle: 'Séjour d\'un conteneur avant alerte',
     unite: 'jours', type: 'entier', defaut: SEUIL_ALERTE_SEJOUR, min: 7, max: 365,
-    aide: 'Au-delà de cette durée au parc, un conteneur est compté « en alerte » dans les écrans de séjour '
-      + '(Séjour conteneurs, Délai & instance) et dans leurs exports.',
+    aide: "Au-delà, un conteneur est compté « en alerte » dans les écrans de séjour et leurs exports.",
     concerne: 'CFS, chefs, administrateur, écrans de séjour',
   },
   {
     cle: 'conteneursMaxCamion', groupe: 'Conteneurs', libelle: 'Conteneurs au plus par camion (dépotage)',
     unite: 'conteneurs', type: 'entier', defaut: CONTENEURS_MAX, min: 1, max: 100,
-    aide: 'Nombre maximal de conteneurs qu\'un même camion peut recevoir en dépotage. Au-delà, l\'ajout est refusé. '
-      + 'L\'enlèvement garde sa propre règle (binôme de conteneurs).',
+    aide: "Maximum par camion en dépotage ; au-delà l’ajout est refusé. L’enlèvement garde sa règle du binôme.",
     concerne: 'Agents CFS, ajout de conteneurs',
   },
   /* ---------------------------- Engagements --------------------------- */
   {
     cle: 'engagementDelaiDefaut', groupe: 'Engagements', libelle: 'Délai proposé à la signature',
     unite: 'jours', type: 'entier', defaut: 0, min: 0, max: 60,
-    aide: 'Délai déjà rempli quand le chef de brigade coche « suivi des engagements ». Il reste modifiable à chaque '
-      + 'signature. 0 : aucun délai proposé, le chef le saisit lui-même.',
+    aide: "Délai pré-rempli à la signature, toujours modifiable. 0 : rien de proposé.",
     concerne: 'Chef de brigade (et intérim), à la validation',
   },
   {
     cle: 'engagementAlerteJours', groupe: 'Engagements', libelle: 'Alerte avant l\'échéance',
     unite: 'jours', type: 'entier', defaut: 1, min: 0, max: 30,
-    aide: 'Combien de jours avant son échéance un engagement apparaît dans l\'encadré « Engagements à transmettre » '
-      + 'du tableau de bord. 1 : la veille (réglage d\'origine). 0 : le jour même. Les retards y restent toujours.',
+    aide: "Combien de jours avant l’échéance un engagement s’annonce au tableau de bord. 1 : la veille. 0 : le jour même. Les retards y restent toujours.",
     concerne: 'Chefs et administrateur, tableau de bord',
   },
   {
     cle: 'engagementsProposes', groupe: 'Engagements', libelle: 'Engagements proposés dans la liste',
     type: 'liste', defaut: [...ENGAGEMENTS],
-    aide: 'Les choix du menu « Engagement » à la signature et à la correction, un par ligne. Le chef peut toujours '
-      + 'saisir autre chose avec « Autre (saisie libre) ». Retirer un choix ne touche pas aux engagements déjà pris.',
+    aide: "Les choix du menu « Engagement », un par ligne. « Autre » reste possible, et retirer un choix ne touche pas aux engagements déjà pris.",
     concerne: 'Chef de brigade, à la validation et à la correction',
   },
   /* ----------------------------- Contrôles ---------------------------- */
   {
     cle: 'hauteurHorsGabarit', groupe: 'Contrôles', libelle: 'Hauteur de chargement hors gabarit',
     unite: 'mètres', type: 'decimal', defaut: HAUTEUR_HORS_GABARIT, min: 3, max: 6,
-    aide: 'Au-dessus de cette hauteur, la finalisation d\'un dépotage marque le camion « hors gabarit ». '
-      + 'La valeur s\'applique aux camions finalisés après la modification ; les précédents ne changent pas.',
+    aide: "Au-dessus, un dépotage finalisé est marqué « hors gabarit ». Les camions déjà finalisés ne changent pas.",
     concerne: 'Agents CFS, chefs, contrôles de gabarit',
   },
   /* ---------------------------- Affichage ----------------------------- */
   {
     cle: 'actualisationSecondes', groupe: 'Affichage', libelle: 'Actualisation du tableau de bord',
     unite: 'secondes', type: 'entier', defaut: 60, min: 30, max: 600,
-    aide: 'Fréquence à laquelle le tableau de bord se met à jour tout seul. Plus court : chiffres plus frais, '
-      + 'mais plus d\'appels au serveur. Pris en compte au prochain chargement de la page.',
+    aide: "Rafraîchissement du tableau de bord. Plus court : chiffres plus frais, plus d’appels au serveur. Effectif au prochain chargement.",
     concerne: 'Chefs et administrateur, tableau de bord',
   },
   {
     cle: 'archiveMois', groupe: 'Affichage', libelle: 'Âge d\'un dossier à l\'archive',
     unite: 'mois', type: 'entier', defaut: 12, min: 3, max: 60,
-    aide: 'Ancienneté à partir de laquelle un dossier apparaît dans « Archive ». Rien n\'est déplacé ni effacé : '
-      + 'c\'est un simple filtre de lecture.',
+    aide: "Ancienneté de la vue « Par ancienneté d’entrée » de l’écran Archive. Simple filtre de lecture.",
     concerne: 'Administrateur, écran Archive',
   },
   {
     cle: 'archiveAutoJours', groupe: 'Affichage', libelle: 'Archivage automatique après la sortie',
     unite: 'jours', type: 'entier', defaut: 14, min: 7, max: 365,
-    aide: 'Un dossier SORTI depuis plus de ce nombre de jours est archivé chaque nuit : il quitte les listes et les '
-      + "rapports, ce qui allège les écrans. Rien n’est effacé et l’opération se défait (désarchivage). "
-      + "Un dossier encore en cours, annulé, ou dont l’engagement reste ouvert n’est JAMAIS archivé.",
+    aide: "Un dossier SORTI depuis ce délai quitte les listes chaque nuit. Les rapports continuent de le compter. Jamais un dossier en cours, annulé, ou dont l’engagement reste ouvert.",
     concerne: 'Tâche de nuit, tous les écrans de listes',
   },
 ];

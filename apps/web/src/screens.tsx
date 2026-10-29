@@ -4998,96 +4998,117 @@ SCREENS.extraction = ({ go }) => {
 
   const lignes = (res?.['lignes'] as O[]) ?? [];
   const colonnes = (res?.['colonnes'] as string[]) ?? [];
-  const champ = (k: string, libelle: string, placeholder = '') => <div>
+  /* Chaque champ porte son signe (2026-10-29, demande utilisateur) : douze
+     cases blanches identiques obligeaient a relire chaque libelle. */
+  const champ = (k: string, libelle: string, placeholder = '', icone = 'crayon') => <div>
     <label className="help">{libelle}</label>
-    <input value={String(f[k] ?? '')} onChange={set(k)} placeholder={placeholder}
-      onKeyDown={(e) => { if (e.key === 'Enter') afficher(); }} />
+    <span className="champ-ic">
+      <Icone nom={icone} taille={15} />
+      <input value={String(f[k] ?? '')} onChange={set(k)} placeholder={placeholder}
+        onKeyDown={(e) => { if (e.key === 'Enter') afficher(); }} />
+    </span>
   </div>;
+  /* Un menu deroulant emballe de la meme facon. */
+  const menu = (libelle: string, icone: string, contenu: ReactNode) => <div>
+    <label className="help">{libelle}</label>
+    <span className="champ-ic"><Icone nom={icone} taille={15} />{contenu}</span>
+  </div>;
+
+/**
+ * LE LOGO QUI EXTRAIT (2026-10-29, demande utilisateur).
+ *
+ * Meme grammaire que les autres emblemes : le `Spinner` fait tourner un
+ * conteneur, le verrou l'arrete contre une barriere, l'archive range des
+ * feuilles dans une boite. Ici, des lignes de donnees SORTENT du logo et
+ * viennent se poser dans une feuille, a droite : c'est l'extraction, le geste
+ * meme de l'ecran.
+ *
+ * Elles sortent VERS LA DROITE, dans le sens de la lecture : une extraction
+ * qui irait vers la gauche se lirait comme un import.
+ */
+function LogoExtraction({ taille = 56 }: { taille?: number }) {
+  return <div className="ext-logo" style={{ ['--t' as string]: taille + 'px' }} aria-hidden="true">
+    <span className="ext-halo" />
+    <span className="ext-ligne" /><span className="ext-ligne" /><span className="ext-ligne" />
+    <span className="ext-feuille"><i /><i /><i /></span>
+    <img className="logo-rond" src="/logo.png" alt=""
+      onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />
+  </div>;
+}
 
   return <>
     <BandeauModule icone="telecharger" titre="Extraction sur mesure"
-      sous="Combinez les filtres, vérifiez le résultat, puis extrayez-le en Excel." />
-    <div className="card">
-      <ChoixSegmente libelle="Ce qu'on extrait" options={NIVEAUX_EXTRACTION} valeur={niveau}
-        onChange={(v) => { setNiveau(v); setRes(null); }} />
-      <p className="help" style={{ margin: '6px 0 0' }}>
-        {niveau === 'camions' ? 'Une ligne par camion, avec les seules déclarations qui répondent aux filtres.'
-          : niveau === 'conteneurs' ? 'Une ligne par conteneur, avec SA déclaration et SA désignation.'
-            : 'Une ligne par déclaration, avec ses camions et ses conteneurs.'}
+      sous="Combinez les filtres, vérifiez le résultat, puis extrayez-le en Excel."
+      action={<div className="bm-outils">
+        <label className="help">Extraire</label>
+        <select value={niveau} onChange={(e) => { setNiveau(e.target.value); setRes(null); }}
+          title="Ce qu'on extrait" style={{ maxWidth: 160 }}>
+          {NIVEAUX_EXTRACTION.map((o) => <option key={o.valeur} value={o.valeur}>{o.libelle}</option>)}
+        </select>
+      </div>} />
+    <div className="card filtres-verre ext-tete">
+      <LogoExtraction taille={56} />
+      <p className="help ext-note">
+        {niveau === 'camions' ? <>Une ligne <b>par camion</b>, avec les seules déclarations qui répondent aux filtres.</>
+          : niveau === 'conteneurs' ? <>Une ligne <b>par conteneur</b>, avec SA déclaration et SA désignation.</>
+            : <>Une ligne <b>par déclaration</b>, avec ses camions et ses conteneurs.</>}
       </p>
     </div>
     <div className="card">
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))', gap: 12 }}>
-        <div>
-          <label className="help">La période porte sur</label>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))', gap: 12 }}>
+        {menu('La période porte sur', 'echeance',
           <select value={String(f['dateRef'])} onChange={set('dateRef')}>
             {DATES_EXTRACTION.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-          </select>
-        </div>
+          </select>)}
         <div style={{ gridColumn: 'span 2' }}>
           <label className="help">Période</label>
           <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}><SelecteurPeriode c={p} /></div>
           <span className="help"><PeriodeChoisieLue c={p} /></span>
         </div>
-        <div>
-          <label className="help">Opération</label>
+        {menu('Opération', 'conteneur',
           <select value={String(f['operation'])} onChange={set('operation')}>
             <option value="">Toutes</option><option>{OPERATIONS.ENLEVEMENT}</option><option>{OPERATIONS.DEPOTAGE}</option>
-          </select>
-        </div>
-        <div>
-          <label className="help">État</label>
+          </select>)}
+        {menu('État', 'flux',
           <select value={String(f['etat'])} onChange={set('etat')}>
             <option value="">Tous</option><option value="encours">En cours</option><option value="sortis">Sortis</option>
-          </select>
-        </div>
-        <div>
-          <label className="help">Statut</label>
+          </select>)}
+        {menu('Statut', 'liste',
           <select value={String(f['statut'])} onChange={set('statut')}>
             <option value="">Tous les statuts</option>
             {STATUT_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
-          </select>
-        </div>
-        <div>
-          <label className="help">Type de déclaration</label>
+          </select>)}
+        {menu('Type de déclaration', 'document',
           <select value={String(f['typeDeclaration'])} onChange={set('typeDeclaration')}>
             <option value="">Tous</option>
             {TYPES_DECLARATION.map((t) => <option key={t} value={t}>{optionTypeDeclaration(t)}</option>)}
-          </select>
-        </div>
-        {champ('bureauDeclaration', 'Bureau de déclaration', 'ex. TG120')}
-        {champ('bureauDestination', 'Bureau de destination (T1)', 'ex. BF')}
-        {champ('destination', 'Destination marchandise', 'ex. Ouaga')}
-        <div>
-          <label className="help">Engagement</label>
+          </select>)}
+        {champ('bureauDeclaration', 'Bureau de déclaration', 'ex. TG120', 'usine')}
+        {champ('bureauDestination', 'Bureau de destination (T1)', 'ex. BF', 'drapeau')}
+        {champ('destination', 'Destination marchandise', 'ex. Ouaga', 'carte')}
+        {menu('Engagement', 'echeance',
           <select value={String(f['engagement'])} onChange={set('engagement')}>
             <option value="">Tous</option><option value="oui">Engagés</option><option value="non">Non engagés</option>
-          </select>
-        </div>
-        <div>
-          <label className="help">Nature de l'engagement</label>
+          </select>)}
+        {menu("Nature de l'engagement", 'drapeau', <>
           <input list="extraction-engagements" value={String(f['natureEngagement'])} onChange={set('natureEngagement')}
             placeholder="ex. BFE 03" />
           <datalist id="extraction-engagements">{ENGAGEMENTS.map((e) => <option key={e} value={e} />)}</datalist>
-        </div>
-        {champ('declarant', 'Déclarant')}
-        {champ('numeroDeclaration', 'N° de déclaration')}
-        {champ('designation', 'Désignation (marchandise)', 'ex. riz ; sucre')}
-        {champ('recherche', 'Camion ou conteneur', 'N° camion, conteneur ou ID')}
-        <div>
-          <label className="help">Contrôle</label>
+        </>)}
+        {champ('declarant', 'Déclarant', '', 'compte')}
+        {champ('numeroDeclaration', 'N° de déclaration', '', 'document')}
+        {champ('designation', 'Désignation (marchandise)', 'ex. riz ; sucre', 'boites')}
+        {champ('recherche', 'Camion ou conteneur', 'N° camion, conteneur ou ID', 'loupe')}
+        {menu('Contrôle', 'balance',
           <select value={String(f['controle'] ?? '')} onChange={set('controle')}>
             <option value="">Tous</option><option value="surcharge">En surcharge</option>
             <option value="horsGabarit">Hors gabarit</option><option value="transitNational">Transit national (TG)</option>
-          </select>
-        </div>
-        <div>
-          <label className="help">Véhicules</label>
+          </select>)}
+        {menu('Véhicules', 'voiture',
           <select value={String(f['vehicules'])} onChange={set('vehicules')}>
             <option value="exclure">Sans les véhicules</option><option value="inclure">Avec les véhicules</option>
             <option value="seulement">Véhicules seulement</option>
-          </select>
-        </div>
+          </select>)}
       </div>
       <p className="help" style={{ margin: '10px 0 0' }}>
         Les champs texte acceptent un morceau de mot, sans tenir compte des majuscules ni des accents.

@@ -39,6 +39,39 @@ async function chargerResume(
   return data.map((r) => versCamel(r));
 }
 
+/**
+ * LE MEME RESUME, MAIS SANS OUBLIER LES DOSSIERS ARCHIVES DE NUIT.
+ *
+ * ⚠ CONSTATE A L'ECRAN le 2026-10-29, apres le premier archivage : le tableau
+ * de bord annonçait 2 321 entrees CFS pour octobre la ou il en comptait 4 286
+ * le matin meme. Rien n'avait change dans la realite.
+ *
+ * La cause : `v_cargaisons_resume` exclut `archive_auto` — c'est son role,
+ * elle sert les FILES DE TRAVAIL, et un dossier sorti depuis quinze jours n'a
+ * plus rien a y faire. Mais les compteurs de periode du tableau de bord sont
+ * des STATISTIQUES : « combien de camions sont entres au CFS en octobre »
+ * doit donner le meme chiffre aujourd'hui et dans six mois.
+ *
+ * On lit donc la table, avec le seul filtre des rapports : ni annule, ni
+ * goulot. Les colonnes demandees sont toutes des colonnes reelles de
+ * `cargaisons` (les colonnes calculees de la vue, conteneur1..4 et plomb1..4,
+ * ne servent qu'aux listes), la substitution est donc exacte.
+ */
+async function chargerPourStats(
+  ctx: Ctx,
+  // deno-lint-ignore no-explicit-any
+  affiner?: (q: any) => any,
+  colonnes = '*',
+): Promise<Record<string, unknown>[]> {
+  const data = await fetchAll(ctx, 'cargaisons', colonnes, { colonne: 'date_creation', ascendant: false },
+    // deno-lint-ignore no-explicit-any
+    (q: any) => {
+      const base = q.not('annule', 'is', true).not('archive', 'is', true);
+      return affiner ? affiner(base) : base;
+    });
+  return data.map((r) => versCamel(r));
+}
+
 /* ===== PRÉ-FILTRES SQL DES LISTES : 2026-09-12 ===========================
  *
  * MESURE, depuis le navigateur, sur la base réelle (14 417 dossiers) :
@@ -580,10 +613,10 @@ export async function dashboardStats(ctx: Ctx, opts: { du?: string; au?: string 
 
   const [utiles, engagements] = await Promise.all([
     // deno-lint-ignore no-explicit-any
-    chargerResume(ctx, ouFiltre ? (q: any) => q.or(ouFiltre) : undefined, COLONNES_RESUME_SANS_CONTENEURS),
+    chargerPourStats(ctx, ouFiltre ? (q: any) => q.or(ouFiltre) : undefined, COLONNES_RESUME_SANS_CONTENEURS),
     // Engagements encore dus, quel que soit l'age du dossier.
     // deno-lint-ignore no-explicit-any
-    chargerResume(ctx, (q: any) => q.eq('suivi_engagement', true).is('engagement_effectue_le', null), COLONNES_RESUME_SANS_CONTENEURS),
+    chargerPourStats(ctx, (q: any) => q.eq('suivi_engagement', true).is('engagement_effectue_le', null), COLONNES_RESUME_SANS_CONTENEURS),
   ]);
   const parId = new Map<string, Record<string, unknown>>();
   for (const r of utiles) parId.set(String(r['id']), r);
@@ -595,7 +628,7 @@ export async function dashboardStats(ctx: Ctx, opts: { du?: string; au?: string 
   // deno-lint-ignore no-explicit-any
   // 2026-10-25 : estimé. Ce total n'est affiché nulle part (champ de compatibilité) ; le compter
   // exactement parcourait toute la table à chaque rafraîchissement, pour chaque chef connecté.
-  stats.total = await compter(ctx, 'v_cargaisons_resume', (q: any) => q.neq('est_vehicule', true), 'estimated');
+  stats.total = await compter(ctx, 'cargaisons', (q: any) => q.neq('est_vehicule', true).not('annule', 'is', true).not('archive', 'is', true), 'estimated');
   const today = new Date();
   for (const r of data) {
     const veh = estOui(r['estVehicule']);

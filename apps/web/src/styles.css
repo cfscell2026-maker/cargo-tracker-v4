@@ -4853,3 +4853,80 @@ button.modal-fermer:focus-visible{outline:2px solid #0e5a8a;outline-offset:2px}
 .arc-bloc .fiche{display:grid;gap:4px}
 .arc-pied{display:flex;justify-content:flex-end;margin-top:12px}
 @media (prefers-reduced-motion:reduce){.arc-fleche{transition:none}}
+
+
+/* ======== EXTRACTION : LE LOGO QUI EXTRAIT, 2026-10-29 ==================
+ *
+ * Demande utilisateur. Des lignes de donnees SORTENT du logo et viennent se
+ * poser dans une feuille, a droite. Elles vont vers la DROITE, dans le sens
+ * de la lecture : une extraction qui irait vers la gauche se lirait comme un
+ * import.
+ */
+.ext-tete{
+  display:grid;grid-template-columns:auto 1fr;gap:12px 18px;align-items:center;
+}
+.ext-note{grid-column:2;margin:0;max-width:72ch;font-size:13px}
+
+.ext-logo{
+  position:relative;width:var(--t);height:var(--t);
+  display:grid;place-items:center;
+}
+.ext-logo .logo-rond{position:relative;z-index:3;width:var(--t);height:var(--t)}
+/* Un halo qui respire : la source d'ou sortent les lignes. */
+.ext-halo{
+  position:absolute;inset:-5px;border-radius:50%;z-index:1;
+  border:1.5px solid rgba(14,90,138,.3);
+  animation:ext-halo 3.6s ease-in-out infinite;
+}
+@keyframes ext-halo{
+  0%,100%{transform:scale(1);opacity:.55}
+  55%    {transform:scale(1.12);opacity:.15}
+}
+
+/* LA FEUILLE qui recoit, a droite du logo. Trois traits, rien de plus : a
+   cette taille un tableau dessine devient une tache grise. */
+.ext-feuille{
+  position:absolute;left:calc(var(--t) * 0.92);top:50%;z-index:2;
+  transform:translateY(-50%);
+  width:calc(var(--t) * 0.42);height:calc(var(--t) * 0.54);
+  border:1.5px solid var(--accent);border-radius:3px;
+  background:linear-gradient(160deg,#fff,#e8f0f6);
+  box-shadow:0 2px 6px rgba(15,35,55,.18);
+  display:flex;flex-direction:column;justify-content:center;gap:3px;padding:0 4px;
+}
+.ext-feuille i{display:block;height:2px;border-radius:1px;background:rgba(14,90,138,.45)}
+.ext-feuille i:nth-child(2){width:72%}
+.ext-feuille i:nth-child(3){width:48%}
+
+/* LES LIGNES QUI SORTENT, derriere le logo puis devant la feuille. Trois,
+   decalees d'un tiers de cycle : il y en a toujours une en route, jamais
+   deux qui arrivent ensemble. */
+.ext-ligne{
+  position:absolute;top:50%;left:calc(var(--t) * 0.5);z-index:2;
+  height:3px;border-radius:2px;
+  background:linear-gradient(90deg,rgba(14,90,138,0),var(--accent));
+  animation:ext-ligne 2.4s ease-in-out infinite;
+}
+.ext-ligne:nth-of-type(2){animation-delay:.8s;margin-top:-6px}
+.ext-ligne:nth-of-type(3){animation-delay:1.6s;margin-top:6px}
+@keyframes ext-ligne{
+  0%  {width:0;opacity:0;transform:translateX(0)}
+  25% {width:calc(var(--t) * 0.3);opacity:1}
+  70% {width:calc(var(--t) * 0.3);opacity:1;transform:translateX(calc(var(--t) * 0.42))}
+  85% {width:0;opacity:0;transform:translateX(calc(var(--t) * 0.72))}
+  100%{width:0;opacity:0;transform:translateX(calc(var(--t) * 0.72))}
+}
+/* La feuille deborde a droite du logo : on lui laisse la place. */
+.ext-logo{margin-right:calc(var(--t) * 0.5)}
+
+/* Immobile, le dessin garde son sens : le logo, son halo, et la feuille
+   remplie a cote. */
+@media (prefers-reduced-motion:reduce){
+  .ext-halo{animation:none}
+  .ext-ligne{animation:none;width:calc(var(--t) * 0.3);opacity:.5;transform:translateX(calc(var(--t) * 0.2))}
+}
+
+@media (max-width:620px){
+  .ext-tete{grid-template-columns:1fr;justify-items:center;text-align:center}
+  .ext-note{grid-column:1}
+}
