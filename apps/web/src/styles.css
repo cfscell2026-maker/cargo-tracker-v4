@@ -4996,26 +4996,206 @@ button.modal-fermer:focus-visible{outline:2px solid #0e5a8a;outline-offset:2px}
 
 /* ===== LA PESEE REPONDUE POUR TOUTE LA DECLARATION, 2026-10-29 ==========
  *
- * Demande utilisateur : alleger le travail des agents a la validation.
+ * Demande utilisateur : alleger le travail des agents a la validation, puis
+ * reprendre le dessin, les boutons et le mouvement.
+ *
  * Mesure faite avant d'ecrire : 145 dossiers attendent, et la plus grosse
  * declaration en porte 13 — le chef repondait jusqu'a treize fois a la meme
  * question pour un seul dossier.
  *
  * LE BLOC SE DISTINGUE DES LIGNES qu'il commande : fond ambre tres dilue,
  * comme la pesee elle-meme. Pose en blanc comme le reste, on l'aurait pris
- * pour une ligne de plus, et on aurait continue a repondre une par une.
+ * pour une ligne de plus, et l'on aurait continue a repondre une par une.
+ * Quand tout est repondu il passe au VERT : le bloc dit alors qu'il n'a plus
+ * rien a demander, au lieu de rester ouvert comme une tache en cours.
  */
 .pesee-lot{
-  margin:12px 0 4px;padding:11px 13px;border-radius:16px;
-  background:rgba(180,83,31,.06);
-  border:1px solid rgba(180,83,31,.18);
+  margin:12px 0 4px;padding:13px 15px;border-radius:18px;
+  background:
+    radial-gradient(circle at 12% 0%, rgba(180,83,31,.10), rgba(180,83,31,0) 60%),
+    rgba(180,83,31,.05);
+  border:1px solid rgba(180,83,31,.2);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.75);
+  transition:background .3s ease,border-color .3s ease;
 }
-.pesee-lot .section-title{display:flex;align-items:center;gap:7px;margin:0 0 8px}
-.pesee-lot-actions{gap:8px;flex-wrap:wrap;align-items:center;margin:0}
-.pesee-lot-actions .ghost{display:inline-flex;align-items:center;gap:6px}
-.pesee-lot-etat{margin-left:auto;font-variant-numeric:tabular-nums}
-.pesee-lot-note{margin:8px 0 0;font-size:11.5px;max-width:78ch}
+.pesee-lot.complete{
+  background:
+    radial-gradient(circle at 12% 0%, rgba(31,122,92,.10), rgba(31,122,92,0) 60%),
+    rgba(31,122,92,.05);
+  border-color:rgba(31,122,92,.22);
+}
+
+/* ---- L'en-tete : le signe, le titre, la jauge --------------------------- */
+.pesee-lot-tete{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.pesee-lot-ic{
+  flex:none;display:grid;place-items:center;width:36px;height:36px;border-radius:50%;
+  color:var(--warn);
+  background:
+    radial-gradient(circle at 34% 24%, rgba(255,255,255,.92), rgba(255,255,255,0) 62%),
+    color-mix(in srgb,currentColor 13%,#fff);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.92),
+    inset 0 -2px 4px color-mix(in srgb,currentColor 16%,transparent),
+    0 2px 5px rgba(20,35,50,.13);
+  transition:color .3s ease;
+}
+.pesee-lot.complete .pesee-lot-ic{color:var(--ok)}
+/* LA BALANCE PENCHE, d'un bord puis de l'autre, toutes les quatre secondes.
+   C'est le seul mouvement continu du bloc, et il dit ce qu'il attend : une
+   pesee. Quand tout est repondu, il s'arrete — un ecran qui bouge encore
+   apres coup laisse croire qu'il reste a faire. */
+.pesee-lot-ic .ic{animation:pl-balance 4s ease-in-out infinite}
+@keyframes pl-balance{
+  0%,62%,100%{transform:rotate(0)}
+  72%        {transform:rotate(-11deg)}
+  84%        {transform:rotate(11deg)}
+  94%        {transform:rotate(0)}
+}
+.pesee-lot.complete .pesee-lot-ic .ic{animation:none}
+
+.pesee-lot-titre{display:flex;flex-direction:column;gap:1px;min-width:0}
+.pesee-lot-titre b{font-size:14px}
+.pesee-lot-titre .help{text-transform:none;letter-spacing:0;font-size:11.5px}
+
+/* ---- La jauge : l'etat se voit avant de se lire ------------------------- */
+.pesee-lot-jauge{margin-left:auto;display:flex;flex-direction:column;gap:5px;align-items:flex-end}
+.pesee-lot-barre{
+  display:block;width:120px;height:6px;border-radius:999px;overflow:hidden;
+  background:rgba(15,45,70,.12);
+}
+.pesee-lot-barre i{
+  display:block;height:100%;border-radius:999px;
+  background:linear-gradient(90deg,#d08a4e,var(--warn));
+  transition:width .35s cubic-bezier(.2,.9,.3,1),background .3s ease;
+}
+.pesee-lot-jauge.pleine .pesee-lot-barre i{background:linear-gradient(90deg,#52a884,var(--ok))}
+.pesee-lot-compte{
+  display:inline-flex;align-items:center;gap:5px;
+  font-size:11.5px;font-weight:600;color:var(--warn);font-variant-numeric:tabular-nums;
+}
+.pesee-lot-jauge.pleine .pesee-lot-compte{color:var(--ok)}
+/* Le compte PARAIT quand il change : une breve pose, pour qu'on voie que le
+   clic a porte sur les sept lignes et pas sur une seule. */
+.pesee-lot-jauge.pleine .pesee-lot-compte{animation:pl-pose .3s cubic-bezier(.2,.9,.3,1)}
+@keyframes pl-pose{
+  0%{opacity:0;transform:translateY(3px)}
+  100%{opacity:1;transform:none}
+}
+
+/* ---- Les deux boutons : chacun porte la couleur de ce qu'il decide ------ */
+.pesee-lot-actions{display:flex;gap:9px;flex-wrap:wrap;margin-top:12px}
+.pl-btn{
+  display:inline-flex;align-items:center;gap:8px;
+  padding:9px 16px;border-radius:999px;cursor:pointer;
+  font-size:13px;font-weight:600;
+  color:var(--t);
+  background:
+    radial-gradient(circle at 30% 20%, rgba(255,255,255,.9), rgba(255,255,255,0) 60%),
+    color-mix(in srgb,var(--t) 10%,#fff) !important;
+  background-image:none;
+  border:1px solid color-mix(in srgb,var(--t) 32%,transparent) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.9),
+    0 2px 6px rgba(20,35,50,.12) !important;
+  transition:background .16s ease,box-shadow .18s ease,transform .16s ease,color .16s ease;
+}
+.pl-non{--t:var(--ok)}
+.pl-oui{--t:var(--warn)}
+/* Au survol le bouton se REMPLIT de sa couleur : on voit ce qu'on s'apprete a
+   poser sur les sept lignes. */
+.pl-btn:hover:not(:disabled){
+  background:linear-gradient(145deg,
+    color-mix(in srgb,var(--t) 82%,#fff) 0%, var(--t) 60%,
+    color-mix(in srgb,var(--t) 86%,#000) 100%) !important;
+  color:#fff !important;
+  box-shadow:0 6px 16px color-mix(in srgb,var(--t) 38%,transparent) !important;
+  transform:translateY(-2px);
+}
+.pl-btn:active:not(:disabled){
+  transform:translateY(0);
+  box-shadow:inset 0 2px 5px color-mix(in srgb,var(--t) 50%,transparent) !important;
+}
+.pl-btn:focus-visible{outline:2px solid var(--t);outline-offset:2px}
+
+.pesee-lot-note{margin:10px 0 0;font-size:11.5px;max-width:80ch}
 
 @media (max-width:560px){
-  .pesee-lot-etat{margin-left:0;width:100%}
+  .pesee-lot-jauge{margin-left:0;width:100%;align-items:flex-start}
+  .pesee-lot-barre{width:100%}
+  .pl-btn{flex:1 1 100%;justify-content:center}
+}
+@media (prefers-reduced-motion:reduce){
+  .pesee-lot-ic .ic,.pesee-lot-compte{animation:none}
+  .pesee-lot-barre i{transition:none}
+  .pl-btn:hover:not(:disabled),.pl-btn:active:not(:disabled){transform:none}
+}
+
+
+/* ===== LA LIGNE DE VALIDATION DEVIENT UNE CARTE, 2026-10-29 =============
+ *
+ * Demande utilisateur : arrondir, poser des icones, animer legerement.
+ *
+ * Ses styles etaient ecrits a la main dans le JSX, a 6 px de rayon : c'etait
+ * le dernier bloc de l'application a garder des coins durs, au milieu de
+ * tuiles a 28 px et de champs en capsule. Ils passent en CSS, ou la couleur
+ * d'etape tient dans une variable au lieu d'un calcul dans le rendu.
+ */
+/* GRILLE BENTO (2026-10-29, demande utilisateur) : sept camions empiles
+   faisaient defiler l'ecran sur pres de trois metres. Cote a cote, le chef
+   les embrasse d'un regard avant de signer.
+   380 px de large au minimum : en dessous, le tableau des conteneurs et la
+   pesee se replieraient, et la carte redeviendrait une colonne. */
+.val-bento{
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(380px,1fr));
+  gap:12px;align-items:start;
+}
+.val-ligne{
+  --t:var(--warn);
+  position:relative;margin-bottom:0;padding:13px 15px;
+  border-radius:18px;
+  border:1px solid rgba(255,255,255,.72);
+  border-left:4px solid var(--t);
+  /* VERRE DEPOLI, comme les tuiles du tableau de bord : la carte repose sur le
+     fond clair de l'ecran, qu'elle laisse transparaitre. */
+  background:rgba(255,255,255,.62);
+  backdrop-filter:blur(18px) saturate(165%);
+  -webkit-backdrop-filter:blur(18px) saturate(165%);
+  box-shadow:0 6px 20px rgba(15,35,55,.1),inset 0 1px 0 rgba(255,255,255,.92);
+  transition:box-shadow .2s ease,transform .16s ease,border-color .25s ease,background .25s ease;
+}
+/* SIGNEE, ELLE PASSE AU VERT et cesse d'appeler : le chef voit d'un coup
+   d'oeil ce qui lui reste a regarder. */
+.val-ligne.faite{--t:var(--ok);background:rgba(234,247,242,.62)}
+/* Au survol elle se souleve d'un pixel : assez pour dire « c'est un bloc »,
+   trop peu pour distraire sur une liste de sept. */
+.val-ligne:hover{box-shadow:0 10px 28px rgba(15,35,55,.15);transform:translateY(-2px)}
+
+.val-ligne-tete{align-items:center;gap:8px}
+.val-ligne-ic{
+  flex:none;display:grid;place-items:center;width:28px;height:28px;border-radius:50%;
+  color:var(--t);
+  background:
+    radial-gradient(circle at 34% 24%, rgba(255,255,255,.92), rgba(255,255,255,0) 62%),
+    color-mix(in srgb,currentColor 12%,#fff);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.9),
+    inset 0 -2px 4px color-mix(in srgb,currentColor 14%,transparent),
+    0 2px 4px rgba(20,35,50,.12);
+}
+.val-ligne-fiche{display:inline-flex;align-items:center;gap:6px}
+
+/* Chaque ligne d'information precedee de son dessin : quatre lignes grises
+   se suivaient, et l'oeil devait les lire toutes pour trouver la destination
+   ou les scelles. */
+.val-info{display:flex;align-items:center;gap:7px;margin-top:3px}
+.val-info > .ic{flex:0 0 auto;opacity:.62}
+
+@media (prefers-reduced-motion:reduce){
+  .val-ligne{transition:none}
+  .val-ligne:hover{transform:none}
+}
+
+@media (max-width:560px){
+  /* Une seule colonne : la carte reprend toute la largeur, comme avant. */
+  .val-bento{grid-template-columns:1fr}
 }

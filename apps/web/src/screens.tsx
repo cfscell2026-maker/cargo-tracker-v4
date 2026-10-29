@@ -4291,9 +4291,11 @@ function ValidationGroupee({ cles, fermer, go, onDone }: {
             {[['Camions', cam] as const, ['Véhicules', veh] as const].map(([titre, lst]) => lst.length
               ? <div key={titre} style={{ marginTop: 8 }}>
                 <div className="help" style={{ marginBottom: 4 }}>{titre} ({lst.length})</div>
-                {lst.map((r) => <LigneValidation key={String(r['id'])} r={r} go={go}
-                  pesee={pesees[String(r['id'])]} onPesee={(p) => setPesee(String(r['id']), p)}
-                  amende={amendes[String(r['id'])]} onAmende={(a) => setAmendes((o) => ({ ...o, [String(r['id'])]: a }))} />)}
+                <div className="val-bento">
+                  {lst.map((r) => <LigneValidation key={String(r['id'])} r={r} go={go}
+                    pesee={pesees[String(r['id'])]} onPesee={(p) => setPesee(String(r['id']), p)}
+                    amende={amendes[String(r['id'])]} onAmende={(a) => setAmendes((o) => ({ ...o, [String(r['id'])]: a }))} />)}
+                </div>
               </div> : null)}
           </div>;
         })}
@@ -4394,26 +4396,38 @@ function DossierValidation({ decl, data, loading, error, reload, signee, onSigne
 
         {/* Deux depotages ou plus : la question se pose une fois. En dessous,
             le bloc ne ferait qu'ajouter un detour a une seule reponse. */}
-        {aPeserIci.length > 1 && <div className="pesee-lot">
-          <div className="section-title"><Icone nom="balance" taille={14} />
-            Pesée des {aPeserIci.length} dépotages</div>
-          <div className="row pesee-lot-actions">
-            <button className="ghost xs" onClick={() => peseeGroupee('non')}>
-              <Icone nom="valider" taille={14} />Tous hors surcharge
+        {aPeserIci.length > 1 && <div className={`pesee-lot${peseesFaites === aPeserIci.length ? ' complete' : ''}`}>
+          <div className="pesee-lot-tete">
+            <span className="pesee-lot-ic" aria-hidden="true"><Icone nom="balance" taille={17} /></span>
+            <div className="pesee-lot-titre">
+              <b>Pesée des {aPeserIci.length} dépotages</b>
+              <span className="help">Répondez une fois pour toute la déclaration</span>
+            </div>
+            {/* L'ETAT SE VOIT AVANT DE SE LIRE : une jauge, puis le compte. Un
+                simple « 4 / 7 » obligeait a chercher le total pour savoir s'il
+                restait beaucoup a faire. */}
+            <div className={`pesee-lot-jauge${peseesFaites === aPeserIci.length ? ' pleine' : ''}`}>
+              <span className="pesee-lot-barre">
+                <i style={{ width: `${Math.round((peseesFaites / aPeserIci.length) * 100)}%` }} />
+              </span>
+              <span className="pesee-lot-compte">
+                {peseesFaites === aPeserIci.length
+                  ? <><Icone nom="valider" taille={13} />Les {aPeserIci.length} pesées sont faites</>
+                  : <>{peseesFaites} sur {aPeserIci.length}</>}
+              </span>
+            </div>
+          </div>
+          <div className="pesee-lot-actions">
+            <button type="button" className="pl-btn pl-non" onClick={() => peseeGroupee('non')}>
+              <Icone nom="valider" taille={15} />Tous hors surcharge
             </button>
-            <button className="ghost xs" onClick={() => peseeGroupee('oui')}>
-              <Icone nom="attention" taille={14} />Tous en surcharge
+            <button type="button" className="pl-btn pl-oui" onClick={() => peseeGroupee('oui')}>
+              <Icone nom="attention" taille={15} />Tous en surcharge
             </button>
-            <span className="help pesee-lot-etat">
-              {peseesFaites === aPeserIci.length
-                ? <>Les {aPeserIci.length} pesées sont renseignées.</>
-                : <>{peseesFaites} / {aPeserIci.length} renseignées</>}
-            </span>
           </div>
           <p className="help pesee-lot-note">
-            Répond pour tous les dépotages de cette déclaration, et chaque camion
-            reste modifiable ci-dessous. <b>En surcharge</b>, le poids se saisit camion
-            par camion : c'est une mesure, elle ne se déduit pas.
+            Chaque camion reste modifiable ci-dessous. <b>En surcharge</b>, le poids se
+            saisit camion par camion : c'est une mesure, elle ne se déduit pas.
           </p>
         </div>}
         {aValider.length > 0 && eng.champ}
@@ -4430,11 +4444,16 @@ function DossierValidation({ decl, data, loading, error, reload, signee, onSigne
           : <div className="help" style={{ color: 'var(--ok)' }}>✓ Tout est validé pour cette déclaration.</div>}
 
         {!cam.length && !veh.length && <div className="empty">Aucune cargaison en fin de chargement pour cette déclaration.</div>}
+        {/* GRILLE BENTO (2026-10-29, demande utilisateur) : sept camions
+            empiles faisaient defiler l'ecran sur pres de trois metres. Cote a
+            cote, le chef les embrasse d'un regard avant de signer. */}
         {[['Camions', cam] as const, ['Véhicules', veh] as const].map(([titre, lst]) => lst.length ? <div key={titre} style={{ marginTop: 14 }}>
           <div className="section-title">{titre} ({lst.length})</div>
-          {lst.map((r) => <LigneValidation key={String(r['id'])} r={r} go={go}
-            pesee={pesees[String(r['id'])]} onPesee={(p) => setPesee(String(r['id']), p)}
-            amende={amendes[String(r['id'])]} onAmende={(a) => setAmendes((o) => ({ ...o, [String(r['id'])]: a }))} />)}
+          <div className="val-bento">
+            {lst.map((r) => <LigneValidation key={String(r['id'])} r={r} go={go}
+              pesee={pesees[String(r['id'])]} onPesee={(p) => setPesee(String(r['id']), p)}
+              amende={amendes[String(r['id'])]} onAmende={(a) => setAmendes((o) => ({ ...o, [String(r['id'])]: a }))} />)}
+          </div>
         </div> : null)}
       </>}
     </div>
@@ -4503,11 +4522,14 @@ function LigneValidation({ r, go, pesee, onPesee, amende, onAmende }: {
   // v4.3, pesée seulement en dépotage (2026-08-19).
   const exigePesee = exigeControlePoids(r['typeOperation']);
   const reste = ((r['etapesEnAttente'] as string[]) ?? []).filter((e) => e !== 'VALIDATION');
-  return <div style={{
-    border: '1px solid var(--line)', borderLeft: `3px solid var(--${valide ? 'ok' : 'warn'})`,
-    borderRadius: 6, padding: 10, marginBottom: 8,
-  }}>
-    <div className="row" style={{ alignItems: 'center', gap: 8 }}>
+  /* LA LIGNE DEVIENT UNE CARTE (2026-10-29, demande utilisateur). Les styles
+     etaient ecrits a la main dans le JSX, a 6 px de rayon : le dernier bloc
+     de l'application a garder des coins durs, au milieu de tuiles a 28 px.
+     Ils passent en CSS, ou la couleur d'etape se dit en une variable. */
+  return <div className={`val-ligne${valide ? ' faite' : ''}`}>
+    <div className="row val-ligne-tete">
+      <span className="val-ligne-ic" aria-hidden="true">
+        <Icone nom={valide ? 'valider' : 'camion'} taille={15} /></span>
       <b className="mono">{String(r['numeroCamion'])}</b>
       <span className={`tag ${valide ? 'st-gps' : 'st-charge'}`}>{valide ? '✓ validée' : 'à valider'}</span>
       {Boolean(r['chargementMixte']) && <span className="tag st-charge">⊞ mixte</span>}
@@ -4515,17 +4537,26 @@ function LigneValidation({ r, go, pesee, onPesee, amende, onAmende }: {
       {Boolean(r['horsGabarit']) && <span className="tag" style={{ background: 'var(--warn-soft)', color: 'var(--warn)' }}>
         ⚠ hors gabarit {String(r['hauteurChargement'] || '?')} m</span>}
       <span style={{ flex: 1 }} />
-      <button className="ghost xs" onClick={() => go('detail', r['id'])}>Ouvrir la fiche</button>
+      <button className="ghost xs val-ligne-fiche" onClick={() => go('detail', r['id'])}>
+        <Icone nom="oeil" taille={14} />Ouvrir la fiche</button>
     </div>
-    <div className="help">{String(r['id'])} · {String(r['typeOperation'])} · {fmtDate(r['dateCreation'])} · Agent CFS {String(r['agentCfs'] || '—')}</div>
-    <div className="help">Destination {String(r['destinationMarchandise'] || '—')}{r['nbColis'] ? ` · ${String(r['nbColis'])} colis` : ''}{r['descriptionMarchandise'] ? ` · ${String(r['descriptionMarchandise'])}` : ''}</div>
-    {v && <div className="help">Châssis {String(v['chassis'] ?? '')} · {String(v['marque'] ?? '')} {String(v['modele'] ?? '')} · {String(v['destination'] ?? '')}</div>}
-    {sc.length > 0 && <div className="help">Scellés camion : {sc.join(' · ')}</div>}
+    {/* CHAQUE LIGNE PORTE SON SIGNE : quatre lignes grises se suivaient, et
+        l'oeil devait les lire toutes pour trouver la destination ou les
+        scelles. */}
+    <div className="help val-info"><Icone nom="document" taille={13} />
+      {String(r['id'])} · {String(r['typeOperation'])} · {fmtDate(r['dateCreation'])} · Agent CFS {String(r['agentCfs'] || '—')}</div>
+    <div className="help val-info"><Icone nom="carte" taille={13} />
+      Destination {String(r['destinationMarchandise'] || '—')}{r['nbColis'] ? ` · ${String(r['nbColis'])} colis` : ''}{r['descriptionMarchandise'] ? ` · ${String(r['descriptionMarchandise'])}` : ''}</div>
+    {v && <div className="help val-info"><Icone nom="voiture" taille={13} />
+      Châssis {String(v['chassis'] ?? '')} · {String(v['marque'] ?? '')} {String(v['modele'] ?? '')} · {String(v['destination'] ?? '')}</div>}
+    {sc.length > 0 && <div className="help val-info"><Icone nom="balise" taille={13} />
+      Scellés camion : {sc.join(' · ')}</div>}
     {autres.length > 0 && <div className="help" style={{ color: 'var(--warn)' }}>
       Porte aussi : {autres.map((a) => `${String(a['libelle'])} (${String(a['nbConteneurs'])} TC)`).join(' · ')}, hors de cette déclaration.
     </div>}
     {valide && <div className="help" style={{ color: 'var(--ok)' }}>Validée par {String(r['agentValidation'] || '—')}{r['roleValidation'] === 'CBPI' ? ' (par intérim)' : ''} le {fmtDate(r['dateValidation'])}</div>}
-    {!valide && reste.length > 0 && <div className="help">Restera ensuite : {reste.join(' · ')}</div>}
+    {!valide && reste.length > 0 && <div className="help val-info"><Icone nom="flux" taille={13} />
+      Restera ensuite : {reste.join(' · ')}</div>}
     {conts.length > 0 && <Table cols={[['num', 'Conteneur'], ['plomb', 'Scellé'], ['taille', 'Taille'], ['type', 'Type']]} rows={conts} />}
     {!conts.length && !v && r['descriptionMarchandise'] ? <div className="help">Effets divers : {String(r['descriptionMarchandise'])}</div> : null}
     {/* v4.1, pesée à renseigner AVANT la signature (seulement à valider, et
