@@ -1964,8 +1964,14 @@ function ModaleTransmission({ ligne, onClose, onFait }: { ligne: O; onClose: () 
           {lignes.map((l, i) => {
             const e = ecartLigne(pourDomaine[i]!);
             return <div className="trn-ligne trn-g3" key={i}>
-              {/* Elle se LIT, elle ne se ressaisit pas : c'est la meme ligne. */}
-              <span className="trn-nom">{l.designation || <span className="help">sans désignation</span>}</span>
+              {/* LE MEME CHAMP QU'AU DEPART, et non une copie : il ecrit sur la
+                  MEME ligne. Corriger la designation ici la corrige la-haut,
+                  et inversement. Deux listes independantes se seraient
+                  desalignees des la premiere faute de frappe, et la
+                  difference aurait compare deux marchandises differentes
+                  sans que rien ne le signale. */}
+              <input value={l.designation} placeholder="Riz 50 kg, sucre, ciment…" maxLength={200}
+                onChange={(ev) => majLigne(i, 'designation', ev.target.value)} />
               <input inputMode="decimal" value={l.quantiteArrivee} placeholder="—"
                 title="À renseigner quand le pays de destination répond"
                 onChange={(ev) => majLigne(i, 'quantiteArrivee', ev.target.value.replace(/[^0-9.,]/g, ''))} />
@@ -1979,7 +1985,12 @@ function ModaleTransmission({ ligne, onClose, onFait }: { ligne: O; onClose: () 
           })}
         </div>
 
-        {/* ---- Les totaux : le chiffre que le service vient chercher ---- */}
+        {/* ---- LE TROISIEME VOLET (2026-10-29, demande utilisateur) : la
+             difference n'etait qu'une bande de chiffres sans nom, sous deux
+             sections titrees. Elle porte maintenant son titre comme les
+             autres, parce que c'est elle que le service vient chercher. ---- */}
+        <div className="trn-section trn-volet trn-volet-ecart">
+          <h3><Icone nom="balance" taille={15} />Différence</h3>
         <div className="trn-totaux">
           <div><span className="help">Total au départ</span><b>{nombre(totaux.depart)}</b></div>
           <div><span className="help">Total à l'arrivée</span><b>{nombre(totaux.arrivee)}</b></div>
@@ -1990,8 +2001,9 @@ function ModaleTransmission({ ligne, onClose, onFait }: { ligne: O; onClose: () 
         </div>
         {totaux.enAttente > 0 && <div className="help trn-attente">
           <Icone nom="sablier" taille={13} />
-          {totaux.enAttente} ligne(s) sans arrivée connue : elles ne comptent pas dans l'écart.
+          {totaux.enAttente} ligne(s) sans arrivée connue : elles ne comptent pas dans la différence.
         </div>}
+        </div>
 
         {/* Ce qui manque est DIT, au lieu de griser un bouton sans raison. */}
         {(manqueDepart || manqueArrivee) && <div className="trn-manque">{manqueDepart ?? manqueArrivee}</div>}
