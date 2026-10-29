@@ -468,7 +468,18 @@ export function useParametres(): ValeursParametres {
 }
 
 export function useSuiviEngagement() {
-  const [suivi, setSuivi] = useState<'' | 'oui' | 'non'>('');
+  /* « NON » EST COCHE D'OFFICE (2026-10-29, demande utilisateur).
+   *
+   * Le champ partait vide, et la signature restait bloquee tant qu'on n'avait
+   * pas repondu : la question se posait a chaque validation. C'est le cas le
+   * plus rare qui commandait le plus frequent, puisque la quasi-totalite des
+   * cargaisons ne sont pas sous engagement.
+   *
+   * ⚠ CE QUE CE DEFAUT COUTE : une validation peut desormais passer sans que
+   * personne ait regarde cette question. Le cas ou l'engagement etait du mais
+   * oublie ne se verra plus a l'ecran ; il se rattrape en reouvrant la fiche
+   * et en cochant « Oui », ce qui reste trace. */
+  const [suivi, setSuivi] = useState<'' | 'oui' | 'non'>('non');
   const [choix, setChoix] = useState('');
   // La saisie libre est conservée à part : revenir à la liste puis choisir
   // « Autre » à nouveau ne doit pas effacer ce que l'agent avait déjà tapé.
@@ -498,10 +509,12 @@ export function useSuiviEngagement() {
     <ChoixSegmente libelle="Suivi des engagements" valeur={suivi}
       options={[{ valeur: 'oui', libelle: 'Oui', icone: 'valider' }, { valeur: 'non', libelle: 'Non' }]}
       onChange={(v) => {
-        // Recliquer ramene a « rien de choisi » : `pret` repasse alors a faux et
-        // la signature se rebloque, ce qui est exactement l'etat de depart.
+        /* DEUX ETATS, ET PLUS TROIS. Recliquer sur le choix actif renvoyait
+           « rien de choisi », ce qui rebloquait la signature sans un mot
+           d'explication. L'etat vide n'etant plus celui du depart, il n'a plus
+           de raison d'exister : tout ce qui n'est pas « oui » est « non ». */
         if (v === 'oui') setSuivi('oui');
-        else { setSuivi(v === 'non' ? 'non' : ''); setChoix(''); setLibre(''); }
+        else { setSuivi('non'); setChoix(''); setLibre(''); }
       }} />
     {suivi === 'oui' && <div style={{ marginTop: 8 }}>
       {/* L'ENGAGEMENT ET SON DELAI SUR UNE LIGNE (2026-09-12) : le menu
