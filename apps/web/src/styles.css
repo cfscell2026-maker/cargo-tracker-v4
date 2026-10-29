@@ -3255,6 +3255,64 @@ button.acts-ic:disabled{opacity:.42;box-shadow:none}
    DEUX CLASSES, ET NON UNE : `button.ghost{color:var(--accent)}` pese (0,1,1)
    et l'emportait sur une classe seule. « Corriger » sortait donc en BLEU,
    comme « Transmettre », et la couleur ne distinguait plus rien. */
+/* ---- LE MOT REVIENT, EN ETIQUETTE (2026-10-29, demande utilisateur) -----
+ *
+ * L'icone seule laissait hesiter : on reconnait la corbeille, moins la fleche
+ * qui monte. L'infobulle du navigateur aurait suffi en theorie, mais elle met
+ * une seconde a paraitre, et sur une ligne de tableau le regard est deja
+ * reparti. Celle-ci s'affiche TOUT DE SUITE, au survol comme au clavier.
+ *
+ * ELLE SE POSE A GAUCHE, et non au-dessus : `.tbl` defile en largeur, donc le
+ * navigateur rogne aussi ce qui depasse en hauteur. Une etiquette posee au
+ * dessus du bouton aurait ete coupee par le bord de la ligne. A gauche, elle
+ * reste dans la bande visible, et la colonne des actions etant la derniere,
+ * elle a toute la place devant elle.
+ *
+ * Le `title` natif est retire : garde en plus, il aurait affiche une seconde
+ * etiquette une seconde plus tard, au meme endroit. `aria-label` continue de
+ * porter le sens pour les lecteurs d'ecran.
+ *
+ * ELLE VIT DANS `::before`, ET NON DANS `::after`. Le halo d'appui de tous
+ * les boutons occupe deja `::after`, avec une chaine de `:not()` qui pese
+ * (0,5,1) : l'etiquette y etait ecrasee, content vide et fond blanc, et ne
+ * s'affichait jamais.
+ *
+ * ET LE DEBORDEMENT SE ROUVRE. Tous les boutons portent `overflow:hidden`
+ * pour contenir ce halo d'appui, qui grandit vingt-six fois ; l'ecretage
+ * coupait l'etiquette net. La pastille a deja son propre retour d'appui,
+ * elle s'enfonce et son ombre rentre : le halo y fait double emploi. On le
+ * retire, le debordement se rouvre.
+ */
+/* La chaine de `:not()` est recopiee telle quelle, a dessein : `overflow` et
+   le halo sont poses par une regle qui pese (0,5,1), et rien de plus court
+   ne l'emporterait. */
+button.acts-ic:not(.nm-onglet):not(.hubitem):not(.seg-choix):not(.burger):not(.repli){overflow:visible}
+button.acts-ic:not(.nm-onglet):not(.hubitem):not(.seg-choix):not(.burger):not(.repli)::after{display:none}
+
+button.acts-ic::before{
+  content:attr(data-bulle);
+  position:absolute;right:calc(100% + 8px);top:50%;
+  transform:translateY(-50%) translateX(5px);
+  padding:5px 9px;border-radius:8px;white-space:nowrap;
+  font-size:11.5px;font-weight:600;line-height:1.15;
+  color:#fff;background:#1b2733;
+  box-shadow:0 6px 16px rgba(10,25,40,.3);
+  opacity:0;pointer-events:none;z-index:6;
+  transition:opacity .14s ease,transform .14s ease;
+}
+button.acts-ic:hover::before,
+button.acts-ic:focus-visible::before{opacity:1;transform:translateY(-50%) translateX(0)}
+/* Au doigt, il n'y a pas de survol : une etiquette qui apparaitrait a l'appui
+   recouvrirait la ligne au moment meme ou la fenetre s'ouvre. */
+@media (hover:none){
+  button.acts-ic::before{display:none}
+}
+@media (prefers-reduced-motion:reduce){
+  button.acts-ic::before{transition:opacity .14s ease}
+  button.acts-ic:hover::before,
+  button.acts-ic:focus-visible::before{transform:translateY(-50%)}
+}
+
 .acts-ic.acts-ic-transmet{color:var(--accent)}
 .acts-ic.acts-ic-corrige{color:var(--warn)}
 .acts-ic.acts-suppr{color:var(--err)}

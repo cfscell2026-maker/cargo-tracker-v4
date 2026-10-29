@@ -250,11 +250,11 @@ function ActionsDossier({ r, admin, onFait }: { r: O; admin: boolean; onFait: ()
     {/* MEMES PASTILLES QU'AILLEURS (2026-10-29, demande utilisateur). Les
         caracteres ✎ et ✕ dependaient de la police du poste et n'avaient pas
         la meme graisse que les autres icones de l'application. */}
-    <button className="ghost xs acts-ic acts-ic-corrige" title="Corriger le N° de camion / châssis"
+    <button className="ghost xs acts-ic acts-ic-corrige" data-bulle="Modifier"
       aria-label="Modifier" onClick={() => setOuvert('modifier')}>
       <Icone nom="crayon" taille={16} />
     </button>
-    {admin && <button className="ghost xs acts-ic acts-suppr" title="Supprimer ce dossier (doublon)"
+    {admin && <button className="ghost xs acts-ic acts-suppr" data-bulle="Supprimer"
       aria-label="Supprimer" onClick={() => setOuvert('supprimer')}>
       <Icone nom="poubelle" taille={16} />
     </button>}
@@ -1553,9 +1553,9 @@ function DetailEntrepotStats({ entrepot, unite, lib, role, onClose, onFait }: {
           </table></div>
           <div className="row depot-actions">
             <button className="ghost xs acts-ic acts-ic-corrige" aria-label="Modifier"
-              title="Modifier ce dépôt" onClick={() => setEdite(e)}><Icone nom="crayon" taille={16} /></button>
+              data-bulle="Modifier" onClick={() => setEdite(e)}><Icone nom="crayon" taille={16} /></button>
             {admin && <button className="ghost xs acts-ic acts-suppr" aria-label="Supprimer"
-              title="Supprimer ce dépôt" onClick={() => setSupprime(e)}><Icone nom="poubelle" taille={16} /></button>}
+              data-bulle="Supprimer" onClick={() => setSupprime(e)}><Icone nom="poubelle" taille={16} /></button>}
           </div>
         </div>)}
         {!cherche && (reste > 0 || tout) && <div className="row" style={{ justifyContent: 'center', marginTop: 12 }}>
@@ -1689,9 +1689,9 @@ function DetailApurements({ code, apur, unite, role, onClose, onFait }: {
         rows={rows}
         actions={(r) => <>
           <button className="ghost xs acts-ic acts-ic-corrige" aria-label="Modifier"
-            title="Modifier cet apurement" onClick={() => setEdite(r)}><Icone nom="crayon" taille={16} /></button>
+            data-bulle="Modifier" onClick={() => setEdite(r)}><Icone nom="crayon" taille={16} /></button>
           {admin && <button className="ghost xs acts-ic acts-suppr" aria-label="Supprimer"
-            title="Supprimer cet apurement" onClick={() => setSupprime(r)}><Icone nom="poubelle" taille={16} /></button>}
+            data-bulle="Supprimer" onClick={() => setSupprime(r)}><Icone nom="poubelle" taille={16} /></button>}
         </>} />}
     {edite && <ModaleModifierApurement sortie={edite} unite={unite} onClose={() => setEdite(null)}
       onFait={() => { setEdite(null); rafraichir(); }} />}
@@ -2223,21 +2223,17 @@ SCREENS.engagements = ({ go, user, arg }) => {
                         Une icone nue, sans l'un ni l'autre, serait une devinette. */}
                     {peut && <button className="ghost xs acts-ic acts-ic-transmet" onClick={() => setTransmet(l)}
                       aria-label={solde ? 'Voir la transmission' : 'Transmettre'}
-                      title={solde
-                        ? "Voir ou completer la transmission : pays, N° IM4, marchandises, arrivée."
-                        : "Transmettre : pays de destination, N° IM4, marchandises déclarées."}>
+                      data-bulle={solde ? 'Voir la transmission' : 'Transmettre'}>
                       <Icone nom={solde ? 'miseAJour' : 'televerser'} taille={16} />
                     </button>}
                     {peut && <button className="ghost xs acts-ic acts-ic-corrige" onClick={() => setCorrige(l)}
-                      aria-label="Corriger"
-                      title="Engagement ou délai erroné : corriger la saisie.">
+                      aria-label="Corriger" data-bulle="Corriger">
                       <Icone nom="crayon" taille={16} />
                     </button>}
                     {/* RETRAIT (2026-09-17) : un bouton à lui, sur la ligne, il était
                         caché dans la fenêtre de correction. Administrateur seul. */}
                     {admin && <button className="ghost xs acts-ic acts-suppr" onClick={() => setRetire(l)}
-                      aria-label="Retirer du suivi"
-                      title="Engagement coché par erreur : le retirer du suivi.">
+                      aria-label="Retirer du suivi" data-bulle="Retirer du suivi">
                       <Icone nom="poubelle" taille={16} />
                     </button>}
                   </div>
