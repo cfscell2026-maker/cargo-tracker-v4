@@ -6855,6 +6855,26 @@ export { SCREENS };
  * La pagination est faite côté SQL : on ne remonte que la page affichée, jamais
  * la table entière (GOV-05).
  */
+/**
+ * LE LOGO DANS SES ANNEAUX (2026-10-29, demande utilisateur).
+ *
+ * Meme grammaire que les autres emblemes : le `Spinner` fait tourner un
+ * conteneur, le verrou l'arrete contre une barriere, la soumission l'encadre
+ * d'un aller et d'un retour, le bon de chargement le pose sur un tapis. Ici,
+ * trois anneaux s'eloignent lentement et s'effacent : le temps qui passe, et
+ * l'anciennete, seul sujet de cet ecran.
+ *
+ * Huit secondes par cycle, trois anneaux decales : il en part un toutes les
+ * deux secondes et demie. C'est un ecran de consultation, on y reste.
+ */
+function LogoArchive({ taille = 52 }: { taille?: number }) {
+  return <div className="arc-logo" style={{ ['--t' as string]: taille + 'px' }} aria-hidden="true">
+    <span className="arc-onde" /><span className="arc-onde" /><span className="arc-onde" />
+    <img className="logo-rond" src="/logo.png" alt=""
+      onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />
+  </div>;
+}
+
 SCREENS.archive = ({ go }) => {
   const [page, setPage] = useState(1);
   /* Ancienneté par défaut = réglage « archiveMois » tant que l'utilisateur n'a
@@ -6879,29 +6899,37 @@ SCREENS.archive = ({ go }) => {
   return <>
     <BandeauModule icone="archive" titre="Archive"
       sous={<>Dossiers entrés il y a plus de <b>{mois} mois</b>{data?.['total'] ? <>, <b>{String(data['total'])}</b> dossier(s)</> : null}</>} />
-    <div className="card">
-      <p className="help" style={{ marginTop: 0 }}>
+    <div className="card filtres-verre arc-barre">
+      {/* LE LOGO DANS SES ANNEAUX (2026-10-29, demande utilisateur). Trois
+          cercles s'eloignent lentement : le temps qui passe, et l'anciennete
+          qui est le seul sujet de cet ecran. */}
+      <LogoArchive taille={52} />
+      <p className="help arc-note">
         Cargaisons entrées avant le <b>{fmtJour(data?.['seuil'])}</b>. Elles restent
         entièrement consultables : cet écran est une vue par ancienneté, aucune
         donnée n'a été déplacée ni retirée des recherches.
       </p>
-      <div className="row" style={{ gap: 10, flexWrap: 'wrap', alignItems: 'end', marginTop: 8 }}>
+      <div className="row arc-filtres">
         <div>
           <label className="help">Ancienneté</label>
+          <span className="champ-ic"><Icone nom="echeance" taille={15} />
           <select value={mois} onChange={(e) => { setMois(Number(e.target.value)); setPage(1); }}>
             {choixMois.map((m) => <option key={m} value={m}>
               {m % 12 === 0 ? `Plus de ${m / 12} an${m > 12 ? 's' : ''}` : `Plus de ${m} mois`}
             </option>)}
-          </select>
+          </select></span>
         </div>
         <div style={{ flex: 1, minWidth: 200 }}>
           <label className="help">Rechercher un camion</label>
+          <span className="champ-ic"><Icone nom="camion" taille={15} />
           <input className="mono" value={recherche} placeholder="TG2489BK/2725BP"
             onChange={(e) => setRecherche(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') { setQ(recherche); setPage(1); } }} />
+            onKeyDown={(e) => { if (e.key === 'Enter') { setQ(recherche); setPage(1); } }} /></span>
         </div>
-        <button className="ghost" onClick={() => { setQ(recherche); setPage(1); }}>Rechercher</button>
-        {q && <button className="ghost" onClick={() => { setRecherche(''); setQ(''); setPage(1); }}>Effacer</button>}
+        <button className="ghost arc-btn" onClick={() => { setQ(recherche); setPage(1); }}>
+          <Icone nom="loupe" taille={15} />Rechercher</button>
+        {q && <button className="ghost arc-btn" onClick={() => { setRecherche(''); setQ(''); setPage(1); }}>
+          <Icone nom="nettoyage" taille={15} />Effacer</button>}
       </div>
     </div>
 
@@ -6914,8 +6942,14 @@ SCREENS.archive = ({ go }) => {
         <div style={{ overflowX: 'auto', marginTop: 8 }}>
           <table>
             <thead><tr>
-              <th>Camion</th><th>Dossier</th><th>Opération</th><th>Statut</th>
-              <th>Entré le</th><th>Sorti le</th><th>Déclarant</th><th>Décl.</th>
+              <th><span className="th-ic"><Icone nom="camion" taille={14} />Camion</span></th>
+              <th>Dossier</th>
+              <th><span className="th-ic"><Icone nom="conteneur" taille={14} />Opération</span></th>
+              <th>Statut</th>
+              <th><span className="th-ic"><Icone nom="echeance" taille={14} />Entré le</span></th>
+              <th><span className="th-ic"><Icone nom="sortie" taille={14} />Sorti le</span></th>
+              <th><span className="th-ic"><Icone nom="compte" taille={14} />Déclarant</span></th>
+              <th>Décl.</th>
             </tr></thead>
             <tbody>
               {rows.map((r) => <tr key={String(r['id'])} style={{ cursor: 'pointer' }}
