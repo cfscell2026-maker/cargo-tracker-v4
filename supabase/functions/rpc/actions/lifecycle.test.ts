@@ -3228,21 +3228,24 @@ test('engagements, compteurs : le total baisse quand un engagement est soldé (2
   const volet = async () => ((await lec.engagementsDus(chef, { filtre: 'encours' })) as { global: Record<string, number> }).global;
 
   assert.equal(await dash(), 3, 'les trois engagements sont en cours');
-  assert.deepEqual(await volet(), { encours: 3, soldes: 0, total: 3 });
+  // K-1 est echu d'hier : c'est le seul retard des trois.
+  assert.deepEqual(await volet(), { encours: 3, soldes: 0, retard: 1, total: 3 });
 
   await ecr.engagementFait(chef, { id: 'K-2' });
   assert.equal(await dash(), 2, 'le tableau de bord baisse d\'un cran');
-  assert.deepEqual(await volet(), { encours: 2, soldes: 1, total: 3 }, 'les deux compteurs du volet se repondent');
+  assert.deepEqual(await volet(), { encours: 2, soldes: 1, retard: 1, total: 3 }, 'les deux compteurs du volet se repondent');
 
   // Les compteurs du volet ne dependent PAS de la vue affichee.
   const enSolde = (await lec.engagementsDus(chef, { filtre: 'solde' })) as { global: Record<string, number>; lignes: unknown[] };
-  assert.deepEqual(enSolde.global, { encours: 2, soldes: 1, total: 3 });
+  // ET SURTOUT `retard`, qui vaut 1 alors que la vue « Soldes » n'affiche
+  // aucun retard : c'est tout l'interet de le compter sur l'ensemble.
+  assert.deepEqual(enSolde.global, { encours: 2, soldes: 1, retard: 1, total: 3 });
   assert.equal(enSolde.lignes.length, 1, 'mais la liste affichee, elle, suit le filtre');
 
   // Retire : l'engagement quitte les deux compteurs.
   await ecr.engagementRetirer(ctxRole(db, 'ADMIN', 'Admin'), { id: 'K-1', motif: 'coche par erreur' });
   assert.equal(await dash(), 1);
-  assert.deepEqual(await volet(), { encours: 1, soldes: 1, total: 2 });
+  assert.deepEqual(await volet(), { encours: 1, soldes: 1, retard: 0, total: 2 }, 'le retard retire disparait du compteur');
 });
 
 test('tableau de bord, arrivées / départs des engagements sur la période (2026-09-21)', async () => {

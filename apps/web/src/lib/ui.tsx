@@ -214,7 +214,7 @@ const ICONE_ETAPE: Record<string, string> = {
 };
 
 export function StatCard({ n, l, tone, onClick, variation, comparable, etape, part, icone, repartition, alerte }: {
-  n: ReactNode; l: string; tone?: 'ok' | 'warn'; onClick?: () => void;
+  n: ReactNode; l: string; tone?: 'ok' | 'warn' | 'err'; onClick?: () => void;
   variation?: Variation | null; comparable?: boolean;
   /**
    * Dessin de la pastille, quand la tuile ne correspond a AUCUNE etape du

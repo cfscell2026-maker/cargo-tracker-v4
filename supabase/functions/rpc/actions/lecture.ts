@@ -780,6 +780,13 @@ export async function engagementsDus(ctx: Ctx, p: { filtre?: string } = {}) {
   const global = {
     encours: toutes.filter((o) => !aFait(o['engagementEffectueLe'])).length,
     soldes: toutes.filter((o) => aFait(o['engagementEffectueLe'])).length,
+    /* LES RETARDS, COMPTES SUR TOUT, pas sur la vue courante (2026-10-29,
+       demande utilisateur). `compte.retard` existe deja, mais il ne porte que
+       sur les lignes affichees : en vue « Soldes » il vaut zero, et une tuile
+       qui annoncerait « 0 en retard » pendant qu'il y en a cent quatorze
+       mentirait a chaque changement de filtre. Celui-ci ne bouge pas. */
+    retard: toutes.filter((o) =>
+      etatEngagement(o['engagementDelai'], o['engagementEffectueLe']).etat === 'retard').length,
     total: toutes.length,
   };
   const lignes = toutes

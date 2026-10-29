@@ -181,6 +181,7 @@ a{color:var(--accent)}
 .stat .n{font-size:26px;font-weight:700;font-variant-numeric:tabular-nums}
 .stat .l{color:var(--muted);font-size:12.5px}
 .stat.ok{border-left-color:var(--ok)} .stat.warn{border-left-color:var(--warn)}
+.stat.err{border-left-color:var(--err)}
 
 /* Table */
 .tbl{overflow-x:auto;border:1px solid var(--line);border-radius:8px;background:var(--panel)}
@@ -3655,37 +3656,81 @@ button.modal-fermer:focus-visible{outline:2px solid #0e5a8a;outline-offset:2px}
 /* ============ LE BLOC DES FILTRES, EN VERRE, 2026-10-08 ================
  *
  * Demande utilisateur : sortir les commandes du bandeau et les poser dessous,
- * en verre dépoli avec un dégradé.
+ * en verre depoli avec un degrade. Repris le 2026-10-29 : bords arrondis sur
+ * les lignes de saisie, et une icone par commande.
  *
  * LE DEGRADE VA DU BLANC A LA TEINTE DE L'APPLICATION, en diagonale, et reste
- * très dilué. Ce bloc est posé entre un bandeau bleu soutenu et des cartes
+ * tres dilue. Ce bloc est pose entre un bandeau bleu soutenu et des cartes
  * blanches : s'il criait, il couperait la page en deux. Il doit se distinguer
  * assez pour qu'on sache que ces commandes vont ensemble, pas davantage.
  *
- * Le verre a de quoi travailler : la couche de halos posée derrière `.content`
- * passe au travers, et c'est elle qu'on voit bouger au défilement.
+ * Le verre a de quoi travailler : la couche de halos posee derriere `.content`
+ * passe au travers, et c'est elle qu'on voit bouger au defilement.
  */
 .filtres-verre{
   display:flex;flex-wrap:wrap;align-items:center;gap:10px;
-  padding:13px 15px;
+  padding:14px 16px;
+  /* 22 px, comme les tuiles : le bloc appartient a la meme page qu'elles. */
+  border-radius:22px;
   background:
     linear-gradient(115deg,
-      rgba(255,255,255,.90) 0%,
-      rgba(255,255,255,.72) 30%,
-      rgba(14,90,138,.17) 62%,
-      rgba(14,90,138,.24) 82%,
-      rgba(31,122,92,.26) 100%);
+      rgba(255,255,255,.92) 0%,
+      rgba(255,255,255,.76) 32%,
+      rgba(14,90,138,.14) 64%,
+      rgba(14,90,138,.20) 84%,
+      rgba(31,122,92,.22) 100%);
   backdrop-filter:blur(22px) saturate(170%);
   -webkit-backdrop-filter:blur(22px) saturate(170%);
-  border:1px solid rgba(255,255,255,.78);
+  border:1px solid rgba(255,255,255,.8);
   box-shadow:
     0 10px 28px rgba(15,35,55,.10),
     inset 0 1px 0 rgba(255,255,255,.95);
 }
+
+/* LES CHAMPS DEVIENNENT DES PILULES (2026-10-29, demande utilisateur).
+ *
+ * Leurs coins a 10 px etaient les seules aretes nettes d'une page faite de
+ * tuiles a 28 px et d'une notification en capsule. Entierement arrondis, ils
+ * se posent aussi mieux sur le verre : un rectangle a angles durs y faisait
+ * saillie, une pilule y flotte.
+ *
+ * Le fond passe au blanc franc : sur un degrade, un champ translucide laissait
+ * voir la teinte au travers et le texte saisi perdait son contraste. */
+.filtres-verre input,
+.filtres-verre select{
+  border-radius:999px;
+  background-color:#fff;
+  border-color:rgba(15,45,70,.14);
+  box-shadow:0 1px 2px rgba(15,35,55,.06),inset 0 1px 2px rgba(15,35,55,.03);
+}
+.filtres-verre input:focus,
+.filtres-verre select:focus{
+  box-shadow:0 0 0 3px rgba(14,90,138,.18),inset 0 1px 2px rgba(15,35,55,.03);
+}
+/* Le chevron du menu deroulant s'ecarte du bord, que l'arrondi a repousse. */
+.filtres-verre select{background-position:right 13px center}
+.filtres-verre .ghost{border-radius:999px}
+
+/* UNE ICONE PAR COMMANDE, dans l'emballage deja utilise par la loupe.
+   Elle est MUETTE pour les lecteurs d'ecran : le `title` du champ dit deja
+   a quoi il sert, et une icone annoncee en plus ferait doublon a l'oreille. */
+.filtres-verre .fv-champ{position:relative;display:inline-flex;align-items:center;min-width:0}
+.filtres-verre .fv-champ > .ic{
+  position:absolute;left:13px;z-index:1;pointer-events:none;
+  color:var(--muted);opacity:.8;
+}
+.filtres-verre .fv-champ > input,
+.filtres-verre .fv-champ > select{width:100%;padding-left:36px}
+.filtres-verre .champ-loupe > svg{left:13px}
+.filtres-verre .champ-loupe input{padding-left:36px}
+
 /* « Afficher » introduit le premier menu : c'est une etiquette, pas un reglage
    a part. Elle se colle a lui plutot que de flotter dans la rangee. */
 .filtres-verre .fv-etiquette{margin:0 -4px 0 0;font-weight:600;color:var(--muted)}
-.filtres-verre select{max-width:190px;flex:0 1 auto}
+.filtres-verre .fv-vue{flex:0 1 auto;max-width:200px}
+.filtres-verre .fv-type{flex:1 1 170px;max-width:215px}
+.filtres-verre .fv-signe{flex:1 1 170px;max-width:215px}
+.filtres-verre .fv-desi{flex:1 1 190px;max-width:260px}
 .filtres-verre .champ-loupe{flex:1 1 160px;max-width:210px}
 .filtres-verre .champ-loupe input{width:100%}
 /* L'echeance et son unite forment UNE expression : « echeance <= 5 jours ». Les
@@ -3694,14 +3739,16 @@ button.modal-fermer:focus-visible{outline:2px solid #0e5a8a;outline-offset:2px}
   display:inline-flex;align-items:center;gap:6px;margin:0;
   white-space:nowrap;flex:0 0 auto;font-weight:600;
 }
-.filtres-verre .fv-echeance input{width:62px;flex:none;font-weight:400}
+.filtres-verre .fv-echeance > .ic{color:var(--muted);opacity:.8;margin-right:-1px}
+.filtres-verre .fv-echeance input{width:66px;flex:none;font-weight:400;text-align:center;padding-left:12px}
 /* Le bouton de remise a zero part a DROITE, a l'ecart des commandes : il ne
    regle rien, il annule tout. */
 .filtres-verre .fv-raz{margin-left:auto}
 
 @media (max-width:560px){
-  .filtres-verre{gap:8px}
-  .filtres-verre select,.filtres-verre .champ-loupe{flex:1 1 100%;max-width:none}
+  .filtres-verre{gap:8px;padding:12px}
+  .filtres-verre .fv-champ,
+  .filtres-verre .champ-loupe{flex:1 1 100%;max-width:none}
   .filtres-verre .fv-raz{margin-left:0;width:100%}
 }
 
@@ -4001,7 +4048,8 @@ button.modal-fermer:focus-visible{outline:2px solid #0e5a8a;outline-offset:2px}
  * sur `.stat.warn`. La tuile des engagements s'affichait donc en BLEU alors
  * qu'elle annoncait 110 retards. C'est cette classe qui tranche.
  */
-.stat-en-alerte{border-left-color:var(--err) !important}
+.stat-en-alerte,
+.stat.err{border-left-color:var(--err) !important}
 /* UN ROUGE FRANC, et non le bordeaux des messages d'erreur (2026-10-29,
  * demande utilisateur). `--err` vaut #b00020 : un rouge sombre, concu pour du
  * TEXTE sur fond blanc, ou il faut du contraste. A quinze pixels et en trait
