@@ -1898,7 +1898,7 @@ function ModaleTransmission({ ligne, onClose, onFait }: { ligne: O; onClose: () 
   return <Modal onClose={() => !busy && onClose()}>
     <div className="trn-fenetre">
       <LogoTransmission taille={64} />
-      <h2>Soumettre l'engagement</h2>
+      <h2>Régulariser l'engagement</h2>
       <p className="help trn-sous">
         <b className="mono">{String(ligne['numeroCamion'] ?? '')}</b>
         {ligne['engagementType'] ? <> · {String(ligne['engagementType'])}</> : null}
@@ -2102,9 +2102,9 @@ function ModaleTransmission({ ligne, onClose, onFait }: { ligne: O; onClose: () 
         <div className="trn-pied">
           <button className="ghost" disabled={!!busy} onClick={onClose}>Annuler</button>
           <button disabled={!!busy || !!manqueDepart}
-            onClick={() => envoyer('engagement.depart', existe ? 'Soumission corrigée.' : 'Engagement soumis.')}>
+            onClick={() => envoyer('engagement.depart', existe ? 'Régularisation corrigée.' : 'Engagement régularisé.')}>
             <Icone nom="presse" taille={15} />
-            {busy === 'engagement.depart' ? 'Enregistrement…' : existe ? 'Corriger le départ' : 'Soumettre'}
+            {busy === 'engagement.depart' ? 'Enregistrement…' : existe ? 'Corriger le départ' : 'Régulariser'}
           </button>
           {/* L'arrivée ne s'enregistre qu'une fois le départ connu : sans lui,
               il n'y a rien à quoi comparer. */}
@@ -2351,8 +2351,8 @@ SCREENS.engagements = ({ go, user, arg }) => {
                         donne aux lecteurs d'ecran, `title` l'affiche au survol.
                         Une icone nue, sans l'un ni l'autre, serait une devinette. */}
                     {peut && <button className="ghost xs acts-ic acts-ic-transmet" onClick={() => setTransmet(l)}
-                      aria-label={solde ? "Voir la soumission" : "Soumettre l'engagement"}
-                      data-bulle={solde ? 'Voir la soumission' : "Soumettre l'engagement"}>
+                      aria-label={solde ? 'Voir la régularisation' : 'Régulariser'}
+                      data-bulle={solde ? 'Voir la régularisation' : 'Régulariser'}>
                       {/* `presse` : un dossier qu'on remet, et non une fleche
                           d'envoi. C'est le geste que nomme le bouton. */}
                       <Icone nom={solde ? 'miseAJour' : 'presse'} taille={16} />
@@ -3878,8 +3878,8 @@ SCREENS.etatcfs = ({ go }) => {
     {loading ? <Spinner /> : <>
       <div className="stats">
         <StatCard n={Number(data?.compte['total'] ?? 0)} l="Au parking" />
-        <StatCard n={Number(data?.compte['camions'] ?? 0)} l="Camions" />
-        <StatCard n={Number(data?.compte['vehicules'] ?? 0)} l="Véhicules" />
+        <StatCard n={Number(data?.compte['camions'] ?? 0)} l="Camions" icone="camion" />
+        <StatCard n={Number(data?.compte['vehicules'] ?? 0)} l="Véhicules" icone="voiture" />
         <StatCard n={Number(data?.compte['enCours'] ?? 0)} l="En chargement" />
         <StatCard n={Number(data?.compte['fin'] ?? 0)} l="Fin chargement" />
         <StatCard n={Number(data?.compte['vide'] ?? 0)} l="Vides" />
@@ -4005,9 +4005,9 @@ SCREENS.chargement = () => {
       </div>
       <div className="help">Déclarant : <b>{String(dec['declarant'] || '—')}</b>{apu?.['exists'] ? <> · Apurement : {String(apu['apures'])}/{String(apu['nombreConteneurs'])} conteneurs (restant {String(apu['restant'])})</> : null}</div>
       <div className="stats" style={{ marginTop: 10 }}>
-        <StatCard n={Number(cpt['camions'] ?? 0)} l="Camions" />
-        <StatCard n={Number(cpt['vehicules'] ?? 0)} l="Véhicules" />
-        <StatCard n={Number(cpt['conteneurs'] ?? 0)} l="Conteneurs" />
+        <StatCard n={Number(cpt['camions'] ?? 0)} l="Camions" icone="camion" />
+        <StatCard n={Number(cpt['vehicules'] ?? 0)} l="Véhicules" icone="voiture" />
+        <StatCard n={Number(cpt['conteneurs'] ?? 0)} l="Conteneurs" icone="conteneur" />
       </div>
       {!cam.length && !veh.length && <div className="empty">Aucun camion ni véhicule au statut « Créée » pour cette déclaration.</div>}
       {[['Camions', cam] as const, ['Véhicules', veh] as const].map(([titre, lst]) => lst.length ? <div key={titre} style={{ marginTop: 14 }}>
@@ -4162,7 +4162,11 @@ function ValidationDeclaration({ go, arg, retour, ecranPrecedent }: Nav) {
                   ? Object.fromEntries(decls.map((r) => [String(r['cle']), cleDe(r)]))
                   : {})} />
             </th>
-            <th>Déclaration</th><th>Déclarant</th><th>Camions</th><th>Véhicules</th><th>Conteneurs</th><th>Plus ancienne</th>
+            <th>Déclaration</th><th>Déclarant</th>
+            <th><span className="th-ic"><Icone nom="camion" taille={14} />Camions</span></th>
+            <th><span className="th-ic"><Icone nom="voiture" taille={14} />Véhicules</span></th>
+            <th><span className="th-ic"><Icone nom="conteneur" taille={14} />Conteneurs</span></th>
+            <th><span className="th-ic"><Icone nom="horloge" taille={14} />Plus ancienne</span></th>
           </tr></thead>
           <tbody>{decls.map((r) => (
             <tr key={String(r['cle'])} className="clk"
@@ -4340,11 +4344,11 @@ function DossierValidation({ decl, data, loading, error, reload, signee, onSigne
 
       {loading ? <Spinner /> : error ? <AvisApresSignature error={error} signee={signee} /> : <>
         <div className="stats" style={{ marginTop: 12 }}>
-          <StatCard n={Number(cpt['camions'] ?? 0)} l="Camions" />
-          <StatCard n={Number(cpt['vehicules'] ?? 0)} l="Véhicules" />
-          <StatCard n={Number(cpt['conteneurs'] ?? 0)} l="Conteneurs" />
-          <StatCard n={Number(cpt['aValider'] ?? 0)} l="À valider" tone="warn" />
-          <StatCard n={Number(cpt['dejaValidees'] ?? 0)} l="Déjà validées" tone="ok" />
+          <StatCard n={Number(cpt['camions'] ?? 0)} l="Camions" icone="camion" />
+          <StatCard n={Number(cpt['vehicules'] ?? 0)} l="Véhicules" icone="voiture" />
+          <StatCard n={Number(cpt['conteneurs'] ?? 0)} l="Conteneurs" icone="conteneur" />
+          <StatCard n={Number(cpt['aValider'] ?? 0)} l="À valider" icone="attente" tone="warn" />
+          <StatCard n={Number(cpt['dejaValidees'] ?? 0)} l="Déjà validées" icone="valider" tone="ok" />
         </div>
 
         {aValider.length > 0 && eng.champ}
@@ -5248,8 +5252,8 @@ SCREENS.controles = () => {
           onClick={() => extraireMotif(controle, titre, 'conteneurs')} />
       </div>
       <div className="stats">
-        <StatCard n={Number(o['camions'] ?? 0)} l="Camions" tone={tone} etape="cfs" />
-        <StatCard n={Number(o['conteneurs'] ?? 0)} l="Conteneurs" tone={tone} etape="t1" />
+        <StatCard n={Number(o['camions'] ?? 0)} l="Camions" icone="camion" tone={tone} etape="cfs" />
+        <StatCard n={Number(o['conteneurs'] ?? 0)} l="Conteneurs" icone="conteneur" tone={tone} etape="t1" />
       </div>
     </div>;
   return <>
@@ -5357,8 +5361,8 @@ SCREENS.engagementsrap = ({ go }) => {
             <BoutonExcel titre={`Extraire en Excel les camions sous « ${nom} »`} onClick={() => extraire(nom)} />
           </div>
           <div className="stats">
-            <StatCard n={Number(n['camions'] ?? 0)} l="Camions" etape="cfs" onClick={() => setNature(nom)} />
-            <StatCard n={Number(n['conteneurs'] ?? 0)} l="Conteneurs" etape="t1" onClick={() => setNature(nom)} />
+            <StatCard n={Number(n['camions'] ?? 0)} l="Camions" icone="camion" etape="cfs" onClick={() => setNature(nom)} />
+            <StatCard n={Number(n['conteneurs'] ?? 0)} l="Conteneurs" icone="conteneur" etape="t1" onClick={() => setNature(nom)} />
             {Number(n['vehicules']) > 0 && <StatCard n={Number(n['vehicules'])} l="Véhicules" icone="voiture" />}
             <StatCard n={Number(n['enCours'] ?? 0)} l="Engagements en cours" tone="warn" />
             <StatCard n={Number(n['soldes'] ?? 0)} l="Soldés" tone="ok" />
@@ -5426,8 +5430,8 @@ SCREENS.amendes = ({ go }) => {
     </div>
     {loading ? <Spinner /> : <>
       <div className="card"><div className="stats">
-        <StatCard n={Number(k['camions'] ?? 0)} l="Camions" etape="cfs" onClick={() => setType('')} />
-        <StatCard n={Number(k['conteneurs'] ?? 0)} l="Conteneurs" etape="t1" />
+        <StatCard n={Number(k['camions'] ?? 0)} l="Camions" icone="camion" etape="cfs" onClick={() => setType('')} />
+        <StatCard n={Number(k['conteneurs'] ?? 0)} l="Conteneurs" icone="conteneur" etape="t1" />
         <StatCard n={fmtFcfa(k['montantTotal'])} l="Montant total" tone="ok" icone="document" />
         <StatCard n={Number(k['forfaits'] ?? 0)} l={`Forfaits ${fmtFcfa(AMENDE_EFFETS_FORFAIT)}`} onClick={() => setType('Forfait')} />
         <StatCard n={Number(k['autres'] ?? 0)} l="Autres montants" tone="warn" onClick={() => setType('Autre montant')} />

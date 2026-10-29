@@ -4717,3 +4717,9 @@ button.modal-fermer:focus-visible{outline:2px solid #0e5a8a;outline-offset:2px}
   .seg-choix.actif,.seg-choix.actif .seg-voyant{animation:none}
   .seg-choix:hover:not(.actif),.seg-choix:hover .ic{transform:none}
 }
+
+/* Un en-tete de colonne precede de son dessin (2026-10-29, demande
+   utilisateur). Trois colonnes de chiffres se suivent dans la liste des
+   declarations, et on comptait les colonnes pour savoir laquelle on lisait. */
+.th-ic{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.th-ic .ic{flex:0 0 auto;opacity:.7}
