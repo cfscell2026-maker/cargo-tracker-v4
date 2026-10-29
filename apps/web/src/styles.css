@@ -4992,3 +4992,30 @@ button.modal-fermer:focus-visible{outline:2px solid #0e5a8a;outline-offset:2px}
 @media (prefers-reduced-motion:reduce){
   .bm-outils .onglet-mag{transition:none}
 }
+
+
+/* ===== LA PESEE REPONDUE POUR TOUTE LA DECLARATION, 2026-10-29 ==========
+ *
+ * Demande utilisateur : alleger le travail des agents a la validation.
+ * Mesure faite avant d'ecrire : 145 dossiers attendent, et la plus grosse
+ * declaration en porte 13 — le chef repondait jusqu'a treize fois a la meme
+ * question pour un seul dossier.
+ *
+ * LE BLOC SE DISTINGUE DES LIGNES qu'il commande : fond ambre tres dilue,
+ * comme la pesee elle-meme. Pose en blanc comme le reste, on l'aurait pris
+ * pour une ligne de plus, et on aurait continue a repondre une par une.
+ */
+.pesee-lot{
+  margin:12px 0 4px;padding:11px 13px;border-radius:16px;
+  background:rgba(180,83,31,.06);
+  border:1px solid rgba(180,83,31,.18);
+}
+.pesee-lot .section-title{display:flex;align-items:center;gap:7px;margin:0 0 8px}
+.pesee-lot-actions{gap:8px;flex-wrap:wrap;align-items:center;margin:0}
+.pesee-lot-actions .ghost{display:inline-flex;align-items:center;gap:6px}
+.pesee-lot-etat{margin-left:auto;font-variant-numeric:tabular-nums}
+.pesee-lot-note{margin:8px 0 0;font-size:11.5px;max-width:78ch}
+
+@media (max-width:560px){
+  .pesee-lot-etat{margin-left:0;width:100%}
+}

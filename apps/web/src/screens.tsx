@@ -4323,6 +4323,23 @@ function DossierValidation({ decl, data, loading, error, reload, signee, onSigne
   const setPesee = (id: string, p: Pesee) => setPesees((o) => ({ ...o, [id]: p }));
   // Chaque DÉPOTAGE à valider doit avoir une pesée complète ; le reste est prêt d'office.
   const peseesPretes = peseesLotPretes(aValider, aPeser, pesees);
+  /* LA PESEE, REPONDUE UNE FOIS POUR TOUTE LA DECLARATION (2026-10-29,
+     demande utilisateur : « eviter d'alourdir le travail pour les agents »).
+     Mesure faite avant d'ecrire : 145 dossiers attendent une validation, et
+     la plus grosse declaration en porte 13. Le chef repondait donc jusqu'a
+     treize fois a la meme question pour un seul dossier.
+     Le choix groupe ne REMPLACE pas la pesee par camion : il la pre-remplit,
+     et chaque ligne reste modifiable. C'est ce qui le rend sur — rien n'est
+     signe sans qu'une valeur existe pour chaque camion. */
+  const aPeserIci = aValider.filter((id) => aPeser.has(id));
+  const peseeGroupee = (v: 'oui' | 'non') => setPesees((o) => {
+    const copie = { ...o };
+    for (const id of aPeserIci) copie[id] = { enSurcharge: v, poids: copie[id]?.poids ?? '' };
+    return copie;
+  });
+  /* Ce qui est deja repondu, pour que le bloc dise ou l'on en est au lieu de
+     se contenter d'offrir deux boutons. */
+  const peseesFaites = aPeserIci.filter((id) => peseeComplete(pesees[id])).length;
   // Amende pour effets non déclarés (2026-10-19) : une réponse PAR enlèvement.
   const [amendes, setAmendes] = useState<Record<string, ChoixAmende>>({});
   const aAmender = idsAmende(data ? [data] : []);
@@ -4375,6 +4392,30 @@ function DossierValidation({ decl, data, loading, error, reload, signee, onSigne
           <StatCard n={Number(cpt['dejaValidees'] ?? 0)} l="Déjà validées" icone="valider" tone="ok" />
         </div>
 
+        {/* Deux depotages ou plus : la question se pose une fois. En dessous,
+            le bloc ne ferait qu'ajouter un detour a une seule reponse. */}
+        {aPeserIci.length > 1 && <div className="pesee-lot">
+          <div className="section-title"><Icone nom="balance" taille={14} />
+            Pesée des {aPeserIci.length} dépotages</div>
+          <div className="row pesee-lot-actions">
+            <button className="ghost xs" onClick={() => peseeGroupee('non')}>
+              <Icone nom="valider" taille={14} />Tous hors surcharge
+            </button>
+            <button className="ghost xs" onClick={() => peseeGroupee('oui')}>
+              <Icone nom="attention" taille={14} />Tous en surcharge
+            </button>
+            <span className="help pesee-lot-etat">
+              {peseesFaites === aPeserIci.length
+                ? <>Les {aPeserIci.length} pesées sont renseignées.</>
+                : <>{peseesFaites} / {aPeserIci.length} renseignées</>}
+            </span>
+          </div>
+          <p className="help pesee-lot-note">
+            Répond pour tous les dépotages de cette déclaration, et chaque camion
+            reste modifiable ci-dessous. <b>En surcharge</b>, le poids se saisit camion
+            par camion : c'est une mesure, elle ne se déduit pas.
+          </p>
+        </div>}
         {aValider.length > 0 && eng.champ}
         {aValider.length > 0
           ? <div className="row" style={{ alignItems: 'center', marginTop: 4, gap: 12, flexWrap: 'wrap' }}>
