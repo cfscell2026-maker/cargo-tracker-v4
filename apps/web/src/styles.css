@@ -1987,12 +1987,20 @@ tr.clk{cursor:pointer} tr.clk:hover{background:var(--accent-soft)}
    Pas de flou ici : un champ se lit et se remplit, il n'a pas à être une
    plaque de verre, et c'est autant de calcul épargné. */
 input,select,textarea{
-  border-radius:10px;
+  /* ARRONDI GENERAL (2026-10-29, demande utilisateur). Pose ICI, et non ecran
+     par ecran : un formulaire ecrit demain heritera de la forme sans rien
+     declarer, et les regles locales posees ces derniers jours deviennent de
+     simples redites. Le textarea garde des coins, pas une capsule : sur
+     plusieurs lignes, une capsule rogne le texte des deux cotes. */
+  border-radius:999px;
   padding:9px 12px;
   border:1px solid rgba(15,45,70,.16);
   box-shadow:inset 0 1px 2px rgba(15,35,55,.04);
   transition:border-color .15s ease,box-shadow .18s ease,background .18s ease;
 }
+/* Le textarea garde des coins, pas une capsule : sur plusieurs lignes, une
+   capsule rognerait le texte des deux cotes. */
+textarea{border-radius:16px}
 input:hover:not(:disabled),select:hover:not(:disabled),textarea:hover:not(:disabled){
   border-color:rgba(15,45,70,.3);
 }
@@ -2853,7 +2861,9 @@ label.help.lbl-icone svg{color:var(--accent);flex:0 0 auto}
   background:rgba(255,255,255,.15);
   border:1px solid rgba(255,255,255,.36);
   color:#fff;
-  border-radius:12px;padding:8px 12px;font-size:13px;
+  /* 999 px comme partout depuis le 2026-10-29 : le bandeau etait le dernier
+     endroit ou un champ gardait des coins. */
+  border-radius:999px;padding:8px 14px;font-size:13px;
   backdrop-filter:blur(10px) saturate(140%);
   -webkit-backdrop-filter:blur(10px) saturate(140%);
   box-shadow:inset 0 1px 0 rgba(255,255,255,.18);
@@ -2875,8 +2885,8 @@ label.help.lbl-icone svg{color:var(--accent);flex:0 0 auto}
 /* Les boutons d'export du bandeau : contour clair, remplissage au survol. */
 .bm-outils button{
   background:rgba(255,255,255,.14);color:#fff;
-  border:1px solid rgba(255,255,255,.36);border-radius:12px;
-  padding:8px 12px;font-size:13px;font-weight:600;
+  border:1px solid rgba(255,255,255,.36);border-radius:999px;
+  padding:8px 14px;font-size:13px;font-weight:600;
 }
 .bm-outils button:hover:not(:disabled){
   background:#fff;color:var(--accent);border-color:#fff;

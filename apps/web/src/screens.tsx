@@ -1217,11 +1217,11 @@ function EntrepotGerer({ type, reload, admin }: { type: EntrepotType; reload: ()
 /** Champs de déclaration réutilisés (entrée / apurement). */
 function DeclEntrepot({ d, set, titre }: { d: O; set: (k: string, v: unknown) => void; titre: string }) {
   return <><div className="section-title">{titre}</div><div className="grid2">
-    <div><label className="help">Déclarant</label><input value={String(d['declarant'] ?? '')} onChange={(e) => set('declarant', masks.upper(e.target.value))} /></div>
-    <div><label className="help">Bureau</label><input value={String(d['bureauDeclaration'] ?? 'TG120')} onChange={(e) => set('bureauDeclaration', masks.upper(e.target.value))} /></div>
-    <div><label className="help">Type décl.</label><select value={String(d['typeDeclaration'] ?? 'T')} onChange={(e) => set('typeDeclaration', e.target.value)}>{TYPES_DECLARATION.map((t) => <option key={t} value={t}>{optionTypeDeclaration(t)}</option>)}</select></div>
-    <div><label className="help">N° décl.</label><input value={String(d['numeroDeclaration'] ?? '')} onChange={(e) => set('numeroDeclaration', masks.upper(e.target.value))} /></div>
-    <div><label className="help">Année</label><input value={String(d['anneeDeclaration'] ?? new Date().getFullYear())} onChange={(e) => set('anneeDeclaration', e.target.value)} /></div>
+    <div><label className="help">Déclarant</label><span className="champ-ic"><Icone nom="compte" taille={15} /><input value={String(d['declarant'] ?? '')} onChange={(e) => set('declarant', masks.upper(e.target.value))} /></span></div>
+    <div><label className="help">Bureau</label><span className="champ-ic"><Icone nom="usine" taille={15} /><input value={String(d['bureauDeclaration'] ?? 'TG120')} onChange={(e) => set('bureauDeclaration', masks.upper(e.target.value))} /></span></div>
+    <div><label className="help">Type décl.</label><span className="champ-ic"><Icone nom="liste" taille={15} /><select value={String(d['typeDeclaration'] ?? 'T')} onChange={(e) => set('typeDeclaration', e.target.value)}>{TYPES_DECLARATION.map((t) => <option key={t} value={t}>{optionTypeDeclaration(t)}</option>)}</select></span></div>
+    <div><label className="help">N° décl.</label><span className="champ-ic"><Icone nom="document" taille={15} /><input value={String(d['numeroDeclaration'] ?? '')} onChange={(e) => set('numeroDeclaration', masks.upper(e.target.value))} /></span></div>
+    <div><label className="help">Année</label><span className="champ-ic"><Icone nom="echeance" taille={15} /><input value={String(d['anneeDeclaration'] ?? new Date().getFullYear())} onChange={(e) => set('anneeDeclaration', e.target.value)} /></span></div>
   </div></>;
 }
 
@@ -1263,18 +1263,25 @@ function EntrepotEntree({ type, entrepots }: { type: EntrepotType; entrepots: O[
 
   return <div className="card"><h2>Nouvelle entrée</h2>
     <label className="help">Entrepôt</label>
+    <span className="champ-ic"><Icone nom="entrepot" taille={15} />
     <select value={code} onChange={(e) => setCode(e.target.value)}><option value="">Choisir…</option>
-      {entrepots.map((x) => <option key={String(x['code'])} value={String(x['code'])}>{String(x['nom'])} ({String(x['code'])})</option>)}</select>
+      {entrepots.map((x) => <option key={String(x['code'])} value={String(x['code'])}>{String(x['nom'])} ({String(x['code'])})</option>)}</select></span>
     <DeclEntrepot d={d} set={set} titre="Déclaration d'origine (sommier)" />
 
     <div className="row" style={{ alignItems: 'center', marginTop: 12 }}>
       <div className="section-title" style={{ flex: 1, margin: 0 }}>Articles ({arts.length}/11)</div>
       <button className="ghost xs" disabled={arts.length >= 11} onClick={() => setArts((a) => [...a, artVide()])}>＋ Ajouter un article</button>
     </div>
-    {arts.map((a, i) => <div key={i} className="grid2" style={{ border: '1px solid var(--line)', borderRadius: 6, padding: 8, marginTop: 6 }}>
-      <div><label className="help">Désignation article {i + 1}</label><input value={String(a['designation'])} onChange={(e) => majArt(i, 'designation', masks.upper(e.target.value))} /></div>
-      <div><label className="help">Nombre de colis</label><input value={String(a['nbColis'])} onChange={(e) => majArt(i, 'nbColis', e.target.value.replace(/[^0-9]/g, ''))} /></div>
-      {estIndus(type) && <div><label className="help">Poids (kg)</label><input value={String(a['poids'])} onChange={(e) => majArt(i, 'poids', e.target.value.replace(/[^0-9.,]/g, ''))} /></div>}
+    {arts.map((a, i) => <div key={i} className="grid2" style={{ border: '1px solid var(--line)', borderRadius: 16, padding: 10, marginTop: 6 }}>
+      <div><label className="help">Désignation article {i + 1}</label>
+        <span className="champ-ic"><Icone nom="boites" taille={15} />
+          <input value={String(a['designation'])} onChange={(e) => majArt(i, 'designation', masks.upper(e.target.value))} /></span></div>
+      <div><label className="help">Nombre de colis</label>
+        <span className="champ-ic"><Icone nom="liste" taille={15} />
+          <input value={String(a['nbColis'])} onChange={(e) => majArt(i, 'nbColis', e.target.value.replace(/[^0-9]/g, ''))} /></span></div>
+      {estIndus(type) && <div><label className="help">Poids (kg)</label>
+        <span className="champ-ic"><Icone nom="balance" taille={15} />
+          <input value={String(a['poids'])} onChange={(e) => majArt(i, 'poids', e.target.value.replace(/[^0-9.,]/g, ''))} /></span></div>}
       {arts.length > 1 && <div style={{ alignSelf: 'end' }}><button className="ghost xs" onClick={() => setArts((x) => x.filter((_, j) => j !== i))}>Retirer</button></div>}
     </div>)}
 
@@ -1294,8 +1301,9 @@ function EntrepotEntree({ type, entrepots }: { type: EntrepotType; entrepots: O[
       </label>
       {!manuelTC && <datalist id="dl-ent-tc">{tcs.map((t) => <option key={t} value={t} />)}</datalist>}
       {conts.map((c, i) => <div key={i} className="row" style={{ marginTop: 4 }}>
-        <input className="mono" value={c} {...(manuelTC ? {} : { list: 'dl-ent-tc' })}
-          onChange={(e) => setConts((a) => a.map((x, j) => j === i ? masks.tc(e.target.value) : x))} style={{ flex: 1 }} />
+        <span className="champ-ic" style={{ flex: 1 }}><Icone nom="conteneur" taille={15} />
+          <input className="mono" value={c} {...(manuelTC ? {} : { list: 'dl-ent-tc' })}
+            onChange={(e) => setConts((a) => a.map((x, j) => j === i ? masks.tc(e.target.value) : x))} /></span>
         <button className="ghost xs" onClick={() => setConts((a) => a.filter((_, j) => j !== i))}>Retirer</button>
       </div>)}
       <button className="ghost xs" style={{ marginTop: 6 }} onClick={() => setConts((a) => [...a, ''])}>＋ Conteneur</button>
@@ -3153,14 +3161,14 @@ SCREENS.new = ({ go }) => {
 
 function DeclFields({ d, set }: { d: O; set: (k: string, v: unknown) => void }) {
   return <div className="grid2">
-    <div><label className="help">Déclarant</label><input value={String(d['declarant'] ?? '')} onChange={(e) => set('declarant', masks.upper(e.target.value))} /></div>
-    <div><label className="help">Contact</label><input value={String(d['contactDeclarant'] ?? '')} onChange={(e) => set('contactDeclarant', masks.tel(e.target.value))} /></div>
+    <div><label className="help">Déclarant</label><span className="champ-ic"><Icone nom="compte" taille={15} /><input value={String(d['declarant'] ?? '')} onChange={(e) => set('declarant', masks.upper(e.target.value))} /></span></div>
+    <div><label className="help">Contact</label><span className="champ-ic"><Icone nom="utilisateurs" taille={15} /><input value={String(d['contactDeclarant'] ?? '')} onChange={(e) => set('contactDeclarant', masks.tel(e.target.value))} /></span></div>
     <ChampDestination value={String(d['destinationMarchandise'] ?? '')} onChange={(v) => set('destinationMarchandise', v)} />
-    <div><label className="help">Bureau</label><input value={String(d['bureauDeclaration'] ?? 'TG120')} onChange={(e) => set('bureauDeclaration', masks.upper(e.target.value))} /></div>
-    <div><label className="help">Type décl.</label><select value={String(d['typeDeclaration'] ?? 'T')} onChange={(e) => set('typeDeclaration', e.target.value)}>{TYPES_DECLARATION.map((t) => <option key={t} value={t}>{optionTypeDeclaration(t)}</option>)}</select></div>
-    <div><label className="help">N° décl.</label><input value={String(d['numeroDeclaration'] ?? '')} onChange={(e) => set('numeroDeclaration', masks.upper(e.target.value))} /></div>
-    <div><label className="help">Année</label><input value={String(d['anneeDeclaration'] ?? new Date().getFullYear())} onChange={(e) => set('anneeDeclaration', e.target.value)} /></div>
-    <div><label className="help">Désignation des marchandises</label><input value={String(d['descriptionMarchandise'] ?? '')} onChange={(e) => set('descriptionMarchandise', masks.upper(e.target.value))} /></div>
+    <div><label className="help">Bureau</label><span className="champ-ic"><Icone nom="usine" taille={15} /><input value={String(d['bureauDeclaration'] ?? 'TG120')} onChange={(e) => set('bureauDeclaration', masks.upper(e.target.value))} /></span></div>
+    <div><label className="help">Type décl.</label><span className="champ-ic"><Icone nom="liste" taille={15} /><select value={String(d['typeDeclaration'] ?? 'T')} onChange={(e) => set('typeDeclaration', e.target.value)}>{TYPES_DECLARATION.map((t) => <option key={t} value={t}>{optionTypeDeclaration(t)}</option>)}</select></span></div>
+    <div><label className="help">N° décl.</label><span className="champ-ic"><Icone nom="document" taille={15} /><input value={String(d['numeroDeclaration'] ?? '')} onChange={(e) => set('numeroDeclaration', masks.upper(e.target.value))} /></span></div>
+    <div><label className="help">Année</label><span className="champ-ic"><Icone nom="echeance" taille={15} /><input value={String(d['anneeDeclaration'] ?? new Date().getFullYear())} onChange={(e) => set('anneeDeclaration', e.target.value)} /></span></div>
+    <div><label className="help">Désignation des marchandises</label><span className="champ-ic"><Icone nom="boites" taille={15} /><input value={String(d['descriptionMarchandise'] ?? '')} onChange={(e) => set('descriptionMarchandise', masks.upper(e.target.value))} /></span></div>
   </div>;
 }
 
