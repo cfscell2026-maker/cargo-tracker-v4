@@ -5140,15 +5140,12 @@ button.modal-fermer:focus-visible{outline:2px solid #0e5a8a;outline-offset:2px}
  * tuiles a 28 px et de champs en capsule. Ils passent en CSS, ou la couleur
  * d'etape tient dans une variable au lieu d'un calcul dans le rendu.
  */
-/* GRILLE BENTO (2026-10-29, demande utilisateur) : sept camions empiles
-   faisaient defiler l'ecran sur pres de trois metres. Cote a cote, le chef
-   les embrasse d'un regard avant de signer.
-   380 px de large au minimum : en dessous, le tableau des conteneurs et la
-   pesee se replieraient, et la carte redeviendrait une colonne. */
-.val-bento{
-  display:grid;grid-template-columns:repeat(auto-fit,minmax(380px,1fr));
-  gap:12px;align-items:start;
-}
+/* ⚠ UNE COLONNE, ET NON UNE GRILLE (2026-10-29, demande utilisateur, apres
+   essai de la grille bento). Deux cartes cote a cote serraient le tableau des
+   conteneurs et la pesee : on gagnait de la hauteur et on perdait la
+   lisibilite de ce qu'on signe. L'empilement revient, le VERRE et les COINS
+   ARRONDIS restent — c'etait cela le gain, pas la mise en colonnes. */
+.val-bento{display:flex;flex-direction:column;gap:12px}
 .val-ligne{
   --t:var(--warn);
   position:relative;margin-bottom:0;padding:13px 15px;
@@ -5195,7 +5192,3 @@ button.modal-fermer:focus-visible{outline:2px solid #0e5a8a;outline-offset:2px}
   .val-ligne:hover{transform:none}
 }
 
-@media (max-width:560px){
-  /* Une seule colonne : la carte reprend toute la largeur, comme avant. */
-  .val-bento{grid-template-columns:1fr}
-}
