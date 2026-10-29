@@ -2424,9 +2424,12 @@ label.help.lbl-icone svg{color:var(--accent);flex:0 0 auto}
 .val-illustree svg{flex:0 0 auto;color:var(--accent);opacity:.8}
 .val-illustree > span{overflow:hidden;text-overflow:ellipsis}
 .seg-choix{
-  display:inline-flex;align-items:center;gap:9px;
-  padding:9px 16px;border-radius:999px;cursor:pointer;
-  font-size:13.5px;font-weight:600;
+  /* PLUS PETIT (2026-10-29, demande utilisateur) : deux rangees de pilules a
+     37 px de haut pesaient autant que le bloc de validation qu'elles servent.
+     31 px suffisent, et la cible reste large. */
+  display:inline-flex;align-items:center;gap:7px;
+  padding:6px 13px;border-radius:999px;cursor:pointer;
+  font-size:12.5px;font-weight:600;
   color:var(--muted);
   background:rgba(255,255,255,.86);
   border:1px solid rgba(15,45,70,.16);
@@ -2440,7 +2443,7 @@ label.help.lbl-icone svg{color:var(--accent);flex:0 0 auto}
 /* LE VOYANT. Eteint : un point gris mat, sans halo - il doit se lire comme
    eteint, pas comme une couleur pale. Allume : il s'eclaire et diffuse. */
 .seg-voyant{
-  flex:0 0 auto;width:10px;height:10px;border-radius:50%;
+  flex:0 0 auto;width:8px;height:8px;border-radius:50%;
   background:#c3cdd6;
   box-shadow:inset 0 1px 1px rgba(0,0,0,.18);
   transition:background .2s ease,box-shadow .3s ease;
@@ -4605,4 +4608,112 @@ button.modal-fermer:focus-visible{outline:2px solid #0e5a8a;outline-offset:2px}
     background-image:none;box-shadow:none;
   }
   .stat-icone > .ic,.bm-pastille > .ic,.alerte-eng-icone > .ic{filter:none}
+}
+
+
+/* ========== BON DE CHARGEMENT : LA CARTE DE RECHERCHE, 2026-10-29 ========
+ *
+ * Demande utilisateur : arrondir, poser une icone dans chaque champ, et
+ * mettre le logo avec une animation de chargement.
+ */
+
+/* ---- UNE ENVELOPPE A ICONE, REUTILISABLE ------------------------------
+ * `.trn-champ` faisait deja ce travail, mais dans la fenetre de soumission.
+ * Celle-ci porte un nom general : le prochain formulaire n'aura rien a
+ * reecrire. */
+.champ-ic{position:relative;display:flex;align-items:center;min-width:0;margin-top:4px}
+.champ-ic > .ic{
+  position:absolute;left:13px;z-index:1;pointer-events:none;
+  color:var(--muted);opacity:.75;
+}
+.champ-ic > input,
+.champ-ic > select{width:100%;padding-left:36px;margin:0}
+.champ-ic > select{padding-right:32px;background-position:right 13px center}
+
+.chg-recherche input,
+.chg-recherche select,
+.chg-recherche button{border-radius:999px}
+.chg-recherche h2{text-align:center;margin:10px 0 2px}
+.chg-sous{text-align:center;max-width:62ch;margin:0 auto 16px}
+.chg-pied{margin-top:14px;display:flex;justify-content:center}
+.chg-pied button{display:inline-flex;align-items:center;gap:7px;padding-left:20px;padding-right:20px}
+
+/* ---- LE LOGO SUR SON TAPIS -------------------------------------------- */
+.chg-logo{
+  position:relative;width:var(--t);height:var(--t);margin:2px auto 0;
+  display:grid;place-items:center;
+}
+.chg-logo .logo-rond{position:relative;z-index:2;width:var(--t);height:var(--t)}
+/* L'anneau tourne lentement : c'est le travail en cours, pas une attente. */
+.chg-anneau{
+  position:absolute;inset:-7px;border-radius:50%;
+  border:2px solid rgba(14,90,138,.18);
+  border-top-color:var(--accent);
+  animation:chg-tour 2.8s linear infinite;
+}
+@keyframes chg-tour{to{transform:rotate(360deg)}}
+/* LE TAPIS passe DERRIERE le logo (z-index 1 contre 2) : des caisses qui
+   masqueraient la marque une fois par seconde attireraient l'oeil sur le
+   mauvais objet. */
+.chg-tapis{
+  position:absolute;left:50%;top:58%;transform:translateX(-50%);
+  width:calc(var(--t) * 2);height:12px;z-index:1;overflow:hidden;
+}
+.chg-tapis i{
+  position:absolute;top:2px;width:9px;height:9px;border-radius:2px;
+  background:linear-gradient(145deg,#2f86c0,var(--accent));
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.45),0 1px 3px rgba(15,35,55,.3);
+  animation:chg-caisse 2.6s linear infinite;
+}
+.chg-tapis i:nth-child(2){animation-delay:.87s}
+.chg-tapis i:nth-child(3){animation-delay:1.74s}
+@keyframes chg-caisse{
+  0%  {left:-12px;opacity:0}
+  10% {opacity:1}
+  85% {opacity:1}
+  100%{left:100%;opacity:0}
+}
+/* Immobile, le dessin garde son sens : le logo, son anneau et trois caisses
+   posees dessous. */
+@media (prefers-reduced-motion:reduce){
+  .chg-anneau,.chg-tapis i{animation:none}
+  .chg-tapis i:nth-child(1){left:18%}
+  .chg-tapis i:nth-child(2){left:48%}
+  .chg-tapis i:nth-child(3){left:78%}
+}
+
+
+/* ===== LES CHOIX SEGMENTES : DESSIN ET MOUVEMENT, 2026-10-29 ============
+ *
+ * Demande utilisateur : reduire, poser des icones, animer legerement.
+ *
+ * TROIS MOUVEMENTS, ET UN SEUL QUI DURE. Cet ecran sert a SIGNER : ce qui
+ * bouge sans fin y devient du bruit. Deux des trois repondent a un geste et
+ * s'arretent ; seul le voyant du choix retenu respire, assez lentement pour
+ * se sentir sans se regarder.
+ */
+.seg-choix .ic{flex:0 0 auto;opacity:.75;transition:opacity .18s ease,transform .18s ease}
+.seg-choix:hover .ic{opacity:1;transform:scale(1.08)}
+.seg-choix.actif .ic{opacity:1;color:#fff}
+
+/* 1. LE CHOIX RETENU SE POSE : une breve mise a l'echelle au moment ou il
+      devient actif, la ou la valeur vient de changer. */
+.seg-choix.actif{animation:seg-pose .26s cubic-bezier(.2,.9,.3,1)}
+@keyframes seg-pose{
+  0%  {transform:scale(.94)}
+  60% {transform:scale(1.03)}
+  100%{transform:scale(1)}
+}
+/* 2. LE VOYANT RESPIRE une fois allume. */
+.seg-choix.actif .seg-voyant{animation:seg-voyant 2.8s ease-in-out infinite}
+@keyframes seg-voyant{
+  0%,100%{box-shadow:0 0 0 0 rgba(255,255,255,.55)}
+  55%    {box-shadow:0 0 0 4px rgba(255,255,255,0)}
+}
+/* 3. LE SURVOL SOULEVE la pilule d'un pixel, comme les autres boutons. */
+.seg-choix:hover:not(.actif){transform:translateY(-1px)}
+
+@media (prefers-reduced-motion:reduce){
+  .seg-choix.actif,.seg-choix.actif .seg-voyant{animation:none}
+  .seg-choix:hover:not(.actif),.seg-choix:hover .ic{transform:none}
 }

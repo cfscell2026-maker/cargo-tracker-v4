@@ -507,7 +507,7 @@ export function useSuiviEngagement() {
   const champ = <div style={{ marginTop: 10 }}>
     <div className="section-title">Suivi des engagements</div>
     <ChoixSegmente libelle="Suivi des engagements" valeur={suivi}
-      options={[{ valeur: 'oui', libelle: 'Oui', icone: 'valider' }, { valeur: 'non', libelle: 'Non' }]}
+      options={[{ valeur: 'oui', libelle: 'Oui', icone: 'valider' }, { valeur: 'non', libelle: 'Non', icone: 'stable' }]}
       onChange={(v) => {
         /* DEUX ETATS, ET PLUS TROIS. Recliquer sur le choix actif renvoyait
            « rien de choisi », ce qui rebloquait la signature sans un mot
@@ -595,11 +595,11 @@ export function ChampAmende({ valeur, onChange, compact }: {
   return <div style={{ marginTop: compact ? 0 : 10 }}>
     {!compact && <div className="section-title">Amende pour effets non déclarés</div>}
     <ChoixSegmente libelle="Amende pour effets non déclarés" valeur={valeur.reponse}
-      options={[{ valeur: 'oui', libelle: compact ? 'Amende payée' : 'Oui, amende payée' }, { valeur: 'non', libelle: compact ? 'Pas d\'amende' : 'Non' }]}
+      options={[{ valeur: 'oui', libelle: compact ? 'Amende payée' : 'Oui, amende payée', icone: 'balance' }, { valeur: 'non', libelle: compact ? 'Pas d\'amende' : 'Non', icone: 'stable' }]}
       onChange={(v) => onChange(v === 'oui' ? { ...valeur, reponse: 'oui' } : { ...AMENDE_VIDE, reponse: v === 'non' ? 'non' : '' })} />
     {valeur.reponse === 'oui' && <div className="row" style={{ alignItems: 'center', gap: 10, marginTop: 8, flexWrap: 'wrap' }}>
       <ChoixSegmente libelle="Montant de l'amende" valeur={valeur.mode}
-        options={[{ valeur: 'forfait', libelle: `Forfait ${fmtFcfa(AMENDE_EFFETS_FORFAIT)}` }, { valeur: 'autre', libelle: 'Autre montant' }]}
+        options={[{ valeur: 'forfait', libelle: `Forfait ${fmtFcfa(AMENDE_EFFETS_FORFAIT)}`, icone: 'presse' }, { valeur: 'autre', libelle: 'Autre montant', icone: 'crayon' }]}
         onChange={(v) => onChange({ ...valeur, mode: v === 'autre' ? 'autre' : 'forfait' })} />
       {valeur.mode === 'autre' && <input inputMode="numeric" style={{ maxWidth: 190 }} value={autreLisible}
         onChange={(e) => onChange({ ...valeur, autre: chiffres(e.target.value) })} placeholder="Montant payé (FCFA)" />}

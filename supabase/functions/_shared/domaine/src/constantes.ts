@@ -397,8 +397,14 @@ export function natureRapportEngagement(type: unknown): NatureRapportEngagement 
  * ne concerne que l'ENLÈVEMENT : c'est là que partent, entiers, les conteneurs
  * de véhicules dont les effets ne sont pas toujours déclarés. Le forfait est la
  * proposition par défaut ; « Autre » permet de saisir un montant différent.
+ *
+ * 150 000 FCFA depuis le 2026-10-29 (demande utilisateur), auparavant 250 000.
+ * ⚠ LES AMENDES DÉJÀ ENREGISTRÉES À 250 000 NE CHANGENT PAS, et c'est voulu :
+ * une amende est un fait daté. Elles cessent en revanche d'être comptées comme
+ * « forfait » dans le rapport, puisque celui-ci reconnaît le forfait au montant
+ * et non à une marque posée à la saisie ; elles rejoignent les « autres ».
  */
-export const AMENDE_EFFETS_FORFAIT = 250000;
+export const AMENDE_EFFETS_FORFAIT = 150000;
 
 export function exigeAmendeEffets(typeOperation: unknown): boolean {
   return typeOperation === OPERATIONS.ENLEVEMENT;

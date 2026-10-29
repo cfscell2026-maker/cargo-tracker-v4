@@ -3957,16 +3957,46 @@ SCREENS.chargement = () => {
   const dec = (res?.['declaration'] as O) ?? {};
   const apu = res?.['apurement'] as O | null;
 
-  return <div className="card">
+  return <div className="card chg-recherche">
+    <LogoChargement taille={64} />
     <h2>Bon de chargement, par déclaration</h2>
-    <p className="help" style={{ marginTop: 0 }}>Remonte tous les camions et véhicules ayant chargé des conteneurs de la déclaration, au statut <b>« Créée » (fin de chargement)</b>.</p>
+    <p className="help chg-sous">Remonte tous les camions et véhicules ayant chargé des conteneurs de la déclaration, au statut <b>« Créée » (fin de chargement)</b>.</p>
     <div className="grid2">
-      <div><label className="help">N° déclaration *</label><input className="mono" value={String(q['numeroDeclaration'])} onChange={(e) => set('numeroDeclaration', masks.upper(e.target.value))} onKeyDown={(e) => e.key === 'Enter' && chercher()} autoFocus /></div>
-      <div><label className="help">Année (facultatif)</label><input value={String(q['anneeDeclaration'])} onChange={(e) => set('anneeDeclaration', e.target.value)} /></div>
-      <div><label className="help">Bureau (facultatif)</label><input value={String(q['bureauDeclaration'])} onChange={(e) => set('bureauDeclaration', masks.upper(e.target.value))} /></div>
-      <div><label className="help">Type (facultatif)</label><select value={String(q['typeDeclaration'])} onChange={(e) => set('typeDeclaration', e.target.value)}><option value="">Tous</option>{TYPES_DECLARATION.map((t) => <option key={t} value={t}>{optionTypeDeclaration(t)}</option>)}</select></div>
+      {/* CHAQUE CHAMP PORTE SON SIGNE (2026-10-29, demande utilisateur) :
+          quatre cases blanches identiques obligeaient a relire leur libelle
+          pour retrouver celle qu'on visait. */}
+      <div><label className="help">N° déclaration *</label>
+        <span className="champ-ic">
+          <Icone nom="document" taille={15} />
+          <input className="mono" value={String(q['numeroDeclaration'])} placeholder="26387"
+            onChange={(e) => set('numeroDeclaration', masks.upper(e.target.value))}
+            onKeyDown={(e) => e.key === 'Enter' && chercher()} autoFocus />
+        </span>
+      </div>
+      <div><label className="help">Année (facultatif)</label>
+        <span className="champ-ic">
+          <Icone nom="echeance" taille={15} />
+          <input value={String(q['anneeDeclaration'])} placeholder="2026"
+            onChange={(e) => set('anneeDeclaration', e.target.value)} />
+        </span>
+      </div>
+      <div><label className="help">Bureau (facultatif)</label>
+        <span className="champ-ic">
+          <Icone nom="usine" taille={15} />
+          <input value={String(q['bureauDeclaration'])} placeholder="TG120"
+            onChange={(e) => set('bureauDeclaration', masks.upper(e.target.value))} />
+        </span>
+      </div>
+      <div><label className="help">Type (facultatif)</label>
+        <span className="champ-ic">
+          <Icone nom="liste" taille={15} />
+          <select value={String(q['typeDeclaration'])} onChange={(e) => set('typeDeclaration', e.target.value)}><option value="">Tous</option>{TYPES_DECLARATION.map((t) => <option key={t} value={t}>{optionTypeDeclaration(t)}</option>)}</select>
+        </span>
+      </div>
     </div>
-    <div style={{ marginTop: 12 }}><button disabled={busy} onClick={chercher}>{busy ? 'Recherche…' : 'Rechercher'}</button></div>
+    <div className="chg-pied"><button disabled={busy} onClick={chercher}>
+      <Icone nom="loupe" taille={15} />{busy ? 'Recherche…' : 'Rechercher'}
+    </button></div>
 
     {res && <div style={{ marginTop: 18 }}>
       <div className="row" style={{ alignItems: 'center' }}>
@@ -3987,6 +4017,27 @@ SCREENS.chargement = () => {
     </div>}
   </div>;
 };
+
+/**
+ * LE LOGO SUR UN TAPIS DE CHARGEMENT (2026-10-29, demande utilisateur).
+ *
+ * Meme grammaire que les deux autres emblemes de l'application : le `Spinner`
+ * fait tourner un conteneur (« ca travaille »), le verrou l'arrete contre une
+ * barriere (« c'est suspendu »), la transmission l'encadre d'un aller et d'un
+ * retour. Ici, des caisses defilent derriere le logo et un anneau tourne
+ * autour : c'est le chargement lui-meme, le geste que l'ecran va chercher.
+ *
+ * Les caisses passent DERRIERE le logo, et non devant : un dessin qui masque
+ * la marque une fois par seconde attire l'oeil sur le mauvais objet.
+ */
+function LogoChargement({ taille = 64 }: { taille?: number }) {
+  return <div className="chg-logo" style={{ ['--t' as string]: taille + 'px' }} aria-hidden="true">
+    <span className="chg-anneau" />
+    <span className="chg-tapis"><i /><i /><i /></span>
+    <img className="logo-rond" src="/logo.png" alt=""
+      onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />
+  </div>;
+}
 
 function LigneChargement({ r }: { r: O }) {
   const conts = (r['conteneurs'] as O[]) ?? [];

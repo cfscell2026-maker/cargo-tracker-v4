@@ -18,7 +18,7 @@ import * as rap from './rapports.ts';
 import * as lec from './lecture.ts';
 import { calculerEngagements } from './engagements-amendes.ts';
 import { controlerApresSortie } from './verrou-sortie.ts';
-import { natureRapportEngagement, verifierPermission } from '../../_shared/domaine/src/index.ts';
+import { natureRapportEngagement, verifierPermission, AMENDE_EFFETS_FORFAIT } from '../../_shared/domaine/src/index.ts';
 
 const dansNJours = (n: number) => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10);
 const moisCle = (v: unknown) => String(v ?? '').slice(0, 7) || null;
@@ -112,11 +112,11 @@ test('engagements : un ajout après validation est daté de l\'ajout, et le rapp
 
 test('amende : enregistrée à la validation d\'un enlèvement (forfait), visible sur la fiche et au journal', async () => {
   const { db, ctx, journal } = base([aValider('CT-3')]);
-  await ecr.valider(ctx, { id: 'CT-3', ...NON_ENG, amendeEffets: true, amendeMontant: '250 000' });
-  assert.deepEqual(db.store['amendes_effets']!.map((a) => [a['cargaison_id'], a['montant'], a['saisie_par']]), [['CT-3', 250000, 'u-chef']]);
-  assert.match(journal.at(-1)!.detail, /amende effets non déclarés : forfait 250 000 FCFA/);
+  await ecr.valider(ctx, { id: 'CT-3', ...NON_ENG, amendeEffets: true, amendeMontant: '150 000' });
+  assert.deepEqual(db.store['amendes_effets']!.map((a) => [a['cargaison_id'], a['montant'], a['saisie_par']]), [['CT-3', AMENDE_EFFETS_FORFAIT, 'u-chef']]);
+  assert.match(journal.at(-1)!.detail, /amende effets non déclarés : forfait 150 000 FCFA/);
   const fiche = await lec.cargoGet(ctx, { id: 'CT-3' });
-  assert.equal(fiche['amendeEffets'], 250000);
+  assert.equal(fiche['amendeEffets'], AMENDE_EFFETS_FORFAIT);
 });
 
 test('amende : « Non » n\'écrit rien ; champ absent (ancien écran) ne bloque pas ; hors enlèvement ignorée', async () => {
@@ -149,18 +149,18 @@ test('statistiques : camions, conteneurs, total, forfaits et autres, sur la pér
   ]);
   await ecr.validerLot(ctx, {
     ids: ['CT-10', 'CT-11', 'CT-12'], ...NON_ENG,
-    amendes: { 'CT-10': { amendeEffets: true, amendeMontant: 250000 }, 'CT-11': { amendeEffets: true, amendeMontant: 600000 } },
+    amendes: { 'CT-10': { amendeEffets: true, amendeMontant: AMENDE_EFFETS_FORFAIT }, 'CT-11': { amendeEffets: true, amendeMontant: 600000 } },
   });
   // Une amende saisie l'an dernier ne compte pas cette année.
   db.store['cargaisons'].push({ id: 'CT-OLD', annule: false, archive: false, numero_camion: 'X', type_operation: 'Enlèvement',
     statut: 'Créée', conteneurs_details: conteneurs('MSKU0000099') });
-  db.store['amendes_effets']!.push({ cargaison_id: 'CT-OLD', montant: 250000, saisie_le: '2025-01-05T08:00:00.000Z', saisie_par: 'u-chef' });
+  db.store['amendes_effets']!.push({ cargaison_id: 'CT-OLD', montant: AMENDE_EFFETS_FORFAIT, saisie_le: '2025-01-05T08:00:00.000Z', saisie_par: 'u-chef' });
 
   const an = new Date().toISOString().slice(0, 4);
   const r = (await rap.rapportAmendes(ctx, { du: `${an}-01-01`, au: `${an}-12-31`, granularite: 'mois' })) as {
     compte: Record<string, number>; lignes: Record<string, string>[]; series: Record<string, unknown>[];
   };
-  assert.deepEqual(r.compte, { camions: 2, conteneurs: 3, montantTotal: 850000, forfaits: 1, autres: 1, montantForfaits: 250000, montantAutres: 600000 });
+  assert.deepEqual(r.compte, { camions: 2, conteneurs: 3, montantTotal: AMENDE_EFFETS_FORFAIT + 600000, forfaits: 1, autres: 1, montantForfaits: AMENDE_EFFETS_FORFAIT, montantAutres: 600000 });
   assert.deepEqual(r.lignes.map((l) => l['ID']).sort(), ['CT-10', 'CT-11']);
   assert.equal(r.lignes.find((l) => l['ID'] === 'CT-10')!['Saisie par'], 'Chef A');
   assert.equal(r.series.length, 1);
@@ -170,12 +170,12 @@ test('correction après validation : ajout, changement, retrait, motif obligatoi
   const { db, ctx, journal } = base([aValider('CT-13', 'Enlèvement', {
     date_validation: '2026-10-02T08:00:00.000Z', statut: 'Sortie Enregistrée', date_sortie: '2026-10-03T08:00:00.000Z',
   })]);
-  await assert.rejects(() => ecr.amendeDefinir(ctx, { id: 'CT-13', amendeEffets: true, amendeMontant: 250000 }), /motif/);
+  await assert.rejects(() => ecr.amendeDefinir(ctx, { id: 'CT-13', amendeEffets: true, amendeMontant: AMENDE_EFFETS_FORFAIT }), /motif/);
   await controlerApresSortie(ctx, 'cargo.amende', { id: 'CT-13' });
-  await ecr.amendeDefinir(ctx, { id: 'CT-13', amendeEffets: true, amendeMontant: 250000, motif: 'constatée à la visite' });
+  await ecr.amendeDefinir(ctx, { id: 'CT-13', amendeEffets: true, amendeMontant: AMENDE_EFFETS_FORFAIT, motif: 'constatée à la visite' });
   await ecr.amendeDefinir(ctx, { id: 'CT-13', amendeEffets: true, amendeMontant: 300000, motif: 'reçu complémentaire' });
   assert.deepEqual(db.store['amendes_effets']!.map((a) => a['montant']), [300000]);
-  assert.match(journal.at(-1)!.detail, /Avant : forfait 250 000 FCFA → après : 300 000 FCFA/);
+  assert.match(journal.at(-1)!.detail, /Avant : forfait 150 000 FCFA → après : 300 000 FCFA/);
   await ecr.amendeDefinir(ctx, { id: 'CT-13', amendeEffets: false, motif: 'saisie en double' });
   assert.deepEqual(db.store['amendes_effets'], []);
 });
