@@ -704,6 +704,12 @@ function PanneauCFS({ c, dets, action, prefillDecl }: { c: O; dets: ReturnType<t
     });
   }
 
+  /* `numPret` dit la MEME chose que le garde de `ajouter()`, et c'est
+     volontaire : l'un grise le bouton, l'autre reste en dernier recours si la
+     saisie change entre le rendu et le clic. Deux ecritures d'une seule regle
+     auraient fini par diverger : elles appellent donc toutes deux `tcValide`. */
+  const numPret = tcValide(numSaisi);
+
   // Complète taille/type depuis la fiche du parc quand le conteneur n'est pas
   // dans la liste du jour (il n'a donc pas pu être pré-rempli plus haut).
   useEffect(() => {
@@ -774,7 +780,20 @@ function PanneauCFS({ c, dets, action, prefillDecl }: { c: O; dets: ReturnType<t
           </div>
         </>
       )}
-      <div style={{ marginTop: 12 }}><button onClick={ajouter}>Ajouter le conteneur</button></div>
+      {/* LE BOUTON ATTEND UN NUMERO VALIDE (2026-10-29, signale par
+          l'utilisateur). Il etait cliquable a vide, et le refus arrivait
+          APRES le clic, en bandeau rouge a l'autre bout de l'ecran : on
+          apprenait la regle en se cognant dedans, sans savoir quel champ
+          la portait. Elle est desormais ecrite sous le champ, avant. */}
+      <div style={{ marginTop: 12 }}>
+        <button onClick={ajouter} disabled={!numPret}>Ajouter le conteneur</button>
+        {!numPret && <div className="help" style={{ marginTop: 6 }}>
+          {numSaisi
+            ? <>« <b className="mono">{numSaisi}</b> » n'est pas un N° de conteneur : il en faut
+              <b> 4 lettres puis 7 chiffres</b>, par exemple <b className="mono">MSKU1234567</b>.</>
+            : <>Saisissez d'abord le <b>N° du conteneur</b> (4 lettres + 7 chiffres).</>}
+        </div>}
+      </div>
 
       {/* v4, un camion d'effets divers (0 conteneur) se finalise aussi (scellés camion). */}
       {!estEnl && c['statut'] === STATUTS.CHARGEMENT && <FinaliserDepotage id={id} action={action} />}
