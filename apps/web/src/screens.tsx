@@ -4126,10 +4126,8 @@ function ValidationDeclaration({ go, arg, retour, ecranPrecedent }: Nav) {
         le reste des commandes. */}
     <BandeauModule icone="valider" titre="Déclarations à valider"
       sous={<>
-        Ouvrez une déclaration pour examiner <b>tous</b> ses camions, véhicules et conteneurs,
-        puis signer l'ensemble en une fois, ou <b>cochez plusieurs déclarations</b> et validez-les
-        toutes d'un même geste.
-        {decls.length > 0 && <>, <b>{decls.length}</b> en attente.</>}
+        Ouvrez une déclaration pour la signer entière, ou cochez-en plusieurs.
+        {decls.length > 0 && <> <b>{decls.length}</b> en attente.</>}
       </>}
       action={<div className="bm-outils">
         <input className="mono" placeholder="N° de déclaration" style={{ width: 170 }}
