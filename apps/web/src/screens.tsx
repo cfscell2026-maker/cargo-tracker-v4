@@ -1051,6 +1051,12 @@ function EcranEntrepot({ nav, type }: { nav: Nav; type: EntrepotType }) {
   const { data, loading, reload } = useAsync<{ rows: O[] }>(() => call('entrepot.list', { type }), [type]);
   const entrepots = (data?.rows ?? []) as O[];
   const peutGerer = aRoleParmi(nav.user.role, [ROLES.ADMIN, ROLES.CHEF_BRIGADE, ROLES.CHEF_DIVISION]);
+  /* LE CHOIX DU MAGASIN REMONTE DANS LA BANDE (2026-10-29, demande
+     utilisateur). Il commande TOUT ce qui suit, entrees comme apurements, et
+     il etait enfoui en tete de chaque formulaire : on le reglait deux fois,
+     une par onglet, et changer d'onglet le perdait. Pose ici, il vaut pour
+     l'ecran entier et se garde d'un onglet a l'autre. */
+  const [codeEntrepot, setCodeEntrepot] = useState('');
   const T: [string, string][] = [['entree', 'Entrée'], ['sortie', 'Sortie (apurement)'], ['stats', 'Statistiques']];
   if (peutGerer) T.push(['gerer', 'Entrepôts']);
   return <>
@@ -1069,11 +1075,22 @@ function EcranEntrepot({ nav, type }: { nav: Nav; type: EntrepotType }) {
           <Icone nom={({ entree: 'televerser', sortie: 'sortie', stats: 'rapport', gerer: 'entrepot' } as Record<string, string>)[k] ?? 'liste'} taille={15} />
           {l}
         </button>)}
+        {/* Le magasin : seuls l'entree et l'apurement s'en servent. Les
+            statistiques les couvrent tous, la gestion les liste. */}
+        {(onglet === 'entree' || onglet === 'sortie') && entrepots.length > 0 && <>
+          <label className="help">Magasin</label>
+          <select value={codeEntrepot} onChange={(e) => setCodeEntrepot(e.target.value)}
+            title="Le magasin sur lequel porte la saisie" style={{ maxWidth: 220 }}>
+            <option value="">Choisir…</option>
+            {entrepots.map((x) => <option key={String(x['code'])} value={String(x['code'])}>
+              {String(x['nom'])} ({String(x['code'])})</option>)}
+          </select>
+        </>}
       </div>} />
     {loading ? <Spinner /> : entrepots.length === 0 && onglet !== 'gerer'
       ? <div className="card"><div className="empty">Aucun entrepôt {titre}. {peutGerer ? 'Créez-en un dans l\'onglet « Entrepôts ».' : 'Demandez à un chef d\'en créer un.'}</div></div>
-      : onglet === 'entree' ? <EntrepotEntree type={type} entrepots={entrepots} />
-        : onglet === 'sortie' ? <EntrepotSortie type={type} entrepots={entrepots} nav={nav} />
+      : onglet === 'entree' ? <EntrepotEntree type={type} entrepots={entrepots} code={codeEntrepot} />
+        : onglet === 'sortie' ? <EntrepotSortie type={type} entrepots={entrepots} nav={nav} code={codeEntrepot} />
           : onglet === 'stats' ? <EntrepotStats type={type} role={nav.user.role} />
             : <EntrepotGerer type={type} reload={reload} admin={aPouvoirAdmin(nav.user.role)} />}
   </>;
@@ -1228,8 +1245,7 @@ function DeclEntrepot({ d, set, titre }: { d: O; set: (k: string, v: unknown) =>
 }
 
 /** Entrée : déclaration + jusqu'à 11 articles + conteneurs éventuels. */
-function EntrepotEntree({ type, entrepots }: { type: EntrepotType; entrepots: O[] }) {
-  const [code, setCode] = useState('');
+function EntrepotEntree({ type, entrepots, code }: { type: EntrepotType; entrepots: O[]; code: string }) {
   const [d, setD] = useState<O>({ bureauDeclaration: 'TG120', typeDeclaration: 'T', anneeDeclaration: String(new Date().getFullYear()) });
   const artVide = () => ({ designation: '', nbColis: '', poids: '' });
   const [arts, setArts] = useState<O[]>([artVide()]);
@@ -1264,10 +1280,11 @@ function EntrepotEntree({ type, entrepots }: { type: EntrepotType; entrepots: O[
   }
 
   return <div className="card"><h2>Nouvelle entrée</h2>
-    <label className="help">Entrepôt</label>
-    <span className="champ-ic"><Icone nom="entrepot" taille={15} />
-    <select value={code} onChange={(e) => setCode(e.target.value)}><option value="">Choisir…</option>
-      {entrepots.map((x) => <option key={String(x['code'])} value={String(x['code'])}>{String(x['nom'])} ({String(x['code'])})</option>)}</select></span>
+    {/* Le magasin se choisit dans la bande : ici on rappelle seulement lequel,
+        et on refuse d'ouvrir le formulaire tant qu'aucun n'est choisi. */}
+    {!code
+      ? <div className="empty">Choisissez d'abord un <b>magasin</b> dans la bande, en haut.</div>
+      : <>
     <DeclEntrepot d={d} set={set} titre="Déclaration d'origine (sommier)" />
 
     <div className="row" style={{ alignItems: 'center', marginTop: 12 }}>
@@ -1312,13 +1329,14 @@ function EntrepotEntree({ type, entrepots }: { type: EntrepotType; entrepots: O[
     </div>}
 
     <div style={{ marginTop: 14 }}><button disabled={busy} onClick={envoyer}>{busy ? 'Enregistrement…' : 'Enregistrer l\'entrée'}</button></div>
+    </>}
   </div>;
 }
 
 /** Sortie / apurement : choisir entrepôt → entrée → article → quantité + déclaration d'apurement + véhicules. */
-function EntrepotSortie({ type, entrepots, nav }: { type: EntrepotType; entrepots: O[]; nav: Nav }) {
-  void nav;
-  const [code, setCode] = useState('');
+function EntrepotSortie({ type, entrepots, nav, code }: { type: EntrepotType; entrepots: O[]; nav: Nav; code: string }) {
+  // `entrepots` ne sert plus ici : le choix du magasin est dans la bande.
+  void nav; void entrepots;
   const { data, loading, reload } = useAsync<{ unite: string; rows: O[] }>(
     () => (code ? call('entrepot.entrees', { entrepotCode: code }) : Promise.resolve({ unite: 'colis', rows: [] })), [code]);
   const entrees = (data?.rows ?? []) as O[];
@@ -1366,9 +1384,7 @@ function EntrepotSortie({ type, entrepots, nav }: { type: EntrepotType; entrepot
   }
 
   return <div className="card"><h2>Sortie (apurement), vrac</h2>
-    <label className="help">Entrepôt</label>
-    <select value={code} onChange={(e) => { setCode(e.target.value); setEntreeId(''); }}><option value="">Choisir…</option>
-      {entrepots.map((x) => <option key={String(x['code'])} value={String(x['code'])}>{String(x['nom'])} ({String(x['code'])})</option>)}</select>
+    {!code && <div className="empty">Choisissez d'abord un <b>magasin</b> dans la bande, en haut.</div>}
     {code && (loading ? <Spinner /> : <>
       <label className="help" style={{ marginTop: 10 }}>Déclaration à apurer (entrée)</label>
       <select value={entreeId} onChange={(e) => { setEntreeId(e.target.value); setNumeroArticle('1'); }}><option value="">Choisir une entrée…</option>

@@ -83,15 +83,27 @@ async function dossiersParPlaque(ctx: Ctx, plaques: string[]) {
   const par = new Map<string, { id: string; statut: string; etape: string }>();
   const cles = [...new Set(plaques.filter(Boolean))];
   if (!cles.length) return par;
-  const { data, error } = await ctx.db.from('cargaisons')
-    .select('id, numero_camion_norm, statut, type_declaration, date_creation, date_sortie, '
-      + 'date_validation, date_t1, date_pose_gps, bon_sortie_numero, '
-      + 'saute_t1, saute_balise, saute_bs, est_vehicule')
-    .in('numero_camion_norm', cles)
-    .is('date_sortie', null)
-    .order('date_creation', { ascending: false });
-  if (error) throw new Error(error.message);
-  for (const r of (data ?? []) as Record<string, unknown>[]) {
+  /* ⚠ PAR PAQUETS, ET NON D'UN SEUL COUP (2026-10-29, erreur constatee en
+     production : l'ecran Parking ne s'ouvrait plus, « erreur technique »).
+     899 camions sont presents au parc ; demander leurs dossiers en une seule
+     requete mettait les 899 plaques dans l'URL, qui depassait la limite du
+     serveur. Le mur avait DEJA ete rencontre vingt lignes plus bas, pour les
+     pointages, decoupes par 300 ; cette lecture-ci avait ete oubliee.
+     Le decoupage ne change aucun resultat : les paquets alimentent la meme
+     table, et le tri par date reste applique a chacun. */
+  const rows: Record<string, unknown>[] = [];
+  for (let i = 0; i < cles.length; i += 300) {
+    const { data, error } = await ctx.db.from('cargaisons')
+      .select('id, numero_camion_norm, statut, type_declaration, date_creation, date_sortie, '
+        + 'date_validation, date_t1, date_pose_gps, bon_sortie_numero, '
+        + 'saute_t1, saute_balise, saute_bs, est_vehicule')
+      .in('numero_camion_norm', cles.slice(i, i + 300))
+      .is('date_sortie', null)
+      .order('date_creation', { ascending: false });
+    if (error) throw new Error(error.message);
+    rows.push(...((data ?? []) as Record<string, unknown>[]));
+  }
+  for (const r of rows) {
     const c = versCamel(r);
     const cle = String(c['numeroCamionNorm'] ?? '');
     if (!cle || par.has(cle)) continue;

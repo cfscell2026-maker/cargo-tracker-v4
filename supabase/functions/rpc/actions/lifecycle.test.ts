@@ -4113,3 +4113,46 @@ test('dépotage mixte : plus aucun ajout une fois le camion engagé en aval', as
     () => ecr.cfs(cfs, { id, conteneur: { num: 'TCLU6666666', taille: "20'", type: 'DRY' } }),
     /Ajout impossible/);
 });
+
+/* ====== PARKING : AU-DELA DE 300 CAMIONS PRESENTS, 2026-10-29 ============
+ *
+ * Erreur constatee en production : l'ecran Parking ne s'ouvrait plus,
+ * « une erreur technique est survenue ». 899 camions etaient presents au
+ * parc, et leurs dossiers etaient demandes en UNE SEULE requete : les 899
+ * plaques partaient dans l'URL, qui depassait la limite du serveur.
+ *
+ * Le mur avait deja ete rencontre dans la meme fonction, pour les pointages,
+ * decoupes par paquets de 300 ; la recherche des dossiers avait ete oubliee.
+ *
+ * Ce test fixe la regle qui compte : AU-DELA DU PAQUET, ON NE PERD PERSONNE.
+ * Il ne reproduit pas la limite d'URL — le double de test ne la connait pas —
+ * mais il tombe si la boucle disparait ou ne couvre qu'un paquet, ce qui est
+ * la faute dont on se releve.
+ */
+test('parking : 350 camions presents, aucun dossier perdu au-dela du paquet de 300', async () => {
+  const db = new FakeDB();
+  const cfs = ctxAvec(db);
+  const gardien = ctxRole(db, 'BALISE', 'Agent Balise');
+
+  const plaques: string[] = [];
+  for (let i = 0; i < 350; i++) {
+    const plaque = `TG${String(7000 + i)}ZZ/RM09`;
+    plaques.push(plaque);
+    await ecr.createcamion(cfs, { numeroCamion: plaque, routage: 'Enlèvement' });
+    await prk.parkingAdd(gardien, { numeroCamion: plaque });
+  }
+
+  const vue = (await prk.parkingList(gardien, {})) as {
+    lignes: { numeroCamion: string; cargaisonId: string }[];
+    compte: { presents: number };
+  };
+  assert.equal(vue.compte.presents, 350);
+
+  // LE POINT DU TEST : chaque ligne porte SON dossier, y compris la 350e.
+  // Avec une seule requete bornee au premier paquet, les 50 dernieres
+  // seraient arrivees sans dossier, et le bouton « ouvrir la fiche » aurait
+  // disparu de leur ligne sans un mot d'explication.
+  const sansDossier = vue.lignes.filter((l) => !l.cargaisonId);
+  assert.deepEqual(sansDossier.map((l) => l.numeroCamion), [],
+    'toutes les lignes portent leur dossier, au-dela du paquet de 300');
+});
