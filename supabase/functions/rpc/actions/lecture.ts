@@ -862,7 +862,13 @@ export async function archiveAncienne(ctx: Ctx, p: Record<string, unknown>) {
   let q = ctx.db
     .from('cargaisons')
     .select('id, numero_camion, type_operation, statut, date_creation, date_sortie, '
-      + 'declarant, numero_declaration, annee_declaration, nb_conteneurs', { count: 'exact' })
+      + 'declarant, contact_declarant, destination_marchandise, description_marchandise, '
+      + 'numero_declaration, annee_declaration, bureau_declaration, type_declaration, '
+      + 'nb_conteneurs, conteneurs_details, twins, est_vehicule, '
+      + 'agent_cfs, date_validation, date_t1, bon_sortie_numero, date_bon_sortie, '
+      + 'numero_gps, date_pose_gps, balise_requise, arrivee_bureau, '
+      + 'suivi_engagement, engagement_type, engagement_delai, engagement_effectue_le, '
+      + 'archive, archive_auto, archive_motif', { count: 'exact' })
     .lt('date_creation', seuil + 'T00:00:00')
     .neq('annule', true);
 

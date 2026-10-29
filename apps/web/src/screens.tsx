@@ -20,7 +20,7 @@ import type { Nav } from './App.tsx';
 import { useNav } from './lib/contexte-nav.ts';
 import { ROLES, OPERATIONS, VEHICULE_DESTINATIONS, TYPES_DECLARATION, optionTypeDeclaration, STATUTS, SUIVENT_ENGAGEMENTS, ENGAGEMENTS, aRoleParmi,
   nombreOuNull, ecartLigne, totauxTransmission, manqueAuDepart, manqueALArrivee, dateDansNJours, tcValide, fileAttente, estTypeSansT1, libelleTypeSansT1, exigeControlePoids, exigeAmendeEffets, AMENDE_EFFETS_FORFAIT, NATURES_RAPPORT_ENGAGEMENT, dureeLisible,
-  ROLES_TECHNIQUES, rangTechnique, extraireNumerosTC, aLeDroit, aPouvoirAdmin} from '../../../supabase/functions/_shared/domaine/src/index.ts';
+  ROLES_TECHNIQUES, rangTechnique, extraireNumerosTC, aLeDroit, aPouvoirAdmin, parseConteneursDetails} from '../../../supabase/functions/_shared/domaine/src/index.ts';
 
 const STATUT_OPTIONS = Object.values(STATUTS);
 
@@ -6856,6 +6856,103 @@ export { SCREENS };
  * la table entière (GOV-05).
  */
 /**
+ * UNE LIGNE D'ARCHIVE QUI DIT TOUT (2026-10-29, demande utilisateur :
+ * « on doit tout voir, absolument tout ce qui concerne ce camion »).
+ *
+ * Huit colonnes ne disaient ni les conteneurs, ni le parcours, ni
+ * l'engagement : il fallait ouvrir chaque fiche pour savoir de quoi on
+ * parlait, et l'archive servait surtout a retrouver un identifiant.
+ *
+ * LE DETAIL SE DEPLIE, il ne s'etale pas. Tout afficher d'emblee aurait fait
+ * des lignes de huit centimetres de haut sur cinquante dossiers, et la liste
+ * serait redevenue illisible - le defaut qu'on vient de corriger ailleurs. On
+ * ouvre donc ce qu'on veut lire, une ligne a la fois.
+ */
+function LigneArchive({ r, go }: { r: O; go: Nav['go'] }) {
+  const [ouvert, setOuvert] = useState(false);
+  const dets = parseConteneursDetails(r['conteneursDetails']);
+  const kv = (lib: string, v: unknown, mono = false) => {
+    const t = v === null || v === undefined || v === '' ? '' : String(v);
+    return t ? <div className="kv"><b>{lib}</b><span className={mono ? 'mono' : ''}>{t}</span></div> : null;
+  };
+  return <>
+    <tr className="arc-ligne" onClick={() => setOuvert((o) => !o)}
+      title={ouvert ? 'Replier' : 'Voir tout ce qui concerne ce camion'}>
+      <td className="mono">
+        <span className={`arc-fleche${ouvert ? ' ouvert' : ''}`} aria-hidden="true">
+          <Icone nom="chevron" taille={13} />
+        </span>
+        {String(r['numeroCamion'] ?? '')}
+      </td>
+      <td className="mono help">{String(r['id'] ?? '')}</td>
+      <td>{String(r['typeOperation'] ?? '')}</td>
+      <td><Tag statut={String(r['statut'] ?? '')} o={r} /></td>
+      <td>{fmtJour(r['dateCreation'])}</td>
+      <td>{r['dateSortie'] ? fmtJour(r['dateSortie']) : '—'}</td>
+      <td>{String(r['declarant'] ?? '')}</td>
+      <td className="mono help">{String(r['numeroDeclaration'] ?? '')}</td>
+    </tr>
+    {ouvert && <tr className="arc-detail"><td colSpan={8}>
+      <div className="arc-tout">
+        <div className="arc-bloc">
+          <div className="section-title"><Icone nom="document" taille={14} />Déclaration</div>
+          <div className="fiche">
+            {kv('Déclarant', r['declarant'])}
+            {kv('Contact', r['contactDeclarant'])}
+            {kv('Déclaration', [r['numeroDeclaration'], r['anneeDeclaration'], r['bureauDeclaration'], r['typeDeclaration']].filter(Boolean).join(' · '), true)}
+            {kv('Destination', r['destinationMarchandise'])}
+            {kv('Marchandise', r['descriptionMarchandise'])}
+          </div>
+        </div>
+        <div className="arc-bloc">
+          <div className="section-title"><Icone nom="conteneur" taille={14} />
+            Conteneurs ({dets.conteneurs.length})</div>
+          {dets.conteneurs.length
+            ? <div className="tbl"><table>
+              <thead><tr><th>N°</th><th>Taille</th><th>Type</th><th>Scellé</th></tr></thead>
+              <tbody>{dets.conteneurs.map((ct: { num: string; taille: string; type: string; plomb: string }, i: number) => <tr key={i}>
+                <td className="mono">{ct.num}</td><td>{ct.taille || '—'}</td>
+                <td>{ct.type || '—'}</td>
+                <td className="mono">{ct.plomb || dets.scellesCamion[i] || '—'}</td>
+              </tr>)}</tbody></table></div>
+            : <div className="help">Aucun conteneur sur ce dossier.</div>}
+          {dets.scellesCamion.length > 0 && <div className="kv" style={{ marginTop: 6 }}>
+            <b>Scellés camion</b><span className="mono">{dets.scellesCamion.join(' · ')}</span></div>}
+        </div>
+        <div className="arc-bloc">
+          <div className="section-title"><Icone nom="flux" taille={14} />Parcours</div>
+          <div className="fiche">
+            {kv('Agent CFS', r['agentCfs'])}
+            {kv('Validé le', r['dateValidation'] ? fmtJour(r['dateValidation']) : '')}
+            {kv('T1 le', r['dateT1'] ? fmtJour(r['dateT1']) : '')}
+            {kv('Bon de sortie', [r['bonSortieNumero'], r['dateBonSortie'] ? fmtJour(r['dateBonSortie']) : ''].filter(Boolean).join(' · '), true)}
+            {kv('Balise', [r['numeroGps'], r['datePoseGps'] ? fmtJour(r['datePoseGps']) : ''].filter(Boolean).join(' · '), true)}
+            {kv('Sorti le', r['dateSortie'] ? fmtJour(r['dateSortie']) : '')}
+          </div>
+        </div>
+        {(r['suiviEngagement'] === true || r['archive'] === true || r['archiveAuto'] === true) && <div className="arc-bloc">
+          <div className="section-title"><Icone nom="echeance" taille={14} />Engagement et archivage</div>
+          <div className="fiche">
+            {r['suiviEngagement'] === true ? <>
+              {kv('Engagement', r['engagementType'])}
+              {kv('Délai', r['engagementDelai'] ? fmtJour(r['engagementDelai']) : '')}
+              {kv('Régularisé le', r['engagementEffectueLe'] ? fmtJour(r['engagementEffectueLe']) : 'pas encore')}
+            </> : null}
+            {r['archive'] === true ? kv('Archivé (goulot)', r['archiveMotif'] || 'oui') : null}
+            {r['archiveAuto'] === true ? kv('Archivé', 'automatiquement, dossier terminé') : null}
+          </div>
+        </div>}
+      </div>
+      <div className="arc-pied">
+        <button className="ghost xs arc-btn" onClick={(e) => { e.stopPropagation(); go('detail', String(r['id'])); }}>
+          <Icone nom="oeil" taille={14} />Ouvrir la fiche complète
+        </button>
+      </div>
+    </td></tr>}
+  </>;
+}
+
+/**
  * LE LOGO DANS SES ANNEAUX (2026-10-29, demande utilisateur).
  *
  * Meme grammaire que les autres emblemes : le `Spinner` fait tourner un
@@ -6952,17 +7049,7 @@ SCREENS.archive = ({ go }) => {
               <th>Décl.</th>
             </tr></thead>
             <tbody>
-              {rows.map((r) => <tr key={String(r['id'])} style={{ cursor: 'pointer' }}
-                onClick={() => go('detail', String(r['id']))}>
-                <td className="mono">{String(r['numeroCamion'] ?? '')}</td>
-                <td className="mono help">{String(r['id'] ?? '')}</td>
-                <td>{String(r['typeOperation'] ?? '')}</td>
-                <td><Tag statut={String(r['statut'] ?? '')} o={r} /></td>
-                <td>{fmtJour(r['dateCreation'])}</td>
-                <td>{r['dateSortie'] ? fmtJour(r['dateSortie']) : '—'}</td>
-                <td>{String(r['declarant'] ?? '')}</td>
-                <td className="mono help">{String(r['numeroDeclaration'] ?? '')}</td>
-              </tr>)}
+              {rows.map((r) => <LigneArchive key={String(r['id'])} r={r} go={go} />)}
             </tbody>
           </table>
         </div>
