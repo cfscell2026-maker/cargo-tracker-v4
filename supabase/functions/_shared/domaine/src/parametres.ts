@@ -47,6 +47,7 @@ export interface ValeursParametres {
   hauteurHorsGabarit: number;
   actualisationSecondes: number;
   archiveMois: number;
+  archiveAutoJours: number;
 }
 export type CleParametre = keyof ValeursParametres;
 
@@ -110,6 +111,14 @@ export const PARAMETRES: readonly DefParametre[] = [
     aide: 'Ancienneté à partir de laquelle un dossier apparaît dans « Archive ». Rien n\'est déplacé ni effacé : '
       + 'c\'est un simple filtre de lecture.',
     concerne: 'Administrateur, écran Archive',
+  },
+  {
+    cle: 'archiveAutoJours', groupe: 'Affichage', libelle: 'Archivage automatique après la sortie',
+    unite: 'jours', type: 'entier', defaut: 14, min: 7, max: 365,
+    aide: 'Un dossier SORTI depuis plus de ce nombre de jours est archivé chaque nuit : il quitte les listes et les '
+      + "rapports, ce qui allège les écrans. Rien n’est effacé et l’opération se défait (désarchivage). "
+      + "Un dossier encore en cours, annulé, ou dont l’engagement reste ouvert n’est JAMAIS archivé.",
+    concerne: 'Tâche de nuit, tous les écrans de listes',
   },
 ];
 
