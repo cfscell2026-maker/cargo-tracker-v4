@@ -1898,7 +1898,7 @@ function ModaleTransmission({ ligne, onClose, onFait }: { ligne: O; onClose: () 
   return <Modal onClose={() => !busy && onClose()}>
     <div className="trn-fenetre">
       <LogoTransmission taille={64} />
-      <h2>Transmettre l'engagement</h2>
+      <h2>Soumettre l'engagement</h2>
       <p className="help trn-sous">
         <b className="mono">{String(ligne['numeroCamion'] ?? '')}</b>
         {ligne['engagementType'] ? <> · {String(ligne['engagementType'])}</> : null}
@@ -2102,9 +2102,9 @@ function ModaleTransmission({ ligne, onClose, onFait }: { ligne: O; onClose: () 
         <div className="trn-pied">
           <button className="ghost" disabled={!!busy} onClick={onClose}>Annuler</button>
           <button disabled={!!busy || !!manqueDepart}
-            onClick={() => envoyer('engagement.depart', existe ? 'Transmission corrigée.' : 'Engagement transmis.')}>
-            <Icone nom="televerser" taille={15} />
-            {busy === 'engagement.depart' ? 'Enregistrement…' : existe ? 'Corriger le départ' : 'Transmettre'}
+            onClick={() => envoyer('engagement.depart', existe ? 'Soumission corrigée.' : 'Engagement soumis.')}>
+            <Icone nom="presse" taille={15} />
+            {busy === 'engagement.depart' ? 'Enregistrement…' : existe ? 'Corriger le départ' : 'Soumettre'}
           </button>
           {/* L'arrivée ne s'enregistre qu'une fois le départ connu : sans lui,
               il n'y a rien à quoi comparer. */}
@@ -2351,9 +2351,11 @@ SCREENS.engagements = ({ go, user, arg }) => {
                         donne aux lecteurs d'ecran, `title` l'affiche au survol.
                         Une icone nue, sans l'un ni l'autre, serait une devinette. */}
                     {peut && <button className="ghost xs acts-ic acts-ic-transmet" onClick={() => setTransmet(l)}
-                      aria-label={solde ? 'Voir la transmission' : 'Transmettre'}
-                      data-bulle={solde ? 'Voir la transmission' : 'Transmettre'}>
-                      <Icone nom={solde ? 'miseAJour' : 'televerser'} taille={16} />
+                      aria-label={solde ? "Voir la soumission" : "Soumettre l'engagement"}
+                      data-bulle={solde ? 'Voir la soumission' : "Soumettre l'engagement"}>
+                      {/* `presse` : un dossier qu'on remet, et non une fleche
+                          d'envoi. C'est le geste que nomme le bouton. */}
+                      <Icone nom={solde ? 'miseAJour' : 'presse'} taille={16} />
                     </button>}
                     {peut && <button className="ghost xs acts-ic acts-ic-corrige" onClick={() => setCorrige(l)}
                       aria-label="Corriger" data-bulle="Corriger">

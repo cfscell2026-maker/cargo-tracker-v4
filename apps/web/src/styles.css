@@ -3210,7 +3210,11 @@ tr:hover .avatar-u{
  */
 button.acts-ic,
 .acts-ic{
-  width:34px;height:34px;min-width:34px;padding:0;
+  /* 29 px et non 34 (2026-10-29, demande utilisateur). Trois pastilles par
+     ligne, sur des rangees hautes de 77 px : a 34 px elles pesaient autant
+     que le texte qu'elles accompagnent. Le format tactile est retabli plus
+     bas, ou il n'y a pas de souris pour viser. */
+  width:29px;height:29px;min-width:29px;padding:0;
   display:inline-grid;place-items:center;border-radius:50%;
   color:var(--accent);
   border:1px solid color-mix(in srgb,currentColor 34%,transparent);
@@ -3289,6 +3293,10 @@ button.acts-ic:disabled{opacity:.42;box-shadow:none}
 button.acts-ic:not(.nm-onglet):not(.hubitem):not(.seg-choix):not(.burger):not(.repli){overflow:visible}
 button.acts-ic:not(.nm-onglet):not(.hubitem):not(.seg-choix):not(.burger):not(.repli)::after{display:none}
 
+/* Le dessin suit la pastille. Une seule regle ici, plutot que de reprendre
+   la taille a chacun des neuf appels. */
+.acts-ic > .ic{width:14px;height:14px}
+
 button.acts-ic::before{
   content:attr(data-bulle);
   position:absolute;right:calc(100% + 8px);top:50%;
@@ -3349,7 +3357,9 @@ button.modal-fermer:focus-visible{outline:2px solid #0e5a8a;outline-offset:2px}
   }
   .acts-dossier .acts-lib{display:none}
   .acts-dossier button{min-width:36px;min-height:36px;justify-content:center;font-size:15px}
+  /* Au doigt, la cible reprend ses 36 px : en dessous, on manque le bouton. */
   .acts-ic{width:36px;height:36px;min-width:36px}
+  .acts-ic > .ic{width:15px;height:15px}
 }
 
 
@@ -4124,7 +4134,7 @@ button.modal-fermer:focus-visible{outline:2px solid #0e5a8a;outline-offset:2px}
 /* 36 px pour la pastille de retrait, qui a la taille des autres. */
 /* 178 px et non 130 : l'icone mange 36 px de retrait, et « Quantité
    déclarée » s'y coupait en « Quantité déc… ». */
-.trn-g2{grid-template-columns:1fr 178px 36px}
+.trn-g2{grid-template-columns:1fr 178px 31px}
 .trn-g3{grid-template-columns:1fr 178px 96px}
 
 /* Le volet se detache du fond de la fenetre : sans cadre, les deux listes se
