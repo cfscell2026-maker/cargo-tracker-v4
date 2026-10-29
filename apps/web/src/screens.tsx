@@ -1965,7 +1965,7 @@ function ModaleTransmission({ ligne, onClose, onFait }: { ligne: O; onClose: () 
           <button className="ghost" disabled={!!busy} onClick={onClose}>Annuler</button>
           <button disabled={!!busy || !!manqueDepart}
             onClick={() => envoyer('engagement.depart', existe ? 'Transmission corrigée.' : 'Engagement transmis.')}>
-            <Icone nom="megaphone" taille={15} />
+            <Icone nom="televerser" taille={15} />
             {busy === 'engagement.depart' ? 'Enregistrement…' : existe ? 'Corriger le départ' : 'Transmettre'}
           </button>
           {/* L'arrivée ne s'enregistre qu'une fois le départ connu : sans lui,
@@ -2217,7 +2217,7 @@ SCREENS.engagements = ({ go, user, arg }) => {
                       title={solde
                         ? "Voir ou completer la transmission : pays, N° IM4, marchandises, arrivée."
                         : "Transmettre : pays de destination, N° IM4, marchandises déclarées."}>
-                      <Icone nom={solde ? 'miseAJour' : 'megaphone'} taille={16} />
+                      <Icone nom={solde ? 'miseAJour' : 'televerser'} taille={16} />
                     </button>}
                     {peut && <button className="ghost xs acts-ic acts-ic-corrige" onClick={() => setCorrige(l)}
                       aria-label="Corriger"
