@@ -6871,6 +6871,17 @@ export { SCREENS };
 function LigneArchive({ r, go }: { r: O; go: Nav['go'] }) {
   const [ouvert, setOuvert] = useState(false);
   const dets = parseConteneursDetails(r['conteneursDetails']);
+  /* LE N° DE BON DE SORTIE N'EST PAS TOUJOURS UNE CHAINE (bug vu a l'ecran,
+     2026-10-29 : « Bon de sortie : [object Object] »). La colonne est en
+     `jsonb` et porte, selon le cas, un numero unique ou UNE LIGNE PAR
+     CONTENEUR, `[{conteneur, t1, numero}]`. `String()` sur la liste donnait
+     « [object Object] ». */
+  const numeroBonSortie = (v: unknown): string => {
+    if (Array.isArray(v)) {
+      return v.map((x) => String((x as O)?.['numero'] ?? '')).filter(Boolean).join(' · ');
+    }
+    return v === null || v === undefined ? '' : String(v);
+  };
   const kv = (lib: string, v: unknown, mono = false) => {
     const t = v === null || v === undefined || v === '' ? '' : String(v);
     return t ? <div className="kv"><b>{lib}</b><span className={mono ? 'mono' : ''}>{t}</span></div> : null;
@@ -6925,7 +6936,7 @@ function LigneArchive({ r, go }: { r: O; go: Nav['go'] }) {
             {kv('Agent CFS', r['agentCfs'])}
             {kv('Validé le', r['dateValidation'] ? fmtJour(r['dateValidation']) : '')}
             {kv('T1 le', r['dateT1'] ? fmtJour(r['dateT1']) : '')}
-            {kv('Bon de sortie', [r['bonSortieNumero'], r['dateBonSortie'] ? fmtJour(r['dateBonSortie']) : ''].filter(Boolean).join(' · '), true)}
+            {kv('Bon de sortie', [numeroBonSortie(r['bonSortieNumero']), r['dateBonSortie'] ? fmtJour(r['dateBonSortie']) : ''].filter(Boolean).join(' · '), true)}
             {kv('Balise', [r['numeroGps'], r['datePoseGps'] ? fmtJour(r['datePoseGps']) : ''].filter(Boolean).join(' · '), true)}
             {kv('Sorti le', r['dateSortie'] ? fmtJour(r['dateSortie']) : '')}
           </div>
