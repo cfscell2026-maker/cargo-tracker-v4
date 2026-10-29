@@ -1889,6 +1889,11 @@ function ModaleTransmission({ ligne, onClose, onFait }: { ligne: O; onClose: () 
   }
 
   const nombre = (v: number) => v.toLocaleString('fr-FR');
+  /* QUATRE ETATS, ET NON TROIS : « en attente » n'est pas « egal ». Tant
+     qu'aucune arrivee n'est constatee, l'ecart vaut `null`, et l'annoncer
+     « conforme » ferait croire a un controle deja fait. */
+  const etatEcart = totaux.ecart === null ? 'attente'
+    : totaux.ecart < 0 ? 'manque' : totaux.ecart > 0 ? 'surplus' : 'juste';
 
   return <Modal onClose={() => !busy && onClose()}>
     <div className="trn-fenetre">
@@ -2043,14 +2048,48 @@ function ModaleTransmission({ ligne, onClose, onFait }: { ligne: O; onClose: () 
              autres, parce que c'est elle que le service vient chercher. ---- */}
         <div className="trn-section trn-volet trn-volet-ecart">
           <h3><Icone nom="balance" taille={15} />Différence</h3>
-        <div className="trn-totaux">
-          <div><span className="help">Total au départ</span><b>{nombre(totaux.depart)}</b></div>
-          <div><span className="help">Total à l'arrivée</span><b>{nombre(totaux.arrivee)}</b></div>
-          <div className={`trn-total-ecart ${totaux.ecart === null ? 'attente' : totaux.ecart < 0 ? 'manque' : totaux.ecart > 0 ? 'surplus' : 'juste'}`}>
-            <span className="help">Différence</span>
-            <b>{totaux.ecart === null ? '—' : totaux.ecart > 0 ? `+${nombre(totaux.ecart)}` : nombre(totaux.ecart)}</b>
+          <div className="trn-totaux">
+            <div className="trn-total trn-total-depart">
+              <span className="trn-total-ic"><Icone nom="televerser" taille={15} /></span>
+              <span className="help">Total au départ</span>
+              <b>{nombre(totaux.depart)}</b>
+            </div>
+            <div className="trn-total trn-total-arrivee">
+              <span className="trn-total-ic"><Icone nom="telecharger" taille={15} /></span>
+              <span className="help">Total à l'arrivée</span>
+              <b>{nombre(totaux.arrivee)}</b>
+            </div>
           </div>
-        </div>
+
+          {/* LE VERDICT, ET PAS SEULEMENT LE NOMBRE (2026-10-29, demande
+              utilisateur). « -8 » seul demande de se rappeler dans quel sens
+              il se lit : manque-t-il huit, ou en a-t-on huit de trop ? Le
+              bloc le DIT, et sa couleur le redit sans qu'on lise : rouge il
+              manque, ambre il y a surplus, vert tout concorde, gris on
+              attend encore. */}
+          <div className={`trn-bilan ${etatEcart}`} role="status">
+            <span className="trn-bilan-ic" aria-hidden="true">
+              <Icone taille={20} nom={etatEcart === 'attente' ? 'sablier'
+                : etatEcart === 'manque' ? 'baisse'
+                  : etatEcart === 'surplus' ? 'hausse' : 'valider'} />
+            </span>
+            <div className="trn-bilan-txt">
+              <span className="trn-bilan-mot">
+                {etatEcart === 'attente' ? 'En attente'
+                  : etatEcart === 'manque' ? 'Manquant'
+                    : etatEcart === 'surplus' ? 'Surplus' : 'Conforme'}
+              </span>
+              <span className="help">
+                {etatEcart === 'attente' ? "aucune arrivée n'est encore constatée"
+                  : etatEcart === 'manque' ? `il manque ${nombre(Math.abs(totaux.ecart ?? 0))} à l'arrivée`
+                    : etatEcart === 'surplus' ? `${nombre(totaux.ecart ?? 0)} de plus qu'au départ`
+                      : "l'arrivée correspond exactement au départ"}
+              </span>
+            </div>
+            <b className="trn-bilan-n">
+              {totaux.ecart === null ? '—' : totaux.ecart > 0 ? `+${nombre(totaux.ecart)}` : nombre(totaux.ecart)}
+            </b>
+          </div>
         {totaux.enAttente > 0 && <div className="help trn-attente">
           <Icone nom="sablier" taille={13} />
           {totaux.enAttente} ligne(s) sans arrivée connue : elles ne comptent pas dans la différence.
