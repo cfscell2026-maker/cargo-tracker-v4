@@ -3111,6 +3111,33 @@ tr:hover .avatar-u{
 /* Modifier / Supprimer en bout de ligne (2026-09-12). */
 .acts-dossier{display:flex;gap:6px;flex-wrap:nowrap;white-space:nowrap}
 .acts-dossier .acts-suppr{color:var(--err);border-color:currentColor}
+
+/* ---- LES ACTIONS DE LIGNE EN PASTILLES, 2026-10-29 (demande utilisateur) --
+ *
+ * Trois boutons libelles, repetes sur deux cents lignes, mesuraient 296 px par
+ * rangee : la colonne poussait le tableau hors de l'ecran et il fallait le
+ * faire defiler de cote pour l'atteindre. Trois pastilles en font 114.
+ *
+ * LA COULEUR PORTE LA GRAVITE, et c'est elle qui remplace le mot : bleu pour
+ * transmettre, ambre pour corriger, rouge pour retirer. Au repos la pastille
+ * est claire et le dessin colore ; au survol elle se remplit. Un bouton plein
+ * en permanence aurait fait trois taches vives par ligne, soit six cents sur
+ * la page, et plus rien n'aurait ressorti.
+ */
+.acts-dossier .acts-ic{
+  width:34px;height:34px;min-width:34px;padding:0;
+  display:inline-grid;place-items:center;border-radius:50%;
+  border:1px solid currentColor;background:#fff;
+  transition:background .16s ease,color .16s ease,box-shadow .16s ease,transform .16s ease;
+}
+.acts-dossier .acts-ic:hover:not(:disabled){
+  background:currentColor;box-shadow:0 3px 9px rgba(15,35,55,.18);transform:translateY(-1px);
+}
+/* Le dessin prend le blanc du fond rempli. `currentColor` teint la pastille,
+   il ne peut donc plus teinter le trait : on le force. */
+.acts-dossier .acts-ic:hover:not(:disabled) > .ic{color:#fff}
+.acts-dossier .acts-ic-transmet{color:var(--accent)}
+.acts-dossier .acts-ic-corrige{color:var(--warn)}
 /* !important (2026-09-24) : la regle generale des boutons (chaine de :not())
    pose un degrade bleu plus specifique. Le bouton d'une action IRREVERSIBLE
    s'affichait donc en bleu, comme un bouton ordinaire, « Retirer
@@ -3144,6 +3171,7 @@ button.modal-fermer:focus-visible{outline:2px solid #0e5a8a;outline-offset:2px}
   }
   .acts-dossier .acts-lib{display:none}
   .acts-dossier button{min-width:36px;min-height:36px;justify-content:center;font-size:15px}
+  .acts-dossier .acts-ic{width:36px;height:36px;min-width:36px}
 }
 
 

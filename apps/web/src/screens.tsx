@@ -2203,18 +2203,34 @@ SCREENS.engagements = ({ go, user, arg }) => {
                         ete transmis. La fiche le dit, et c'est son depart qui
                         solde desormais. Elle reste ouvrable apres le solde :
                         l'arrivee se renseigne plus tard. */}
-                    {peut && <button className="ghost xs" onClick={() => setTransmet(l)}
+                    {/* DES ICONES, PLUS DE MOTS (2026-10-29, demande utilisateur).
+                        Trois libelles repetes sur deux cents lignes occupaient
+                        296 px par rangee et faisaient defiler le tableau de
+                        cote. Le dessin se reconnait d'un coup d'oeil, et la
+                        couleur dit la portee du geste : bleu on transmet,
+                        ambre on corrige, rouge on retire.
+                        LE SENS N'EST PAS PERDU POUR AUTANT : `aria-label` le
+                        donne aux lecteurs d'ecran, `title` l'affiche au survol.
+                        Une icone nue, sans l'un ni l'autre, serait une devinette. */}
+                    {peut && <button className="ghost xs acts-ic acts-ic-transmet" onClick={() => setTransmet(l)}
+                      aria-label={solde ? 'Voir la transmission' : 'Transmettre'}
                       title={solde
                         ? "Voir ou completer la transmission : pays, N° IM4, marchandises, arrivée."
                         : "Transmettre : pays de destination, N° IM4, marchandises déclarées."}>
-                      {solde ? '↻ Transmission' : '↗ Transmettre'}
+                      <Icone nom={solde ? 'miseAJour' : 'megaphone'} taille={16} />
                     </button>}
-                    {peut && <button className="ghost xs" onClick={() => setCorrige(l)}
-                      title="Engagement ou délai erroné : corriger la saisie.">✎ Corriger</button>}
+                    {peut && <button className="ghost xs acts-ic acts-ic-corrige" onClick={() => setCorrige(l)}
+                      aria-label="Corriger"
+                      title="Engagement ou délai erroné : corriger la saisie.">
+                      <Icone nom="crayon" taille={16} />
+                    </button>}
                     {/* RETRAIT (2026-09-17) : un bouton à lui, sur la ligne, il était
                         caché dans la fenêtre de correction. Administrateur seul. */}
-                    {admin && <button className="ghost xs acts-suppr" onClick={() => setRetire(l)}
-                      title="Engagement coché par erreur : le retirer du suivi.">✕ Retirer</button>}
+                    {admin && <button className="ghost xs acts-ic acts-suppr" onClick={() => setRetire(l)}
+                      aria-label="Retirer du suivi"
+                      title="Engagement coché par erreur : le retirer du suivi.">
+                      <Icone nom="poubelle" taille={16} />
+                    </button>}
                   </div>
                 </td>
               </tr>;
