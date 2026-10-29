@@ -1901,21 +1901,6 @@ function ModaleTransmission({ ligne, onClose, onFait }: { ligne: O; onClose: () 
       </p>
 
       {loading ? <Spinner /> : <>
-        {/* ---- L'en-tête : où vont les marchandises, et sous quel numéro ---- */}
-        <div className="trn-section">
-          <h3><Icone nom="carte" taille={15} />Destination</h3>
-          <div className="trn-grille">
-            <label className="help">Pays de destination
-              <input value={pays} onChange={(e) => setPays(e.target.value)}
-                placeholder="Burkina Faso, Niger, Mali…" maxLength={120} />
-            </label>
-            <label className="help">N° IM4 du pays de destination
-              <input className="mono" value={im4} onChange={(e) => setIm4(e.target.value)}
-                placeholder="IM4-2026-000" maxLength={60} />
-            </label>
-          </div>
-        </div>
-
         {/* ---- DEUX VOLETS, ET DEUX MOMENTS (2026-10-29, demande utilisateur) --
              Une seule rangee melait les deux : on saisissait le depart et
              l'arrivee cote a cote, alors qu'ils se renseignent a des semaines
@@ -1931,6 +1916,21 @@ function ModaleTransmission({ ligne, onClose, onFait }: { ligne: O; onClose: () 
           <h3><Icone nom="televerser" taille={15} />Au départ
             <span className="help trn-compte">{lignes.length} marchandise(s)</span>
           </h3>
+          {/* LA DESTINATION EST DANS LES DEUX VOLETS (2026-10-29, demande
+              utilisateur). Elle formait une troisieme section au-dessus, ce
+              qui laissait croire a un renseignement a part ; elle appartient
+              aux deux moments. Les deux paires de champs ecrivent sur les
+              MEMES valeurs : corriger le numero IM4 ici le corrige la-bas. */}
+          <div className="trn-grille trn-destination">
+            <label className="help">Pays de destination
+              <input value={pays} onChange={(e) => setPays(e.target.value)}
+                placeholder="Burkina Faso, Niger, Mali…" maxLength={120} />
+            </label>
+            <label className="help">N° IM4 du pays de destination
+              <input className="mono" value={im4} onChange={(e) => setIm4(e.target.value)}
+                placeholder="IM4-2026-000" maxLength={60} />
+            </label>
+          </div>
           <div className="trn-entetes trn-g2 help">
             <span>Désignation</span>
             <span>Quantité déclarée</span>
@@ -1956,6 +1956,17 @@ function ModaleTransmission({ ligne, onClose, onFait }: { ligne: O; onClose: () 
               {totaux.enAttente ? `${totaux.enAttente} en attente` : 'tout est constaté'}
             </span>
           </h3>
+          {/* Les memes champs qu'au depart, sur les memes valeurs. */}
+          <div className="trn-grille trn-destination">
+            <label className="help">Pays de destination
+              <input value={pays} onChange={(e) => setPays(e.target.value)}
+                placeholder="Burkina Faso, Niger, Mali…" maxLength={120} />
+            </label>
+            <label className="help">N° IM4 du pays de destination
+              <input className="mono" value={im4} onChange={(e) => setIm4(e.target.value)}
+                placeholder="IM4-2026-000" maxLength={60} />
+            </label>
+          </div>
           <div className="trn-entetes trn-g3 help">
             <span>Désignation</span>
             <span>Quantité constatée</span>

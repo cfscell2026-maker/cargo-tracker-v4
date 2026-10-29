@@ -4048,6 +4048,12 @@ button.modal-fermer:focus-visible{outline:2px solid #0e5a8a;outline-offset:2px}
    porte la designation, la quantite et le retrait ; l'arrivee porte la
    designation en lecture, la quantite constatee et la difference. */
 .trn-entetes,.trn-ligne{display:grid;gap:8px;align-items:center}
+/* La destination ouvre chaque volet, separee des marchandises par un filet :
+   ce sont deux natures d'information dans un meme cadre, l'une dit OU, l'autre
+   dit QUOI. */
+.trn-destination{margin-bottom:11px;padding-bottom:11px;border-bottom:1px dashed rgba(15,45,70,.16)}
+.trn-volet-arrivee .trn-destination{border-bottom-color:rgba(31,122,92,.2)}
+
 .trn-g2{grid-template-columns:1fr 130px 32px}
 .trn-g3{grid-template-columns:1fr 130px 110px}
 
