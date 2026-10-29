@@ -4044,10 +4044,35 @@ button.modal-fermer:focus-visible{outline:2px solid #0e5a8a;outline-offset:2px}
 
 /* Les marchandises : une grille, pour que les colonnes restent alignees d'une
    ligne a l'autre. L'ecart n'est PAS un champ : il se deduit. */
-.trn-entetes,.trn-ligne{
-  display:grid;grid-template-columns:1fr 110px 110px 92px 32px;
-  gap:8px;align-items:center;
+/* DEUX VOLETS, DEUX GRILLES (2026-10-29, demande utilisateur). Le depart
+   porte la designation, la quantite et le retrait ; l'arrivee porte la
+   designation en lecture, la quantite constatee et la difference. */
+.trn-entetes,.trn-ligne{display:grid;gap:8px;align-items:center}
+.trn-g2{grid-template-columns:1fr 130px 32px}
+.trn-g3{grid-template-columns:1fr 130px 110px}
+
+/* Le volet se detache du fond de la fenetre : sans cadre, les deux listes se
+   suivaient sans qu'on voie ou l'une finissait. */
+.trn-volet{
+  padding:12px 13px 11px;border-radius:14px;
+  background:rgba(14,90,138,.045);
+  border:1px solid rgba(14,90,138,.12);
 }
+/* L'arrivee se lit en vert : c'est le volet du CONSTAT, pas de la declaration.
+   Deux cadres identiques auraient demande de lire le titre pour savoir dans
+   lequel on ecrit. */
+.trn-volet-arrivee{
+  background:rgba(31,122,92,.05);
+  border-color:rgba(31,122,92,.14);
+}
+.trn-volet-arrivee h3 .ic{color:var(--ok)}
+/* La designation reprise du depart : elle se LIT. Un champ grise aurait
+   invite a cliquer dedans pour rien. */
+.trn-nom{
+  font-size:13.5px;font-weight:600;min-width:0;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.trn-nom .help{font-weight:400;font-style:italic;text-transform:none;letter-spacing:0}
 .trn-entetes{margin-bottom:5px;font-size:11px;letter-spacing:.03em;text-transform:uppercase}
 .trn-ligne{margin-bottom:7px}
 .trn-ligne input{margin:0}
@@ -4083,11 +4108,19 @@ button.modal-fermer:focus-visible{outline:2px solid #0e5a8a;outline-offset:2px}
 .trn-pied button{display:inline-flex;align-items:center;gap:7px}
 .trn-arrivee{background:var(--ok) !important;background-image:none !important;border-color:var(--ok) !important;color:#fff !important}
 
+/* ECRAN ETROIT : la designation prend toute la largeur, et ce qui la suit se
+   range sous elle. Les en-tetes disparaissent, le titre du volet et les
+   textes d'invite suffisent alors a dire de quoi il s'agit.
+   Les regles sont ecrites PAR GRILLE : l'ancienne, heritee de la rangee
+   unique a cinq colonnes, posait `1fr 1fr` pour tout le monde. La croix de
+   retrait s'etalait donc sur une demi-ligne, et la difference, qui n'est pas
+   un champ, tombait seule a la ligne suivante. */
 @media (max-width:640px){
   .trn-entetes{display:none}
-  .trn-ligne{grid-template-columns:1fr 1fr;gap:6px}
-  .trn-ligne input:first-child{grid-column:1 / -1}
-  .trn-ecart{text-align:left}
+  .trn-g2{grid-template-columns:1fr 40px;gap:6px}
+  .trn-g2 input:first-child{grid-column:1 / -1}
+  .trn-g3{grid-template-columns:1fr auto;gap:6px}
+  .trn-g3 .trn-nom{grid-column:1 / -1}
   .trn-pied{flex-direction:column-reverse}
   .trn-pied button{width:100%;justify-content:center}
 }

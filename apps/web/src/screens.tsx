@@ -1916,49 +1916,75 @@ function ModaleTransmission({ ligne, onClose, onFait }: { ligne: O; onClose: () 
           </div>
         </div>
 
-        {/* ---- Les marchandises : départ à gauche, arrivée à droite ---- */}
-        <div className="trn-section">
-          <h3><Icone nom="boites" taille={15} />Marchandises
-            <span className="help trn-compte">{lignes.length} ligne(s)</span>
+        {/* ---- DEUX VOLETS, ET DEUX MOMENTS (2026-10-29, demande utilisateur) --
+             Une seule rangee melait les deux : on saisissait le depart et
+             l'arrivee cote a cote, alors qu'ils se renseignent a des semaines
+             d'intervalle, souvent par deux personnes. La colonne « arrivee »
+             restait vide des jours durant au milieu de la saisie du depart, et
+             on ne savait plus ce qui restait a faire.
+
+             LA DESIGNATION NE SE SAISIT QU'UNE FOIS. Deux listes libres se
+             seraient desalignees des la premiere faute de frappe, et l'ecart
+             aurait compare deux marchandises differentes. Le volet d'arrivee
+             reprend donc les lignes du depart, et n'y ajoute que le constat. */}
+        <div className="trn-section trn-volet">
+          <h3><Icone nom="televerser" taille={15} />Au départ
+            <span className="help trn-compte">{lignes.length} marchandise(s)</span>
           </h3>
-          <div className="trn-entetes help">
+          <div className="trn-entetes trn-g2 help">
             <span>Désignation</span>
-            <span>Déclaré au départ</span>
-            <span>Constaté à l'arrivée</span>
-            <span>Écart</span>
+            <span>Quantité déclarée</span>
             <span />
           </div>
-          {lignes.map((l, i) => {
-            const e = ecartLigne(pourDomaine[i]!);
-            return <div className="trn-ligne" key={i}>
-              <input value={l.designation} placeholder="Riz 50 kg, sucre, ciment…" maxLength={200}
-                onChange={(ev) => majLigne(i, 'designation', ev.target.value)} />
-              <input inputMode="decimal" value={l.quantiteDepart} placeholder="0"
-                onChange={(ev) => majLigne(i, 'quantiteDepart', ev.target.value.replace(/[^0-9.,]/g, ''))} />
-              <input inputMode="decimal" value={l.quantiteArrivee} placeholder="—"
-                title="À renseigner quand le pays de destination répond"
-                onChange={(ev) => majLigne(i, 'quantiteArrivee', ev.target.value.replace(/[^0-9.,]/g, ''))} />
-              {/* L'écart ne se saisit pas : il se déduit. Le rendre modifiable
-                  permettrait d'écrire un chiffre que les quantités démentent. */}
-              <span className={`trn-ecart ${e === null ? 'attente' : e < 0 ? 'manque' : e > 0 ? 'surplus' : 'juste'}`}>
-                {e === null ? 'en attente' : e > 0 ? `+${nombre(e)}` : nombre(e)}
-              </span>
-              <button className="ghost xs trn-retirer" title="Retirer cette marchandise"
-                disabled={lignes.length <= 1}
-                onClick={() => setLignes((ls) => ls.filter((_, k) => k !== i))}>✕</button>
-            </div>;
-          })}
+          {lignes.map((l, i) => <div className="trn-ligne trn-g2" key={i}>
+            <input value={l.designation} placeholder="Riz 50 kg, sucre, ciment…" maxLength={200}
+              onChange={(ev) => majLigne(i, 'designation', ev.target.value)} />
+            <input inputMode="decimal" value={l.quantiteDepart} placeholder="0"
+              onChange={(ev) => majLigne(i, 'quantiteDepart', ev.target.value.replace(/[^0-9.,]/g, ''))} />
+            <button className="ghost xs trn-retirer" title="Retirer cette marchandise"
+              disabled={lignes.length <= 1}
+              onClick={() => setLignes((ls) => ls.filter((_, k) => k !== i))}>✕</button>
+          </div>)}
           <button className="ghost xs trn-ajouter" onClick={() => setLignes((ls) => [...ls, marchandiseVide()])}>
             <Icone nom="plus" taille={14} />Ajouter une marchandise
           </button>
         </div>
 
+        <div className="trn-section trn-volet trn-volet-arrivee">
+          <h3><Icone nom="telecharger" taille={15} />À l'arrivée
+            <span className="help trn-compte">
+              {totaux.enAttente ? `${totaux.enAttente} en attente` : 'tout est constaté'}
+            </span>
+          </h3>
+          <div className="trn-entetes trn-g3 help">
+            <span>Désignation</span>
+            <span>Quantité constatée</span>
+            <span>Différence</span>
+          </div>
+          {lignes.map((l, i) => {
+            const e = ecartLigne(pourDomaine[i]!);
+            return <div className="trn-ligne trn-g3" key={i}>
+              {/* Elle se LIT, elle ne se ressaisit pas : c'est la meme ligne. */}
+              <span className="trn-nom">{l.designation || <span className="help">sans désignation</span>}</span>
+              <input inputMode="decimal" value={l.quantiteArrivee} placeholder="—"
+                title="À renseigner quand le pays de destination répond"
+                onChange={(ev) => majLigne(i, 'quantiteArrivee', ev.target.value.replace(/[^0-9.,]/g, ''))} />
+              {/* La différence ne se saisit pas : elle se déduit. La rendre
+                  modifiable permettrait d'écrire un chiffre que les quantités
+                  démentent. */}
+              <span className={`trn-ecart ${e === null ? 'attente' : e < 0 ? 'manque' : e > 0 ? 'surplus' : 'juste'}`}>
+                {e === null ? 'en attente' : e > 0 ? `+${nombre(e)}` : nombre(e)}
+              </span>
+            </div>;
+          })}
+        </div>
+
         {/* ---- Les totaux : le chiffre que le service vient chercher ---- */}
         <div className="trn-totaux">
-          <div><span className="help">Total déclaré au départ</span><b>{nombre(totaux.depart)}</b></div>
-          <div><span className="help">Total constaté à l'arrivée</span><b>{nombre(totaux.arrivee)}</b></div>
+          <div><span className="help">Total au départ</span><b>{nombre(totaux.depart)}</b></div>
+          <div><span className="help">Total à l'arrivée</span><b>{nombre(totaux.arrivee)}</b></div>
           <div className={`trn-total-ecart ${totaux.ecart === null ? 'attente' : totaux.ecart < 0 ? 'manque' : totaux.ecart > 0 ? 'surplus' : 'juste'}`}>
-            <span className="help">Écart</span>
+            <span className="help">Différence</span>
             <b>{totaux.ecart === null ? '—' : totaux.ecart > 0 ? `+${nombre(totaux.ecart)}` : nombre(totaux.ecart)}</b>
           </div>
         </div>
