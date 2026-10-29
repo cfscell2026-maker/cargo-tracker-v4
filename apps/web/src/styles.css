@@ -183,6 +183,78 @@ a{color:var(--accent)}
 .stat.ok{border-left-color:var(--ok)} .stat.warn{border-left-color:var(--warn)}
 .stat.err{border-left-color:var(--err)}
 
+/* ======== LA TUILE DE DANGER : SA PASTILLE BAT, 2026-10-29 ==============
+ *
+ * Demande utilisateur : une animation de danger sur la tuile des retards.
+ *
+ * D'ABORD UNE ERREUR A REPARER. `tone="err"` ne teignait que le lisere
+ * gauche ; la pastille, elle, retombait sur la couleur par defaut et le
+ * triangle d'attention s'affichait EN BLEU sur une tuile qui annonce cent
+ * quatorze retards. Un signe de danger dans la couleur du calme dit le
+ * contraire de ce qu'il montre.
+ *
+ * ENSUITE LE BATTEMENT. Deux ondes rouges s'echappent de la pastille,
+ * decalees d'une demi-mesure pour qu'il y en ait toujours une en route : le
+ * signal respire au lieu de cligner. Le triangle enfle de trois pour cent au
+ * meme rythme, assez pour que l'oeil le suive, trop peu pour qu'on le voie
+ * bouger quand on le fixe.
+ *
+ * Deux secondes et demie par cycle, et non une : cette tuile reste a l'ecran
+ * toute la journee. Un rythme rapide devient un clignotant, et un clignotant
+ * finit par se regarder comme un meuble.
+ */
+.stat.err .stat-icone{
+  position:relative;
+  color:#e01b2b;
+  background-color:rgba(224,27,43,.12);
+  animation:stat-danger 2.5s ease-in-out infinite;
+}
+/* Les trois ombres du relief sont REPETEES dans chaque etape : une animation
+   de `box-shadow` remplace la propriete entiere, et les omettre aurait aplati
+   la pastille une fois sur deux. */
+@keyframes stat-danger{
+  0%,100%{box-shadow:
+    0 0 0 0 rgba(224,27,43,.5),
+    inset 0 1px 0 rgba(255,255,255,.9),
+    inset 0 -2px 4px rgba(20,35,50,.10),
+    0 2px 5px rgba(20,35,50,.13)}
+  70%,100%{box-shadow:
+    0 0 0 10px rgba(224,27,43,0),
+    inset 0 1px 0 rgba(255,255,255,.9),
+    inset 0 -2px 4px rgba(20,35,50,.10),
+    0 2px 5px rgba(20,35,50,.13)}
+}
+/* La seconde onde, en retard d'une demi-mesure. */
+.stat.err .stat-icone::after{
+  content:'';position:absolute;inset:0;border-radius:inherit;pointer-events:none;
+  border:1.5px solid rgba(224,27,43,.55);
+  animation:stat-danger-onde 2.5s ease-out infinite;
+  animation-delay:1.25s;
+}
+@keyframes stat-danger-onde{
+  0%  {transform:scale(1);opacity:.8}
+  65% {transform:scale(1.55);opacity:0}
+  100%{transform:scale(1.55);opacity:0}
+}
+.stat.err .stat-icone > .ic{animation:stat-danger-trait 2.5s ease-in-out infinite}
+@keyframes stat-danger-trait{
+  0%,100%{transform:scale(1)}
+  12%    {transform:scale(1.13)}
+  24%    {transform:scale(1)}
+}
+/* Immobile, la tuile garde tout son sens : le triangle reste ROUGE dans sa
+   pastille rouge, et c'est le minimum qu'une alerte doive dire. */
+@media (prefers-reduced-motion:reduce){
+  .stat.err .stat-icone,
+  .stat.err .stat-icone::after,
+  .stat.err .stat-icone > .ic{animation:none}
+  .stat.err .stat-icone::after{display:none}
+  .stat.err .stat-icone{box-shadow:
+    0 0 0 3px rgba(224,27,43,.2),
+    inset 0 1px 0 rgba(255,255,255,.9),
+    0 2px 5px rgba(20,35,50,.13)}
+}
+
 /* Table */
 .tbl{overflow-x:auto;border:1px solid var(--line);border-radius:8px;background:var(--panel)}
 table{border-collapse:collapse;width:100%;font-size:13.5px}
