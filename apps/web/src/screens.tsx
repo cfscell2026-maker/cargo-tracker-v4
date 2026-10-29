@@ -5046,15 +5046,15 @@ function LogoExtraction({ taille = 56 }: { taille?: number }) {
           {NIVEAUX_EXTRACTION.map((o) => <option key={o.valeur} value={o.valeur}>{o.libelle}</option>)}
         </select>
       </div>} />
-    <div className="card filtres-verre ext-tete">
-      <LogoExtraction taille={56} />
-      <p className="help ext-note">
-        {niveau === 'camions' ? <>Une ligne <b>par camion</b>, avec les seules déclarations qui répondent aux filtres.</>
-          : niveau === 'conteneurs' ? <>Une ligne <b>par conteneur</b>, avec SA déclaration et SA désignation.</>
-            : <>Une ligne <b>par déclaration</b>, avec ses camions et ses conteneurs.</>}
-      </p>
-    </div>
-    <div className="card">
+    <div className="card ext-filtres">
+      <div className="ext-tete">
+        <LogoExtraction taille={52} />
+        <p className="help ext-note">
+          {niveau === 'camions' ? <>Une ligne <b>par camion</b>, avec les seules déclarations qui répondent aux filtres.</>
+            : niveau === 'conteneurs' ? <>Une ligne <b>par conteneur</b>, avec SA déclaration et SA désignation.</>
+              : <>Une ligne <b>par déclaration</b>, avec ses camions et ses conteneurs.</>}
+        </p>
+      </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))', gap: 12 }}>
         {menu('La période porte sur', 'echeance',
           <select value={String(f['dateRef'])} onChange={set('dateRef')}>

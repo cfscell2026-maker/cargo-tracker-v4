@@ -4863,7 +4863,9 @@ button.modal-fermer:focus-visible{outline:2px solid #0e5a8a;outline-offset:2px}
  * import.
  */
 .ext-tete{
-  display:grid;grid-template-columns:auto 1fr;gap:12px 18px;align-items:center;
+  display:grid;grid-template-columns:auto 1fr;gap:10px 18px;align-items:center;
+  margin-bottom:14px;padding-bottom:13px;
+  border-bottom:1px dashed rgba(15,45,70,.14);
 }
 .ext-note{grid-column:2;margin:0;max-width:72ch;font-size:13px}
 
