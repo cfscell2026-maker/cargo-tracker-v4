@@ -698,9 +698,6 @@ SCREENS.dash = (nav) => {
      sur un fond bleu profond. Les cartes y deviennent des plaques de verre
      claires, et c'est ce contraste sombre/clair qui rend l'effet lisible. */
   return <div className="ecran-dash">
-    {alerte.visible && <AlerteEngagements retard={retardEng}
-      onFermer={alerte.fermer}
-      onVoir={() => nav.go('engagements', { filtre: 'retard' })} />}
     {/* Le tableau de bord est l'ecran de DEPART : `sansRetour` y coupe le bouton,
         qui ne menerait nulle part. La note de lecture passe en sous-titre du
         bandeau, ou elle herite du blanc. */}
@@ -719,6 +716,14 @@ SCREENS.dash = (nav) => {
         <label className="help">Période</label>
         <SelecteurPeriode c={p} />
       </div>} />
+    {/* LE RAPPEL SE POSE SOUS LA BANDE, ET NON AU-DESSUS (2026-10-29, demande
+        utilisateur). Au-dessus, il repoussait le titre de l'ecran hors de vue :
+        on ouvrait son tableau de bord et on tombait sur une relance, sans savoir
+        ou l'on etait. Sous la bande, l'ecran s'annonce d'abord, et l'alerte
+        s'adresse a quelqu'un qui sait deja ce qu'il regarde. */}
+    {alerte.visible && <AlerteEngagements retard={retardEng}
+      onFermer={alerte.fermer}
+      onVoir={() => nav.go('engagements', { filtre: 'retard' })} />}
     {/* GRILLE BENTO (2026-09-11) : toutes les tuiles n'ont pas le même poids.
         Les cinq compteurs d'ÉVÉNEMENTS occupent deux colonnes, ce sont eux qui
         portent le travail de la période et la comparaison. « Attente

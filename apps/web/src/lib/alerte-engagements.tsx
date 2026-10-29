@@ -67,8 +67,13 @@ export function AlerteEngagements({ retard, onVoir, onFermer }: {
       title="Ouvrir les engagements en retard">
       <span className="alerte-eng-icone" aria-hidden="true"><Icone nom="sablier" taille={20} /></span>
       <span className="alerte-eng-texte">
+        {/* LE MOT « ALERTE », et pas seulement la couleur rouge : un daltonien,
+            une capture en noir et blanc ou un ecran mal regle perdraient toute
+            la difference avec les compteurs voisins. Le genre de l'objet se
+            lit, il ne se devine pas. */}
+        <span className="alerte-eng-genre">Alerte</span>
         <b>{retard} engagement(s) en retard</b>
-        <span>Les informations n’ont pas été transmises dans le délai. Cliquez pour les voir.</span>
+        <span>Délai de transmission dépassé. Cliquez pour les voir.</span>
       </span>
       <span className="alerte-eng-aller" aria-hidden="true"><Icone nom="chevron" taille={16} /></span>
     </button>
