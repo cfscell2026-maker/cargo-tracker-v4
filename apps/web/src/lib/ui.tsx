@@ -213,8 +213,8 @@ const ICONE_ETAPE: Record<string, string> = {
   balise: 'balise', bs: 'bonSortie', pp: 'sortie', vehicule: 'voiture',
 };
 
-export function StatCard({ n, l, tone, onClick, variation, comparable, etape, part, icone, repartition }: {
-  n: ReactNode; l: string; tone?: 'ok' | 'warn'; onClick?: () => void;
+export function StatCard({ n, l, tone, onClick, variation, comparable, etape, part, icone, repartition, alerte }: {
+  n: ReactNode; l: string; tone?: 'ok' | 'warn' | 'err'; onClick?: () => void;
   variation?: Variation | null; comparable?: boolean;
   /**
    * Dessin de la pastille, quand la tuile ne correspond a AUCUNE etape du
@@ -244,10 +244,24 @@ export function StatCard({ n, l, tone, onClick, variation, comparable, etape, pa
    * Les deux font 100 %. Fournie, elle REMPLACE l'indicateur d'évolution.
    */
   repartition?: { arrivees: number; departs: number } | null;
+  /**
+   * SIGNAL D'ALERTE CLIGNOTANT (2026-10-28, demande utilisateur), avec sa
+   * raison en infobulle : « 110 en retard ».
+   *
+   * RÉSERVÉ À CE QUI APPELLE UN GESTE, et pas au simple dépassement d'un
+   * seuil. Une pastille qui clignote sur trois tuiles à la fois n'attire plus
+   * l'œil nulle part, et la première qu'on apprend à ignorer est aussi celle
+   * qui comptait.
+   *
+   * Elle teinte la tuile en ROUGE : `tone` ne suffisait pas ici, la règle du
+   * tableau de bord (`.bento .stat`) impose la couleur de l'étape et l'emporte
+   * sur `.stat.warn`.
+   */
+  alerte?: string;
 }) {
   const cliquable = !!onClick;
   return <div
-    className={`stat ${tone ?? ''} ${cliquable ? 'cliquable' : ''} ${etape ? 'et-' + etape : ''}`}
+    className={`stat ${tone ?? ''} ${cliquable ? 'cliquable' : ''} ${etape ? 'et-' + etape : ''} ${alerte ? 'stat-en-alerte' : ''}`}
     onClick={onClick}
     role={cliquable ? 'button' : undefined}
     tabIndex={cliquable ? 0 : undefined}
@@ -257,6 +271,15 @@ export function StatCard({ n, l, tone, onClick, variation, comparable, etape, pa
         qu'on ait lu le libellé. */}
     {(icone || etape) && <span className="stat-icone" aria-hidden="true">
       <Icone nom={icone ?? ICONE_ETAPE[etape!] ?? 'tableau'} taille={17} /></span>}
+    {/* LE SIGNAL : le triangle d'ATTENTION, et non un point. Un point rouge
+        attire l'œil sans rien dire ; ce signe-là se lit sans légende.
+        L'INFOBULLE EST À NOUS, pas celle du navigateur : la native met une
+        seconde à paraître, et on a déjà détourné le regard. `aria-label` dit
+        la même chose à qui ne voit pas clignoter. */}
+    {alerte && <span className="stat-signal" role="img" aria-label={alerte}>
+      <Icone nom="attention" taille={15} />
+      <span className="stat-signal-bulle" aria-hidden="true">{alerte}</span>
+    </span>}
     <div className="n">{n}</div>
     <div className="l">{l}</div>
     {part !== undefined && part !== null && <div className="evo evo-part">
@@ -445,7 +468,18 @@ export function useParametres(): ValeursParametres {
 }
 
 export function useSuiviEngagement() {
-  const [suivi, setSuivi] = useState<'' | 'oui' | 'non'>('');
+  /* « NON » EST COCHE D'OFFICE (2026-10-29, demande utilisateur).
+   *
+   * Le champ partait vide, et la signature restait bloquee tant qu'on n'avait
+   * pas repondu : la question se posait a chaque validation. C'est le cas le
+   * plus rare qui commandait le plus frequent, puisque la quasi-totalite des
+   * cargaisons ne sont pas sous engagement.
+   *
+   * ⚠ CE QUE CE DEFAUT COUTE : une validation peut desormais passer sans que
+   * personne ait regarde cette question. Le cas ou l'engagement etait du mais
+   * oublie ne se verra plus a l'ecran ; il se rattrape en reouvrant la fiche
+   * et en cochant « Oui », ce qui reste trace. */
+  const [suivi, setSuivi] = useState<'' | 'oui' | 'non'>('non');
   const [choix, setChoix] = useState('');
   // La saisie libre est conservée à part : revenir à la liste puis choisir
   // « Autre » à nouveau ne doit pas effacer ce que l'agent avait déjà tapé.
@@ -473,12 +507,14 @@ export function useSuiviEngagement() {
   const champ = <div style={{ marginTop: 10 }}>
     <div className="section-title">Suivi des engagements</div>
     <ChoixSegmente libelle="Suivi des engagements" valeur={suivi}
-      options={[{ valeur: 'oui', libelle: 'Oui', icone: 'valider' }, { valeur: 'non', libelle: 'Non' }]}
+      options={[{ valeur: 'oui', libelle: 'Oui', icone: 'valider' }, { valeur: 'non', libelle: 'Non', icone: 'stable' }]}
       onChange={(v) => {
-        // Recliquer ramene a « rien de choisi » : `pret` repasse alors a faux et
-        // la signature se rebloque, ce qui est exactement l'etat de depart.
+        /* DEUX ETATS, ET PLUS TROIS. Recliquer sur le choix actif renvoyait
+           « rien de choisi », ce qui rebloquait la signature sans un mot
+           d'explication. L'etat vide n'etant plus celui du depart, il n'a plus
+           de raison d'exister : tout ce qui n'est pas « oui » est « non ». */
         if (v === 'oui') setSuivi('oui');
-        else { setSuivi(v === 'non' ? 'non' : ''); setChoix(''); setLibre(''); }
+        else { setSuivi('non'); setChoix(''); setLibre(''); }
       }} />
     {suivi === 'oui' && <div style={{ marginTop: 8 }}>
       {/* L'ENGAGEMENT ET SON DELAI SUR UNE LIGNE (2026-09-12) : le menu
@@ -559,11 +595,11 @@ export function ChampAmende({ valeur, onChange, compact }: {
   return <div style={{ marginTop: compact ? 0 : 10 }}>
     {!compact && <div className="section-title">Amende pour effets non déclarés</div>}
     <ChoixSegmente libelle="Amende pour effets non déclarés" valeur={valeur.reponse}
-      options={[{ valeur: 'oui', libelle: compact ? 'Amende payée' : 'Oui, amende payée' }, { valeur: 'non', libelle: compact ? 'Pas d\'amende' : 'Non' }]}
+      options={[{ valeur: 'oui', libelle: compact ? 'Amende payée' : 'Oui, amende payée', icone: 'balance' }, { valeur: 'non', libelle: compact ? 'Pas d\'amende' : 'Non', icone: 'stable' }]}
       onChange={(v) => onChange(v === 'oui' ? { ...valeur, reponse: 'oui' } : { ...AMENDE_VIDE, reponse: v === 'non' ? 'non' : '' })} />
     {valeur.reponse === 'oui' && <div className="row" style={{ alignItems: 'center', gap: 10, marginTop: 8, flexWrap: 'wrap' }}>
       <ChoixSegmente libelle="Montant de l'amende" valeur={valeur.mode}
-        options={[{ valeur: 'forfait', libelle: `Forfait ${fmtFcfa(AMENDE_EFFETS_FORFAIT)}` }, { valeur: 'autre', libelle: 'Autre montant' }]}
+        options={[{ valeur: 'forfait', libelle: `Forfait ${fmtFcfa(AMENDE_EFFETS_FORFAIT)}`, icone: 'presse' }, { valeur: 'autre', libelle: 'Autre montant', icone: 'crayon' }]}
         onChange={(v) => onChange({ ...valeur, mode: v === 'autre' ? 'autre' : 'forfait' })} />
       {valeur.mode === 'autre' && <input inputMode="numeric" style={{ maxWidth: 190 }} value={autreLisible}
         onChange={(e) => onChange({ ...valeur, autre: chiffres(e.target.value) })} placeholder="Montant payé (FCFA)" />}

@@ -78,6 +78,7 @@ export const COLONNES_CARGAISONS: readonly string[] = [
   'agent_validation_id', 'signature_validation', 'ouillage_numero', 'ouillage_date', 'en_surcharge',
   'poids_surcharge', 'annule', 'annule_le', 'annule_par', 'annule_par_id', 'annule_motif',
   'date_fin_chargement', 'role_validation', 'archive', 'archive_le', 'archive_par', 'archive_par_id',
+  'archive_auto', 'archive_auto_le',
   'archive_motif', 'suivi_engagement', 'engagement_type', 'engagement_delai', 'engagement_effectue_le',
   'engagement_effectue_par', 'type_exemption', 'engagement_pose_le',
 ];

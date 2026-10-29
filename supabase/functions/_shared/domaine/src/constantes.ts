@@ -133,6 +133,28 @@ export function aPouvoirAdmin(role: unknown): boolean {
 }
 
 /**
+ * CE ROLE FIGURE-T-IL DANS CETTE LISTE ? (2026-10-28, defaut signale par
+ * l'utilisateur : l'echeancier des engagements n'apparaissait pas au tableau
+ * de bord d'un compte INFO.)
+ *
+ * Meme regle que le serveur, mot pour mot : on appartient a la liste, OU l'on
+ * herite de l'ADMIN quand il y figure. Les listes de roles du domaine
+ * (`SUIVENT_ENGAGEMENTS`, `CHEFS_HORSGABARIT`, `VOIENT_HORSGABARIT`) ont ete
+ * ecrites avant les roles techniques et ne les nomment pas : un `includes`
+ * brut repond donc NON a un INFO, la ou `verifierPermission` repond OUI.
+ * L'ecran cachait ce que le serveur autorisait.
+ *
+ * `aPouvoirAdmin` traite les comparaisons `role === ADMIN` ; celle-ci traite
+ * les appartenances a une liste. Les deux disent la meme chose, sur les deux
+ * formes que prend la question dans le code.
+ */
+export function aRoleParmi(role: unknown, roles: readonly Role[]): boolean {
+  const r = String(role ?? '') as Role;
+  if (roles.indexOf(r) >= 0) return true;
+  return roles.indexOf(ROLES.ADMIN) >= 0 && estRoleTechnique(r);
+}
+
+/**
  * RANG D'UN ROLE TECHNIQUE (2026-10-03, precision utilisateur).
  *
  * Les deux roles techniques ne sont PAS a egalite : l'INFO est au-dessus du
@@ -375,8 +397,14 @@ export function natureRapportEngagement(type: unknown): NatureRapportEngagement 
  * ne concerne que l'ENLÈVEMENT : c'est là que partent, entiers, les conteneurs
  * de véhicules dont les effets ne sont pas toujours déclarés. Le forfait est la
  * proposition par défaut ; « Autre » permet de saisir un montant différent.
+ *
+ * 150 000 FCFA depuis le 2026-10-29 (demande utilisateur), auparavant 250 000.
+ * ⚠ LES AMENDES DÉJÀ ENREGISTRÉES À 250 000 NE CHANGENT PAS, et c'est voulu :
+ * une amende est un fait daté. Elles cessent en revanche d'être comptées comme
+ * « forfait » dans le rapport, puisque celui-ci reconnaît le forfait au montant
+ * et non à une marque posée à la saisie ; elles rejoignent les « autres ».
  */
-export const AMENDE_EFFETS_FORFAIT = 250000;
+export const AMENDE_EFFETS_FORFAIT = 150000;
 
 export function exigeAmendeEffets(typeOperation: unknown): boolean {
   return typeOperation === OPERATIONS.ENLEVEMENT;

@@ -3228,21 +3228,24 @@ test('engagements, compteurs : le total baisse quand un engagement est soldé (2
   const volet = async () => ((await lec.engagementsDus(chef, { filtre: 'encours' })) as { global: Record<string, number> }).global;
 
   assert.equal(await dash(), 3, 'les trois engagements sont en cours');
-  assert.deepEqual(await volet(), { encours: 3, soldes: 0, total: 3 });
+  // K-1 est echu d'hier : c'est le seul retard des trois.
+  assert.deepEqual(await volet(), { encours: 3, soldes: 0, retard: 1, total: 3 });
 
   await ecr.engagementFait(chef, { id: 'K-2' });
   assert.equal(await dash(), 2, 'le tableau de bord baisse d\'un cran');
-  assert.deepEqual(await volet(), { encours: 2, soldes: 1, total: 3 }, 'les deux compteurs du volet se repondent');
+  assert.deepEqual(await volet(), { encours: 2, soldes: 1, retard: 1, total: 3 }, 'les deux compteurs du volet se repondent');
 
   // Les compteurs du volet ne dependent PAS de la vue affichee.
   const enSolde = (await lec.engagementsDus(chef, { filtre: 'solde' })) as { global: Record<string, number>; lignes: unknown[] };
-  assert.deepEqual(enSolde.global, { encours: 2, soldes: 1, total: 3 });
+  // ET SURTOUT `retard`, qui vaut 1 alors que la vue « Soldes » n'affiche
+  // aucun retard : c'est tout l'interet de le compter sur l'ensemble.
+  assert.deepEqual(enSolde.global, { encours: 2, soldes: 1, retard: 1, total: 3 });
   assert.equal(enSolde.lignes.length, 1, 'mais la liste affichee, elle, suit le filtre');
 
   // Retire : l'engagement quitte les deux compteurs.
   await ecr.engagementRetirer(ctxRole(db, 'ADMIN', 'Admin'), { id: 'K-1', motif: 'coche par erreur' });
   assert.equal(await dash(), 1);
-  assert.deepEqual(await volet(), { encours: 1, soldes: 1, total: 2 });
+  assert.deepEqual(await volet(), { encours: 1, soldes: 1, retard: 0, total: 2 }, 'le retard retire disparait du compteur');
 });
 
 test('tableau de bord, arrivées / départs des engagements sur la période (2026-09-21)', async () => {
@@ -4040,4 +4043,116 @@ test("INFO peut signer une etape hors de son tour, comme l'ADMIN", async () => {
   // L'INFO passe outre, exactement comme un ADMIN.
   await ecr.gps(ctxRole(db, 'INFO', 'Sam'), { id, baliseRequise: 'Oui', t1Correct: 'Oui', numeroGPS: 'G2' });
   assert.equal(versCamel(db.store['cargaisons'][0]!)['numeroGps'], 'G2');
+});
+
+/* ============ DÉPOTAGE MIXTE, APRÈS FINALISATION : 2026-10-29 ============
+ *
+ * Demande utilisateur : « un camion peut dépoter plusieurs articles ». Un
+ * camion ouvre plusieurs conteneurs, qui relèvent souvent de déclarations
+ * différentes. C'était déjà possible AVANT la finalisation ; après elle,
+ * l'écran ne le proposait plus.
+ *
+ * Ce test fixe ce qui doit rester vrai côté SERVEUR, puisque c'est lui qui
+ * décide : il faut qu'un ajout au statut « Créée » soit accepté, qu'il
+ * rattache le nouveau conteneur à sa fiche de parc, qu'il garde la déclaration
+ * propre à chaque ligne, et qu'il RENVOIE le camion en chargement pour que la
+ * hauteur, les colis et les scellés soient refaits sur le chargement réel.
+ */
+test('dépotage mixte : un second dépotage s\'ajoute APRÈS la finalisation', async () => {
+  const db = new FakeDB();
+  db.store['stock'].push(
+    { numero_tc: 'MSKU3333333', taille: "20'", statut: 'Positionné' },
+    { numero_tc: 'TCLU4444444', taille: "40'", statut: 'Positionné' },
+  );
+  const cfs = ctxAvec(db);
+  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'MIXDEP/RM01', routage: 'Dépotage' })) as { id: string };
+
+  // Premier dépotage, puis finalisation : le camion passe à « Créée ».
+  await ecr.cfs(cfs, { id, conteneur: { num: 'MSKU3333333', taille: "20'", type: 'DRY' }, declaration: DECL_OK });
+  await ecr.declaration(cfs, { id, hauteurChargement: '3,2', nbColis: '120', scellesCamion: ['SC1', 'SC2'] });
+  assert.equal(db.store['cargaisons'][0]!['statut'], 'Créée');
+
+  // Second dépotage, sous une AUTRE déclaration.
+  await ecr.cfs(cfs, {
+    id, conteneur: { num: 'TCLU4444444', taille: "40'", type: 'DRY' },
+    declaration: { ...DECL_OK, numeroDeclaration: '9999', typeDeclaration: 'C' },
+  });
+
+  const cargo = versCamel(db.store['cargaisons'][0]!);
+  const dets = cargo['conteneursDetails'] as { conteneurs: Record<string, unknown>[] };
+  assert.equal(dets.conteneurs.length, 2, 'les deux conteneurs sont sur le camion');
+  assert.equal(dets.conteneurs[0]!['numeroDeclaration'], DECL_OK.numeroDeclaration);
+  assert.equal(dets.conteneurs[1]!['numeroDeclaration'], '9999', 'chaque ligne garde SA déclaration');
+  assert.equal(groupesDeclaration(dets.conteneurs as never, cargo as never).length, 2, 'le mixte se déduit');
+
+  // LE PARC SUIT : le conteneur ajouté est marqué dépoté, sinon il resterait
+  // « Positionné » pour toujours et le parc afficherait un conteneur parti.
+  const fiche = db.store['stock'].find((x) => x['numero_tc'] === 'TCLU4444444')!;
+  assert.equal(fiche['statut'], 'Dépoté');
+  assert.equal(fiche['cargaison_id'], id);
+
+  // ET LE CAMION REDESCEND EN CHARGEMENT : la hauteur, les colis et les
+  // scellés ne valent plus pour un chargement qui vient de changer.
+  assert.equal(cargo['statut'], 'En cours de chargement');
+});
+
+test('dépotage mixte : plus aucun ajout une fois le camion engagé en aval', async () => {
+  /* La porte s'arrete a « Creee ». Au-dela, le dossier est signe et les
+     cellules suivantes travaillent dessus : y ajouter de la marchandise
+     fausserait ce qui a deja ete valide. */
+  const db = new FakeDB();
+  db.store['stock'].push({ numero_tc: 'MSKU5555555', taille: "20'", statut: 'Positionné' });
+  const cfs = ctxAvec(db);
+  const { id } = (await ecr.createcamion(cfs, { numeroCamion: 'MIXDEP2/RM01', routage: 'Dépotage' })) as { id: string };
+  await ecr.cfs(cfs, { id, conteneur: { num: 'MSKU5555555', taille: "20'", type: 'DRY' }, declaration: DECL_OK });
+  await ecr.declaration(cfs, { id, hauteurChargement: '3', nbColis: '10', scellesCamion: ['A', 'B'] });
+  db.store['cargaisons'][0]!['statut'] = 'T1 saisi';
+
+  db.store['stock'].push({ numero_tc: 'TCLU6666666', taille: "20'", statut: 'Positionné' });
+  await assert.rejects(
+    () => ecr.cfs(cfs, { id, conteneur: { num: 'TCLU6666666', taille: "20'", type: 'DRY' } }),
+    /Ajout impossible/);
+});
+
+/* ====== PARKING : AU-DELA DE 300 CAMIONS PRESENTS, 2026-10-29 ============
+ *
+ * Erreur constatee en production : l'ecran Parking ne s'ouvrait plus,
+ * « une erreur technique est survenue ». 899 camions etaient presents au
+ * parc, et leurs dossiers etaient demandes en UNE SEULE requete : les 899
+ * plaques partaient dans l'URL, qui depassait la limite du serveur.
+ *
+ * Le mur avait deja ete rencontre dans la meme fonction, pour les pointages,
+ * decoupes par paquets de 300 ; la recherche des dossiers avait ete oubliee.
+ *
+ * Ce test fixe la regle qui compte : AU-DELA DU PAQUET, ON NE PERD PERSONNE.
+ * Il ne reproduit pas la limite d'URL — le double de test ne la connait pas —
+ * mais il tombe si la boucle disparait ou ne couvre qu'un paquet, ce qui est
+ * la faute dont on se releve.
+ */
+test('parking : 350 camions presents, aucun dossier perdu au-dela du paquet de 300', async () => {
+  const db = new FakeDB();
+  const cfs = ctxAvec(db);
+  const gardien = ctxRole(db, 'BALISE', 'Agent Balise');
+
+  const plaques: string[] = [];
+  for (let i = 0; i < 350; i++) {
+    const plaque = `TG${String(7000 + i)}ZZ/RM09`;
+    plaques.push(plaque);
+    await ecr.createcamion(cfs, { numeroCamion: plaque, routage: 'Enlèvement' });
+    await prk.parkingAdd(gardien, { numeroCamion: plaque });
+  }
+
+  const vue = (await prk.parkingList(gardien, {})) as {
+    lignes: { numeroCamion: string; cargaisonId: string }[];
+    compte: { presents: number };
+  };
+  assert.equal(vue.compte.presents, 350);
+
+  // LE POINT DU TEST : chaque ligne porte SON dossier, y compris la 350e.
+  // Avec une seule requete bornee au premier paquet, les 50 dernieres
+  // seraient arrivees sans dossier, et le bouton « ouvrir la fiche » aurait
+  // disparu de leur ligne sans un mot d'explication.
+  const sansDossier = vue.lignes.filter((l) => !l.cargaisonId);
+  assert.deepEqual(sansDossier.map((l) => l.numeroCamion), [],
+    'toutes les lignes portent leur dossier, au-dela du paquet de 300');
 });

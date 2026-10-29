@@ -181,6 +181,79 @@ a{color:var(--accent)}
 .stat .n{font-size:26px;font-weight:700;font-variant-numeric:tabular-nums}
 .stat .l{color:var(--muted);font-size:12.5px}
 .stat.ok{border-left-color:var(--ok)} .stat.warn{border-left-color:var(--warn)}
+.stat.err{border-left-color:var(--err)}
+
+/* ======== LA TUILE DE DANGER : SA PASTILLE BAT, 2026-10-29 ==============
+ *
+ * Demande utilisateur : une animation de danger sur la tuile des retards.
+ *
+ * D'ABORD UNE ERREUR A REPARER. `tone="err"` ne teignait que le lisere
+ * gauche ; la pastille, elle, retombait sur la couleur par defaut et le
+ * triangle d'attention s'affichait EN BLEU sur une tuile qui annonce cent
+ * quatorze retards. Un signe de danger dans la couleur du calme dit le
+ * contraire de ce qu'il montre.
+ *
+ * ENSUITE LE BATTEMENT. Deux ondes rouges s'echappent de la pastille,
+ * decalees d'une demi-mesure pour qu'il y en ait toujours une en route : le
+ * signal respire au lieu de cligner. Le triangle enfle de trois pour cent au
+ * meme rythme, assez pour que l'oeil le suive, trop peu pour qu'on le voie
+ * bouger quand on le fixe.
+ *
+ * Deux secondes et demie par cycle, et non une : cette tuile reste a l'ecran
+ * toute la journee. Un rythme rapide devient un clignotant, et un clignotant
+ * finit par se regarder comme un meuble.
+ */
+.stat.err .stat-icone{
+  position:relative;
+  color:#e01b2b;
+  background-color:rgba(224,27,43,.12);
+  animation:stat-danger 2.5s ease-in-out infinite;
+}
+/* Les trois ombres du relief sont REPETEES dans chaque etape : une animation
+   de `box-shadow` remplace la propriete entiere, et les omettre aurait aplati
+   la pastille une fois sur deux. */
+@keyframes stat-danger{
+  0%,100%{box-shadow:
+    0 0 0 0 rgba(224,27,43,.5),
+    inset 0 1px 0 rgba(255,255,255,.9),
+    inset 0 -2px 4px rgba(20,35,50,.10),
+    0 2px 5px rgba(20,35,50,.13)}
+  70%,100%{box-shadow:
+    0 0 0 10px rgba(224,27,43,0),
+    inset 0 1px 0 rgba(255,255,255,.9),
+    inset 0 -2px 4px rgba(20,35,50,.10),
+    0 2px 5px rgba(20,35,50,.13)}
+}
+/* La seconde onde, en retard d'une demi-mesure. */
+.stat.err .stat-icone::after{
+  content:'';position:absolute;inset:0;border-radius:inherit;pointer-events:none;
+  border:1.5px solid rgba(224,27,43,.55);
+  animation:stat-danger-onde 2.5s ease-out infinite;
+  animation-delay:1.25s;
+}
+@keyframes stat-danger-onde{
+  0%  {transform:scale(1);opacity:.8}
+  65% {transform:scale(1.55);opacity:0}
+  100%{transform:scale(1.55);opacity:0}
+}
+.stat.err .stat-icone > .ic{animation:stat-danger-trait 2.5s ease-in-out infinite}
+@keyframes stat-danger-trait{
+  0%,100%{transform:scale(1)}
+  12%    {transform:scale(1.13)}
+  24%    {transform:scale(1)}
+}
+/* Immobile, la tuile garde tout son sens : le triangle reste ROUGE dans sa
+   pastille rouge, et c'est le minimum qu'une alerte doive dire. */
+@media (prefers-reduced-motion:reduce){
+  .stat.err .stat-icone,
+  .stat.err .stat-icone::after,
+  .stat.err .stat-icone > .ic{animation:none}
+  .stat.err .stat-icone::after{display:none}
+  .stat.err .stat-icone{box-shadow:
+    0 0 0 3px rgba(224,27,43,.2),
+    inset 0 1px 0 rgba(255,255,255,.9),
+    0 2px 5px rgba(20,35,50,.13)}
+}
 
 /* Table */
 .tbl{overflow-x:auto;border:1px solid var(--line);border-radius:8px;background:var(--panel)}
@@ -1338,7 +1411,12 @@ tr.clk{cursor:pointer} tr.clk:hover{background:var(--accent-soft)}
   border:1px solid rgba(255,255,255,.72);
   /* LA COULEUR DU BORD RESTE : c'est elle qui identifie l'étape d'un coup d'œil. */
   border-left:4px solid var(--teinte,var(--accent));
-  border-radius:18px;
+  /* 28 px et non 18 (2026-10-29, demande utilisateur, en deux fois) : les
+     tuiles etaient les seules formes anguleuses parmi des cartes et une
+     notification en capsule. L'arrondi les remet dans la meme famille.
+     C'est le maximum utile ici : au-dela, les coins mordraient sur la
+     pastille d'etape, haute de 38 px et collee au bord gauche. */
+  border-radius:28px;
   padding:14px 16px;
   background:rgba(255,255,255,.72);
   backdrop-filter:blur(20px) saturate(175%);
@@ -1353,7 +1431,7 @@ tr.clk{cursor:pointer} tr.clk:hover{background:var(--accent-soft)}
   display:grid;place-items:center;
   /* 38 px au lieu de 46 : la pastille situe l'étape, elle ne doit pas peser
      autant que le chiffre. */
-  width:38px;height:38px;border-radius:12px;
+  width:38px;height:38px;border-radius:16px;
   color:var(--teinte,var(--accent));
   background:color-mix(in srgb,var(--teinte,var(--accent)) 13%,#fff);
 }
@@ -1869,7 +1947,7 @@ tr.clk{cursor:pointer} tr.clk:hover{background:var(--accent-soft)}
   align-items:center;column-gap:10px;
   min-height:0;padding:8px 12px;border-radius:12px;
 }
-.stats.compacts .stat .stat-icone{grid-area:pastille;width:32px;height:32px;border-radius:10px}
+.stats.compacts .stat .stat-icone{grid-area:pastille;width:32px;height:32px;border-radius:14px}
 .stats.compacts .stat .n{grid-area:nombre;font-size:19px;line-height:1.15}
 .stats.compacts .stat .l{grid-area:libelle;font-size:11.5px;line-height:1.2}
 /* « Supprimer » porte la couleur de l'irréversible, comme sur les dossiers. */
@@ -1909,12 +1987,20 @@ tr.clk{cursor:pointer} tr.clk:hover{background:var(--accent-soft)}
    Pas de flou ici : un champ se lit et se remplit, il n'a pas à être une
    plaque de verre, et c'est autant de calcul épargné. */
 input,select,textarea{
-  border-radius:10px;
+  /* ARRONDI GENERAL (2026-10-29, demande utilisateur). Pose ICI, et non ecran
+     par ecran : un formulaire ecrit demain heritera de la forme sans rien
+     declarer, et les regles locales posees ces derniers jours deviennent de
+     simples redites. Le textarea garde des coins, pas une capsule : sur
+     plusieurs lignes, une capsule rogne le texte des deux cotes. */
+  border-radius:999px;
   padding:9px 12px;
   border:1px solid rgba(15,45,70,.16);
   box-shadow:inset 0 1px 2px rgba(15,35,55,.04);
   transition:border-color .15s ease,box-shadow .18s ease,background .18s ease;
 }
+/* Le textarea garde des coins, pas une capsule : sur plusieurs lignes, une
+   capsule rognerait le texte des deux cotes. */
+textarea{border-radius:16px}
 input:hover:not(:disabled),select:hover:not(:disabled),textarea:hover:not(:disabled){
   border-color:rgba(15,45,70,.3);
 }
@@ -2036,7 +2122,9 @@ tr.clk:hover{background:rgba(14,90,138,.06)}
 .bandeau{border-radius:12px}
 .modal{border-radius:18px}
 .toast{border-radius:12px}
-.stat{border-radius:14px}
+/* Hors tableau de bord, les tuiles sont plus petites : 22 px y font le meme
+   effet que 28 px sur les grandes. */
+.stat{border-radius:22px}
 
 @media (prefers-reduced-motion:reduce){
   input,select,textarea,button{transition:none}
@@ -2344,9 +2432,12 @@ label.help.lbl-icone svg{color:var(--accent);flex:0 0 auto}
 .val-illustree svg{flex:0 0 auto;color:var(--accent);opacity:.8}
 .val-illustree > span{overflow:hidden;text-overflow:ellipsis}
 .seg-choix{
-  display:inline-flex;align-items:center;gap:9px;
-  padding:9px 16px;border-radius:999px;cursor:pointer;
-  font-size:13.5px;font-weight:600;
+  /* PLUS PETIT (2026-10-29, demande utilisateur) : deux rangees de pilules a
+     37 px de haut pesaient autant que le bloc de validation qu'elles servent.
+     31 px suffisent, et la cible reste large. */
+  display:inline-flex;align-items:center;gap:7px;
+  padding:6px 13px;border-radius:999px;cursor:pointer;
+  font-size:12.5px;font-weight:600;
   color:var(--muted);
   background:rgba(255,255,255,.86);
   border:1px solid rgba(15,45,70,.16);
@@ -2360,7 +2451,7 @@ label.help.lbl-icone svg{color:var(--accent);flex:0 0 auto}
 /* LE VOYANT. Eteint : un point gris mat, sans halo - il doit se lire comme
    eteint, pas comme une couleur pale. Allume : il s'eclaire et diffuse. */
 .seg-voyant{
-  flex:0 0 auto;width:10px;height:10px;border-radius:50%;
+  flex:0 0 auto;width:8px;height:8px;border-radius:50%;
   background:#c3cdd6;
   box-shadow:inset 0 1px 1px rgba(0,0,0,.18);
   transition:background .2s ease,box-shadow .3s ease;
@@ -2770,7 +2861,9 @@ label.help.lbl-icone svg{color:var(--accent);flex:0 0 auto}
   background:rgba(255,255,255,.15);
   border:1px solid rgba(255,255,255,.36);
   color:#fff;
-  border-radius:12px;padding:8px 12px;font-size:13px;
+  /* 999 px comme partout depuis le 2026-10-29 : le bandeau etait le dernier
+     endroit ou un champ gardait des coins. */
+  border-radius:999px;padding:8px 14px;font-size:13px;
   backdrop-filter:blur(10px) saturate(140%);
   -webkit-backdrop-filter:blur(10px) saturate(140%);
   box-shadow:inset 0 1px 0 rgba(255,255,255,.18);
@@ -2792,8 +2885,8 @@ label.help.lbl-icone svg{color:var(--accent);flex:0 0 auto}
 /* Les boutons d'export du bandeau : contour clair, remplissage au survol. */
 .bm-outils button{
   background:rgba(255,255,255,.14);color:#fff;
-  border:1px solid rgba(255,255,255,.36);border-radius:12px;
-  padding:8px 12px;font-size:13px;font-weight:600;
+  border:1px solid rgba(255,255,255,.36);border-radius:999px;
+  padding:8px 14px;font-size:13px;font-weight:600;
 }
 .bm-outils button:hover:not(:disabled){
   background:#fff;color:var(--accent);border-color:#fff;
@@ -3102,12 +3195,153 @@ tr:hover .avatar-u{
 
 /* Modifier / Supprimer en bout de ligne (2026-09-12). */
 .acts-dossier{display:flex;gap:6px;flex-wrap:nowrap;white-space:nowrap}
-.acts-dossier .acts-suppr{color:var(--err);border-color:currentColor}
-/* !important (2026-09-24) : la regle generale des boutons (chaine de :not())
-   pose un degrade bleu plus specifique. Le bouton d'une action IRREVERSIBLE
-   s'affichait donc en bleu, comme un bouton ordinaire, « Retirer
-   l'engagement » comme « Supprimer » au parking. Il doit porter sa couleur. */
-button.acts-suppr-plein{background-color:var(--err) !important;background-image:none !important;color:#fff !important}
+.acts-dossier .acts-suppr:not(.acts-ic){color:var(--err);border-color:currentColor}
+
+/* ====== LES ACTIONS DE LIGNE EN PASTILLES, 2026-10-29 ===================
+ *
+ * Demande utilisateur, en deux temps : des icones plutot que des mots, puis
+ * le meme dessin PARTOUT dans la plateforme.
+ *
+ * Trois boutons libelles, repetes sur deux cents lignes, mesuraient 296 px
+ * par rangee : la colonne poussait le tableau hors de l'ecran et il fallait
+ * le faire defiler de cote pour l'atteindre. Trois pastilles en font 120.
+ *
+ * LA COULEUR PORTE LA GRAVITE, et c'est elle qui remplace le mot : bleu on
+ * transmet, ambre on corrige, rouge on retire ou l'on supprime. Au repos la
+ * pastille est teintee tres clair et le dessin colore ; au survol elle se
+ * remplit et se souleve. Pleines en permanence, trois taches vives par ligne
+ * en auraient fait six cents sur la page, et plus rien n'en serait ressorti.
+ *
+ * `currentColor` fait tout le travail : chaque regle de couleur se resume a
+ * une ligne (`color: var(--err)`), et le fond, le bord, l'ombre et le relief
+ * s'en deduisent. Ajouter une quatrieme action demandera cette ligne-la,
+ * et rien d'autre.
+ *
+ * La classe est posee A LA RACINE, et non sous `.acts-dossier` : les listes
+ * de depots et d'apurements ont leurs propres actions, hors de ce conteneur,
+ * et doivent porter le meme dessin.
+ */
+button.acts-ic,
+.acts-ic{
+  /* 29 px et non 34 (2026-10-29, demande utilisateur). Trois pastilles par
+     ligne, sur des rangees hautes de 77 px : a 34 px elles pesaient autant
+     que le texte qu'elles accompagnent. Le format tactile est retabli plus
+     bas, ou il n'y a pas de souris pour viser. */
+  width:29px;height:29px;min-width:29px;padding:0;
+  display:inline-grid;place-items:center;border-radius:50%;
+  color:var(--accent);
+  border:1px solid color-mix(in srgb,currentColor 34%,transparent);
+  /* Le meme galet que les pastilles d'icone du tableau de bord : lumiere en
+     haut a gauche, fond tres dilue, ombre interne en bas, ombre portee. */
+  background:
+    radial-gradient(circle at 34% 24%, rgba(255,255,255,.92), rgba(255,255,255,0) 62%),
+    color-mix(in srgb,currentColor 10%,#fff);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.92),
+    inset 0 -2px 4px color-mix(in srgb,currentColor 14%,transparent),
+    0 2px 5px rgba(20,35,50,.12);
+  transition:background .16s ease,border-color .16s ease,box-shadow .18s ease,transform .16s ease;
+}
+.acts-ic > .ic{transition:color .16s ease}
+/* `button.ghost:hover` pese (0,3,1) : ecrite sur la seule classe, cette
+   regle perdait et la pastille survolee redevenait BLANCHE, avec un trait
+   blanc sur fond blanc, donc invisible. Le selecteur reprend le meme poids. */
+button.acts-ic:hover:not(:disabled){
+  background:linear-gradient(145deg,
+    color-mix(in srgb,currentColor 82%,#fff) 0%,
+    currentColor 60%,
+    color-mix(in srgb,currentColor 86%,#000) 100%);
+  border-color:currentColor;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.4),
+    0 6px 15px color-mix(in srgb,currentColor 40%,transparent);
+  transform:translateY(-2px);
+}
+/* `currentColor` teint desormais la pastille : il ne peut plus teinter le
+   trait, on le force au blanc. */
+button.acts-ic:hover:not(:disabled) > .ic{color:#fff}
+/* Au clic la pastille retombe et s'enfonce : le geste se sent. */
+button.acts-ic:active:not(:disabled){
+  transform:translateY(0);
+  box-shadow:inset 0 2px 5px color-mix(in srgb,currentColor 55%,transparent);
+}
+button.acts-ic:focus-visible{outline:2px solid currentColor;outline-offset:2px}
+button.acts-ic:disabled{opacity:.42;box-shadow:none}
+
+/* Une ligne par action, et rien d'autre a declarer.
+   DEUX CLASSES, ET NON UNE : `button.ghost{color:var(--accent)}` pese (0,1,1)
+   et l'emportait sur une classe seule. « Corriger » sortait donc en BLEU,
+   comme « Transmettre », et la couleur ne distinguait plus rien. */
+/* ---- LE MOT REVIENT, EN ETIQUETTE (2026-10-29, demande utilisateur) -----
+ *
+ * L'icone seule laissait hesiter : on reconnait la corbeille, moins la fleche
+ * qui monte. L'infobulle du navigateur aurait suffi en theorie, mais elle met
+ * une seconde a paraitre, et sur une ligne de tableau le regard est deja
+ * reparti. Celle-ci s'affiche TOUT DE SUITE, au survol comme au clavier.
+ *
+ * ELLE SE POSE A GAUCHE, et non au-dessus : `.tbl` defile en largeur, donc le
+ * navigateur rogne aussi ce qui depasse en hauteur. Une etiquette posee au
+ * dessus du bouton aurait ete coupee par le bord de la ligne. A gauche, elle
+ * reste dans la bande visible, et la colonne des actions etant la derniere,
+ * elle a toute la place devant elle.
+ *
+ * Le `title` natif est retire : garde en plus, il aurait affiche une seconde
+ * etiquette une seconde plus tard, au meme endroit. `aria-label` continue de
+ * porter le sens pour les lecteurs d'ecran.
+ *
+ * ELLE VIT DANS `::before`, ET NON DANS `::after`. Le halo d'appui de tous
+ * les boutons occupe deja `::after`, avec une chaine de `:not()` qui pese
+ * (0,5,1) : l'etiquette y etait ecrasee, content vide et fond blanc, et ne
+ * s'affichait jamais.
+ *
+ * ET LE DEBORDEMENT SE ROUVRE. Tous les boutons portent `overflow:hidden`
+ * pour contenir ce halo d'appui, qui grandit vingt-six fois ; l'ecretage
+ * coupait l'etiquette net. La pastille a deja son propre retour d'appui,
+ * elle s'enfonce et son ombre rentre : le halo y fait double emploi. On le
+ * retire, le debordement se rouvre.
+ */
+/* La chaine de `:not()` est recopiee telle quelle, a dessein : `overflow` et
+   le halo sont poses par une regle qui pese (0,5,1), et rien de plus court
+   ne l'emporterait. */
+button.acts-ic:not(.nm-onglet):not(.hubitem):not(.seg-choix):not(.burger):not(.repli){overflow:visible}
+button.acts-ic:not(.nm-onglet):not(.hubitem):not(.seg-choix):not(.burger):not(.repli)::after{display:none}
+
+/* Le dessin suit la pastille. Une seule regle ici, plutot que de reprendre
+   la taille a chacun des neuf appels. */
+.acts-ic > .ic{width:14px;height:14px}
+
+button.acts-ic::before{
+  content:attr(data-bulle);
+  position:absolute;right:calc(100% + 8px);top:50%;
+  transform:translateY(-50%) translateX(5px);
+  padding:5px 9px;border-radius:8px;white-space:nowrap;
+  font-size:11.5px;font-weight:600;line-height:1.15;
+  color:#fff;background:#1b2733;
+  box-shadow:0 6px 16px rgba(10,25,40,.3);
+  opacity:0;pointer-events:none;z-index:6;
+  transition:opacity .14s ease,transform .14s ease;
+}
+button.acts-ic:hover::before,
+button.acts-ic:focus-visible::before{opacity:1;transform:translateY(-50%) translateX(0)}
+/* Au doigt, il n'y a pas de survol : une etiquette qui apparaitrait a l'appui
+   recouvrirait la ligne au moment meme ou la fenetre s'ouvre. */
+@media (hover:none){
+  button.acts-ic::before{display:none}
+}
+@media (prefers-reduced-motion:reduce){
+  button.acts-ic::before{transition:opacity .14s ease}
+  button.acts-ic:hover::before,
+  button.acts-ic:focus-visible::before{transform:translateY(-50%)}
+}
+
+.acts-ic.acts-ic-transmet{color:var(--accent)}
+.acts-ic.acts-ic-corrige{color:var(--warn)}
+.acts-ic.acts-suppr{color:var(--err)}
+
+@media (prefers-reduced-motion:reduce){
+  .acts-ic,.acts-ic > .ic{transition:none}
+  button.acts-ic:hover:not(:disabled),button.acts-ic:active:not(:disabled){transform:none}
+}
 
 /* Croix de fermeture des fenetres (2026-09-12). */
 .modal-fermer-rail{position:sticky;top:0;height:0;z-index:5;display:flex;justify-content:flex-end}
@@ -3136,6 +3370,9 @@ button.modal-fermer:focus-visible{outline:2px solid #0e5a8a;outline-offset:2px}
   }
   .acts-dossier .acts-lib{display:none}
   .acts-dossier button{min-width:36px;min-height:36px;justify-content:center;font-size:15px}
+  /* Au doigt, la cible reprend ses 36 px : en dessous, on manque le bouton. */
+  .acts-ic{width:36px;height:36px;min-width:36px}
+  .acts-ic > .ic{width:15px;height:15px}
 }
 
 
@@ -3648,37 +3885,81 @@ button.modal-fermer:focus-visible{outline:2px solid #0e5a8a;outline-offset:2px}
 /* ============ LE BLOC DES FILTRES, EN VERRE, 2026-10-08 ================
  *
  * Demande utilisateur : sortir les commandes du bandeau et les poser dessous,
- * en verre dépoli avec un dégradé.
+ * en verre depoli avec un degrade. Repris le 2026-10-29 : bords arrondis sur
+ * les lignes de saisie, et une icone par commande.
  *
  * LE DEGRADE VA DU BLANC A LA TEINTE DE L'APPLICATION, en diagonale, et reste
- * très dilué. Ce bloc est posé entre un bandeau bleu soutenu et des cartes
+ * tres dilue. Ce bloc est pose entre un bandeau bleu soutenu et des cartes
  * blanches : s'il criait, il couperait la page en deux. Il doit se distinguer
  * assez pour qu'on sache que ces commandes vont ensemble, pas davantage.
  *
- * Le verre a de quoi travailler : la couche de halos posée derrière `.content`
- * passe au travers, et c'est elle qu'on voit bouger au défilement.
+ * Le verre a de quoi travailler : la couche de halos posee derriere `.content`
+ * passe au travers, et c'est elle qu'on voit bouger au defilement.
  */
 .filtres-verre{
   display:flex;flex-wrap:wrap;align-items:center;gap:10px;
-  padding:13px 15px;
+  padding:14px 16px;
+  /* 22 px, comme les tuiles : le bloc appartient a la meme page qu'elles. */
+  border-radius:22px;
   background:
     linear-gradient(115deg,
-      rgba(255,255,255,.90) 0%,
-      rgba(255,255,255,.72) 30%,
-      rgba(14,90,138,.17) 62%,
-      rgba(14,90,138,.24) 82%,
-      rgba(31,122,92,.26) 100%);
+      rgba(255,255,255,.92) 0%,
+      rgba(255,255,255,.76) 32%,
+      rgba(14,90,138,.14) 64%,
+      rgba(14,90,138,.20) 84%,
+      rgba(31,122,92,.22) 100%);
   backdrop-filter:blur(22px) saturate(170%);
   -webkit-backdrop-filter:blur(22px) saturate(170%);
-  border:1px solid rgba(255,255,255,.78);
+  border:1px solid rgba(255,255,255,.8);
   box-shadow:
     0 10px 28px rgba(15,35,55,.10),
     inset 0 1px 0 rgba(255,255,255,.95);
 }
+
+/* LES CHAMPS DEVIENNENT DES PILULES (2026-10-29, demande utilisateur).
+ *
+ * Leurs coins a 10 px etaient les seules aretes nettes d'une page faite de
+ * tuiles a 28 px et d'une notification en capsule. Entierement arrondis, ils
+ * se posent aussi mieux sur le verre : un rectangle a angles durs y faisait
+ * saillie, une pilule y flotte.
+ *
+ * Le fond passe au blanc franc : sur un degrade, un champ translucide laissait
+ * voir la teinte au travers et le texte saisi perdait son contraste. */
+.filtres-verre input,
+.filtres-verre select{
+  border-radius:999px;
+  background-color:#fff;
+  border-color:rgba(15,45,70,.14);
+  box-shadow:0 1px 2px rgba(15,35,55,.06),inset 0 1px 2px rgba(15,35,55,.03);
+}
+.filtres-verre input:focus,
+.filtres-verre select:focus{
+  box-shadow:0 0 0 3px rgba(14,90,138,.18),inset 0 1px 2px rgba(15,35,55,.03);
+}
+/* Le chevron du menu deroulant s'ecarte du bord, que l'arrondi a repousse. */
+.filtres-verre select{background-position:right 13px center}
+.filtres-verre .ghost{border-radius:999px}
+
+/* UNE ICONE PAR COMMANDE, dans l'emballage deja utilise par la loupe.
+   Elle est MUETTE pour les lecteurs d'ecran : le `title` du champ dit deja
+   a quoi il sert, et une icone annoncee en plus ferait doublon a l'oreille. */
+.filtres-verre .fv-champ{position:relative;display:inline-flex;align-items:center;min-width:0}
+.filtres-verre .fv-champ > .ic{
+  position:absolute;left:13px;z-index:1;pointer-events:none;
+  color:var(--muted);opacity:.8;
+}
+.filtres-verre .fv-champ > input,
+.filtres-verre .fv-champ > select{width:100%;padding-left:36px}
+.filtres-verre .champ-loupe > svg{left:13px}
+.filtres-verre .champ-loupe input{padding-left:36px}
+
 /* « Afficher » introduit le premier menu : c'est une etiquette, pas un reglage
    a part. Elle se colle a lui plutot que de flotter dans la rangee. */
 .filtres-verre .fv-etiquette{margin:0 -4px 0 0;font-weight:600;color:var(--muted)}
-.filtres-verre select{max-width:190px;flex:0 1 auto}
+.filtres-verre .fv-vue{flex:0 1 auto;max-width:200px}
+.filtres-verre .fv-type{flex:1 1 170px;max-width:215px}
+.filtres-verre .fv-signe{flex:1 1 170px;max-width:215px}
+.filtres-verre .fv-desi{flex:1 1 190px;max-width:260px}
 .filtres-verre .champ-loupe{flex:1 1 160px;max-width:210px}
 .filtres-verre .champ-loupe input{width:100%}
 /* L'echeance et son unite forment UNE expression : « echeance <= 5 jours ». Les
@@ -3687,13 +3968,1227 @@ button.modal-fermer:focus-visible{outline:2px solid #0e5a8a;outline-offset:2px}
   display:inline-flex;align-items:center;gap:6px;margin:0;
   white-space:nowrap;flex:0 0 auto;font-weight:600;
 }
-.filtres-verre .fv-echeance input{width:62px;flex:none;font-weight:400}
+.filtres-verre .fv-echeance > .ic{color:var(--muted);opacity:.8;margin-right:-1px}
+.filtres-verre .fv-echeance input{width:66px;flex:none;font-weight:400;text-align:center;padding-left:12px}
 /* Le bouton de remise a zero part a DROITE, a l'ecart des commandes : il ne
    regle rien, il annule tout. */
 .filtres-verre .fv-raz{margin-left:auto}
 
 @media (max-width:560px){
-  .filtres-verre{gap:8px}
-  .filtres-verre select,.filtres-verre .champ-loupe{flex:1 1 100%;max-width:none}
+  .filtres-verre{gap:8px;padding:12px}
+  .filtres-verre .fv-champ,
+  .filtres-verre .champ-loupe{flex:1 1 100%;max-width:none}
   .filtres-verre .fv-raz{margin-left:0;width:100%}
 }
+
+/* La tuile des engagements n'a plus de style propre : c'est un `StatCard`
+   pose dans la grille bento (2026-10-28). Une carte a part aurait demande
+   d'entretenir ses dimensions en parallele de celles des autres KPI, et
+   elles auraient diverge a la premiere retouche. */
+
+/* ---- LE LOGO ENTRE DEUX FLUX QUI PARTENT ET REVIENNENT ----
+ *
+ * Meme grammaire que les deux autres emblemes : le `Spinner` fait tourner un
+ * conteneur (« ca travaille »), le verrou l'arrete contre une barriere
+ * (« c'est suspendu »). Ici une boite s'eloigne vers la droite, une autre en
+ * revient : l'aller de la declaration, le retour de la reponse du pays de
+ * destination. C'est le geste meme de la fiche.
+ */
+.trn-logo{
+  --t:64px;
+  position:relative;width:calc(var(--t) * 2.6);height:var(--t);
+  margin:4px auto 0;display:grid;place-items:center;
+}
+.trn-logo .logo-rond{
+  width:var(--t);height:var(--t);border-radius:50%;position:relative;z-index:2;
+}
+/* Deux ondes qui s'ecartent du logo : l'emission, avant meme que la boite parte. */
+.trn-onde{
+  position:absolute;width:var(--t);height:var(--t);border-radius:50%;
+  border:1.5px solid rgba(14,90,138,.35);z-index:1;
+  animation:trn-onde 3.4s ease-out infinite;
+}
+.trn-onde-2{animation-delay:1.7s}
+@keyframes trn-onde{
+  0%   { transform:scale(1);opacity:.65 }
+  70%  { transform:scale(1.9);opacity:0 }
+  100% { transform:scale(1.9);opacity:0 }
+}
+/* Les deux flux. L'ALLER part du logo vers la droite, le RETOUR revient de la
+   droite : ils ne se croisent jamais, ils se succedent. */
+.trn-flux{position:absolute;top:50%;left:50%;width:calc(var(--t) * 1.15);height:2px;margin-top:-1px}
+.trn-flux i{
+  position:absolute;top:-4px;width:9px;height:9px;border-radius:2.5px;
+  background:linear-gradient(135deg,var(--accent),#0e5a8a);
+  box-shadow:0 2px 6px rgba(14,90,138,.4);
+}
+.trn-aller i{animation:trn-aller 3.4s ease-in-out infinite}
+.trn-retour{transform:scaleX(-1)}
+.trn-retour i{
+  background:linear-gradient(135deg,#1f7a5c,#2a9d78);
+  box-shadow:0 2px 6px rgba(31,122,92,.4);
+  animation:trn-retour 3.4s ease-in-out infinite;
+}
+/* L'aller occupe la premiere moitie du cycle, le retour la seconde : jamais
+   les deux a la fois, sans quoi on verrait un va-et-vient, pas un echange. */
+@keyframes trn-aller{
+  0%   { left:calc(var(--t) * .42);opacity:0 }
+  12%  { opacity:1 }
+  42%  { left:100%;opacity:1 }
+  50%  { left:100%;opacity:0 }
+  100% { left:100%;opacity:0 }
+}
+@keyframes trn-retour{
+  0%,50% { left:100%;opacity:0 }
+  58%    { left:100%;opacity:1 }
+  88%    { left:calc(var(--t) * .42);opacity:1 }
+  100%   { left:calc(var(--t) * .42);opacity:0 }
+}
+@media (prefers-reduced-motion:reduce){
+  .trn-onde,.trn-aller i,.trn-retour i{animation:none}
+  .trn-retour i{left:calc(var(--t) * .42)}
+  .trn-aller i{left:100%}
+}
+
+/* ---- La fenetre ---- */
+.trn-fenetre{display:flex;flex-direction:column}
+.trn-fenetre h2{margin:12px 0 2px;text-align:center}
+.trn-fenetre .trn-sous{text-align:center;margin:0 auto 16px}
+.trn-section{margin-top:14px}
+.trn-section h3{
+  display:flex;align-items:center;gap:7px;margin:0 0 9px;
+  font-size:13px;letter-spacing:.03em;text-transform:uppercase;color:var(--muted);
+}
+.trn-section h3 .ic{color:var(--accent)}
+
+/* ---- LES ICONES DE TITRE EN RELIEF, ET ANIMEES, 2026-10-29 -------------
+ *
+ * Demande utilisateur. Le meme galet que les pastilles du tableau de bord :
+ * lumiere en haut a gauche, ombre interne en bas, ombre portee courte. Il est
+ * pose sur l'icone elle-meme, `content-box` pour que la marge interieure
+ * s'ajoute aux quinze pixels du dessin au lieu de le comprimer.
+ *
+ * CHAQUE MOUVEMENT DIT CE QUE FAIT SON VOLET : la fleche du depart s'eleve,
+ * celle de l'arrivee retombe, la balance penche d'un bord puis de l'autre.
+ * Une meme animation partout n'aurait ete qu'une decoration.
+ *
+ * Le cycle dure plus de trois secondes et le geste n'en occupe que le tiers :
+ * cette fenetre reste ouverte le temps d'une saisie, et un mouvement continu
+ * y deviendrait vite insupportable. */
+.trn-volet h3 > .ic{
+  box-sizing:content-box;
+  padding:7px;border-radius:50%;
+  background:
+    radial-gradient(circle at 34% 24%, rgba(255,255,255,.92), rgba(255,255,255,0) 62%),
+    color-mix(in srgb,currentColor 13%,#fff);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.92),
+    inset 0 -2px 4px color-mix(in srgb,currentColor 16%,transparent),
+    0 2px 5px rgba(20,35,50,.14);
+  animation:trn-chip-depart 3.4s ease-in-out infinite;
+}
+@keyframes trn-chip-depart{
+  0%,64%,100%{transform:translateY(0)}
+  74%        {transform:translateY(-4px)}
+  88%        {transform:translateY(0)}
+}
+.trn-volet-arrivee h3 > .ic{animation-name:trn-chip-arrivee}
+@keyframes trn-chip-arrivee{
+  0%,64%,100%{transform:translateY(0)}
+  74%        {transform:translateY(4px)}
+  88%        {transform:translateY(0)}
+}
+.trn-volet-ecart h3 > .ic{animation-name:trn-chip-balance}
+@keyframes trn-chip-balance{
+  0%,60%,100%{transform:rotate(0)}
+  70%        {transform:rotate(-10deg)}
+  82%        {transform:rotate(10deg)}
+  92%        {transform:rotate(0)}
+}
+@media (prefers-reduced-motion:reduce){
+  .trn-volet h3 > .ic{animation:none}
+}
+.trn-compte{margin-left:auto;text-transform:none;letter-spacing:0}
+.trn-grille{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px}
+.trn-grille label{margin:0}
+.trn-grille input{margin-top:4px}
+
+/* Les marchandises : une grille, pour que les colonnes restent alignees d'une
+   ligne a l'autre. L'ecart n'est PAS un champ : il se deduit. */
+/* DEUX VOLETS, DEUX GRILLES (2026-10-29, demande utilisateur). Le depart
+   porte la designation, la quantite et le retrait ; l'arrivee porte la
+   designation en lecture, la quantite constatee et la difference. */
+.trn-entetes,.trn-ligne{display:grid;gap:8px;align-items:center}
+/* La destination ouvre chaque volet, separee des marchandises par un filet :
+   ce sont deux natures d'information dans un meme cadre, l'une dit OU, l'autre
+   dit QUOI. */
+.trn-destination{margin-bottom:11px;padding-bottom:11px;border-bottom:1px dashed rgba(15,45,70,.16)}
+.trn-volet-arrivee .trn-destination{border-bottom-color:rgba(31,122,92,.2)}
+
+/* ---- CHAQUE CHAMP PORTE SON SIGNE, 2026-10-29 (demande utilisateur) ----
+ *
+ * Meme emballage que le bloc des filtres : l'icone se pose dans le champ, le
+ * texte lui laisse la place. Les en-tetes de colonne disparaissent sous
+ * 640 px, et il ne restait alors que des cases blanches ; le signe et le
+ * texte d'invite disent de quoi il s'agit a toutes les largeurs.
+ */
+.trn-champ{position:relative;display:flex;align-items:center;min-width:0}
+.trn-champ > .ic{
+  position:absolute;left:13px;z-index:1;pointer-events:none;
+  color:var(--muted);opacity:.75;
+}
+.trn-champ > input{width:100%;padding-left:36px;margin:0}
+/* LES BORDS S'ARRONDISSENT, comme les champs du bloc des filtres et la
+   notification du tableau de bord : la fenetre etait la derniere a garder des
+   coins a dix pixels. */
+.trn-fenetre input{border-radius:999px;background-color:#fff}
+.trn-fenetre .ghost{border-radius:999px}
+
+/* 36 px pour la pastille de retrait, qui a la taille des autres. */
+/* 178 px et non 130 : l'icone mange 36 px de retrait, et « Quantité
+   déclarée » s'y coupait en « Quantité déc… ». */
+.trn-g2{grid-template-columns:1fr 178px 31px}
+.trn-g3{grid-template-columns:1fr 178px 96px}
+
+/* Le volet se detache du fond de la fenetre : sans cadre, les deux listes se
+   suivaient sans qu'on voie ou l'une finissait. */
+.trn-volet{
+  padding:12px 13px 11px;border-radius:14px;
+  background:rgba(14,90,138,.045);
+  border:1px solid rgba(14,90,138,.12);
+}
+/* L'arrivee se lit en vert : c'est le volet du CONSTAT, pas de la declaration.
+   Deux cadres identiques auraient demande de lire le titre pour savoir dans
+   lequel on ecrit. */
+.trn-volet-arrivee{
+  background:rgba(31,122,92,.05);
+  border-color:rgba(31,122,92,.14);
+}
+.trn-volet-arrivee h3 .ic{color:var(--ok)}
+/* Le troisieme volet : la difference, en gris neutre. Ni bleu ni vert, car
+   elle n'appartient a aucun des deux moments, elle les confronte. */
+.trn-volet-ecart{
+  background:rgba(15,45,70,.045);
+  border-color:rgba(15,45,70,.12);
+}
+.trn-volet-ecart h3 .ic{color:var(--muted)}
+.trn-volet-ecart .trn-totaux{
+  margin:0;padding:0;background:none;border:0;
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px;
+}
+/* Chaque total porte le signe de son moment : la fleche qui monte pour le
+   depart, celle qui descend pour l'arrivee. Les memes que les titres des deux
+   volets, pour qu'on relie le chiffre a sa section sans effort. */
+.trn-totaux .trn-total{
+  display:grid;grid-template-columns:auto 1fr;grid-template-areas:"ic lib" "ic n";
+  align-items:center;column-gap:10px;
+  padding:10px 12px;border-radius:14px;
+  background:rgba(255,255,255,.75);border:1px solid rgba(15,45,70,.1);
+}
+.trn-total-ic{
+  grid-area:ic;display:grid;place-items:center;width:32px;height:32px;border-radius:50%;
+  background:
+    radial-gradient(circle at 34% 24%, rgba(255,255,255,.92), rgba(255,255,255,0) 62%),
+    color-mix(in srgb,currentColor 13%,#fff);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.92),
+    inset 0 -2px 4px color-mix(in srgb,currentColor 16%,transparent),
+    0 2px 5px rgba(20,35,50,.13);
+}
+.trn-total-depart .trn-total-ic{color:var(--accent)}
+.trn-total-arrivee .trn-total-ic{color:var(--ok)}
+.trn-total .help{grid-area:lib}
+.trn-total b{grid-area:n;font-size:20px;font-variant-numeric:tabular-nums;line-height:1.1}
+
+/* ---- LE VERDICT, QUI CHANGE DE COULEUR ----------------------------------
+ * Demande utilisateur : un bloc qui reagit selon que la difference est
+ * inferieure, superieure ou egale. Tout vient de `--t`, posee par l'etat :
+ * fond, bord, icone et chiffre s'en deduisent, et un quatrieme etat ne
+ * demanderait qu'une ligne de plus. */
+.trn-bilan{
+  --t:var(--muted);
+  display:flex;align-items:center;gap:12px;
+  margin-top:11px;padding:12px 14px;border-radius:16px;
+  background:color-mix(in srgb,var(--t) 10%,#fff);
+  border:1px solid color-mix(in srgb,var(--t) 28%,transparent);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.9),0 2px 8px color-mix(in srgb,var(--t) 16%,transparent);
+  transition:background .25s ease,border-color .25s ease,box-shadow .25s ease;
+}
+.trn-bilan.manque {--t:var(--err)}
+.trn-bilan.surplus{--t:var(--warn)}
+.trn-bilan.juste  {--t:var(--ok)}
+.trn-bilan-ic{
+  flex:none;display:grid;place-items:center;width:38px;height:38px;border-radius:50%;
+  color:#fff;background:linear-gradient(145deg,
+    color-mix(in srgb,var(--t) 78%,#fff) 0%, var(--t) 60%,
+    color-mix(in srgb,var(--t) 86%,#000) 100%);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.4),0 3px 9px color-mix(in srgb,var(--t) 42%,transparent);
+}
+.trn-bilan-txt{display:flex;flex-direction:column;gap:1px;min-width:0}
+.trn-bilan-mot{
+  font-size:13px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--t);
+}
+.trn-bilan-txt .help{text-transform:none;letter-spacing:0;font-size:11.5px}
+.trn-bilan-n{
+  margin-left:auto;font-size:26px;font-variant-numeric:tabular-nums;color:var(--t);line-height:1;
+}
+/* Tant qu'on attend, le bloc ne doit pas ressembler a un resultat : il reste
+   gris, et son chiffre n'est qu'un tiret. */
+.trn-bilan.attente .trn-bilan-n{font-size:22px;opacity:.6}
+
+@media (max-width:560px){
+  .trn-bilan{flex-wrap:wrap}
+  .trn-bilan-n{margin-left:0;width:100%}
+}
+.trn-entetes{margin-bottom:5px;font-size:11px;letter-spacing:.03em;text-transform:uppercase}
+.trn-ligne{margin-bottom:7px}
+.trn-ligne input{margin:0}
+.trn-grille .trn-champ{margin-top:4px}
+.trn-ecart{
+  font-size:13px;font-weight:600;text-align:right;font-variant-numeric:tabular-nums;
+}
+.trn-ecart.attente{color:var(--muted);font-weight:400;font-size:11.5px}
+.trn-ecart.manque{color:var(--err)}
+.trn-ecart.surplus{color:var(--warn)}
+.trn-ecart.juste{color:var(--ok)}
+/* La pastille porte deja sa couleur et son relief : il ne reste qu'a la
+   centrer dans sa colonne. */
+.trn-retirer{justify-self:center}
+.trn-ajouter{margin-top:4px;display:inline-flex;align-items:center;gap:6px}
+
+.trn-totaux{
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;
+  margin-top:14px;padding:12px 14px;border-radius:13px;
+  background:rgba(14,90,138,.06);border:1px solid rgba(14,90,138,.16);
+}
+.trn-totaux > div{display:flex;flex-direction:column;gap:2px}
+.trn-totaux b{font-size:19px;font-variant-numeric:tabular-nums}
+.trn-total-ecart.manque b{color:var(--err)}
+.trn-total-ecart.surplus b{color:var(--warn)}
+.trn-total-ecart.juste b{color:var(--ok)}
+.trn-total-ecart.attente b{color:var(--muted)}
+.trn-attente{display:flex;align-items:center;gap:6px;margin:8px 0 0;color:var(--muted)}
+
+.trn-manque{
+  margin-top:10px;font-size:12.5px;color:var(--warn);
+  padding:8px 12px;border-radius:10px;
+  background:rgba(180,83,31,.07);border:1px solid rgba(180,83,31,.2);
+}
+.trn-pied{display:flex;gap:9px;justify-content:flex-end;margin-top:18px;flex-wrap:wrap}
+.trn-pied button{display:inline-flex;align-items:center;gap:7px}
+.trn-arrivee{background:var(--ok) !important;background-image:none !important;border-color:var(--ok) !important;color:#fff !important}
+
+/* ECRAN ETROIT : la designation prend toute la largeur, et ce qui la suit se
+   range sous elle. Les en-tetes disparaissent, le titre du volet et les
+   textes d'invite suffisent alors a dire de quoi il s'agit.
+   Les regles sont ecrites PAR GRILLE : l'ancienne, heritee de la rangee
+   unique a cinq colonnes, posait `1fr 1fr` pour tout le monde. La croix de
+   retrait s'etalait donc sur une demi-ligne, et la difference, qui n'est pas
+   un champ, tombait seule a la ligne suivante. */
+@media (max-width:640px){
+  .trn-entetes{display:none}
+  .trn-g2{grid-template-columns:1fr 38px;gap:6px}
+  .trn-g2 > .trn-champ:first-child{grid-column:1 / -1}
+  .trn-g3{grid-template-columns:1fr auto;gap:6px}
+  .trn-g3 > .trn-champ:first-child{grid-column:1 / -1}
+  .trn-pied{flex-direction:column-reverse}
+  .trn-pied button{width:100%;justify-content:center}
+}
+
+/* ========== RAPPEL DES ENGAGEMENTS EN RETARD, 2026-10-29 ===============
+ *
+ * UNE NOTIFICATION EN CAPSULE (2026-10-29, demande utilisateur).
+ *
+ * Trois essais ont precede celui-ci, et chacun disait une chose fausse : la
+ * plaque de verre claire se confondait avec les KPI, le rouge plein hurlait
+ * pour un rappel qu'on voit quatre fois par jour, et le rectangle a coins
+ * doux restait du mobilier de tableau de bord.
+ *
+ * La capsule, elle, n'existe nulle part ailleurs dans l'application : RIEN
+ * d'autre ici n'est entierement arrondi, etroit et centre. C'est la forme,
+ * et non la couleur, qui annonce qu'il ne s'agit pas d'une mesure.
+ *
+ * LE ROUGE TIENT DANS LA PASTILLE, et nulle part ailleurs. Concentre sur
+ * trente-six pixels il reste franc sans peser ; etale sur la largeur, il
+ * devenait criard. Le fond ne garde qu'un souffle rose a gauche, qui se
+ * dissout bien avant le texte pour que celui-ci reste en encre sombre.
+ */
+.alerte-eng{
+  position:relative;overflow:hidden;
+  /* ETROITE, CENTREE, ENTIEREMENT ARRONDIE. */
+  display:flex;align-items:center;
+  width:min(100%,438px);margin:0 auto 16px;
+  padding:6px;border-radius:999px;
+  background:linear-gradient(100deg,
+    rgba(201,54,46,.20) 0%,
+    rgba(214,86,70,.09) 26%,
+    rgba(255,255,255,.96) 58%,
+    rgba(255,255,255,.98) 100%);
+  backdrop-filter:blur(20px) saturate(155%);
+  -webkit-backdrop-filter:blur(20px) saturate(155%);
+  border:1px solid rgba(255,255,255,.85);
+  /* Deux ombres : une large et basse qui la fait flotter au-dessus du fond
+     bleu, une courte et serree qui lui donne son epaisseur. */
+  box-shadow:
+    0 14px 30px rgba(50,16,16,.20),
+    0 3px 8px rgba(50,16,16,.10),
+    inset 0 1px 0 rgba(255,255,255,.95);
+  color:var(--ink);
+  animation:alerte-entree .32s cubic-bezier(.2,.9,.3,1);
+}
+/* Elle DESCEND de la bande, comme une notification qui tombe du haut de
+   l'ecran. Breve : elle signale son arrivee, elle ne fait pas un numero. */
+@keyframes alerte-entree{
+  from{opacity:0;transform:translateY(-10px) scale(.96)}
+  to  {opacity:1;transform:none}
+}
+
+/* UNE LUEUR QUI TRAVERSE, toutes les six secondes. Elle attire l'oeil sur un
+   tableau de bord qu'on laisse ouvert des heures, sans rien faire clignoter :
+   c'est un passage, pas un gyrophare. */
+.alerte-eng::after{
+  content:'';position:absolute;inset:0;pointer-events:none;z-index:1;
+  background:linear-gradient(100deg,transparent 0%,rgba(255,255,255,.5) 50%,transparent 100%);
+  transform:translateX(-100%);
+  animation:alerte-lueur 6s ease-in-out infinite;
+}
+@keyframes alerte-lueur{
+  0%,72%  { transform:translateX(-100%) }
+  92%,100%{ transform:translateX(100%) }
+}
+
+.alerte-eng-corps{
+  position:relative;z-index:1;
+  flex:1;min-width:0;display:flex;align-items:center;gap:11px;text-align:left;
+  padding:3px 4px 3px 3px;cursor:pointer;
+  background:none !important;background-image:none !important;
+  border:0 !important;box-shadow:none !important;color:var(--ink) !important;
+  border-radius:999px;
+}
+.alerte-eng-corps:hover{background:rgba(201,54,46,.06) !important;transform:none !important}
+
+/* LA PASTILLE : un disque rouge plein, comme la gommette d'une notification
+   de telephone. Elle porte tout le rouge de l'objet.
+   LE SABLIER SE RETOURNE, et c'est tout le propos : le temps s'ecoule, le
+   delai est passe. Deux retournements par cycle de six secondes, assez lents
+   pour qu'on les voie sans en etre distrait. */
+.alerte-eng-icone{
+  position:relative;flex:none;display:grid;place-items:center;
+  width:36px;height:36px;border-radius:50%;
+  color:#fff;
+  background:linear-gradient(145deg,#d8493c 0%,#c4302f 55%,#a81f24 100%);
+  box-shadow:0 3px 10px rgba(168,31,36,.42),inset 0 1px 0 rgba(255,255,255,.35);
+}
+.alerte-eng-icone .ic{width:17px;height:17px;animation:alerte-sablier 6s ease-in-out infinite;transform-origin:50% 50%}
+@keyframes alerte-sablier{
+  0%,38%   { transform:rotate(0) }
+  46%,88%  { transform:rotate(180deg) }
+  96%,100% { transform:rotate(360deg) }
+}
+/* Un anneau qui s'echappe de la pastille, au rythme du retournement. */
+.alerte-eng-icone::after{
+  content:'';position:absolute;inset:0;border-radius:50%;
+  border:1.5px solid rgba(201,54,46,.5);
+  animation:alerte-halo 3s ease-out infinite;
+}
+@keyframes alerte-halo{
+  0%  { transform:scale(1);opacity:.7 }
+  70% { transform:scale(1.45);opacity:0 }
+  100%{ transform:scale(1.45);opacity:0 }
+}
+
+.alerte-eng-texte{display:flex;flex-direction:column;gap:1px;min-width:0}
+/* LE MOT « ALERTE », ecrit. La couleur seule ne dit rien a qui ne la distingue
+   pas, et une capture en noir et blanc perdrait tout le propos. */
+.alerte-eng-genre{
+  font-size:8.5px;font-weight:800;letter-spacing:.15em;text-transform:uppercase;
+  color:var(--err);opacity:.7;
+}
+.alerte-eng-texte b{font-size:13.5px;color:var(--err);letter-spacing:.004em;line-height:1.22}
+/* UNE SEULE LIGNE, coupee par des points de suspension plutot que repliee :
+   une notification qui passe a trois lignes redevient un bandeau. */
+.alerte-eng-texte > span:last-child{
+  font-size:10.5px;color:var(--muted);font-weight:400;line-height:1.3;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+/* Le chevron dans sa propre bulle claire : sur une capsule, une fleche nue
+   flottait sans attache. */
+.alerte-eng-aller{
+  flex:none;margin-left:auto;display:grid;place-items:center;
+  width:24px;height:24px;border-radius:50%;
+  color:var(--err);background:rgba(201,54,46,.09);
+  transition:background .18s ease,transform .18s ease;
+}
+.alerte-eng-corps:hover .alerte-eng-aller{background:rgba(201,54,46,.18);transform:translateX(2px)}
+
+/* La croix : un disque discret, de la meme famille que le chevron. Elle ne
+   fait que ranger le rappel, elle ne doit pas peser autant que lui. */
+.alerte-eng-fermer{
+  position:relative;z-index:1;
+  flex:none;align-self:center;
+  width:28px;height:28px;margin-right:4px;
+  display:grid;place-items:center;
+  background:none !important;background-image:none !important;
+  border:0 !important;box-shadow:none !important;
+  color:#9aa8b5 !important;border-radius:50%;font-size:12px;line-height:1;
+  transition:color .18s ease,background .18s ease;
+}
+.alerte-eng-fermer:hover{background:rgba(201,54,46,.10) !important;color:var(--err) !important;transform:none !important}
+
+@media (max-width:560px){
+  .alerte-eng-texte > span:last-child{display:none}
+  .alerte-eng-corps{gap:9px}
+}
+/* Tout s'arrete, et le dessin garde son sens : la pastille reste rouge, le
+   sablier reste a l'endroit, l'anneau et la lueur disparaissent. */
+@media (prefers-reduced-motion:reduce){
+  .alerte-eng,.alerte-eng::after,.alerte-eng-icone .ic,.alerte-eng-icone::after{animation:none}
+  .alerte-eng::after{display:none}
+}
+
+/* ---- LE SIGNAL D'ALERTE D'UNE TUILE, 2026-10-28 (demande utilisateur) ----
+ *
+ * LE TRIANGLE D'ATTENTION, et non un point rouge. Un point attire l'oeil sans
+ * rien dire ; ce signe-la se lit sans legende, et c'est ce que l'utilisateur
+ * appelait « plus professionnel ».
+ *
+ * `tone="warn"` ne suffisait pas a teinter la tuile : au tableau de bord,
+ * `.bento .stat` impose la couleur de l'etape sur le lisere gauche et l'emporte
+ * sur `.stat.warn`. La tuile des engagements s'affichait donc en BLEU alors
+ * qu'elle annoncait 110 retards. C'est cette classe qui tranche.
+ */
+.stat-en-alerte,
+.stat.err{border-left-color:var(--err) !important}
+/* UN ROUGE FRANC, et non le bordeaux des messages d'erreur (2026-10-29,
+ * demande utilisateur). `--err` vaut #b00020 : un rouge sombre, concu pour du
+ * TEXTE sur fond blanc, ou il faut du contraste. A quinze pixels et en trait
+ * de 1,8 px, il tire sur le brun, et le signal perdait son urgence. Celui-ci
+ * est plus clair et plus sature : il reste rouge a petite taille.
+ * Il ne remplace pas `--err` ailleurs, ou le texte en a besoin. */
+.stat-signal{
+  --sig:#e01b2b;
+  position:absolute;top:8px;left:8px;z-index:3;
+  display:grid;place-items:center;width:22px;height:22px;border-radius:50%;
+  color:var(--sig);background:#fff;
+  animation:stat-signal 1.8s ease-in-out infinite;
+}
+/* LE BATTEMENT EST ROUGE, et n'est plus une variation d'opacite.
+ *
+ * L'ancienne version faisait palir le triangle une fois sur deux. A mi-course
+ * il paraissait GRIS, et un signe qui s'eteint a moitie du temps se lit comme
+ * un element desactive : exactement le contraire de ce qu'une alerte doit
+ * dire. Le triangle reste donc PLEIN en permanence, et c'est une lueur rouge
+ * qui enfle autour de lui. */
+@keyframes stat-signal{
+  0%,100%{box-shadow:0 0 0 0 rgba(224,27,43,.55),0 1px 4px rgba(150,30,30,.3)}
+  55%    {box-shadow:0 0 0 6px rgba(224,27,43,0),0 1px 4px rgba(150,30,30,.3)}
+}
+/* DEUX ANNEAUX, decales d'une demi-mesure : une onde part toujours quand
+   l'autre s'efface. Le signal respire, au lieu de cligner. */
+.stat-signal::before,
+.stat-signal::after{
+  content:'';position:absolute;inset:0;border-radius:50%;z-index:-1;
+  border:1.5px solid var(--sig);
+  animation:stat-signal-halo 1.8s ease-out infinite;
+}
+.stat-signal::before{animation-delay:.9s}
+@keyframes stat-signal-halo{
+  0%  {transform:scale(1);opacity:.75}
+  70% {transform:scale(2.2);opacity:0}
+  100%{transform:scale(2.2);opacity:0}
+}
+
+/* L'INFOBULLE EST A NOUS, pas celle du navigateur : la native met une seconde
+   a paraitre, et le regard est deja parti. Celle-ci se montre AU SURVOL ET AU
+   CLAVIER, tout de suite. */
+.stat-signal-bulle{
+  position:absolute;left:0;top:calc(100% + 7px);z-index:4;
+  padding:6px 10px;border-radius:9px;white-space:nowrap;
+  font-size:12px;font-weight:600;line-height:1.2;
+  color:#fff;background:#b31421;
+  box-shadow:0 6px 18px rgba(179,20,33,.38);
+  opacity:0;transform:translateY(-3px);pointer-events:none;
+  transition:opacity .15s ease,transform .15s ease;
+}
+/* La fleche, pour qu'on voie D'OU elle parle. */
+.stat-signal-bulle::before{
+  content:'';position:absolute;left:7px;top:-4px;
+  width:8px;height:8px;background:inherit;transform:rotate(45deg);
+}
+.stat-signal:hover .stat-signal-bulle,
+.stat:hover .stat-signal-bulle,
+.stat:focus-visible .stat-signal-bulle{opacity:1;transform:none}
+/* Le signal cesse de clignoter tant qu'on le regarde : on a compris, et une
+   infobulle qui palpite se lit mal. */
+.stat-signal:hover,.stat:hover .stat-signal{animation:none;opacity:1}
+
+/* Immobile, le triangle reste ROUGE et lisible : le signal tient sans le
+   mouvement, c'est le minimum pour une alerte. */
+@media (prefers-reduced-motion:reduce){
+  .stat-signal,.stat-signal::before,.stat-signal::after{animation:none}
+  .stat-signal::before,.stat-signal::after{display:none}
+  .stat-signal{box-shadow:0 0 0 3px rgba(224,27,43,.22),0 1px 4px rgba(150,30,30,.3)}
+}
+
+
+/* ========== UN LEGER RELIEF SUR LES PASTILLES D'ICONE, 2026-10-29 ==========
+ *
+ * Demande utilisateur : un effet 3D discret sur les icones.
+ *
+ * LE RELIEF EST SUR LE SUPPORT, PAS SUR LE TRAIT. Les icones de
+ * l'application sont des traits ouverts d'1,8 px ; leur donner une ombre
+ * portee les epaissirait et les rendrait floues aux petites tailles. C'est
+ * donc la PASTILLE qui se bombe, et le trait se contente d'un souffle d'ombre
+ * qui le decolle de son support.
+ *
+ * Trois couches, et chacune fait un travail precis :
+ *   · une lumiere en haut a gauche, comme si l'eclairage venait de la fenetre ;
+ *   · une ombre interne en bas, qui creuse le bord inferieur ;
+ *   · une ombre portee courte, qui pose la pastille sur le fond.
+ * Ensemble elles font un galet. Separement, aucune ne se remarque, et c'est
+ * exactement ce qu'on veut : le relief doit se sentir, pas se voir.
+ *
+ * Le vocabulaire n'est pas invente ici : c'est celui de `.avatar-u`, qui etait
+ * deja bombe. L'appliquer aux autres pastilles rend l'ecran coherent au lieu
+ * d'y ajouter un style de plus.
+ */
+
+/* --- Les pastilles CLAIRES, sur fond blanc (tuiles KPI, notification) ----- */
+.stat-icone,
+.alerte-eng-icone{
+  background-image:
+    radial-gradient(circle at 32% 24%, rgba(255,255,255,.75), rgba(255,255,255,0) 58%),
+    radial-gradient(circle at 50% 120%, rgba(0,0,0,.14), rgba(0,0,0,0) 55%);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.9),
+    inset 0 -2px 4px rgba(20,35,50,.10),
+    0 2px 5px rgba(20,35,50,.13);
+}
+/* La pastille de l'alerte est rouge PLEINE : son degrade porte deja le volume,
+   on ne lui ajoute que la lumiere et l'ombre portee, sinon elle se delave. */
+.alerte-eng-icone{
+  background-image:
+    radial-gradient(circle at 34% 24%, rgba(255,255,255,.42), rgba(255,255,255,0) 56%),
+    linear-gradient(145deg,#d8493c 0%,#c4302f 55%,#a81f24 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.45),
+    inset 0 -3px 6px rgba(90,10,14,.35),
+    0 3px 9px rgba(168,31,36,.40);
+}
+
+/* --- La pastille du bandeau, sur le bleu profond ------------------------- */
+.bm-pastille{
+  background-image:
+    radial-gradient(circle at 32% 24%, rgba(255,255,255,.42), rgba(255,255,255,.06) 52%, rgba(255,255,255,0) 66%),
+    radial-gradient(circle at 50% 122%, rgba(0,0,0,.30), rgba(0,0,0,0) 54%);
+  box-shadow:
+    inset 0 1.5px 0 rgba(255,255,255,.45),
+    inset 0 -3px 6px rgba(0,0,0,.26),
+    0 3px 8px rgba(6,30,50,.32);
+}
+
+/* --- L'onglet actif de la barre du bas ----------------------------------- */
+/* Meme point de bascule que la barre elle-meme (820 px) : un relief qui
+   s'appliquerait a un onglet invisible n'aurait pas de sens. */
+@media(max-width:820px){
+  .nm-onglet.actif svg{
+    background-image:
+      radial-gradient(circle at 32% 24%, rgba(255,255,255,.45), rgba(255,255,255,0) 58%),
+      linear-gradient(160deg,var(--accent),#0b4870);
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,.42),
+      inset 0 -3px 6px rgba(0,0,0,.26),
+      0 4px 12px rgba(14,90,138,.34);
+  }
+}
+
+/* --- LE TRAIT, decolle de son support ------------------------------------
+ * Un seul pixel d'ombre, et seulement dans une pastille : ailleurs, les
+ * icones vivent dans du texte courant, ou une ombre ferait sale. */
+.stat-icone > .ic,
+.bm-pastille > .ic,
+.alerte-eng-icone > .ic{
+  filter:drop-shadow(0 1px 1px rgba(10,25,40,.28));
+}
+
+/* Un ecran qui demande moins de contraste demande aussi moins d'esbroufe :
+   le relief disparait, les pastilles redeviennent plates et lisibles. */
+@media (prefers-contrast:more){
+  .stat-icone,.alerte-eng-icone,.bm-pastille,.nm-onglet.actif svg{
+    background-image:none;box-shadow:none;
+  }
+  .stat-icone > .ic,.bm-pastille > .ic,.alerte-eng-icone > .ic{filter:none}
+}
+
+
+/* ========== BON DE CHARGEMENT : LA CARTE DE RECHERCHE, 2026-10-29 ========
+ *
+ * Demande utilisateur : arrondir, poser une icone dans chaque champ, et
+ * mettre le logo avec une animation de chargement.
+ */
+
+/* ---- UNE ENVELOPPE A ICONE, REUTILISABLE ------------------------------
+ * `.trn-champ` faisait deja ce travail, mais dans la fenetre de soumission.
+ * Celle-ci porte un nom general : le prochain formulaire n'aura rien a
+ * reecrire. */
+.champ-ic{position:relative;display:flex;align-items:center;min-width:0;margin-top:4px}
+.champ-ic > .ic{
+  position:absolute;left:13px;z-index:1;pointer-events:none;
+  color:var(--muted);opacity:.75;
+}
+.champ-ic > input,
+.champ-ic > select{width:100%;padding-left:36px;margin:0}
+.champ-ic > select{padding-right:32px;background-position:right 13px center}
+
+.chg-recherche input,
+.chg-recherche select,
+.chg-recherche button{border-radius:999px}
+.chg-recherche h2{text-align:center;margin:10px 0 2px}
+.chg-sous{text-align:center;max-width:62ch;margin:0 auto 16px}
+.chg-pied{margin-top:14px;display:flex;justify-content:center}
+.chg-pied button{display:inline-flex;align-items:center;gap:7px;padding-left:20px;padding-right:20px}
+
+/* ---- LE LOGO SUR SON TAPIS -------------------------------------------- */
+.chg-logo{
+  position:relative;width:var(--t);height:var(--t);margin:2px auto 0;
+  display:grid;place-items:center;
+}
+.chg-logo .logo-rond{position:relative;z-index:2;width:var(--t);height:var(--t)}
+/* L'anneau tourne lentement : c'est le travail en cours, pas une attente. */
+.chg-anneau{
+  position:absolute;inset:-7px;border-radius:50%;
+  border:2px solid rgba(14,90,138,.18);
+  border-top-color:var(--accent);
+  animation:chg-tour 2.8s linear infinite;
+}
+@keyframes chg-tour{to{transform:rotate(360deg)}}
+/* LE TAPIS passe DERRIERE le logo (z-index 1 contre 2) : des caisses qui
+   masqueraient la marque une fois par seconde attireraient l'oeil sur le
+   mauvais objet. */
+.chg-tapis{
+  position:absolute;left:50%;top:58%;transform:translateX(-50%);
+  width:calc(var(--t) * 2);height:12px;z-index:1;overflow:hidden;
+}
+.chg-tapis i{
+  position:absolute;top:2px;width:9px;height:9px;border-radius:2px;
+  background:linear-gradient(145deg,#2f86c0,var(--accent));
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.45),0 1px 3px rgba(15,35,55,.3);
+  animation:chg-caisse 2.6s linear infinite;
+}
+.chg-tapis i:nth-child(2){animation-delay:.87s}
+.chg-tapis i:nth-child(3){animation-delay:1.74s}
+@keyframes chg-caisse{
+  0%  {left:-12px;opacity:0}
+  10% {opacity:1}
+  85% {opacity:1}
+  100%{left:100%;opacity:0}
+}
+/* Immobile, le dessin garde son sens : le logo, son anneau et trois caisses
+   posees dessous. */
+@media (prefers-reduced-motion:reduce){
+  .chg-anneau,.chg-tapis i{animation:none}
+  .chg-tapis i:nth-child(1){left:18%}
+  .chg-tapis i:nth-child(2){left:48%}
+  .chg-tapis i:nth-child(3){left:78%}
+}
+
+
+/* ===== LES CHOIX SEGMENTES : DESSIN ET MOUVEMENT, 2026-10-29 ============
+ *
+ * Demande utilisateur : reduire, poser des icones, animer legerement.
+ *
+ * TROIS MOUVEMENTS, ET UN SEUL QUI DURE. Cet ecran sert a SIGNER : ce qui
+ * bouge sans fin y devient du bruit. Deux des trois repondent a un geste et
+ * s'arretent ; seul le voyant du choix retenu respire, assez lentement pour
+ * se sentir sans se regarder.
+ */
+.seg-choix .ic{flex:0 0 auto;opacity:.75;transition:opacity .18s ease,transform .18s ease}
+.seg-choix:hover .ic{opacity:1;transform:scale(1.08)}
+.seg-choix.actif .ic{opacity:1;color:#fff}
+
+/* 1. LE CHOIX RETENU SE POSE : une breve mise a l'echelle au moment ou il
+      devient actif, la ou la valeur vient de changer. */
+.seg-choix.actif{animation:seg-pose .26s cubic-bezier(.2,.9,.3,1)}
+@keyframes seg-pose{
+  0%  {transform:scale(.94)}
+  60% {transform:scale(1.03)}
+  100%{transform:scale(1)}
+}
+/* 2. LE VOYANT RESPIRE une fois allume. */
+.seg-choix.actif .seg-voyant{animation:seg-voyant 2.8s ease-in-out infinite}
+@keyframes seg-voyant{
+  0%,100%{box-shadow:0 0 0 0 rgba(255,255,255,.55)}
+  55%    {box-shadow:0 0 0 4px rgba(255,255,255,0)}
+}
+/* 3. LE SURVOL SOULEVE la pilule d'un pixel, comme les autres boutons. */
+.seg-choix:hover:not(.actif){transform:translateY(-1px)}
+
+@media (prefers-reduced-motion:reduce){
+  .seg-choix.actif,.seg-choix.actif .seg-voyant{animation:none}
+  .seg-choix:hover:not(.actif),.seg-choix:hover .ic{transform:none}
+}
+
+/* Un en-tete de colonne precede de son dessin (2026-10-29, demande
+   utilisateur). Trois colonnes de chiffres se suivent dans la liste des
+   declarations, et on comptait les colonnes pour savoir laquelle on lisait. */
+.th-ic{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.th-ic .ic{flex:0 0 auto;opacity:.7}
+
+
+/* ============ ARCHIVE : L'ECRAN DE L'ANCIENNETE, 2026-10-29 ============
+ *
+ * Demande utilisateur : ameliorer le dessin, poser des icones legeres et des
+ * animations. La barre reprend le verre depoli des filtres, deja employe
+ * ailleurs, plutot qu'un nouveau style de plus.
+ */
+.arc-barre{
+  display:grid;grid-template-columns:auto 1fr;gap:12px 16px;align-items:center;
+}
+.arc-note{grid-column:2;margin:0;max-width:78ch}
+.arc-filtres{grid-column:1 / -1;gap:10px;flex-wrap:wrap;align-items:end;margin:0}
+.arc-btn{display:inline-flex;align-items:center;gap:7px}
+
+/* ---- LE LOGO QUI ARCHIVE ----------------------------------------------
+ * Des feuilles tombent une a une et se rangent dans une boite, sous un anneau
+ * qui s'eloigne. La premiere version ne montrait que les anneaux : ils
+ * parlaient du temps qui passe, pas du rangement, et un dessin qui illustre
+ * l'idee generale au lieu de l'action laisse le lecteur deviner. */
+.arc-logo{
+  grid-row:1 / span 1;
+  position:relative;width:var(--t);height:var(--t);
+  display:grid;place-items:center;
+}
+.arc-logo .logo-rond{position:relative;z-index:2;width:var(--t);height:var(--t)}
+
+/* L'anneau, seul rescape de la premiere version : il dit l'anciennete pendant
+   que les feuilles disent le rangement. */
+.arc-onde{
+  position:absolute;inset:0;border-radius:50%;z-index:1;
+  border:1.5px solid rgba(14,90,138,.35);
+  animation:arc-onde 6s ease-out infinite;
+}
+@keyframes arc-onde{
+  0%  {transform:scale(1);opacity:.6}
+  55% {transform:scale(1.7);opacity:0}
+  100%{transform:scale(1.7);opacity:0}
+}
+
+/* LA BOITE, posee sous le logo : c'est la que tout finit. Un couvercle
+   entrouvert, deux traits, rien de plus : a cette taille un dessin detaille
+   devient une tache. */
+.arc-boite{
+  position:absolute;left:50%;bottom:calc(var(--t) * -0.26);
+  transform:translateX(-50%);z-index:3;
+  width:calc(var(--t) * 0.46);height:calc(var(--t) * 0.3);
+  border:1.5px solid var(--accent);border-top:0;
+  border-radius:0 0 4px 4px;
+  background:linear-gradient(180deg,rgba(14,90,138,.10),rgba(14,90,138,.22));
+}
+.arc-boite i{
+  position:absolute;left:-3px;right:-3px;top:-4px;height:4px;
+  background:var(--accent);border-radius:2px;opacity:.85;
+}
+
+/* LES FEUILLES tombent DERRIERE le logo (z-index 1 contre 2) et disparaissent
+   a hauteur de la boite : une feuille qui passerait devant la marque
+   attirerait l'oeil sur le mauvais objet. */
+.arc-feuille{
+  position:absolute;left:50%;z-index:1;
+  width:calc(var(--t) * 0.3);height:calc(var(--t) * 0.21);
+  margin-left:calc(var(--t) * -0.15);
+  border-radius:2px;
+  background:linear-gradient(145deg,#fff,#d9e6ef);
+  border:1px solid rgba(14,90,138,.45);
+  box-shadow:0 1px 3px rgba(15,35,55,.22);
+  animation:arc-feuille 6s cubic-bezier(.45,.05,.55,.95) infinite;
+}
+.arc-feuille:nth-of-type(2){animation-delay:2s}
+.arc-feuille:nth-of-type(3){animation-delay:4s}
+@keyframes arc-feuille{
+  0%  {top:calc(var(--t) * -0.34);opacity:0;transform:rotate(-14deg) scale(1)}
+  12% {opacity:1}
+  /* Elle ralentit en approchant, comme une feuille qui se pose. */
+  62% {top:calc(var(--t) * 0.72);opacity:1;transform:rotate(3deg) scale(.86)}
+  74% {top:calc(var(--t) * 0.80);opacity:0;transform:rotate(0deg) scale(.7)}
+  100%{top:calc(var(--t) * 0.80);opacity:0;transform:rotate(0deg) scale(.7)}
+}
+
+/* Immobile, le dessin garde son sens : le logo, sa boite, et trois feuilles
+   posees au-dessus d'elle. */
+@media (prefers-reduced-motion:reduce){
+  .arc-onde{animation:none;opacity:.22}
+  .arc-feuille{animation:none;opacity:.9;transform:rotate(-6deg)}
+  .arc-feuille:nth-of-type(1){top:calc(var(--t) * -0.18);margin-left:calc(var(--t) * -0.4)}
+  .arc-feuille:nth-of-type(2){top:calc(var(--t) * -0.26)}
+  .arc-feuille:nth-of-type(3){top:calc(var(--t) * -0.18);margin-left:calc(var(--t) * 0.1)}
+}
+
+/* La boite deborde sous la carte : on lui laisse la place. */
+.arc-barre{padding-bottom:22px}
+
+@media (max-width:620px){
+  .arc-barre{grid-template-columns:1fr;justify-items:center;text-align:center}
+  .arc-note{grid-column:1}
+  .arc-filtres{text-align:left}
+}
+
+/* ---- L'ARCHIVE : UNE LIGNE QUI SE DEPLIE, 2026-10-29 -------------------
+ * Demande utilisateur : « on doit tout voir, absolument tout ce qui concerne
+ * ce camion ». Tout etaler d'emblee aurait fait des lignes de huit
+ * centimetres sur cinquante dossiers : on ouvre ce qu'on veut lire. */
+.arc-ligne{cursor:pointer}
+.arc-ligne:hover{background:var(--accent-soft)}
+.arc-fleche{
+  display:inline-flex;vertical-align:-2px;margin-right:7px;color:var(--accent);
+  transition:transform .18s ease;
+}
+.arc-fleche.ouvert{transform:rotate(90deg)}
+.arc-detail > td{background:rgba(14,90,138,.04);padding:14px 16px}
+.arc-tout{display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));gap:14px}
+.arc-bloc{
+  background:rgba(255,255,255,.8);border:1px solid rgba(15,45,70,.1);
+  border-radius:14px;padding:11px 13px;
+}
+.arc-bloc .section-title{display:flex;align-items:center;gap:7px;margin:0 0 7px}
+.arc-bloc .fiche{display:grid;gap:4px}
+.arc-pied{display:flex;justify-content:flex-end;margin-top:12px}
+@media (prefers-reduced-motion:reduce){.arc-fleche{transition:none}}
+
+
+/* ======== EXTRACTION : LE LOGO QUI EXTRAIT, 2026-10-29 ==================
+ *
+ * Demande utilisateur. Des lignes de donnees SORTENT du logo et viennent se
+ * poser dans une feuille, a droite. Elles vont vers la DROITE, dans le sens
+ * de la lecture : une extraction qui irait vers la gauche se lirait comme un
+ * import.
+ *
+ * ⚠ DEUX DEFAUTS CORRIGES LE JOUR MEME, signales par l'utilisateur :
+ *
+ * 1. L'ANIMATION NE SE VOYAIT PAS. Les lignes partaient du CENTRE du logo et
+ *    passaient donc dessous (le logo est au-dessus d'elles, et il le doit :
+ *    une ligne qui le traverserait salirait la marque). Elles naissent
+ *    desormais a son BORD DROIT, dans l'espace libre qui mene a la feuille,
+ *    ou rien ne les cache.
+ * 2. LE BLOC N'ETAIT PAS CENTRE. Le logo occupait la gauche de la bande et la
+ *    feuille debordait a droite sans que l'ensemble soit pose au milieu. Le
+ *    bloc declare donc sa largeur reelle, logo ET feuille comprises, et se
+ *    centre comme un tout.
+ */
+.ext-tete{
+  display:flex;flex-direction:column;align-items:center;text-align:center;gap:8px;
+  margin-bottom:14px;padding-bottom:13px;
+  border-bottom:1px dashed rgba(15,45,70,.14);
+}
+.ext-note{margin:0;max-width:72ch;font-size:13px}
+
+/* LA LARGEUR REELLE DU BLOC : le logo (0 → 1t), l'espace de vol (1t → 1.28t),
+   la feuille (1.28t → 1.72t). Sans cette largeur declaree, le centrage ne
+   portait que sur le logo et la feuille tirait l'ensemble vers la droite. */
+.ext-logo{
+  position:relative;
+  width:calc(var(--t) * 1.72);height:var(--t);
+}
+.ext-logo .logo-rond{
+  position:absolute;left:0;top:0;z-index:3;
+  width:var(--t);height:var(--t);
+}
+/* Un halo qui respire : la source d'ou sortent les lignes. */
+.ext-halo{
+  position:absolute;left:-5px;top:-5px;width:calc(var(--t) + 10px);height:calc(var(--t) + 10px);
+  border-radius:50%;z-index:1;
+  border:1.5px solid rgba(14,90,138,.3);
+  animation:ext-halo 3.6s ease-in-out infinite;
+}
+@keyframes ext-halo{
+  0%,100%{transform:scale(1);opacity:.55}
+  55%    {transform:scale(1.12);opacity:.15}
+}
+
+/* LA FEUILLE qui recoit. Trois traits, rien de plus : a cette taille un
+   tableau dessine devient une tache grise. */
+.ext-feuille{
+  position:absolute;left:calc(var(--t) * 1.28);top:50%;z-index:2;
+  transform:translateY(-50%);
+  width:calc(var(--t) * 0.44);height:calc(var(--t) * 0.56);
+  border:1.5px solid var(--accent);border-radius:3px;
+  background:linear-gradient(160deg,#fff,#e8f0f6);
+  box-shadow:0 2px 6px rgba(15,35,55,.18);
+  display:flex;flex-direction:column;justify-content:center;gap:3px;padding:0 4px;
+}
+.ext-feuille i{display:block;height:2px;border-radius:1px;background:rgba(14,90,138,.45)}
+.ext-feuille i:nth-child(2){width:72%}
+.ext-feuille i:nth-child(3){width:48%}
+
+/* LES LIGNES QUI SORTENT, du bord droit du logo jusqu'a la feuille. z-index 4
+   les met AU-DESSUS de la feuille : on les voit s'y poser. Trois, decalees
+   d'un tiers de cycle, pour qu'il y en ait toujours une en route. */
+.ext-ligne{
+  position:absolute;top:50%;left:var(--t);z-index:4;
+  width:calc(var(--t) * 0.26);height:3px;border-radius:2px;
+  background:linear-gradient(90deg,rgba(14,90,138,0),var(--accent));
+  animation:ext-ligne 2.4s ease-in-out infinite;
+}
+.ext-ligne:nth-of-type(2){animation-delay:.8s;margin-top:-7px}
+.ext-ligne:nth-of-type(3){animation-delay:1.6s;margin-top:7px}
+@keyframes ext-ligne{
+  0%  {opacity:0;transform:translateX(-6px) scaleX(.2)}
+  18% {opacity:1;transform:translateX(0) scaleX(1)}
+  68% {opacity:1;transform:translateX(calc(var(--t) * 0.34)) scaleX(1)}
+  86% {opacity:0;transform:translateX(calc(var(--t) * 0.46)) scaleX(.3)}
+  100%{opacity:0;transform:translateX(calc(var(--t) * 0.46)) scaleX(.3)}
+}
+
+/* Immobile, le dessin garde son sens : le logo, son halo, une ligne en vol et
+   la feuille remplie a cote. */
+@media (prefers-reduced-motion:reduce){
+  .ext-halo{animation:none}
+  .ext-ligne{animation:none;opacity:.5}
+  .ext-ligne:nth-of-type(2),.ext-ligne:nth-of-type(3){opacity:.28}
+}
+
+
+/* ===== LES ONGLETS D'ENTREPOT, DANS LA BANDE, 2026-10-29 ================
+ *
+ * Demande utilisateur, pour le Magasin/MAD ET l'Entrepot industriel : c'est
+ * le meme composant, une seule regle les sert tous les deux.
+ *
+ * Ils tenaient une carte a eux seuls, qui repoussait la saisie sous la ligne
+ * de flottaison. Dans la bande, ils forment un groupe en VERRE DEPOLI : sur
+ * le bleu profond du bandeau, quatre boutons clairs poses cote a cote se
+ * seraient lus comme quatre actions sans lien ; un cadre commun dit qu'ils
+ * s'excluent, et que l'un d'eux est l'ecran ouvert.
+ */
+.onglets-verre{
+  gap:4px !important;padding:4px;border-radius:999px;
+  background:rgba(255,255,255,.12);
+  border:1px solid rgba(255,255,255,.22);
+  backdrop-filter:blur(14px) saturate(150%);
+  -webkit-backdrop-filter:blur(14px) saturate(150%);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.2);
+}
+.bm-outils .onglet-mag{
+  display:inline-flex;align-items:center;gap:7px;
+  background:transparent !important;border-color:transparent !important;
+  color:rgba(255,255,255,.82) !important;
+  box-shadow:none !important;
+  padding:7px 13px;font-size:13px;font-weight:600;border-radius:999px;
+  transition:background .18s ease,color .18s ease;
+}
+.bm-outils .onglet-mag:hover:not(.actif){
+  background:rgba(255,255,255,.14) !important;color:#fff !important;transform:none;
+}
+/* L'ONGLET OUVERT EST PLEIN, et c'est le seul : sur du verre, une simple
+   nuance de clair ne suffit pas a dire « vous etes ici ». */
+.bm-outils .onglet-mag.actif{
+  background:#fff !important;color:var(--accent) !important;
+  box-shadow:0 2px 8px rgba(6,30,50,.25) !important;
+}
+.bm-outils .onglet-mag .ic{flex:0 0 auto}
+
+@media (max-width:820px){
+  /* Sur telephone la bande defile deja : le groupe suit, sans se casser. */
+  .onglets-verre{flex-wrap:nowrap}
+}
+@media (prefers-reduced-motion:reduce){
+  .bm-outils .onglet-mag{transition:none}
+}
+
+
+/* ===== LA PESEE REPONDUE POUR TOUTE LA DECLARATION, 2026-10-29 ==========
+ *
+ * Demande utilisateur : alleger le travail des agents a la validation, puis
+ * reprendre le dessin, les boutons et le mouvement.
+ *
+ * Mesure faite avant d'ecrire : 145 dossiers attendent, et la plus grosse
+ * declaration en porte 13 — le chef repondait jusqu'a treize fois a la meme
+ * question pour un seul dossier.
+ *
+ * LE BLOC SE DISTINGUE DES LIGNES qu'il commande : fond ambre tres dilue,
+ * comme la pesee elle-meme. Pose en blanc comme le reste, on l'aurait pris
+ * pour une ligne de plus, et l'on aurait continue a repondre une par une.
+ * Quand tout est repondu il passe au VERT : le bloc dit alors qu'il n'a plus
+ * rien a demander, au lieu de rester ouvert comme une tache en cours.
+ */
+.pesee-lot{
+  margin:12px 0 4px;padding:13px 15px;border-radius:18px;
+  background:
+    radial-gradient(circle at 12% 0%, rgba(180,83,31,.10), rgba(180,83,31,0) 60%),
+    rgba(180,83,31,.05);
+  border:1px solid rgba(180,83,31,.2);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.75);
+  transition:background .3s ease,border-color .3s ease;
+}
+.pesee-lot.complete{
+  background:
+    radial-gradient(circle at 12% 0%, rgba(31,122,92,.10), rgba(31,122,92,0) 60%),
+    rgba(31,122,92,.05);
+  border-color:rgba(31,122,92,.22);
+}
+
+/* ---- L'en-tete : le signe, le titre, la jauge --------------------------- */
+.pesee-lot-tete{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.pesee-lot-ic{
+  flex:none;display:grid;place-items:center;width:36px;height:36px;border-radius:50%;
+  color:var(--warn);
+  background:
+    radial-gradient(circle at 34% 24%, rgba(255,255,255,.92), rgba(255,255,255,0) 62%),
+    color-mix(in srgb,currentColor 13%,#fff);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.92),
+    inset 0 -2px 4px color-mix(in srgb,currentColor 16%,transparent),
+    0 2px 5px rgba(20,35,50,.13);
+  transition:color .3s ease;
+}
+.pesee-lot.complete .pesee-lot-ic{color:var(--ok)}
+/* LA BALANCE PENCHE, d'un bord puis de l'autre, toutes les quatre secondes.
+   C'est le seul mouvement continu du bloc, et il dit ce qu'il attend : une
+   pesee. Quand tout est repondu, il s'arrete — un ecran qui bouge encore
+   apres coup laisse croire qu'il reste a faire. */
+.pesee-lot-ic .ic{animation:pl-balance 4s ease-in-out infinite}
+@keyframes pl-balance{
+  0%,62%,100%{transform:rotate(0)}
+  72%        {transform:rotate(-11deg)}
+  84%        {transform:rotate(11deg)}
+  94%        {transform:rotate(0)}
+}
+.pesee-lot.complete .pesee-lot-ic .ic{animation:none}
+
+.pesee-lot-titre{display:flex;flex-direction:column;gap:1px;min-width:0}
+.pesee-lot-titre b{font-size:14px}
+.pesee-lot-titre .help{text-transform:none;letter-spacing:0;font-size:11.5px}
+
+/* ---- La jauge : l'etat se voit avant de se lire ------------------------- */
+.pesee-lot-jauge{margin-left:auto;display:flex;flex-direction:column;gap:5px;align-items:flex-end}
+.pesee-lot-barre{
+  display:block;width:120px;height:6px;border-radius:999px;overflow:hidden;
+  background:rgba(15,45,70,.12);
+}
+.pesee-lot-barre i{
+  display:block;height:100%;border-radius:999px;
+  background:linear-gradient(90deg,#d08a4e,var(--warn));
+  transition:width .35s cubic-bezier(.2,.9,.3,1),background .3s ease;
+}
+.pesee-lot-jauge.pleine .pesee-lot-barre i{background:linear-gradient(90deg,#52a884,var(--ok))}
+.pesee-lot-compte{
+  display:inline-flex;align-items:center;gap:5px;
+  font-size:11.5px;font-weight:600;color:var(--warn);font-variant-numeric:tabular-nums;
+}
+.pesee-lot-jauge.pleine .pesee-lot-compte{color:var(--ok)}
+/* Le compte PARAIT quand il change : une breve pose, pour qu'on voie que le
+   clic a porte sur les sept lignes et pas sur une seule. */
+.pesee-lot-jauge.pleine .pesee-lot-compte{animation:pl-pose .3s cubic-bezier(.2,.9,.3,1)}
+@keyframes pl-pose{
+  0%{opacity:0;transform:translateY(3px)}
+  100%{opacity:1;transform:none}
+}
+
+/* ---- Les deux boutons : chacun porte la couleur de ce qu'il decide ------ */
+.pesee-lot-actions{display:flex;gap:9px;flex-wrap:wrap;margin-top:12px}
+.pl-btn{
+  display:inline-flex;align-items:center;gap:8px;
+  padding:9px 16px;border-radius:999px;cursor:pointer;
+  font-size:13px;font-weight:600;
+  color:var(--t);
+  background:
+    radial-gradient(circle at 30% 20%, rgba(255,255,255,.9), rgba(255,255,255,0) 60%),
+    color-mix(in srgb,var(--t) 10%,#fff) !important;
+  background-image:none;
+  border:1px solid color-mix(in srgb,var(--t) 32%,transparent) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.9),
+    0 2px 6px rgba(20,35,50,.12) !important;
+  transition:background .16s ease,box-shadow .18s ease,transform .16s ease,color .16s ease;
+}
+.pl-non{--t:var(--ok)}
+.pl-oui{--t:var(--warn)}
+/* Au survol le bouton se REMPLIT de sa couleur : on voit ce qu'on s'apprete a
+   poser sur les sept lignes. */
+.pl-btn:hover:not(:disabled){
+  background:linear-gradient(145deg,
+    color-mix(in srgb,var(--t) 82%,#fff) 0%, var(--t) 60%,
+    color-mix(in srgb,var(--t) 86%,#000) 100%) !important;
+  color:#fff !important;
+  box-shadow:0 6px 16px color-mix(in srgb,var(--t) 38%,transparent) !important;
+  transform:translateY(-2px);
+}
+.pl-btn:active:not(:disabled){
+  transform:translateY(0);
+  box-shadow:inset 0 2px 5px color-mix(in srgb,var(--t) 50%,transparent) !important;
+}
+.pl-btn:focus-visible{outline:2px solid var(--t);outline-offset:2px}
+
+.pesee-lot-note{margin:10px 0 0;font-size:11.5px;max-width:80ch}
+
+@media (max-width:560px){
+  .pesee-lot-jauge{margin-left:0;width:100%;align-items:flex-start}
+  .pesee-lot-barre{width:100%}
+  .pl-btn{flex:1 1 100%;justify-content:center}
+}
+@media (prefers-reduced-motion:reduce){
+  .pesee-lot-ic .ic,.pesee-lot-compte{animation:none}
+  .pesee-lot-barre i{transition:none}
+  .pl-btn:hover:not(:disabled),.pl-btn:active:not(:disabled){transform:none}
+}
+
+
+/* ===== LA LIGNE DE VALIDATION DEVIENT UNE CARTE, 2026-10-29 =============
+ *
+ * Demande utilisateur : arrondir, poser des icones, animer legerement.
+ *
+ * Ses styles etaient ecrits a la main dans le JSX, a 6 px de rayon : c'etait
+ * le dernier bloc de l'application a garder des coins durs, au milieu de
+ * tuiles a 28 px et de champs en capsule. Ils passent en CSS, ou la couleur
+ * d'etape tient dans une variable au lieu d'un calcul dans le rendu.
+ */
+/* ⚠ UNE COLONNE, ET NON UNE GRILLE (2026-10-29, demande utilisateur, apres
+   essai de la grille bento). Deux cartes cote a cote serraient le tableau des
+   conteneurs et la pesee : on gagnait de la hauteur et on perdait la
+   lisibilite de ce qu'on signe. L'empilement revient, le VERRE et les COINS
+   ARRONDIS restent — c'etait cela le gain, pas la mise en colonnes. */
+.val-bento{display:flex;flex-direction:column;gap:12px}
+.val-ligne{
+  --t:var(--warn);
+  position:relative;margin-bottom:0;padding:13px 15px;
+  border-radius:18px;
+  border:1px solid rgba(255,255,255,.72);
+  border-left:4px solid var(--t);
+  /* VERRE DEPOLI, comme les tuiles du tableau de bord : la carte repose sur le
+     fond clair de l'ecran, qu'elle laisse transparaitre. */
+  background:rgba(255,255,255,.62);
+  backdrop-filter:blur(18px) saturate(165%);
+  -webkit-backdrop-filter:blur(18px) saturate(165%);
+  box-shadow:0 6px 20px rgba(15,35,55,.1),inset 0 1px 0 rgba(255,255,255,.92);
+  transition:box-shadow .2s ease,transform .16s ease,border-color .25s ease,background .25s ease;
+}
+/* SIGNEE, ELLE PASSE AU VERT et cesse d'appeler : le chef voit d'un coup
+   d'oeil ce qui lui reste a regarder. */
+.val-ligne.faite{--t:var(--ok);background:rgba(234,247,242,.62)}
+/* Au survol elle se souleve d'un pixel : assez pour dire « c'est un bloc »,
+   trop peu pour distraire sur une liste de sept. */
+.val-ligne:hover{box-shadow:0 10px 28px rgba(15,35,55,.15);transform:translateY(-2px)}
+
+.val-ligne-tete{align-items:center;gap:8px}
+.val-ligne-ic{
+  flex:none;display:grid;place-items:center;width:28px;height:28px;border-radius:50%;
+  color:var(--t);
+  background:
+    radial-gradient(circle at 34% 24%, rgba(255,255,255,.92), rgba(255,255,255,0) 62%),
+    color-mix(in srgb,currentColor 12%,#fff);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.9),
+    inset 0 -2px 4px color-mix(in srgb,currentColor 14%,transparent),
+    0 2px 4px rgba(20,35,50,.12);
+}
+.val-ligne-fiche{display:inline-flex;align-items:center;gap:6px}
+
+/* Chaque ligne d'information precedee de son dessin : quatre lignes grises
+   se suivaient, et l'oeil devait les lire toutes pour trouver la destination
+   ou les scelles. */
+.val-info{display:flex;align-items:center;gap:7px;margin-top:3px}
+.val-info > .ic{flex:0 0 auto;opacity:.62}
+
+@media (prefers-reduced-motion:reduce){
+  .val-ligne{transition:none}
+  .val-ligne:hover{transform:none}
+}
+

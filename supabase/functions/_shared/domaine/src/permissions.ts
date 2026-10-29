@@ -98,6 +98,13 @@ export const PERMISSIONS: Record<string, Role[]> = {
   // Suivi des engagements (2026-09-10), l'échéancier et son solde appartiennent
   // à qui a pris l'engagement en signant : le chef de brigade et son encadrement.
   // Les cellules d'exécution n'ont pas à porter cette relance.
+  /* TRANSMISSION D'UN ENGAGEMENT (2026-10-28) : memes roles que le suivi.
+     `cargo.engagementfait` reste declare, mais l'ecran ne l'appelle plus : le
+     depart de la transmission solde desormais l'engagement. On ne le retire
+     pas de la matrice tant que d'anciens onglets ouverts peuvent l'appeler. */
+  'engagement.transmission': SUIVENT_ENGAGEMENTS,
+  'engagement.depart': SUIVENT_ENGAGEMENTS,
+  'engagement.arrivee': SUIVENT_ENGAGEMENTS,
   'cargo.engagementfait': SUIVENT_ENGAGEMENTS,
   'report.engagements': SUIVENT_ENGAGEMENTS,
   'cargo.engagementedit': SUIVENT_ENGAGEMENTS, // correction après signature (tracée)

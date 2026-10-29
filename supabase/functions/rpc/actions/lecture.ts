@@ -39,6 +39,39 @@ async function chargerResume(
   return data.map((r) => versCamel(r));
 }
 
+/**
+ * LE MEME RESUME, MAIS SANS OUBLIER LES DOSSIERS ARCHIVES DE NUIT.
+ *
+ * ⚠ CONSTATE A L'ECRAN le 2026-10-29, apres le premier archivage : le tableau
+ * de bord annonçait 2 321 entrees CFS pour octobre la ou il en comptait 4 286
+ * le matin meme. Rien n'avait change dans la realite.
+ *
+ * La cause : `v_cargaisons_resume` exclut `archive_auto` — c'est son role,
+ * elle sert les FILES DE TRAVAIL, et un dossier sorti depuis quinze jours n'a
+ * plus rien a y faire. Mais les compteurs de periode du tableau de bord sont
+ * des STATISTIQUES : « combien de camions sont entres au CFS en octobre »
+ * doit donner le meme chiffre aujourd'hui et dans six mois.
+ *
+ * On lit donc la table, avec le seul filtre des rapports : ni annule, ni
+ * goulot. Les colonnes demandees sont toutes des colonnes reelles de
+ * `cargaisons` (les colonnes calculees de la vue, conteneur1..4 et plomb1..4,
+ * ne servent qu'aux listes), la substitution est donc exacte.
+ */
+async function chargerPourStats(
+  ctx: Ctx,
+  // deno-lint-ignore no-explicit-any
+  affiner?: (q: any) => any,
+  colonnes = '*',
+): Promise<Record<string, unknown>[]> {
+  const data = await fetchAll(ctx, 'cargaisons', colonnes, { colonne: 'date_creation', ascendant: false },
+    // deno-lint-ignore no-explicit-any
+    (q: any) => {
+      const base = q.not('annule', 'is', true).not('archive', 'is', true);
+      return affiner ? affiner(base) : base;
+    });
+  return data.map((r) => versCamel(r));
+}
+
 /* ===== PRÉ-FILTRES SQL DES LISTES : 2026-09-12 ===========================
  *
  * MESURE, depuis le navigateur, sur la base réelle (14 417 dossiers) :
@@ -494,6 +527,11 @@ export async function dashboardStats(ctx: Ctx, opts: { du?: string; au?: string 
        Le compte BAISSE des qu'un engagement est marqué « Effectué » : c'est ce
        qui reste à transmettre, pas ce qui a été pris. */
     engagementsEnCours: 0,
+    /* EN RETARD (2026-10-28, demande utilisateur), sous-ensemble du precedent.
+       Compte ICI, dans la boucle qui parcourt deja ces lignes, et non par un
+       second appel : le tableau de bord venait d'etre allege de ses
+       aller-retours, en rajouter un pour un seul chiffre serait le defaire. */
+    engagementsRetard: 0,
     // Divers / compat.
     total: 0, sortie: 0, aujourdHui: 0,
   };
@@ -575,10 +613,10 @@ export async function dashboardStats(ctx: Ctx, opts: { du?: string; au?: string 
 
   const [utiles, engagements] = await Promise.all([
     // deno-lint-ignore no-explicit-any
-    chargerResume(ctx, ouFiltre ? (q: any) => q.or(ouFiltre) : undefined, COLONNES_RESUME_SANS_CONTENEURS),
+    chargerPourStats(ctx, ouFiltre ? (q: any) => q.or(ouFiltre) : undefined, COLONNES_RESUME_SANS_CONTENEURS),
     // Engagements encore dus, quel que soit l'age du dossier.
     // deno-lint-ignore no-explicit-any
-    chargerResume(ctx, (q: any) => q.eq('suivi_engagement', true).is('engagement_effectue_le', null), COLONNES_RESUME_SANS_CONTENEURS),
+    chargerPourStats(ctx, (q: any) => q.eq('suivi_engagement', true).is('engagement_effectue_le', null), COLONNES_RESUME_SANS_CONTENEURS),
   ]);
   const parId = new Map<string, Record<string, unknown>>();
   for (const r of utiles) parId.set(String(r['id']), r);
@@ -590,7 +628,7 @@ export async function dashboardStats(ctx: Ctx, opts: { du?: string; au?: string 
   // deno-lint-ignore no-explicit-any
   // 2026-10-25 : estimé. Ce total n'est affiché nulle part (champ de compatibilité) ; le compter
   // exactement parcourait toute la table à chaque rafraîchissement, pour chaque chef connecté.
-  stats.total = await compter(ctx, 'v_cargaisons_resume', (q: any) => q.neq('est_vehicule', true), 'estimated');
+  stats.total = await compter(ctx, 'cargaisons', (q: any) => q.neq('est_vehicule', true).not('annule', 'is', true).not('archive', 'is', true), 'estimated');
   const today = new Date();
   for (const r of data) {
     const veh = estOui(r['estVehicule']);
@@ -617,7 +655,13 @@ export async function dashboardStats(ctx: Ctx, opts: { du?: string; au?: string 
       continue;
     }
     // `stats.total` vient de SQL (voir plus haut) : ne pas le recompter ici.
-    if (r['suiviEngagement'] === true && !aFait(r['engagementEffectueLe'])) stats.engagementsEnCours++;
+    if (r['suiviEngagement'] === true && !aFait(r['engagementEffectueLe'])) {
+      stats.engagementsEnCours++;
+      // Meme regle que le volet et que l'echeancier : une seule definition du
+      // retard, sinon deux ecrans annonceraient deux chiffres differents.
+      if (etatEngagement(r['engagementDelai'], r['engagementEffectueLe']).etat === 'retard')
+        stats.engagementsRetard++;
+    }
     /* ARRIVÉES / DÉPARTS DES ENGAGEMENTS sur la période (2026-09-21, demande
        utilisateur), mêmes indicateurs que les tuiles d'étape. Un engagement
        ARRIVE à la signature du chef de brigade, qui le pose ; il PART quand il
@@ -769,6 +813,13 @@ export async function engagementsDus(ctx: Ctx, p: { filtre?: string } = {}) {
   const global = {
     encours: toutes.filter((o) => !aFait(o['engagementEffectueLe'])).length,
     soldes: toutes.filter((o) => aFait(o['engagementEffectueLe'])).length,
+    /* LES RETARDS, COMPTES SUR TOUT, pas sur la vue courante (2026-10-29,
+       demande utilisateur). `compte.retard` existe deja, mais il ne porte que
+       sur les lignes affichees : en vue « Soldes » il vaut zero, et une tuile
+       qui annoncerait « 0 en retard » pendant qu'il y en a cent quatorze
+       mentirait a chaque changement de filtre. Celui-ci ne bouge pas. */
+    retard: toutes.filter((o) =>
+      etatEngagement(o['engagementDelai'], o['engagementEffectueLe']).etat === 'retard').length,
     total: toutes.length,
   };
   const lignes = toutes
@@ -840,13 +891,38 @@ export async function archiveAncienne(ctx: Ctx, p: Record<string, unknown>) {
   const pageSize = Math.min(200, Math.max(10, Number(p['pageSize'] ?? 50)));
   const debut = (page - 1) * pageSize;
   const recherche = String(p['search'] ?? '').trim();
+  /* DEUX VUES, ET LA BONNE PAR DEFAUT (2026-10-29, signale par l'utilisateur :
+   * « corrige le filtre »).
+   *
+   * L'ecran ne savait filtrer que par ANCIENNETE D'ENTREE, heritage du temps
+   * ou « archive » n'etait qu'un regard sur les vieux dossiers. Depuis
+   * l'archivage automatique, ce qui est archive l'est sur la DATE DE SORTIE,
+   * a quatorze jours : l'ecran annoncait donc « 0 dossier » pendant que 19 615
+   * dormaient dans l'archive. Il montrait la mauvaise chose, et sans le dire.
+   *
+   * « archives » devient la vue par defaut, puisque c'est le nom de l'ecran.
+   * L'ancienne lecture par anciennete reste disponible : elle repond a une
+   * autre question, « qu'est-ce qui traine depuis des annees ? ». */
+  const vue = String(p['vue'] ?? 'archives') === 'anciennete' ? 'anciennete' : 'archives';
 
   let q = ctx.db
     .from('cargaisons')
     .select('id, numero_camion, type_operation, statut, date_creation, date_sortie, '
-      + 'declarant, numero_declaration, annee_declaration, nb_conteneurs', { count: 'exact' })
-    .lt('date_creation', seuil + 'T00:00:00')
+      + 'declarant, contact_declarant, destination_marchandise, description_marchandise, '
+      + 'numero_declaration, annee_declaration, bureau_declaration, type_declaration, '
+      + 'nb_conteneurs, conteneurs_details, twins, est_vehicule, '
+      + 'agent_cfs, date_validation, date_t1, bon_sortie_numero, date_bon_sortie, '
+      + 'numero_gps, date_pose_gps, balise_requise, arrivee_bureau, '
+      + 'suivi_engagement, engagement_type, engagement_delai, engagement_effectue_le, '
+      + 'archive, archive_auto, archive_motif', { count: 'exact' })
     .neq('annule', true);
+
+  if (vue === 'archives') {
+    // Les deux drapeaux : l'archivage de nuit ET les goulots posés à la main.
+    q = q.or('archive.eq.true,archive_auto.eq.true');
+  } else {
+    q = q.lt('date_creation', seuil + 'T00:00:00');
+  }
 
   // Recherche sur la plaque NORMALISÉE : l'agent tape « TG 2489 BK » ou
   // « tg2489bk/2725bp », on retrouve la même chose.
@@ -858,6 +934,7 @@ export async function archiveAncienne(ctx: Ctx, p: Record<string, unknown>) {
   if (error) throw new Error(error.message);
 
   return {
+    vue,
     seuil,
     mois,
     page,

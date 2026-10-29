@@ -13,8 +13,7 @@ import {
   etapesEnAttente, etatCellules, etapePrecedenteManquante, messageEtapePrecedente, LIBELLE_ETAPE,
   estOui, tcValide, parseConteneursDetails, tailleBucket,
   groupesDeclaration, libelleDeclaration, estTypeSansT1, libelleTypeSansT1, exigeControlePoids,
-  numeroDispenseValide, aPouvoirAdmin, exigeAmendeEffets, AMENDE_EFFETS_FORFAIT,
-} from '../../../supabase/functions/_shared/domaine/src/index.ts';
+  numeroDispenseValide, aPouvoirAdmin, exigeAmendeEffets, AMENDE_EFFETS_FORFAIT, aRoleParmi} from '../../../supabase/functions/_shared/domaine/src/index.ts';
 
 type O = Record<string, unknown>;
 const A = ROLES.ADMIN;
@@ -31,6 +30,9 @@ export function Detail({ user, arg, go, retour, ecranPrecedent }: Nav) {
      20', sans un mot : l'agent voyait revenir un formulaire complet et ne
      savait pas qu'il valait pour un SECOND conteneur, facultatif. */
   const [ajoutBinome, setAjoutBinome] = useState(false);
+  /* DEPOTAGE MIXTE (2026-10-29, demande utilisateur) : meme logique, et meme
+     retenue. Le panneau ne se rouvre pas tout seul, l'agent le demande. */
+  const [ajoutDepotage, setAjoutDepotage] = useState(false);
   if (loading) return <Spinner />;
   if (error) return <div className="card err-msg">{error}</div>;
   if (!c) return <div className="card">Introuvable.</div>;
@@ -43,7 +45,7 @@ export function Detail({ user, arg, go, retour, ecranPrecedent }: Nav) {
      ont les pouvoirs partout et que le SERVEUR autorise (verifierPermission),
      ne voyaient aucun panneau réservé à l'administrateur sur la fiche. La règle
      est la même qu'au serveur : un panneau ouvert à l'ADMIN l'est à eux. */
-  const can = (...roles: string[]) => roles.includes(role) || (roles.includes(A) && aPouvoirAdmin(role));
+  const can = (...roles: string[]) => aRoleParmi(role, roles as never);
   const suitEngagements = can(ROLES.CHEF_BRIGADE, ROLES.CHEF_BRIGADE_ADJOINT, ROLES.CHEF_VISITE, ROLES.CHEF_DIVISION, A);
   const dets = parseConteneursDetails(c['conteneursDetails']);
   // Chargement mixte : déduit des déclarations portées par chaque conteneur.
@@ -52,6 +54,17 @@ export function Detail({ user, arg, go, retour, ecranPrecedent }: Nav) {
   // Enlèvement binôme : après UN conteneur 20', on peut en ajouter un 2e (20').
   const binomePossible = c['typeOperation'] === OPERATIONS.ENLEVEMENT
     && dets.conteneurs.length === 1 && tailleBucket(dets.conteneurs[0]?.taille) === 't20';
+  /* DEPOTAGE MIXTE : un camion ouvre plusieurs conteneurs, et leur marchandise
+     releve souvent de declarations differentes. C'etait deja possible AVANT la
+     finalisation, un conteneur a la suite de l'autre ; apres elle, le panneau
+     disparaissait et il n'y avait plus aucun moyen d'ajouter un depotage.
+     Le SERVEUR, lui, l'acceptait deja : `cfs` admet le statut « Creee ». Il ne
+     manquait que la porte.
+     On s'arrete a « Creee » : au-dela, le dossier est signe et engage dans les
+     cellules suivantes, et y ajouter de la marchandise fausserait ce qui a
+     deja ete valide. */
+  const depotageMixtePossible = c['typeOperation'] === OPERATIONS.DEPOTAGE
+    && c['statut'] === STATUTS.CREEE;
 
   async function action(fn: () => Promise<unknown>, ok: string) {
     try { await fn(); toast(ok, 'ok'); reload(); } catch (e) { toast((e as Error).message, 'err'); }
@@ -114,6 +127,41 @@ export function Detail({ user, arg, go, retour, ecranPrecedent }: Nav) {
           </div>
           <button onClick={() => setAjoutBinome(true)}>
             <Icone nom="plus" taille={15} />Ajouter un conteneur
+          </button>
+        </div>)}
+
+      {/* DEPOTAGE MIXTE (2026-10-29, demande utilisateur).
+       *
+       * « Quand un conteneur est ouvert, le camion peut depoter plusieurs
+       * articles. » C'est le cas courant au port sec : un camion ouvre
+       * plusieurs conteneurs, qui relevent souvent de DECLARATIONS
+       * differentes. Chaque conteneur porte deja la sienne, et le chargement
+       * mixte se deduit de la : rien a inventer de ce cote.
+       *
+       * Ce qui manquait, c'est l'acces APRES la finalisation. Avant elle, on
+       * enchaine les conteneurs dans le meme panneau ; une fois le depotage
+       * finalise, le panneau disparaissait et il n'existait plus aucun moyen
+       * d'ajouter un depotage a ce camion.
+       *
+       * ⚠ LE CAMION REDEVIENT « EN COURS DE CHARGEMENT », et c'est voulu : la
+       * hauteur, le nombre de colis et les scelles ne valent plus des qu'on
+       * ajoute une marchandise. La finalisation se refait, sur le chargement
+       * reel cette fois. */}
+      {depotageMixtePossible && can(ROLES.CFS, A) && (ajoutDepotage
+        ? <PanneauCFS c={c} dets={dets} action={action} prefillDecl={a.prefillDecl} />
+        : <div className="card binome20">
+          <span className="b20-pastille" aria-hidden="true"><Icone nom="conteneur" taille={17} /></span>
+          <div className="b20-texte">
+            <b>Un autre dépotage peut être ajouté</b>
+            <div className="help">
+              Ce camion a ouvert <b>{dets.conteneurs.length} conteneur(s)</b>. S'il en dépote
+              d'autres, ajoutez-les ici, chacun avec sa déclaration.
+              Le camion repassera en <b>« En cours de chargement »</b> : la hauteur, les colis et
+              les scellés seront à refaire sur le chargement complet.
+            </div>
+          </div>
+          <button onClick={() => setAjoutDepotage(true)}>
+            <Icone nom="plus" taille={15} />Ajouter un dépotage
           </button>
         </div>)}
       {c['typeOperation'] === OPERATIONS.MAGASIN && c['statut'] === STATUTS.CHARGEMENT && can(ROLES.CFS, A) &&
@@ -656,6 +704,12 @@ function PanneauCFS({ c, dets, action, prefillDecl }: { c: O; dets: ReturnType<t
     });
   }
 
+  /* `numPret` dit la MEME chose que le garde de `ajouter()`, et c'est
+     volontaire : l'un grise le bouton, l'autre reste en dernier recours si la
+     saisie change entre le rendu et le clic. Deux ecritures d'une seule regle
+     auraient fini par diverger : elles appellent donc toutes deux `tcValide`. */
+  const numPret = tcValide(numSaisi);
+
   // Complète taille/type depuis la fiche du parc quand le conteneur n'est pas
   // dans la liste du jour (il n'a donc pas pu être pré-rempli plus haut).
   useEffect(() => {
@@ -726,7 +780,20 @@ function PanneauCFS({ c, dets, action, prefillDecl }: { c: O; dets: ReturnType<t
           </div>
         </>
       )}
-      <div style={{ marginTop: 12 }}><button onClick={ajouter}>Ajouter le conteneur</button></div>
+      {/* LE BOUTON ATTEND UN NUMERO VALIDE (2026-10-29, signale par
+          l'utilisateur). Il etait cliquable a vide, et le refus arrivait
+          APRES le clic, en bandeau rouge a l'autre bout de l'ecran : on
+          apprenait la regle en se cognant dedans, sans savoir quel champ
+          la portait. Elle est desormais ecrite sous le champ, avant. */}
+      <div style={{ marginTop: 12 }}>
+        <button onClick={ajouter} disabled={!numPret}>Ajouter le conteneur</button>
+        {!numPret && <div className="help" style={{ marginTop: 6 }}>
+          {numSaisi
+            ? <>« <b className="mono">{numSaisi}</b> » n'est pas un N° de conteneur : il en faut
+              <b> 4 lettres puis 7 chiffres</b>, par exemple <b className="mono">MSKU1234567</b>.</>
+            : <>Saisissez d'abord le <b>N° du conteneur</b> (4 lettres + 7 chiffres).</>}
+        </div>}
+      </div>
 
       {/* v4, un camion d'effets divers (0 conteneur) se finalise aussi (scellés camion). */}
       {!estEnl && c['statut'] === STATUTS.CHARGEMENT && <FinaliserDepotage id={id} action={action} />}

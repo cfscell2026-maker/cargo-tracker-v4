@@ -14,11 +14,13 @@ import { trierEngagements, filtrerEngagements, lignesExportEngagements, numerosT
 import { Detail, TitrePanneau } from './detail.tsx';
 import { EcranParking, ResultatsParking, useAlerteParking } from './parking.tsx';
 import { LogoVerrou } from './lib/verrou.tsx';
+import { AlerteEngagements, useAlerteEngagements } from './lib/alerte-engagements.tsx';
 import type { ReactNode } from 'react';
 import type { Nav } from './App.tsx';
 import { useNav } from './lib/contexte-nav.ts';
-import { ROLES, OPERATIONS, VEHICULE_DESTINATIONS, TYPES_DECLARATION, optionTypeDeclaration, STATUTS, SUIVENT_ENGAGEMENTS, ENGAGEMENTS, dateDansNJours, tcValide, fileAttente, estTypeSansT1, libelleTypeSansT1, exigeControlePoids, exigeAmendeEffets, AMENDE_EFFETS_FORFAIT, NATURES_RAPPORT_ENGAGEMENT, dureeLisible,
-  ROLES_TECHNIQUES, rangTechnique, extraireNumerosTC, aLeDroit, aPouvoirAdmin} from '../../../supabase/functions/_shared/domaine/src/index.ts';
+import { ROLES, OPERATIONS, VEHICULE_DESTINATIONS, TYPES_DECLARATION, optionTypeDeclaration, STATUTS, SUIVENT_ENGAGEMENTS, ENGAGEMENTS, aRoleParmi,
+  nombreOuNull, ecartLigne, totauxTransmission, manqueAuDepart, manqueALArrivee, dateDansNJours, tcValide, fileAttente, estTypeSansT1, libelleTypeSansT1, exigeControlePoids, exigeAmendeEffets, AMENDE_EFFETS_FORFAIT, NATURES_RAPPORT_ENGAGEMENT, dureeLisible,
+  ROLES_TECHNIQUES, rangTechnique, extraireNumerosTC, aLeDroit, aPouvoirAdmin, parseConteneursDetails} from '../../../supabase/functions/_shared/domaine/src/index.ts';
 
 const STATUT_OPTIONS = Object.values(STATUTS);
 
@@ -245,11 +247,16 @@ function ActionsDossier({ r, admin, onFait }: { r: O; admin: boolean; onFait: ()
   const fermer = () => setOuvert('');
   const fait = () => { setOuvert(''); onFait(); };
   return <div className="acts-dossier">
-    <button className="ghost xs" title="Corriger le N° de camion / châssis" aria-label="Modifier" onClick={() => setOuvert('modifier')}>
-      ✎<span className="acts-lib"> Modifier</span>
+    {/* MEMES PASTILLES QU'AILLEURS (2026-10-29, demande utilisateur). Les
+        caracteres ✎ et ✕ dependaient de la police du poste et n'avaient pas
+        la meme graisse que les autres icones de l'application. */}
+    <button className="ghost xs acts-ic acts-ic-corrige" data-bulle="Modifier"
+      aria-label="Modifier" onClick={() => setOuvert('modifier')}>
+      <Icone nom="crayon" taille={16} />
     </button>
-    {admin && <button className="ghost xs acts-suppr" title="Supprimer ce dossier (doublon)" aria-label="Supprimer" onClick={() => setOuvert('supprimer')}>
-      ✕<span className="acts-lib"> Supprimer</span>
+    {admin && <button className="ghost xs acts-ic acts-suppr" data-bulle="Supprimer"
+      aria-label="Supprimer" onClick={() => setOuvert('supprimer')}>
+      <Icone nom="poubelle" taille={16} />
     </button>}
     {ouvert === 'modifier' && <ModaleCorrigerNumero r={r} onClose={fermer} onFait={fait} />}
     {ouvert === 'supprimer' && <ModaleSupprimerDossier r={r} onClose={fermer} onFait={fait} />}
@@ -552,83 +559,6 @@ export function BandeauModule({ icone, titre, sous, action, sansRetour, auto }: 
 /* ------------------------------ Écrans --------------------------------- */
 const SCREENS: Record<string, Screen> = {};
 
-/**
- * ÉCHÉANCIER DES ENGAGEMENTS (2026-09-10) : bandeau du tableau de bord.
- *
- * N'apparaît que pour les rôles qui portent le suivi, et seulement s'il reste
- * quelque chose à envoyer : un bandeau permanent et vide se met à ne plus être
- * lu, et c'est précisément ce qu'on ne veut pas d'une relance.
- *
- * L'alerte s'allume à J-1 (« à envoyer demain »), passe à « échéance
- * aujourd'hui », puis compte les jours de retard, et ne disparaît qu'au clic
- * sur « Effectué ». Elle ne bloque rien : le camion sort normalement (décision
- * du 2026-09-10).
- */
-function BandeauEngagements({ role, go }: { role: string; go: Nav['go'] }) {
-  const [n, setN] = useState(0); // force le rechargement après un solde
-  const { data, loading } = useAsync<O>(() => call('report.engagements'), [n]);
-  const [busy, setBusy] = useState('');
-  /* 2026-09-17 (demande utilisateur) : la correction s'ouvre ICI, là où le chef
-     voit ses engagements, elle existait, mais au fond de la fiche du camion.
-     ⚠ DECLARE AVANT les `return null` de garde ci-dessous : un hook place apres
-     change de nombre d'un rendu a l'autre, et React refuse alors de rendre
-     l'encadre entier (« Rendered more hooks than during the previous render »). */
-  const [corrige, setCorrige] = useState<O | null>(null);
-
-  if (!SUIVENT_ENGAGEMENTS.includes(role as never)) return null;
-  if (loading || !data) return null;
-  const lignes = (data['lignes'] as O[]) ?? [];
-  if (!lignes.length) return null;
-  const cpt = (data['compte'] as O) ?? {};
-
-  async function solder(id: string) {
-    setBusy(id);
-    try {
-      await call('cargo.engagementfait', { id });
-      toast('Engagement soldé : informations marquées comme transmises.', 'ok');
-      setN((x) => x + 1);
-    } catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(''); }
-  }
-
-  const retard = Number(cpt['retard'] ?? 0);
-  return <div className="card" style={{
-    marginTop: 10,
-    borderLeft: `4px solid var(--${retard ? 'err' : 'warn'})`,
-  }}>
-    <h2 style={{ margin: 0 }}>
-      Engagements à transmettre, {lignes.length}
-      {retard ? <span style={{ color: 'var(--err)' }}> · {retard} en retard</span> : null}
-    </h2>
-    <div className="help" style={{ marginBottom: 8 }}>
-      Ces cargaisons doivent faire l'objet d'un envoi d'informations. Cliquez sur
-      « Effectué » une fois l'envoi réalisé.
-      {/* 2026-09-17 : l'encadré ne montre que ce qui alerte, le volet montre tout. */}
-      {' '}<a onClick={() => go('engagements')}>Voir tous les engagements</a>
-    </div>
-    {lignes.map((l) => {
-      const id = String(l['id']);
-      const enRetard = l['etat'] === 'retard';
-      return <div key={id} className="row" style={{
-        alignItems: 'center', gap: 10, flexWrap: 'wrap',
-        padding: '6px 0', borderTop: '1px solid var(--line)',
-      }}>
-        <a className="mono" style={{ minWidth: 120 }} onClick={() => nav_go(go, id)}>{String(l['numeroCamion'] || id)}</a>
-        <span style={{ flex: 1, minWidth: 160 }}>{String(l['engagementType'] || '—')}</span>
-        <span className="help" style={{ minWidth: 130 }}>{fmtJour(l['engagementDelai'])}</span>
-        <span style={{ color: `var(--${enRetard ? 'err' : 'warn'})`, fontWeight: 600, minWidth: 150 }}>
-          {String(l['libelle'] || '')}
-        </span>
-        <button className="ghost" onClick={() => setCorrige(l)}>✎ Corriger</button>
-        <button disabled={busy === id} onClick={() => solder(id)}>
-          {busy === id ? '…' : '✔ Effectué'}
-        </button>
-      </div>;
-    })}
-    {corrige && <ModaleCorrigerEngagement ligne={corrige} admin={aPouvoirAdmin(role)}
-      onClose={() => setCorrige(null)}
-      onFait={() => { setCorrige(null); setN((x) => x + 1); }} />}
-  </div>;
-}
 
 /**
  * CORRECTION D'UN ENGAGEMENT, depuis l'échéancier, 2026-09-17 (demande utilisateur).
@@ -648,7 +578,7 @@ function ModaleCorrigerEngagement({ ligne, onClose, onFait, admin }: { ligne: O;
     setBusy(true);
     try {
       await call('cargo.engagementedit', { id, motif, engagementType: type, ...(nouveauDelai ? { engagementDelai: nouveauDelai } : {}) });
-      toast('Engagement corrigé.', 'ok');
+      toast('Engagement modifié.', 'ok');
       onFait();
     } catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(false); }
   }
@@ -666,7 +596,7 @@ function ModaleCorrigerEngagement({ ligne, onClose, onFait, admin }: { ligne: O;
   }
 
   return <Modal onClose={onClose}>
-    <h2>Corriger l'engagement</h2>
+    <h2>Modifier le type ou le délai</h2>
     <p className="help">
       Camion <b className="mono">{String(ligne['numeroCamion'] || id)}</b> · dossier <b className="mono">{id}</b>.
       Actuel : <b>{String(ligne['engagementType'] || '—')}</b> · échéance <b>{fmtJour(ligne['engagementDelai'])}</b>.
@@ -763,11 +693,16 @@ SCREENS.dash = (nav) => {
   const part = (cle: string): number | null =>
     fileTotale > 0 ? Math.round((Number(s[cle] ?? 0) / fileTotale) * 100) : null;
   const go = (statut: string) => nav.go('list', { statut });
+  const retardEng = Number(s['engagementsRetard'] ?? 0);
+  /* LE RAPPEL DES RETARDS (2026-10-28, demande utilisateur) : toutes les cinq
+     heures, pour ceux qui SUIVENT les engagements. On n'importune pas une
+     cellule d'execution avec une relance dont elle n'a pas la charge. */
+  const suitEng = aRoleParmi(nav.user.role, SUIVENT_ENGAGEMENTS);
+  const alerte = useAlerteEngagements(retardEng, suitEng);
   /* `ecran-dash` (2026-09-11) : le tableau de bord (et lui seul) se détache
      sur un fond bleu profond. Les cartes y deviennent des plaques de verre
      claires, et c'est ce contraste sombre/clair qui rend l'effet lisible. */
   return <div className="ecran-dash">
-    <BandeauEngagements role={nav.user.role} go={nav.go} />
     {/* Le tableau de bord est l'ecran de DEPART : `sansRetour` y coupe le bouton,
         qui ne menerait nulle part. La note de lecture passe en sous-titre du
         bandeau, ou elle herite du blanc. */}
@@ -786,6 +721,14 @@ SCREENS.dash = (nav) => {
         <label className="help">Période</label>
         <SelecteurPeriode c={p} />
       </div>} />
+    {/* LE RAPPEL SE POSE SOUS LA BANDE, ET NON AU-DESSUS (2026-10-29, demande
+        utilisateur). Au-dessus, il repoussait le titre de l'ecran hors de vue :
+        on ouvrait son tableau de bord et on tombait sur une relance, sans savoir
+        ou l'on etait. Sous la bande, l'ecran s'annonce d'abord, et l'alerte
+        s'adresse a quelqu'un qui sait deja ce qu'il regarde. */}
+    {alerte.visible && <AlerteEngagements retard={retardEng}
+      onFermer={alerte.fermer}
+      onVoir={() => nav.go('engagements', { filtre: 'retard' })} />}
     {/* GRILLE BENTO (2026-09-11) : toutes les tuiles n'ont pas le même poids.
         Les cinq compteurs d'ÉVÉNEMENTS occupent deux colonnes, ce sont eux qui
         portent le travail de la période et la comparaison. « Attente
@@ -817,9 +760,16 @@ SCREENS.dash = (nav) => {
       <StatCard n={Number(s['attPP'] ?? 0)} l="Attente sortie" onClick={() => nav.go('wait_sortie')} etape="pp" part={part('attPP')} />
       <StatCard n={Number(s['vehiculesAttente'] ?? 0)} l="Véhicules en attente" onClick={() => nav.go('vehicules')} etape="vehicule" part={part('vehiculesAttente')} />
       {/* ENGAGEMENTS (2026-09-17, demande utilisateur) : ce qui reste à transmettre.
-          Le clic ouvre le volet, trié par échéance, le plus urgent en tête. */}
-      <StatCard n={Number(s['engagementsEnCours'] ?? 0)} l="Engagements en cours"
-        onClick={() => nav.go('engagements')} icone="sablier"
+          UNE SEULE TUILE (2026-10-28) : j'en avais ajouté une seconde, qui disait
+          la même chose avec son propre appel au serveur. Le retard rejoint donc
+          celle-ci, et le compte vient du tableau de bord, sans requête de plus.
+          LE CLIC EMMÈNE AU BON ENDROIT : vers les seuls retards quand il y en a,
+          vers tout le reste sinon. */}
+      <StatCard n={Number(s['engagementsEnCours'] ?? 0)} icone="sablier"
+        l={retardEng ? `Engagements · ${retardEng} en retard` : 'Engagements en cours'}
+        tone={retardEng ? 'warn' : undefined}
+        alerte={retardEng ? `${retardEng} engagement(s) en retard` : undefined}
+        onClick={() => nav.go('engagements', retardEng ? { filtre: 'retard' } : undefined)}
         comparable={!!flux('ENGAGEMENTS')} repartition={rep('ENGAGEMENTS')} />
     </div></div>}
     {/* Neuf tuiles disent COMBIEN, aucune ne dit OÙ ÇA BLOQUE : c'est pourtant
@@ -1100,7 +1050,13 @@ function EcranEntrepot({ nav, type }: { nav: Nav; type: EntrepotType }) {
   const [onglet, setOnglet] = useState<'entree' | 'sortie' | 'stats' | 'gerer'>('entree');
   const { data, loading, reload } = useAsync<{ rows: O[] }>(() => call('entrepot.list', { type }), [type]);
   const entrepots = (data?.rows ?? []) as O[];
-  const peutGerer = ['ADMIN', 'CHEF_BRIGADE', 'CHEF_DIVISION'].includes(nav.user.role);
+  const peutGerer = aRoleParmi(nav.user.role, [ROLES.ADMIN, ROLES.CHEF_BRIGADE, ROLES.CHEF_DIVISION]);
+  /* LE CHOIX DU MAGASIN REMONTE DANS LA BANDE (2026-10-29, demande
+     utilisateur). Il commande TOUT ce qui suit, entrees comme apurements, et
+     il etait enfoui en tete de chaque formulaire : on le reglait deux fois,
+     une par onglet, et changer d'onglet le perdait. Pose ici, il vaut pour
+     l'ecran entier et se garde d'un onglet a l'autre. */
+  const [codeEntrepot, setCodeEntrepot] = useState('');
   const T: [string, string][] = [['entree', 'Entrée'], ['sortie', 'Sortie (apurement)'], ['stats', 'Statistiques']];
   if (peutGerer) T.push(['gerer', 'Entrepôts']);
   return <>
@@ -1108,20 +1064,33 @@ function EcranEntrepot({ nav, type }: { nav: Nav; type: EntrepotType }) {
         l'identité du magasin et son UNITÉ D'APUREMENT, qui décide de tout ce
         qui suit, des colis d'un côté, des kilos de l'autre. */}
     <BandeauModule icone={estIndus(type) ? 'usine' : 'entrepot'} titre={titre}
-      sous={<>Apurement par <b>{estIndus(type) ? 'poids (kg)' : 'quantités (colis)'}</b> - {entrepots.length} magasin(s) en service</>} />
-    <div className="card"><div className="row" style={{ alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
-      {/* Chaque onglet porte son icône : entrée, sortie, chiffres, gestion,
-          quatre gestes distincts, qu'un libellé seul faisait lire comme quatre
-          mots de même poids. */}
-      {T.map(([k, l]) => <button key={k} className={`onglet-mag ${onglet === k ? '' : 'ghost'}`} onClick={() => setOnglet(k as never)}>
-        <Icone nom={({ entree: 'televerser', sortie: 'sortie', stats: 'rapport', gerer: 'entrepot' } as Record<string, string>)[k] ?? 'liste'} taille={15} />
-        {l}
-      </button>)}
-    </div></div>
+      sous={<>Apurement par <b>{estIndus(type) ? 'poids (kg)' : 'quantités (colis)'}</b> · {entrepots.length} magasin(s) en service</>}
+      action={<div className="bm-outils onglets-verre">
+        {/* Chaque onglet porte son icône : entrée, sortie, chiffres, gestion,
+            quatre gestes distincts, qu'un libellé seul faisait lire comme
+            quatre mots de même poids. */}
+        {T.map(([k, l]) => <button key={k} type="button"
+          className={`onglet-mag ${onglet === k ? 'actif' : ''}`}
+          aria-pressed={onglet === k} onClick={() => setOnglet(k as never)}>
+          <Icone nom={({ entree: 'televerser', sortie: 'sortie', stats: 'rapport', gerer: 'entrepot' } as Record<string, string>)[k] ?? 'liste'} taille={15} />
+          {l}
+        </button>)}
+        {/* Le magasin : seuls l'entree et l'apurement s'en servent. Les
+            statistiques les couvrent tous, la gestion les liste. */}
+        {(onglet === 'entree' || onglet === 'sortie') && entrepots.length > 0 && <>
+          <label className="help">Magasin</label>
+          <select value={codeEntrepot} onChange={(e) => setCodeEntrepot(e.target.value)}
+            title="Le magasin sur lequel porte la saisie" style={{ maxWidth: 220 }}>
+            <option value="">Choisir…</option>
+            {entrepots.map((x) => <option key={String(x['code'])} value={String(x['code'])}>
+              {String(x['nom'])} ({String(x['code'])})</option>)}
+          </select>
+        </>}
+      </div>} />
     {loading ? <Spinner /> : entrepots.length === 0 && onglet !== 'gerer'
       ? <div className="card"><div className="empty">Aucun entrepôt {titre}. {peutGerer ? 'Créez-en un dans l\'onglet « Entrepôts ».' : 'Demandez à un chef d\'en créer un.'}</div></div>
-      : onglet === 'entree' ? <EntrepotEntree type={type} entrepots={entrepots} />
-        : onglet === 'sortie' ? <EntrepotSortie type={type} entrepots={entrepots} nav={nav} />
+      : onglet === 'entree' ? <EntrepotEntree type={type} entrepots={entrepots} code={codeEntrepot} />
+        : onglet === 'sortie' ? <EntrepotSortie type={type} entrepots={entrepots} nav={nav} code={codeEntrepot} />
           : onglet === 'stats' ? <EntrepotStats type={type} role={nav.user.role} />
             : <EntrepotGerer type={type} reload={reload} admin={aPouvoirAdmin(nav.user.role)} />}
   </>;
@@ -1267,17 +1236,16 @@ function EntrepotGerer({ type, reload, admin }: { type: EntrepotType; reload: ()
 /** Champs de déclaration réutilisés (entrée / apurement). */
 function DeclEntrepot({ d, set, titre }: { d: O; set: (k: string, v: unknown) => void; titre: string }) {
   return <><div className="section-title">{titre}</div><div className="grid2">
-    <div><label className="help">Déclarant</label><input value={String(d['declarant'] ?? '')} onChange={(e) => set('declarant', masks.upper(e.target.value))} /></div>
-    <div><label className="help">Bureau</label><input value={String(d['bureauDeclaration'] ?? 'TG120')} onChange={(e) => set('bureauDeclaration', masks.upper(e.target.value))} /></div>
-    <div><label className="help">Type décl.</label><select value={String(d['typeDeclaration'] ?? 'T')} onChange={(e) => set('typeDeclaration', e.target.value)}>{TYPES_DECLARATION.map((t) => <option key={t} value={t}>{optionTypeDeclaration(t)}</option>)}</select></div>
-    <div><label className="help">N° décl.</label><input value={String(d['numeroDeclaration'] ?? '')} onChange={(e) => set('numeroDeclaration', masks.upper(e.target.value))} /></div>
-    <div><label className="help">Année</label><input value={String(d['anneeDeclaration'] ?? new Date().getFullYear())} onChange={(e) => set('anneeDeclaration', e.target.value)} /></div>
+    <div><label className="help">Déclarant</label><span className="champ-ic"><Icone nom="compte" taille={15} /><input value={String(d['declarant'] ?? '')} onChange={(e) => set('declarant', masks.upper(e.target.value))} /></span></div>
+    <div><label className="help">Bureau</label><span className="champ-ic"><Icone nom="usine" taille={15} /><input value={String(d['bureauDeclaration'] ?? 'TG120')} onChange={(e) => set('bureauDeclaration', masks.upper(e.target.value))} /></span></div>
+    <div><label className="help">Type décl.</label><span className="champ-ic"><Icone nom="liste" taille={15} /><select value={String(d['typeDeclaration'] ?? 'T')} onChange={(e) => set('typeDeclaration', e.target.value)}>{TYPES_DECLARATION.map((t) => <option key={t} value={t}>{optionTypeDeclaration(t)}</option>)}</select></span></div>
+    <div><label className="help">N° décl.</label><span className="champ-ic"><Icone nom="document" taille={15} /><input value={String(d['numeroDeclaration'] ?? '')} onChange={(e) => set('numeroDeclaration', masks.upper(e.target.value))} /></span></div>
+    <div><label className="help">Année</label><span className="champ-ic"><Icone nom="echeance" taille={15} /><input value={String(d['anneeDeclaration'] ?? new Date().getFullYear())} onChange={(e) => set('anneeDeclaration', e.target.value)} /></span></div>
   </div></>;
 }
 
 /** Entrée : déclaration + jusqu'à 11 articles + conteneurs éventuels. */
-function EntrepotEntree({ type, entrepots }: { type: EntrepotType; entrepots: O[] }) {
-  const [code, setCode] = useState('');
+function EntrepotEntree({ type, entrepots, code }: { type: EntrepotType; entrepots: O[]; code: string }) {
   const [d, setD] = useState<O>({ bureauDeclaration: 'TG120', typeDeclaration: 'T', anneeDeclaration: String(new Date().getFullYear()) });
   const artVide = () => ({ designation: '', nbColis: '', poids: '' });
   const [arts, setArts] = useState<O[]>([artVide()]);
@@ -1312,19 +1280,27 @@ function EntrepotEntree({ type, entrepots }: { type: EntrepotType; entrepots: O[
   }
 
   return <div className="card"><h2>Nouvelle entrée</h2>
-    <label className="help">Entrepôt</label>
-    <select value={code} onChange={(e) => setCode(e.target.value)}><option value="">Choisir…</option>
-      {entrepots.map((x) => <option key={String(x['code'])} value={String(x['code'])}>{String(x['nom'])} ({String(x['code'])})</option>)}</select>
+    {/* Le magasin se choisit dans la bande : ici on rappelle seulement lequel,
+        et on refuse d'ouvrir le formulaire tant qu'aucun n'est choisi. */}
+    {!code
+      ? <div className="empty">Choisissez d'abord un <b>magasin</b> dans la bande, en haut.</div>
+      : <>
     <DeclEntrepot d={d} set={set} titre="Déclaration d'origine (sommier)" />
 
     <div className="row" style={{ alignItems: 'center', marginTop: 12 }}>
       <div className="section-title" style={{ flex: 1, margin: 0 }}>Articles ({arts.length}/11)</div>
       <button className="ghost xs" disabled={arts.length >= 11} onClick={() => setArts((a) => [...a, artVide()])}>＋ Ajouter un article</button>
     </div>
-    {arts.map((a, i) => <div key={i} className="grid2" style={{ border: '1px solid var(--line)', borderRadius: 6, padding: 8, marginTop: 6 }}>
-      <div><label className="help">Désignation article {i + 1}</label><input value={String(a['designation'])} onChange={(e) => majArt(i, 'designation', masks.upper(e.target.value))} /></div>
-      <div><label className="help">Nombre de colis</label><input value={String(a['nbColis'])} onChange={(e) => majArt(i, 'nbColis', e.target.value.replace(/[^0-9]/g, ''))} /></div>
-      {estIndus(type) && <div><label className="help">Poids (kg)</label><input value={String(a['poids'])} onChange={(e) => majArt(i, 'poids', e.target.value.replace(/[^0-9.,]/g, ''))} /></div>}
+    {arts.map((a, i) => <div key={i} className="grid2" style={{ border: '1px solid var(--line)', borderRadius: 16, padding: 10, marginTop: 6 }}>
+      <div><label className="help">Désignation article {i + 1}</label>
+        <span className="champ-ic"><Icone nom="boites" taille={15} />
+          <input value={String(a['designation'])} onChange={(e) => majArt(i, 'designation', masks.upper(e.target.value))} /></span></div>
+      <div><label className="help">Nombre de colis</label>
+        <span className="champ-ic"><Icone nom="liste" taille={15} />
+          <input value={String(a['nbColis'])} onChange={(e) => majArt(i, 'nbColis', e.target.value.replace(/[^0-9]/g, ''))} /></span></div>
+      {estIndus(type) && <div><label className="help">Poids (kg)</label>
+        <span className="champ-ic"><Icone nom="balance" taille={15} />
+          <input value={String(a['poids'])} onChange={(e) => majArt(i, 'poids', e.target.value.replace(/[^0-9.,]/g, ''))} /></span></div>}
       {arts.length > 1 && <div style={{ alignSelf: 'end' }}><button className="ghost xs" onClick={() => setArts((x) => x.filter((_, j) => j !== i))}>Retirer</button></div>}
     </div>)}
 
@@ -1344,21 +1320,23 @@ function EntrepotEntree({ type, entrepots }: { type: EntrepotType; entrepots: O[
       </label>
       {!manuelTC && <datalist id="dl-ent-tc">{tcs.map((t) => <option key={t} value={t} />)}</datalist>}
       {conts.map((c, i) => <div key={i} className="row" style={{ marginTop: 4 }}>
-        <input className="mono" value={c} {...(manuelTC ? {} : { list: 'dl-ent-tc' })}
-          onChange={(e) => setConts((a) => a.map((x, j) => j === i ? masks.tc(e.target.value) : x))} style={{ flex: 1 }} />
+        <span className="champ-ic" style={{ flex: 1 }}><Icone nom="conteneur" taille={15} />
+          <input className="mono" value={c} {...(manuelTC ? {} : { list: 'dl-ent-tc' })}
+            onChange={(e) => setConts((a) => a.map((x, j) => j === i ? masks.tc(e.target.value) : x))} /></span>
         <button className="ghost xs" onClick={() => setConts((a) => a.filter((_, j) => j !== i))}>Retirer</button>
       </div>)}
       <button className="ghost xs" style={{ marginTop: 6 }} onClick={() => setConts((a) => [...a, ''])}>＋ Conteneur</button>
     </div>}
 
     <div style={{ marginTop: 14 }}><button disabled={busy} onClick={envoyer}>{busy ? 'Enregistrement…' : 'Enregistrer l\'entrée'}</button></div>
+    </>}
   </div>;
 }
 
 /** Sortie / apurement : choisir entrepôt → entrée → article → quantité + déclaration d'apurement + véhicules. */
-function EntrepotSortie({ type, entrepots, nav }: { type: EntrepotType; entrepots: O[]; nav: Nav }) {
-  void nav;
-  const [code, setCode] = useState('');
+function EntrepotSortie({ type, entrepots, nav, code }: { type: EntrepotType; entrepots: O[]; nav: Nav; code: string }) {
+  // `entrepots` ne sert plus ici : le choix du magasin est dans la bande.
+  void nav; void entrepots;
   const { data, loading, reload } = useAsync<{ unite: string; rows: O[] }>(
     () => (code ? call('entrepot.entrees', { entrepotCode: code }) : Promise.resolve({ unite: 'colis', rows: [] })), [code]);
   const entrees = (data?.rows ?? []) as O[];
@@ -1406,9 +1384,7 @@ function EntrepotSortie({ type, entrepots, nav }: { type: EntrepotType; entrepot
   }
 
   return <div className="card"><h2>Sortie (apurement), vrac</h2>
-    <label className="help">Entrepôt</label>
-    <select value={code} onChange={(e) => { setCode(e.target.value); setEntreeId(''); }}><option value="">Choisir…</option>
-      {entrepots.map((x) => <option key={String(x['code'])} value={String(x['code'])}>{String(x['nom'])} ({String(x['code'])})</option>)}</select>
+    {!code && <div className="empty">Choisissez d'abord un <b>magasin</b> dans la bande, en haut.</div>}
     {code && (loading ? <Spinner /> : <>
       <label className="help" style={{ marginTop: 10 }}>Déclaration à apurer (entrée)</label>
       <select value={entreeId} onChange={(e) => { setEntreeId(e.target.value); setNumeroArticle('1'); }}><option value="">Choisir une entrée…</option>
@@ -1602,8 +1578,10 @@ function DetailEntrepotStats({ entrepot, unite, lib, role, onClose, onFait }: {
             </tr>)}</tbody>
           </table></div>
           <div className="row depot-actions">
-            <button className="ghost xs" onClick={() => setEdite(e)}>Modifier</button>
-            {admin && <button className="ghost xs acts-suppr" onClick={() => setSupprime(e)}>Supprimer</button>}
+            <button className="ghost xs acts-ic acts-ic-corrige" aria-label="Modifier"
+              data-bulle="Modifier" onClick={() => setEdite(e)}><Icone nom="crayon" taille={16} /></button>
+            {admin && <button className="ghost xs acts-ic acts-suppr" aria-label="Supprimer"
+              data-bulle="Supprimer" onClick={() => setSupprime(e)}><Icone nom="poubelle" taille={16} /></button>}
           </div>
         </div>)}
         {!cherche && (reste > 0 || tout) && <div className="row" style={{ justifyContent: 'center', marginTop: 12 }}>
@@ -1736,8 +1714,10 @@ function DetailApurements({ code, apur, unite, role, onClose, onFait }: {
       : <Table cols={[['declaration', 'Déclaration d\'apurement'], [champ, `Quantité (${unite})`], ['dateSortie', 'Date'], ['camion', 'Camion / scellés'], ['agent', 'Agent']]}
         rows={rows}
         actions={(r) => <>
-          <button className="ghost xs" onClick={() => setEdite(r)}>Modifier</button>
-          {admin && <button className="ghost xs acts-suppr" onClick={() => setSupprime(r)}>Supprimer</button>}
+          <button className="ghost xs acts-ic acts-ic-corrige" aria-label="Modifier"
+            data-bulle="Modifier" onClick={() => setEdite(r)}><Icone nom="crayon" taille={16} /></button>
+          {admin && <button className="ghost xs acts-ic acts-suppr" aria-label="Supprimer"
+            data-bulle="Supprimer" onClick={() => setSupprime(r)}><Icone nom="poubelle" taille={16} /></button>}
         </>} />}
     {edite && <ModaleModifierApurement sortie={edite} unite={unite} onClose={() => setEdite(null)}
       onFait={() => { setEdite(null); rafraichir(); }} />}
@@ -1848,6 +1828,323 @@ function AvisApresSignature({ error, signee }: { error: string; signee: number }
 }
 
 SCREENS.completer = (nav) => <CargoList {...nav} filtre={{ etape: 'CFS' }} titre="À compléter (CFS)" />;
+/* ===== TRANSMETTRE UN ENGAGEMENT (2026-10-28, demande utilisateur) =======
+ *
+ * Le bouton « Effectué » soldait l'engagement en un clic : on savait QUE les
+ * informations étaient parties, jamais LESQUELLES. Un engagement soldé sans
+ * trace de son contenu ne prouve rien lors d'un contrôle.
+ *
+ * DEUX VOLETS, ET DEUX MOMENTS. Le DÉPART se saisit quand on transmet, et
+ * c'est lui qui solde l'engagement. L'ARRIVÉE se saisit plus tard, quand le
+ * pays de destination répond, parfois des semaines après : la fiche se rouvre
+ * autant de fois qu'il faut.
+ *
+ * L'ÉCART NE S'AFFICHE QUE SUR CE QUI EST CONSTATÉ. Une ligne dont l'arrivée
+ * est inconnue n'entre dans aucun total d'écart : la compter ferait apparaître
+ * un manquant imaginaire, qui grossirait à chaque marchandise ajoutée.
+ * ====================================================================== */
+type LigneM = { designation: string; quantiteDepart: string; quantiteArrivee: string };
+
+const marchandiseVide = (): LigneM => ({ designation: '', quantiteDepart: '', quantiteArrivee: '' });
+
+/**
+ * LE LOGO ENTRE DEUX FLUX QUI PARTENT ET REVIENNENT.
+ *
+ * Même grammaire que les deux autres emblèmes de l'application : le `Spinner`
+ * fait tourner un conteneur (« ça travaille »), le verrou l'arrête contre une
+ * barrière (« c'est suspendu »). Ici, une boîte s'éloigne du logo vers la
+ * droite puis une autre en revient : c'est l'aller de la déclaration et le
+ * retour de la réponse du pays de destination, le geste même de la fiche.
+ */
+function LogoTransmission({ taille = 64 }: { taille?: number }) {
+  return <div className="trn-logo" style={{ ['--t' as string]: taille + 'px' }} aria-hidden="true">
+    <span className="trn-onde trn-onde-1" />
+    <span className="trn-onde trn-onde-2" />
+    <span className="trn-flux trn-aller"><i /></span>
+    <span className="trn-flux trn-retour"><i /></span>
+    <img className="logo-rond" src="/logo.png" alt=""
+      onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />
+  </div>;
+}
+
+function ModaleTransmission({ ligne, onClose, onFait }: { ligne: O; onClose: () => void; onFait: () => void }) {
+  const id = String(ligne['id']);
+  const { data, loading } = useAsync<O>(() => call('engagement.transmission', { id }), [id]);
+  const [pays, setPays] = useState('');
+  const [im4, setIm4] = useState('');
+  const [lignes, setLignes] = useState<LigneM[]>([marchandiseVide()]);
+  const [busy, setBusy] = useState('');
+  const [pret, setPret] = useState(false);
+
+  // La fiche existante remplit le formulaire, une seule fois : après quoi
+  // c'est la saisie qui fait foi, sinon chaque rechargement l'écraserait.
+  useEffect(() => {
+    if (pret || loading || !data) return;
+    const t = (data['transmission'] ?? null) as O | null;
+    const ms = ((data['marchandises'] ?? []) as O[]);
+    if (t) { setPays(String(t['pays_destination'] ?? '')); setIm4(String(t['numero_im4'] ?? '')); }
+    if (ms.length) {
+      setLignes(ms.map((m) => ({
+        designation: String(m['designation'] ?? ''),
+        quantiteDepart: m['quantiteDepart'] === null || m['quantiteDepart'] === undefined ? '' : String(m['quantiteDepart']),
+        quantiteArrivee: m['quantiteArrivee'] === null || m['quantiteArrivee'] === undefined ? '' : String(m['quantiteArrivee']),
+      })));
+    }
+    setPret(true);
+  }, [data, loading, pret]);
+
+  const existe = !!(data?.['transmission']);
+  const pourDomaine = lignes.map((l) => ({
+    designation: l.designation,
+    quantiteDepart: nombreOuNull(l.quantiteDepart) ?? 0,
+    quantiteArrivee: nombreOuNull(l.quantiteArrivee),
+  }));
+  const totaux = totauxTransmission(pourDomaine);
+  const manqueDepart = manqueAuDepart({ paysDestination: pays, numeroIm4: im4 }, pourDomaine);
+  const manqueArrivee = manqueALArrivee(pourDomaine);
+
+  const majLigne = (i: number, champ: keyof LigneM, v: string) =>
+    setLignes((ls) => ls.map((l, k) => (k === i ? { ...l, [champ]: v } : l)));
+
+  async function envoyer(action: 'engagement.depart' | 'engagement.arrivee', dit: string) {
+    setBusy(action);
+    try {
+      await call(action, { id, paysDestination: pays, numeroIm4: im4, marchandises: pourDomaine });
+      toast(dit, 'ok'); onFait();
+    } catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(''); }
+  }
+
+  const nombre = (v: number) => v.toLocaleString('fr-FR');
+  /* QUATRE ETATS, ET NON TROIS : « en attente » n'est pas « egal ». Tant
+     qu'aucune arrivee n'est constatee, l'ecart vaut `null`, et l'annoncer
+     « conforme » ferait croire a un controle deja fait. */
+  const etatEcart = totaux.ecart === null ? 'attente'
+    : totaux.ecart < 0 ? 'manque' : totaux.ecart > 0 ? 'surplus' : 'juste';
+
+  return <Modal onClose={() => !busy && onClose()}>
+    <div className="trn-fenetre">
+      <LogoTransmission taille={64} />
+      <h2>Régulariser l'engagement</h2>
+      <p className="help trn-sous">
+        <b className="mono">{String(ligne['numeroCamion'] ?? '')}</b>
+        {ligne['engagementType'] ? <> · {String(ligne['engagementType'])}</> : null}
+        {existe ? <> · fiche déjà ouverte, vous la complétez</> : null}
+      </p>
+
+      {loading ? <Spinner /> : <>
+        {/* ---- DEUX VOLETS, ET DEUX MOMENTS (2026-10-29, demande utilisateur) --
+             Une seule rangee melait les deux : on saisissait le depart et
+             l'arrivee cote a cote, alors qu'ils se renseignent a des semaines
+             d'intervalle, souvent par deux personnes. La colonne « arrivee »
+             restait vide des jours durant au milieu de la saisie du depart, et
+             on ne savait plus ce qui restait a faire.
+
+             LA DESIGNATION NE SE SAISIT QU'UNE FOIS. Deux listes libres se
+             seraient desalignees des la premiere faute de frappe, et l'ecart
+             aurait compare deux marchandises differentes. Le volet d'arrivee
+             reprend donc les lignes du depart, et n'y ajoute que le constat. */}
+        <div className="trn-section trn-volet">
+          <h3><Icone nom="televerser" taille={15} />Au départ
+            <span className="help trn-compte">{lignes.length} marchandise(s)</span>
+          </h3>
+          {/* LA DESTINATION EST DANS LES DEUX VOLETS (2026-10-29, demande
+              utilisateur). Elle formait une troisieme section au-dessus, ce
+              qui laissait croire a un renseignement a part ; elle appartient
+              aux deux moments. Les deux paires de champs ecrivent sur les
+              MEMES valeurs : corriger le numero IM4 ici le corrige la-bas. */}
+          <div className="trn-grille trn-destination">
+            <label className="help">Pays de destination
+              <span className="trn-champ">
+                <Icone nom="carte" taille={15} />
+                <input value={pays} onChange={(e) => setPays(e.target.value)}
+                  placeholder="Burkina Faso, Niger, Mali…" maxLength={120} />
+              </span>
+            </label>
+            <label className="help">N° IM4 du pays de destination
+              <span className="trn-champ">
+                <Icone nom="document" taille={15} />
+                <input className="mono" value={im4} onChange={(e) => setIm4(e.target.value)}
+                  placeholder="IM4-2026-000" maxLength={60} />
+              </span>
+            </label>
+          </div>
+          <div className="trn-entetes trn-g2 help">
+            <span>Désignation</span>
+            <span>Quantité déclarée</span>
+            <span />
+          </div>
+          {lignes.map((l, i) => <div className="trn-ligne trn-g2" key={i}>
+            {/* CHAQUE CHAMP SE NOMME ET PORTE SON SIGNE (2026-10-29, demande
+                utilisateur). Les en-tetes de colonne disparaissent sous
+                640 px : il ne restait alors que deux cases blanches, dont une
+                avec « 0 » pour tout indice. Le texte d'invite dit desormais
+                de quoi il s'agit, et l'icone se reconnait sans lecture. */}
+            <span className="trn-champ">
+              <Icone nom="boites" taille={15} />
+              <input value={l.designation} placeholder="Désignation : riz 50 kg, sucre…" maxLength={200}
+                onChange={(ev) => majLigne(i, 'designation', ev.target.value)} />
+            </span>
+            <span className="trn-champ">
+              <Icone nom="balance" taille={15} />
+              <input inputMode="decimal" value={l.quantiteDepart} placeholder="Quantité déclarée"
+                onChange={(ev) => majLigne(i, 'quantiteDepart', ev.target.value.replace(/[^0-9.,]/g, ''))} />
+            </span>
+            {/* UN BOUTON QUI FAIT TOUJOURS QUELQUE CHOSE (2026-10-29, demande
+                utilisateur : « ce bouton ne marche pas »). Il etait GRISE sur
+                la derniere ligne, parce que la fiche en exige au moins une :
+                un controle mort, sans un mot pour dire pourquoi. Sur la
+                derniere ligne il la VIDE au lieu de la retirer, ce qui est le
+                geste reellement voulu quand on s'est trompe de marchandise, et
+                la fiche garde sa ligne. */}
+            <button className="ghost xs acts-ic acts-suppr trn-retirer"
+              aria-label={lignes.length > 1 ? 'Retirer cette marchandise' : 'Vider cette ligne'}
+              data-bulle={lignes.length > 1 ? 'Retirer' : 'Vider'}
+              onClick={() => setLignes((ls) => (ls.length > 1
+                ? ls.filter((_, k) => k !== i)
+                : [marchandiseVide()]))}>
+              <Icone nom="poubelle" taille={15} />
+            </button>
+          </div>)}
+          <button className="ghost xs trn-ajouter" onClick={() => setLignes((ls) => [...ls, marchandiseVide()])}>
+            <Icone nom="plus" taille={14} />Ajouter une marchandise
+          </button>
+        </div>
+
+        <div className="trn-section trn-volet trn-volet-arrivee">
+          <h3><Icone nom="telecharger" taille={15} />À l'arrivée
+            <span className="help trn-compte">
+              {totaux.enAttente ? `${totaux.enAttente} en attente` : 'tout est constaté'}
+            </span>
+          </h3>
+          {/* Les memes champs qu'au depart, sur les memes valeurs. */}
+          <div className="trn-grille trn-destination">
+            <label className="help">Pays de destination
+              <span className="trn-champ">
+                <Icone nom="carte" taille={15} />
+                <input value={pays} onChange={(e) => setPays(e.target.value)}
+                  placeholder="Burkina Faso, Niger, Mali…" maxLength={120} />
+              </span>
+            </label>
+            <label className="help">N° IM4 du pays de destination
+              <span className="trn-champ">
+                <Icone nom="document" taille={15} />
+                <input className="mono" value={im4} onChange={(e) => setIm4(e.target.value)}
+                  placeholder="IM4-2026-000" maxLength={60} />
+              </span>
+            </label>
+          </div>
+          <div className="trn-entetes trn-g3 help">
+            <span>Désignation</span>
+            <span>Quantité constatée</span>
+            <span>Différence</span>
+          </div>
+          {lignes.map((l, i) => {
+            const e = ecartLigne(pourDomaine[i]!);
+            return <div className="trn-ligne trn-g3" key={i}>
+              {/* LE MEME CHAMP QU'AU DEPART, et non une copie : il ecrit sur la
+                  MEME ligne. Corriger la designation ici la corrige la-haut,
+                  et inversement. Deux listes independantes se seraient
+                  desalignees des la premiere faute de frappe, et la
+                  difference aurait compare deux marchandises differentes
+                  sans que rien ne le signale. */}
+              <span className="trn-champ">
+                <Icone nom="boites" taille={15} />
+                <input value={l.designation} placeholder="Désignation : riz 50 kg, sucre…" maxLength={200}
+                  onChange={(ev) => majLigne(i, 'designation', ev.target.value)} />
+              </span>
+              <span className="trn-champ">
+                <Icone nom="balance" taille={15} />
+                <input inputMode="decimal" value={l.quantiteArrivee} placeholder="Quantité constatée"
+                  title="À renseigner quand le pays de destination répond"
+                  onChange={(ev) => majLigne(i, 'quantiteArrivee', ev.target.value.replace(/[^0-9.,]/g, ''))} />
+              </span>
+              {/* La différence ne se saisit pas : elle se déduit. La rendre
+                  modifiable permettrait d'écrire un chiffre que les quantités
+                  démentent. */}
+              <span className={`trn-ecart ${e === null ? 'attente' : e < 0 ? 'manque' : e > 0 ? 'surplus' : 'juste'}`}>
+                {e === null ? 'en attente' : e > 0 ? `+${nombre(e)}` : nombre(e)}
+              </span>
+            </div>;
+          })}
+        </div>
+
+        {/* ---- LE TROISIEME VOLET (2026-10-29, demande utilisateur) : la
+             difference n'etait qu'une bande de chiffres sans nom, sous deux
+             sections titrees. Elle porte maintenant son titre comme les
+             autres, parce que c'est elle que le service vient chercher. ---- */}
+        <div className="trn-section trn-volet trn-volet-ecart">
+          <h3><Icone nom="balance" taille={15} />Différence</h3>
+          <div className="trn-totaux">
+            <div className="trn-total trn-total-depart">
+              <span className="trn-total-ic"><Icone nom="televerser" taille={15} /></span>
+              <span className="help">Total au départ</span>
+              <b>{nombre(totaux.depart)}</b>
+            </div>
+            <div className="trn-total trn-total-arrivee">
+              <span className="trn-total-ic"><Icone nom="telecharger" taille={15} /></span>
+              <span className="help">Total à l'arrivée</span>
+              <b>{nombre(totaux.arrivee)}</b>
+            </div>
+          </div>
+
+          {/* LE VERDICT, ET PAS SEULEMENT LE NOMBRE (2026-10-29, demande
+              utilisateur). « -8 » seul demande de se rappeler dans quel sens
+              il se lit : manque-t-il huit, ou en a-t-on huit de trop ? Le
+              bloc le DIT, et sa couleur le redit sans qu'on lise : rouge il
+              manque, ambre il y a surplus, vert tout concorde, gris on
+              attend encore. */}
+          <div className={`trn-bilan ${etatEcart}`} role="status">
+            <span className="trn-bilan-ic" aria-hidden="true">
+              <Icone taille={20} nom={etatEcart === 'attente' ? 'sablier'
+                : etatEcart === 'manque' ? 'baisse'
+                  : etatEcart === 'surplus' ? 'hausse' : 'valider'} />
+            </span>
+            <div className="trn-bilan-txt">
+              <span className="trn-bilan-mot">
+                {etatEcart === 'attente' ? 'En attente'
+                  : etatEcart === 'manque' ? 'Manquant'
+                    : etatEcart === 'surplus' ? 'Surplus' : 'Conforme'}
+              </span>
+              <span className="help">
+                {etatEcart === 'attente' ? "aucune arrivée n'est encore constatée"
+                  : etatEcart === 'manque' ? `il manque ${nombre(Math.abs(totaux.ecart ?? 0))} à l'arrivée`
+                    : etatEcart === 'surplus' ? `${nombre(totaux.ecart ?? 0)} de plus qu'au départ`
+                      : "l'arrivée correspond exactement au départ"}
+              </span>
+            </div>
+            <b className="trn-bilan-n">
+              {totaux.ecart === null ? '—' : totaux.ecart > 0 ? `+${nombre(totaux.ecart)}` : nombre(totaux.ecart)}
+            </b>
+          </div>
+        {totaux.enAttente > 0 && <div className="help trn-attente">
+          <Icone nom="sablier" taille={13} />
+          {totaux.enAttente} ligne(s) sans arrivée connue : elles ne comptent pas dans la différence.
+        </div>}
+        </div>
+
+        {/* Ce qui manque est DIT, au lieu de griser un bouton sans raison. */}
+        {(manqueDepart || manqueArrivee) && <div className="trn-manque">{manqueDepart ?? manqueArrivee}</div>}
+
+        <div className="trn-pied">
+          <button className="ghost" disabled={!!busy} onClick={onClose}>Annuler</button>
+          <button disabled={!!busy || !!manqueDepart}
+            onClick={() => envoyer('engagement.depart', existe ? 'Régularisation corrigée.' : 'Engagement régularisé.')}>
+            <Icone nom="presse" taille={15} />
+            {busy === 'engagement.depart' ? 'Enregistrement…' : existe ? 'Corriger le départ' : 'Régulariser'}
+          </button>
+          {/* L'arrivée ne s'enregistre qu'une fois le départ connu : sans lui,
+              il n'y a rien à quoi comparer. */}
+          {existe && <button className="trn-arrivee" disabled={!!busy || !!manqueArrivee}
+            onClick={() => envoyer('engagement.arrivee', 'Arrivée enregistrée.')}>
+            <Icone nom="valider" taille={15} />
+            {busy === 'engagement.arrivee' ? 'Enregistrement…' : "Enregistrer l'arrivée"}
+          </button>}
+        </div>
+      </>}
+    </div>
+  </Modal>;
+}
+
 /* ===================== VOLET ENGAGEMENTS : 2026-09-17 =====================
  *
  * Demande utilisateur. Les engagements étaient dispersés : l'encadré du tableau
@@ -1860,8 +2157,17 @@ const FILTRES_ENGAGEMENT: [string, string][] = [
   ['encours', 'En cours'], ['retard', 'En retard'], ['solde', 'Soldés'], ['tous', 'Tous'],
 ];
 
-SCREENS.engagements = ({ go, user }) => {
-  const [filtre, setFiltre] = useState('encours');
+SCREENS.engagements = ({ go, user, arg }) => {
+  /* LE VOLET S'OUVRE SUR CE QU'ON EST VENU VOIR (2026-10-28, demande
+     utilisateur). La tuile du tableau de bord et l'alerte des retards
+     emmenent ici AVEC leur filtre : arriver sur « en cours » apres avoir
+     clique « 110 en retard » obligerait a refaire le tri a la main, juste
+     apres l'avoir demande.
+     Valeur LUE UNE FOIS, a l'ouverture : ensuite c'est le menu qui commande,
+     sinon le filtre se remettrait tout seul a chaque rendu. */
+  const filtreVoulu = String((arg as { filtre?: unknown } | null)?.filtre ?? '');
+  const [filtre, setFiltre] = useState(
+    FILTRES_ENGAGEMENT.some(([v]) => v === filtreVoulu) ? filtreVoulu : 'encours');
   // Tri demandé par l'utilisateur (17/09) : par camion et par délai, dans les
   // deux sens. Par défaut le plus urgent d'abord, c'est ce qu'on vient traiter.
   const [tri, setTri] = useState<TriEngagement>('delai');
@@ -1888,6 +2194,7 @@ SCREENS.engagements = ({ go, user }) => {
   };
   const [corrige, setCorrige] = useState<O | null>(null);
   const [retire, setRetire] = useState<O | null>(null);
+  const [transmet, setTransmet] = useState<O | null>(null);
   const [busy, setBusy] = useState('');
   const { data, loading, error, reload } = useAsync<O>(() => call('report.engagements', { filtre }), [filtre]);
   const recues = ((data?.['lignes'] as O[]) ?? []);
@@ -1914,7 +2221,7 @@ SCREENS.engagements = ({ go, user }) => {
   // Compteurs GLOBAUX : ils ne bougent pas avec la vue affichée, mais bien avec
   // ce qu'on fait, solder un engagement le fait passer de l'un à l'autre.
   const glob = (data?.['global'] as O) ?? {};
-  const peut = SUIVENT_ENGAGEMENTS.includes(user.role as never);
+  const peut = aRoleParmi(user.role, SUIVENT_ENGAGEMENTS);   // cf. echeancier : les roles techniques en sont
   const admin = aPouvoirAdmin(user.role);
 
   async function solder(id: string) {
@@ -1929,43 +2236,73 @@ SCREENS.engagements = ({ go, user }) => {
   return <>
     <BandeauModule icone="sablier" titre="Engagements"
       sous="Tous les camions sous suivi d'engagement." />
-    {/* TOUTES LES COMMANDES DANS LEUR PROPRE BLOC (2026-10-08, demande
-        utilisateur). Le bandeau en portait six, plus le bouton Retour : il
-        fallait les faire défiler pour les atteindre, et le titre s'en trouvait
-        comprimé. Elles descendent ici, en verre dépoli, où elles tiennent
-        toutes à la fois sans rien bousculer.
-        Le bandeau redevient ce qu'il est : il dit de quoi on parle, et par où
-        revenir. */}
+    <div className="stats" style={{ marginTop: 10 }}>
+      <StatCard n={Number(glob['encours'] ?? 0)} l="Engagements en cours" icone="sablier" tone="warn"
+        onClick={() => setFiltre('encours')} />
+      {/* LES RETARDS ONT LEUR TUILE (2026-10-29, demande utilisateur). Le
+          chiffre etait relegue dans la ligne de resume sous les filtres, en
+          petit, et il disparaissait des qu'on changeait de vue. Il vient de
+          `global`, compte sur TOUT le volet : il ne bouge donc pas quand on
+          passe d'une vue a l'autre, contrairement a celui du resume. */}
+      <StatCard n={Number(glob['retard'] ?? 0)} l="Engagements en retard" icone="attention" tone="err"
+        onClick={() => setFiltre('retard')} />
+      <StatCard n={Number(glob['soldes'] ?? 0)} l="Engagements effectués" icone="valider" tone="ok"
+        onClick={() => setFiltre('solde')} />
+    </div>
+    {/* TOUTES LES COMMANDES DANS LEUR PROPRE BLOC (2026-10-08), ET SOUS LES
+        COMPTEURS (2026-10-29, demandes utilisateur).
+        Le bandeau en portait six, plus le bouton Retour : il fallait les faire
+        défiler pour les atteindre, et le titre s'en trouvait comprimé. Elles
+        sont descendues ici, en verre dépoli, où elles tiennent toutes à la
+        fois. Puis sous les deux compteurs : on lit d'abord COMBIEN il y en a,
+        on affine ensuite. Dans l'autre ordre, on réglait des filtres avant de
+        savoir sur quoi ils portaient. */}
     <div className="card filtres-verre">
       <label className="help fv-etiquette">Afficher</label>
-      <select value={filtre} onChange={(e) => setFiltre(e.target.value)}
-        title="La vue d'ensemble : ce qui reste dû, ce qui est en retard, ce qui est soldé">
-        {FILTRES_ENGAGEMENT.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-      </select>
+      {/* CHAQUE COMMANDE PORTE SON SIGNE (2026-10-29, demande utilisateur).
+          Six menus gris alignes se ressemblaient tous : il fallait lire chaque
+          libelle pour retrouver celui qu'on cherchait. Une icone se reconnait
+          sans lecture, et le reglage se retrouve du coin de l'oeil. */}
+      <span className="fv-champ fv-vue">
+        <Icone nom="liste" taille={15} />
+        <select value={filtre} onChange={(e) => setFiltre(e.target.value)}
+          title="La vue d'ensemble : ce qui reste dû, ce qui est en retard, ce qui est soldé">
+          {FILTRES_ENGAGEMENT.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+        </select>
+      </span>
       <span className="champ-loupe">
         <Icone nom="loupe" taille={15} />
         <input className="mono" value={rechCamion} placeholder="N° camion"
           onChange={(e) => setRechCamion(e.target.value)}
           title="Rechercher un camion dans les engagements, espaces et tirets ignorés" />
       </span>
-      <select value={typeEng} onChange={(e) => setTypeEng(e.target.value)}
-        title="Ne garder qu'une nature d'engagement">
-        <option value="">Tous les engagements</option>
-        {typesPresents.map((t) => <option key={t} value={t}>{t}</option>)}
-      </select>
+      <span className="fv-champ fv-type">
+        <Icone nom="document" taille={15} />
+        <select value={typeEng} onChange={(e) => setTypeEng(e.target.value)}
+          title="Ne garder qu'une nature d'engagement">
+          <option value="">Tous les engagements</option>
+          {typesPresents.map((t) => <option key={t} value={t}>{t}</option>)}
+        </select>
+      </span>
       {/* LE SIGNATAIRE. Le nom de l'utilisateur connecté est proposé EN TÊTE
           et annoncé comme tel : « mes validations » est la question courante,
           et personne ne devrait avoir à se chercher dans une liste. */}
-      <select value={signePar} onChange={(e) => setSignePar(e.target.value)}
-        title="Ne garder que les validations d'un agent">
-        <option value="">Toutes les validations</option>
-        {moi && signatairesPresents.includes(moi) && <option value={moi}>Mes validations</option>}
-        {signatairesPresents.filter((n) => n !== moi).map((n) => <option key={n} value={n}>{n}</option>)}
-      </select>
-      <input value={designation} placeholder="Désignation (riz ; sucre)"
-        onChange={(e) => setDesignation(e.target.value)}
-        title="Ne garder que les marchandises dont la désignation contient l'un de ces termes (séparés par ;)" />
-      <label className="help fv-echeance">Échéance ≤
+      <span className="fv-champ fv-signe">
+        <Icone nom="compte" taille={15} />
+        <select value={signePar} onChange={(e) => setSignePar(e.target.value)}
+          title="Ne garder que les validations d'un agent">
+          <option value="">Toutes les validations</option>
+          {moi && signatairesPresents.includes(moi) && <option value={moi}>Mes validations</option>}
+          {signatairesPresents.filter((n) => n !== moi).map((n) => <option key={n} value={n}>{n}</option>)}
+        </select>
+      </span>
+      <span className="fv-champ fv-desi">
+        <Icone nom="boites" taille={15} />
+        <input value={designation} placeholder="Désignation (riz ; sucre)"
+          onChange={(e) => setDesignation(e.target.value)}
+          title="Ne garder que les marchandises dont la désignation contient l'un de ces termes (séparés par ;)" />
+      </span>
+      <label className="help fv-echeance"><Icone nom="minuterie" taille={14} />Échéance ≤
         <input inputMode="numeric" value={jours} placeholder="j"
           onChange={(e) => setJours(e.target.value.replace(/[^0-9]/g, ''))}
           title="Camions dont l'échéance tombe dans au plus N jours, les dépassées comprises" />
@@ -1979,12 +2316,6 @@ SCREENS.engagements = ({ go, user }) => {
         title="Extraire en Excel exactement les lignes affichées (filtres et tri compris)">
         <Icone nom="telecharger" taille={15} />Excel
       </button>
-    </div>
-    <div className="stats" style={{ marginTop: 10 }}>
-      <StatCard n={Number(glob['encours'] ?? 0)} l="Engagements en cours" icone="sablier" tone="warn"
-        onClick={() => setFiltre('encours')} />
-      <StatCard n={Number(glob['soldes'] ?? 0)} l="Engagements effectués" icone="valider" tone="ok"
-        onClick={() => setFiltre('solde')} />
     </div>
     <div className="card">
       {loading ? <Spinner /> : error ? <div className="err-msg">{error}</div> : <>
@@ -2032,16 +2363,41 @@ SCREENS.engagements = ({ go, user }) => {
                         Le sous-titre du bandeau portait ces trois explications,
                         ce qui lui faisait trois lignes ; elles ont leur place
                         ici, la ou l'on hesite avant de cliquer. */}
-                    {peut && !solde && <button className="ghost xs" disabled={busy === id} onClick={() => solder(id)}
-                      title="Les informations ont été transmises : l'engagement est tenu.">
-                      {busy === id ? '…' : '✔ Effectué'}
+                    {/* « Effectue » soldait en un clic, sans dire CE QUI avait
+                        ete transmis. La fiche le dit, et c'est son depart qui
+                        solde desormais. Elle reste ouvrable apres le solde :
+                        l'arrivee se renseigne plus tard. */}
+                    {/* DES ICONES, PLUS DE MOTS (2026-10-29, demande utilisateur).
+                        Trois libelles repetes sur deux cents lignes occupaient
+                        296 px par rangee et faisaient defiler le tableau de
+                        cote. Le dessin se reconnait d'un coup d'oeil, et la
+                        couleur dit la portee du geste : bleu on transmet,
+                        ambre on corrige, rouge on retire.
+                        LE SENS N'EST PAS PERDU POUR AUTANT : `aria-label` le
+                        donne aux lecteurs d'ecran, `title` l'affiche au survol.
+                        Une icone nue, sans l'un ni l'autre, serait une devinette. */}
+                    {peut && <button className="ghost xs acts-ic acts-ic-transmet" onClick={() => setTransmet(l)}
+                      aria-label={solde ? 'Voir la régularisation' : 'Régulariser'}
+                      data-bulle={solde ? 'Voir la régularisation' : 'Régulariser'}>
+                      {/* `presse` : un dossier qu'on remet, et non une fleche
+                          d'envoi. C'est le geste que nomme le bouton. */}
+                      <Icone nom={solde ? 'miseAJour' : 'presse'} taille={16} />
                     </button>}
-                    {peut && <button className="ghost xs" onClick={() => setCorrige(l)}
-                      title="Engagement ou délai erroné : corriger la saisie.">✎ Corriger</button>}
+                    {/* « Corriger » ne disait pas QUOI (2026-10-29, demande
+                        utilisateur : trouver un mot plus explicite). La fenetre
+                        change le type d'engagement et son delai : l'etiquette
+                        le nomme, puisqu'elle a la place de le dire. */}
+                    {peut && <button className="ghost xs acts-ic acts-ic-corrige" onClick={() => setCorrige(l)}
+                      aria-label="Modifier le type ou le délai"
+                      data-bulle="Modifier le type ou le délai">
+                      <Icone nom="crayon" taille={16} />
+                    </button>}
                     {/* RETRAIT (2026-09-17) : un bouton à lui, sur la ligne, il était
                         caché dans la fenêtre de correction. Administrateur seul. */}
-                    {admin && <button className="ghost xs acts-suppr" onClick={() => setRetire(l)}
-                      title="Engagement coché par erreur : le retirer du suivi.">✕ Retirer</button>}
+                    {admin && <button className="ghost xs acts-ic acts-suppr" onClick={() => setRetire(l)}
+                      aria-label="Retirer du suivi" data-bulle="Retirer du suivi">
+                      <Icone nom="poubelle" taille={16} />
+                    </button>}
                   </div>
                 </td>
               </tr>;
@@ -2049,6 +2405,9 @@ SCREENS.engagements = ({ go, user }) => {
           </table></div>}
       </>}
     </div>
+    {transmet && <ModaleTransmission ligne={transmet}
+      onClose={() => setTransmet(null)}
+      onFait={() => { setTransmet(null); reload(); }} />}
     {corrige && <ModaleCorrigerEngagement ligne={corrige} admin={admin}
       onClose={() => setCorrige(null)}
       onFait={() => { setCorrige(null); reload(); }} />}
@@ -2820,14 +3179,14 @@ SCREENS.new = ({ go }) => {
 
 function DeclFields({ d, set }: { d: O; set: (k: string, v: unknown) => void }) {
   return <div className="grid2">
-    <div><label className="help">Déclarant</label><input value={String(d['declarant'] ?? '')} onChange={(e) => set('declarant', masks.upper(e.target.value))} /></div>
-    <div><label className="help">Contact</label><input value={String(d['contactDeclarant'] ?? '')} onChange={(e) => set('contactDeclarant', masks.tel(e.target.value))} /></div>
+    <div><label className="help">Déclarant</label><span className="champ-ic"><Icone nom="compte" taille={15} /><input value={String(d['declarant'] ?? '')} onChange={(e) => set('declarant', masks.upper(e.target.value))} /></span></div>
+    <div><label className="help">Contact</label><span className="champ-ic"><Icone nom="utilisateurs" taille={15} /><input value={String(d['contactDeclarant'] ?? '')} onChange={(e) => set('contactDeclarant', masks.tel(e.target.value))} /></span></div>
     <ChampDestination value={String(d['destinationMarchandise'] ?? '')} onChange={(v) => set('destinationMarchandise', v)} />
-    <div><label className="help">Bureau</label><input value={String(d['bureauDeclaration'] ?? 'TG120')} onChange={(e) => set('bureauDeclaration', masks.upper(e.target.value))} /></div>
-    <div><label className="help">Type décl.</label><select value={String(d['typeDeclaration'] ?? 'T')} onChange={(e) => set('typeDeclaration', e.target.value)}>{TYPES_DECLARATION.map((t) => <option key={t} value={t}>{optionTypeDeclaration(t)}</option>)}</select></div>
-    <div><label className="help">N° décl.</label><input value={String(d['numeroDeclaration'] ?? '')} onChange={(e) => set('numeroDeclaration', masks.upper(e.target.value))} /></div>
-    <div><label className="help">Année</label><input value={String(d['anneeDeclaration'] ?? new Date().getFullYear())} onChange={(e) => set('anneeDeclaration', e.target.value)} /></div>
-    <div><label className="help">Désignation des marchandises</label><input value={String(d['descriptionMarchandise'] ?? '')} onChange={(e) => set('descriptionMarchandise', masks.upper(e.target.value))} /></div>
+    <div><label className="help">Bureau</label><span className="champ-ic"><Icone nom="usine" taille={15} /><input value={String(d['bureauDeclaration'] ?? 'TG120')} onChange={(e) => set('bureauDeclaration', masks.upper(e.target.value))} /></span></div>
+    <div><label className="help">Type décl.</label><span className="champ-ic"><Icone nom="liste" taille={15} /><select value={String(d['typeDeclaration'] ?? 'T')} onChange={(e) => set('typeDeclaration', e.target.value)}>{TYPES_DECLARATION.map((t) => <option key={t} value={t}>{optionTypeDeclaration(t)}</option>)}</select></span></div>
+    <div><label className="help">N° décl.</label><span className="champ-ic"><Icone nom="document" taille={15} /><input value={String(d['numeroDeclaration'] ?? '')} onChange={(e) => set('numeroDeclaration', masks.upper(e.target.value))} /></span></div>
+    <div><label className="help">Année</label><span className="champ-ic"><Icone nom="echeance" taille={15} /><input value={String(d['anneeDeclaration'] ?? new Date().getFullYear())} onChange={(e) => set('anneeDeclaration', e.target.value)} /></span></div>
+    <div><label className="help">Désignation des marchandises</label><span className="champ-ic"><Icone nom="boites" taille={15} /><input value={String(d['descriptionMarchandise'] ?? '')} onChange={(e) => set('descriptionMarchandise', masks.upper(e.target.value))} /></span></div>
   </div>;
 }
 
@@ -3545,8 +3904,8 @@ SCREENS.etatcfs = ({ go }) => {
     {loading ? <Spinner /> : <>
       <div className="stats">
         <StatCard n={Number(data?.compte['total'] ?? 0)} l="Au parking" />
-        <StatCard n={Number(data?.compte['camions'] ?? 0)} l="Camions" />
-        <StatCard n={Number(data?.compte['vehicules'] ?? 0)} l="Véhicules" />
+        <StatCard n={Number(data?.compte['camions'] ?? 0)} l="Camions" icone="camion" />
+        <StatCard n={Number(data?.compte['vehicules'] ?? 0)} l="Véhicules" icone="voiture" />
         <StatCard n={Number(data?.compte['enCours'] ?? 0)} l="En chargement" />
         <StatCard n={Number(data?.compte['fin'] ?? 0)} l="Fin chargement" />
         <StatCard n={Number(data?.compte['vide'] ?? 0)} l="Vides" />
@@ -3624,16 +3983,46 @@ SCREENS.chargement = () => {
   const dec = (res?.['declaration'] as O) ?? {};
   const apu = res?.['apurement'] as O | null;
 
-  return <div className="card">
+  return <div className="card chg-recherche">
+    <LogoChargement taille={64} />
     <h2>Bon de chargement, par déclaration</h2>
-    <p className="help" style={{ marginTop: 0 }}>Remonte tous les camions et véhicules ayant chargé des conteneurs de la déclaration, au statut <b>« Créée » (fin de chargement)</b>.</p>
+    <p className="help chg-sous">Remonte tous les camions et véhicules ayant chargé des conteneurs de la déclaration, au statut <b>« Créée » (fin de chargement)</b>.</p>
     <div className="grid2">
-      <div><label className="help">N° déclaration *</label><input className="mono" value={String(q['numeroDeclaration'])} onChange={(e) => set('numeroDeclaration', masks.upper(e.target.value))} onKeyDown={(e) => e.key === 'Enter' && chercher()} autoFocus /></div>
-      <div><label className="help">Année (facultatif)</label><input value={String(q['anneeDeclaration'])} onChange={(e) => set('anneeDeclaration', e.target.value)} /></div>
-      <div><label className="help">Bureau (facultatif)</label><input value={String(q['bureauDeclaration'])} onChange={(e) => set('bureauDeclaration', masks.upper(e.target.value))} /></div>
-      <div><label className="help">Type (facultatif)</label><select value={String(q['typeDeclaration'])} onChange={(e) => set('typeDeclaration', e.target.value)}><option value="">Tous</option>{TYPES_DECLARATION.map((t) => <option key={t} value={t}>{optionTypeDeclaration(t)}</option>)}</select></div>
+      {/* CHAQUE CHAMP PORTE SON SIGNE (2026-10-29, demande utilisateur) :
+          quatre cases blanches identiques obligeaient a relire leur libelle
+          pour retrouver celle qu'on visait. */}
+      <div><label className="help">N° déclaration *</label>
+        <span className="champ-ic">
+          <Icone nom="document" taille={15} />
+          <input className="mono" value={String(q['numeroDeclaration'])} placeholder="26387"
+            onChange={(e) => set('numeroDeclaration', masks.upper(e.target.value))}
+            onKeyDown={(e) => e.key === 'Enter' && chercher()} autoFocus />
+        </span>
+      </div>
+      <div><label className="help">Année (facultatif)</label>
+        <span className="champ-ic">
+          <Icone nom="echeance" taille={15} />
+          <input value={String(q['anneeDeclaration'])} placeholder="2026"
+            onChange={(e) => set('anneeDeclaration', e.target.value)} />
+        </span>
+      </div>
+      <div><label className="help">Bureau (facultatif)</label>
+        <span className="champ-ic">
+          <Icone nom="usine" taille={15} />
+          <input value={String(q['bureauDeclaration'])} placeholder="TG120"
+            onChange={(e) => set('bureauDeclaration', masks.upper(e.target.value))} />
+        </span>
+      </div>
+      <div><label className="help">Type (facultatif)</label>
+        <span className="champ-ic">
+          <Icone nom="liste" taille={15} />
+          <select value={String(q['typeDeclaration'])} onChange={(e) => set('typeDeclaration', e.target.value)}><option value="">Tous</option>{TYPES_DECLARATION.map((t) => <option key={t} value={t}>{optionTypeDeclaration(t)}</option>)}</select>
+        </span>
+      </div>
     </div>
-    <div style={{ marginTop: 12 }}><button disabled={busy} onClick={chercher}>{busy ? 'Recherche…' : 'Rechercher'}</button></div>
+    <div className="chg-pied"><button disabled={busy} onClick={chercher}>
+      <Icone nom="loupe" taille={15} />{busy ? 'Recherche…' : 'Rechercher'}
+    </button></div>
 
     {res && <div style={{ marginTop: 18 }}>
       <div className="row" style={{ alignItems: 'center' }}>
@@ -3642,9 +4031,9 @@ SCREENS.chargement = () => {
       </div>
       <div className="help">Déclarant : <b>{String(dec['declarant'] || '—')}</b>{apu?.['exists'] ? <> · Apurement : {String(apu['apures'])}/{String(apu['nombreConteneurs'])} conteneurs (restant {String(apu['restant'])})</> : null}</div>
       <div className="stats" style={{ marginTop: 10 }}>
-        <StatCard n={Number(cpt['camions'] ?? 0)} l="Camions" />
-        <StatCard n={Number(cpt['vehicules'] ?? 0)} l="Véhicules" />
-        <StatCard n={Number(cpt['conteneurs'] ?? 0)} l="Conteneurs" />
+        <StatCard n={Number(cpt['camions'] ?? 0)} l="Camions" icone="camion" />
+        <StatCard n={Number(cpt['vehicules'] ?? 0)} l="Véhicules" icone="voiture" />
+        <StatCard n={Number(cpt['conteneurs'] ?? 0)} l="Conteneurs" icone="conteneur" />
       </div>
       {!cam.length && !veh.length && <div className="empty">Aucun camion ni véhicule au statut « Créée » pour cette déclaration.</div>}
       {[['Camions', cam] as const, ['Véhicules', veh] as const].map(([titre, lst]) => lst.length ? <div key={titre} style={{ marginTop: 14 }}>
@@ -3654,6 +4043,27 @@ SCREENS.chargement = () => {
     </div>}
   </div>;
 };
+
+/**
+ * LE LOGO SUR UN TAPIS DE CHARGEMENT (2026-10-29, demande utilisateur).
+ *
+ * Meme grammaire que les deux autres emblemes de l'application : le `Spinner`
+ * fait tourner un conteneur (« ca travaille »), le verrou l'arrete contre une
+ * barriere (« c'est suspendu »), la transmission l'encadre d'un aller et d'un
+ * retour. Ici, des caisses defilent derriere le logo et un anneau tourne
+ * autour : c'est le chargement lui-meme, le geste que l'ecran va chercher.
+ *
+ * Les caisses passent DERRIERE le logo, et non devant : un dessin qui masque
+ * la marque une fois par seconde attire l'oeil sur le mauvais objet.
+ */
+function LogoChargement({ taille = 64 }: { taille?: number }) {
+  return <div className="chg-logo" style={{ ['--t' as string]: taille + 'px' }} aria-hidden="true">
+    <span className="chg-anneau" />
+    <span className="chg-tapis"><i /><i /><i /></span>
+    <img className="logo-rond" src="/logo.png" alt=""
+      onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />
+  </div>;
+}
 
 function LigneChargement({ r }: { r: O }) {
   const conts = (r['conteneurs'] as O[]) ?? [];
@@ -3742,10 +4152,8 @@ function ValidationDeclaration({ go, arg, retour, ecranPrecedent }: Nav) {
         le reste des commandes. */}
     <BandeauModule icone="valider" titre="Déclarations à valider"
       sous={<>
-        Ouvrez une déclaration pour examiner <b>tous</b> ses camions, véhicules et conteneurs,
-        puis signer l'ensemble en une fois, ou <b>cochez plusieurs déclarations</b> et validez-les
-        toutes d'un même geste.
-        {decls.length > 0 && <>, <b>{decls.length}</b> en attente.</>}
+        Ouvrez une déclaration pour la signer entière, ou cochez-en plusieurs.
+        {decls.length > 0 && <> <b>{decls.length}</b> en attente.</>}
       </>}
       action={<div className="bm-outils">
         <input className="mono" placeholder="N° de déclaration" style={{ width: 170 }}
@@ -3778,7 +4186,11 @@ function ValidationDeclaration({ go, arg, retour, ecranPrecedent }: Nav) {
                   ? Object.fromEntries(decls.map((r) => [String(r['cle']), cleDe(r)]))
                   : {})} />
             </th>
-            <th>Déclaration</th><th>Déclarant</th><th>Camions</th><th>Véhicules</th><th>Conteneurs</th><th>Plus ancienne</th>
+            <th>Déclaration</th><th>Déclarant</th>
+            <th><span className="th-ic"><Icone nom="camion" taille={14} />Camions</span></th>
+            <th><span className="th-ic"><Icone nom="voiture" taille={14} />Véhicules</span></th>
+            <th><span className="th-ic"><Icone nom="conteneur" taille={14} />Conteneurs</span></th>
+            <th><span className="th-ic"><Icone nom="horloge" taille={14} />Plus ancienne</span></th>
           </tr></thead>
           <tbody>{decls.map((r) => (
             <tr key={String(r['cle'])} className="clk"
@@ -3879,9 +4291,11 @@ function ValidationGroupee({ cles, fermer, go, onDone }: {
             {[['Camions', cam] as const, ['Véhicules', veh] as const].map(([titre, lst]) => lst.length
               ? <div key={titre} style={{ marginTop: 8 }}>
                 <div className="help" style={{ marginBottom: 4 }}>{titre} ({lst.length})</div>
-                {lst.map((r) => <LigneValidation key={String(r['id'])} r={r} go={go}
-                  pesee={pesees[String(r['id'])]} onPesee={(p) => setPesee(String(r['id']), p)}
-                  amende={amendes[String(r['id'])]} onAmende={(a) => setAmendes((o) => ({ ...o, [String(r['id'])]: a }))} />)}
+                <div className="val-bento">
+                  {lst.map((r) => <LigneValidation key={String(r['id'])} r={r} go={go}
+                    pesee={pesees[String(r['id'])]} onPesee={(p) => setPesee(String(r['id']), p)}
+                    amende={amendes[String(r['id'])]} onAmende={(a) => setAmendes((o) => ({ ...o, [String(r['id'])]: a }))} />)}
+                </div>
               </div> : null)}
           </div>;
         })}
@@ -3911,6 +4325,23 @@ function DossierValidation({ decl, data, loading, error, reload, signee, onSigne
   const setPesee = (id: string, p: Pesee) => setPesees((o) => ({ ...o, [id]: p }));
   // Chaque DÉPOTAGE à valider doit avoir une pesée complète ; le reste est prêt d'office.
   const peseesPretes = peseesLotPretes(aValider, aPeser, pesees);
+  /* LA PESEE, REPONDUE UNE FOIS POUR TOUTE LA DECLARATION (2026-10-29,
+     demande utilisateur : « eviter d'alourdir le travail pour les agents »).
+     Mesure faite avant d'ecrire : 145 dossiers attendent une validation, et
+     la plus grosse declaration en porte 13. Le chef repondait donc jusqu'a
+     treize fois a la meme question pour un seul dossier.
+     Le choix groupe ne REMPLACE pas la pesee par camion : il la pre-remplit,
+     et chaque ligne reste modifiable. C'est ce qui le rend sur — rien n'est
+     signe sans qu'une valeur existe pour chaque camion. */
+  const aPeserIci = aValider.filter((id) => aPeser.has(id));
+  const peseeGroupee = (v: 'oui' | 'non') => setPesees((o) => {
+    const copie = { ...o };
+    for (const id of aPeserIci) copie[id] = { enSurcharge: v, poids: copie[id]?.poids ?? '' };
+    return copie;
+  });
+  /* Ce qui est deja repondu, pour que le bloc dise ou l'on en est au lieu de
+     se contenter d'offrir deux boutons. */
+  const peseesFaites = aPeserIci.filter((id) => peseeComplete(pesees[id])).length;
   // Amende pour effets non déclarés (2026-10-19) : une réponse PAR enlèvement.
   const [amendes, setAmendes] = useState<Record<string, ChoixAmende>>({});
   const aAmender = idsAmende(data ? [data] : []);
@@ -3956,13 +4387,49 @@ function DossierValidation({ decl, data, loading, error, reload, signee, onSigne
 
       {loading ? <Spinner /> : error ? <AvisApresSignature error={error} signee={signee} /> : <>
         <div className="stats" style={{ marginTop: 12 }}>
-          <StatCard n={Number(cpt['camions'] ?? 0)} l="Camions" />
-          <StatCard n={Number(cpt['vehicules'] ?? 0)} l="Véhicules" />
-          <StatCard n={Number(cpt['conteneurs'] ?? 0)} l="Conteneurs" />
-          <StatCard n={Number(cpt['aValider'] ?? 0)} l="À valider" tone="warn" />
-          <StatCard n={Number(cpt['dejaValidees'] ?? 0)} l="Déjà validées" tone="ok" />
+          <StatCard n={Number(cpt['camions'] ?? 0)} l="Camions" icone="camion" />
+          <StatCard n={Number(cpt['vehicules'] ?? 0)} l="Véhicules" icone="voiture" />
+          <StatCard n={Number(cpt['conteneurs'] ?? 0)} l="Conteneurs" icone="conteneur" />
+          <StatCard n={Number(cpt['aValider'] ?? 0)} l="À valider" icone="attente" tone="warn" />
+          <StatCard n={Number(cpt['dejaValidees'] ?? 0)} l="Déjà validées" icone="valider" tone="ok" />
         </div>
 
+        {/* Deux depotages ou plus : la question se pose une fois. En dessous,
+            le bloc ne ferait qu'ajouter un detour a une seule reponse. */}
+        {aPeserIci.length > 1 && <div className={`pesee-lot${peseesFaites === aPeserIci.length ? ' complete' : ''}`}>
+          <div className="pesee-lot-tete">
+            <span className="pesee-lot-ic" aria-hidden="true"><Icone nom="balance" taille={17} /></span>
+            <div className="pesee-lot-titre">
+              <b>Pesée des {aPeserIci.length} dépotages</b>
+              <span className="help">Répondez une fois pour toute la déclaration</span>
+            </div>
+            {/* L'ETAT SE VOIT AVANT DE SE LIRE : une jauge, puis le compte. Un
+                simple « 4 / 7 » obligeait a chercher le total pour savoir s'il
+                restait beaucoup a faire. */}
+            <div className={`pesee-lot-jauge${peseesFaites === aPeserIci.length ? ' pleine' : ''}`}>
+              <span className="pesee-lot-barre">
+                <i style={{ width: `${Math.round((peseesFaites / aPeserIci.length) * 100)}%` }} />
+              </span>
+              <span className="pesee-lot-compte">
+                {peseesFaites === aPeserIci.length
+                  ? <><Icone nom="valider" taille={13} />Les {aPeserIci.length} pesées sont faites</>
+                  : <>{peseesFaites} sur {aPeserIci.length}</>}
+              </span>
+            </div>
+          </div>
+          <div className="pesee-lot-actions">
+            <button type="button" className="pl-btn pl-non" onClick={() => peseeGroupee('non')}>
+              <Icone nom="valider" taille={15} />Tous hors surcharge
+            </button>
+            <button type="button" className="pl-btn pl-oui" onClick={() => peseeGroupee('oui')}>
+              <Icone nom="attention" taille={15} />Tous en surcharge
+            </button>
+          </div>
+          <p className="help pesee-lot-note">
+            Chaque camion reste modifiable ci-dessous. <b>En surcharge</b>, le poids se
+            saisit camion par camion : c'est une mesure, elle ne se déduit pas.
+          </p>
+        </div>}
         {aValider.length > 0 && eng.champ}
         {aValider.length > 0
           ? <div className="row" style={{ alignItems: 'center', marginTop: 4, gap: 12, flexWrap: 'wrap' }}>
@@ -3977,11 +4444,16 @@ function DossierValidation({ decl, data, loading, error, reload, signee, onSigne
           : <div className="help" style={{ color: 'var(--ok)' }}>✓ Tout est validé pour cette déclaration.</div>}
 
         {!cam.length && !veh.length && <div className="empty">Aucune cargaison en fin de chargement pour cette déclaration.</div>}
+        {/* GRILLE BENTO (2026-10-29, demande utilisateur) : sept camions
+            empiles faisaient defiler l'ecran sur pres de trois metres. Cote a
+            cote, le chef les embrasse d'un regard avant de signer. */}
         {[['Camions', cam] as const, ['Véhicules', veh] as const].map(([titre, lst]) => lst.length ? <div key={titre} style={{ marginTop: 14 }}>
           <div className="section-title">{titre} ({lst.length})</div>
-          {lst.map((r) => <LigneValidation key={String(r['id'])} r={r} go={go}
-            pesee={pesees[String(r['id'])]} onPesee={(p) => setPesee(String(r['id']), p)}
-            amende={amendes[String(r['id'])]} onAmende={(a) => setAmendes((o) => ({ ...o, [String(r['id'])]: a }))} />)}
+          <div className="val-bento">
+            {lst.map((r) => <LigneValidation key={String(r['id'])} r={r} go={go}
+              pesee={pesees[String(r['id'])]} onPesee={(p) => setPesee(String(r['id']), p)}
+              amende={amendes[String(r['id'])]} onAmende={(a) => setAmendes((o) => ({ ...o, [String(r['id'])]: a }))} />)}
+          </div>
         </div> : null)}
       </>}
     </div>
@@ -4050,11 +4522,14 @@ function LigneValidation({ r, go, pesee, onPesee, amende, onAmende }: {
   // v4.3, pesée seulement en dépotage (2026-08-19).
   const exigePesee = exigeControlePoids(r['typeOperation']);
   const reste = ((r['etapesEnAttente'] as string[]) ?? []).filter((e) => e !== 'VALIDATION');
-  return <div style={{
-    border: '1px solid var(--line)', borderLeft: `3px solid var(--${valide ? 'ok' : 'warn'})`,
-    borderRadius: 6, padding: 10, marginBottom: 8,
-  }}>
-    <div className="row" style={{ alignItems: 'center', gap: 8 }}>
+  /* LA LIGNE DEVIENT UNE CARTE (2026-10-29, demande utilisateur). Les styles
+     etaient ecrits a la main dans le JSX, a 6 px de rayon : le dernier bloc
+     de l'application a garder des coins durs, au milieu de tuiles a 28 px.
+     Ils passent en CSS, ou la couleur d'etape se dit en une variable. */
+  return <div className={`val-ligne${valide ? ' faite' : ''}`}>
+    <div className="row val-ligne-tete">
+      <span className="val-ligne-ic" aria-hidden="true">
+        <Icone nom={valide ? 'valider' : 'camion'} taille={15} /></span>
       <b className="mono">{String(r['numeroCamion'])}</b>
       <span className={`tag ${valide ? 'st-gps' : 'st-charge'}`}>{valide ? '✓ validée' : 'à valider'}</span>
       {Boolean(r['chargementMixte']) && <span className="tag st-charge">⊞ mixte</span>}
@@ -4062,17 +4537,26 @@ function LigneValidation({ r, go, pesee, onPesee, amende, onAmende }: {
       {Boolean(r['horsGabarit']) && <span className="tag" style={{ background: 'var(--warn-soft)', color: 'var(--warn)' }}>
         ⚠ hors gabarit {String(r['hauteurChargement'] || '?')} m</span>}
       <span style={{ flex: 1 }} />
-      <button className="ghost xs" onClick={() => go('detail', r['id'])}>Ouvrir la fiche</button>
+      <button className="ghost xs val-ligne-fiche" onClick={() => go('detail', r['id'])}>
+        <Icone nom="oeil" taille={14} />Ouvrir la fiche</button>
     </div>
-    <div className="help">{String(r['id'])} · {String(r['typeOperation'])} · {fmtDate(r['dateCreation'])} · Agent CFS {String(r['agentCfs'] || '—')}</div>
-    <div className="help">Destination {String(r['destinationMarchandise'] || '—')}{r['nbColis'] ? ` · ${String(r['nbColis'])} colis` : ''}{r['descriptionMarchandise'] ? ` · ${String(r['descriptionMarchandise'])}` : ''}</div>
-    {v && <div className="help">Châssis {String(v['chassis'] ?? '')} · {String(v['marque'] ?? '')} {String(v['modele'] ?? '')} · {String(v['destination'] ?? '')}</div>}
-    {sc.length > 0 && <div className="help">Scellés camion : {sc.join(' · ')}</div>}
+    {/* CHAQUE LIGNE PORTE SON SIGNE : quatre lignes grises se suivaient, et
+        l'oeil devait les lire toutes pour trouver la destination ou les
+        scelles. */}
+    <div className="help val-info"><Icone nom="document" taille={13} />
+      {String(r['id'])} · {String(r['typeOperation'])} · {fmtDate(r['dateCreation'])} · Agent CFS {String(r['agentCfs'] || '—')}</div>
+    <div className="help val-info"><Icone nom="carte" taille={13} />
+      Destination {String(r['destinationMarchandise'] || '—')}{r['nbColis'] ? ` · ${String(r['nbColis'])} colis` : ''}{r['descriptionMarchandise'] ? ` · ${String(r['descriptionMarchandise'])}` : ''}</div>
+    {v && <div className="help val-info"><Icone nom="voiture" taille={13} />
+      Châssis {String(v['chassis'] ?? '')} · {String(v['marque'] ?? '')} {String(v['modele'] ?? '')} · {String(v['destination'] ?? '')}</div>}
+    {sc.length > 0 && <div className="help val-info"><Icone nom="balise" taille={13} />
+      Scellés camion : {sc.join(' · ')}</div>}
     {autres.length > 0 && <div className="help" style={{ color: 'var(--warn)' }}>
       Porte aussi : {autres.map((a) => `${String(a['libelle'])} (${String(a['nbConteneurs'])} TC)`).join(' · ')}, hors de cette déclaration.
     </div>}
     {valide && <div className="help" style={{ color: 'var(--ok)' }}>Validée par {String(r['agentValidation'] || '—')}{r['roleValidation'] === 'CBPI' ? ' (par intérim)' : ''} le {fmtDate(r['dateValidation'])}</div>}
-    {!valide && reste.length > 0 && <div className="help">Restera ensuite : {reste.join(' · ')}</div>}
+    {!valide && reste.length > 0 && <div className="help val-info"><Icone nom="flux" taille={13} />
+      Restera ensuite : {reste.join(' · ')}</div>}
     {conts.length > 0 && <Table cols={[['num', 'Conteneur'], ['plomb', 'Scellé'], ['taille', 'Taille'], ['type', 'Type']]} rows={conts} />}
     {!conts.length && !v && r['descriptionMarchandise'] ? <div className="help">Effets divers : {String(r['descriptionMarchandise'])}</div> : null}
     {/* v4.1, pesée à renseigner AVANT la signature (seulement à valider, et
@@ -4604,96 +5088,117 @@ SCREENS.extraction = ({ go }) => {
 
   const lignes = (res?.['lignes'] as O[]) ?? [];
   const colonnes = (res?.['colonnes'] as string[]) ?? [];
-  const champ = (k: string, libelle: string, placeholder = '') => <div>
+  /* Chaque champ porte son signe (2026-10-29, demande utilisateur) : douze
+     cases blanches identiques obligeaient a relire chaque libelle. */
+  const champ = (k: string, libelle: string, placeholder = '', icone = 'crayon') => <div>
     <label className="help">{libelle}</label>
-    <input value={String(f[k] ?? '')} onChange={set(k)} placeholder={placeholder}
-      onKeyDown={(e) => { if (e.key === 'Enter') afficher(); }} />
+    <span className="champ-ic">
+      <Icone nom={icone} taille={15} />
+      <input value={String(f[k] ?? '')} onChange={set(k)} placeholder={placeholder}
+        onKeyDown={(e) => { if (e.key === 'Enter') afficher(); }} />
+    </span>
   </div>;
+  /* Un menu deroulant emballe de la meme facon. */
+  const menu = (libelle: string, icone: string, contenu: ReactNode) => <div>
+    <label className="help">{libelle}</label>
+    <span className="champ-ic"><Icone nom={icone} taille={15} />{contenu}</span>
+  </div>;
+
+/**
+ * LE LOGO QUI EXTRAIT (2026-10-29, demande utilisateur).
+ *
+ * Meme grammaire que les autres emblemes : le `Spinner` fait tourner un
+ * conteneur, le verrou l'arrete contre une barriere, l'archive range des
+ * feuilles dans une boite. Ici, des lignes de donnees SORTENT du logo et
+ * viennent se poser dans une feuille, a droite : c'est l'extraction, le geste
+ * meme de l'ecran.
+ *
+ * Elles sortent VERS LA DROITE, dans le sens de la lecture : une extraction
+ * qui irait vers la gauche se lirait comme un import.
+ */
+function LogoExtraction({ taille = 56 }: { taille?: number }) {
+  return <div className="ext-logo" style={{ ['--t' as string]: taille + 'px' }} aria-hidden="true">
+    <span className="ext-halo" />
+    <span className="ext-ligne" /><span className="ext-ligne" /><span className="ext-ligne" />
+    <span className="ext-feuille"><i /><i /><i /></span>
+    <img className="logo-rond" src="/logo.png" alt=""
+      onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />
+  </div>;
+}
 
   return <>
     <BandeauModule icone="telecharger" titre="Extraction sur mesure"
-      sous="Combinez les filtres, vérifiez le résultat, puis extrayez-le en Excel." />
-    <div className="card">
-      <ChoixSegmente libelle="Ce qu'on extrait" options={NIVEAUX_EXTRACTION} valeur={niveau}
-        onChange={(v) => { setNiveau(v); setRes(null); }} />
-      <p className="help" style={{ margin: '6px 0 0' }}>
-        {niveau === 'camions' ? 'Une ligne par camion, avec les seules déclarations qui répondent aux filtres.'
-          : niveau === 'conteneurs' ? 'Une ligne par conteneur, avec SA déclaration et SA désignation.'
-            : 'Une ligne par déclaration, avec ses camions et ses conteneurs.'}
-      </p>
-    </div>
-    <div className="card">
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))', gap: 12 }}>
-        <div>
-          <label className="help">La période porte sur</label>
+      sous="Combinez les filtres, vérifiez le résultat, puis extrayez-le en Excel."
+      action={<div className="bm-outils">
+        <label className="help">Extraire</label>
+        <select value={niveau} onChange={(e) => { setNiveau(e.target.value); setRes(null); }}
+          title="Ce qu'on extrait" style={{ maxWidth: 160 }}>
+          {NIVEAUX_EXTRACTION.map((o) => <option key={o.valeur} value={o.valeur}>{o.libelle}</option>)}
+        </select>
+      </div>} />
+    <div className="card ext-filtres">
+      <div className="ext-tete">
+        <LogoExtraction taille={52} />
+        <p className="help ext-note">
+          {niveau === 'camions' ? <>Une ligne <b>par camion</b>, avec les seules déclarations qui répondent aux filtres.</>
+            : niveau === 'conteneurs' ? <>Une ligne <b>par conteneur</b>, avec SA déclaration et SA désignation.</>
+              : <>Une ligne <b>par déclaration</b>, avec ses camions et ses conteneurs.</>}
+        </p>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))', gap: 12 }}>
+        {menu('La période porte sur', 'echeance',
           <select value={String(f['dateRef'])} onChange={set('dateRef')}>
             {DATES_EXTRACTION.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-          </select>
-        </div>
+          </select>)}
         <div style={{ gridColumn: 'span 2' }}>
           <label className="help">Période</label>
           <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}><SelecteurPeriode c={p} /></div>
           <span className="help"><PeriodeChoisieLue c={p} /></span>
         </div>
-        <div>
-          <label className="help">Opération</label>
+        {menu('Opération', 'conteneur',
           <select value={String(f['operation'])} onChange={set('operation')}>
             <option value="">Toutes</option><option>{OPERATIONS.ENLEVEMENT}</option><option>{OPERATIONS.DEPOTAGE}</option>
-          </select>
-        </div>
-        <div>
-          <label className="help">État</label>
+          </select>)}
+        {menu('État', 'flux',
           <select value={String(f['etat'])} onChange={set('etat')}>
             <option value="">Tous</option><option value="encours">En cours</option><option value="sortis">Sortis</option>
-          </select>
-        </div>
-        <div>
-          <label className="help">Statut</label>
+          </select>)}
+        {menu('Statut', 'liste',
           <select value={String(f['statut'])} onChange={set('statut')}>
             <option value="">Tous les statuts</option>
             {STATUT_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
-          </select>
-        </div>
-        <div>
-          <label className="help">Type de déclaration</label>
+          </select>)}
+        {menu('Type de déclaration', 'document',
           <select value={String(f['typeDeclaration'])} onChange={set('typeDeclaration')}>
             <option value="">Tous</option>
             {TYPES_DECLARATION.map((t) => <option key={t} value={t}>{optionTypeDeclaration(t)}</option>)}
-          </select>
-        </div>
-        {champ('bureauDeclaration', 'Bureau de déclaration', 'ex. TG120')}
-        {champ('bureauDestination', 'Bureau de destination (T1)', 'ex. BF')}
-        {champ('destination', 'Destination marchandise', 'ex. Ouaga')}
-        <div>
-          <label className="help">Engagement</label>
+          </select>)}
+        {champ('bureauDeclaration', 'Bureau de déclaration', 'ex. TG120', 'usine')}
+        {champ('bureauDestination', 'Bureau de destination (T1)', 'ex. BF', 'drapeau')}
+        {champ('destination', 'Destination marchandise', 'ex. Ouaga', 'carte')}
+        {menu('Engagement', 'echeance',
           <select value={String(f['engagement'])} onChange={set('engagement')}>
             <option value="">Tous</option><option value="oui">Engagés</option><option value="non">Non engagés</option>
-          </select>
-        </div>
-        <div>
-          <label className="help">Nature de l'engagement</label>
+          </select>)}
+        {menu("Nature de l'engagement", 'drapeau', <>
           <input list="extraction-engagements" value={String(f['natureEngagement'])} onChange={set('natureEngagement')}
             placeholder="ex. BFE 03" />
           <datalist id="extraction-engagements">{ENGAGEMENTS.map((e) => <option key={e} value={e} />)}</datalist>
-        </div>
-        {champ('declarant', 'Déclarant')}
-        {champ('numeroDeclaration', 'N° de déclaration')}
-        {champ('designation', 'Désignation (marchandise)', 'ex. riz ; sucre')}
-        {champ('recherche', 'Camion ou conteneur', 'N° camion, conteneur ou ID')}
-        <div>
-          <label className="help">Contrôle</label>
+        </>)}
+        {champ('declarant', 'Déclarant', '', 'compte')}
+        {champ('numeroDeclaration', 'N° de déclaration', '', 'document')}
+        {champ('designation', 'Désignation (marchandise)', 'ex. riz ; sucre', 'boites')}
+        {champ('recherche', 'Camion ou conteneur', 'N° camion, conteneur ou ID', 'loupe')}
+        {menu('Contrôle', 'balance',
           <select value={String(f['controle'] ?? '')} onChange={set('controle')}>
             <option value="">Tous</option><option value="surcharge">En surcharge</option>
             <option value="horsGabarit">Hors gabarit</option><option value="transitNational">Transit national (TG)</option>
-          </select>
-        </div>
-        <div>
-          <label className="help">Véhicules</label>
+          </select>)}
+        {menu('Véhicules', 'voiture',
           <select value={String(f['vehicules'])} onChange={set('vehicules')}>
             <option value="exclure">Sans les véhicules</option><option value="inclure">Avec les véhicules</option>
             <option value="seulement">Véhicules seulement</option>
-          </select>
-        </div>
+          </select>)}
       </div>
       <p className="help" style={{ margin: '10px 0 0' }}>
         Les champs texte acceptent un morceau de mot, sans tenir compte des majuscules ni des accents.
@@ -4864,8 +5369,8 @@ SCREENS.controles = () => {
           onClick={() => extraireMotif(controle, titre, 'conteneurs')} />
       </div>
       <div className="stats">
-        <StatCard n={Number(o['camions'] ?? 0)} l="Camions" tone={tone} etape="cfs" />
-        <StatCard n={Number(o['conteneurs'] ?? 0)} l="Conteneurs" tone={tone} etape="t1" />
+        <StatCard n={Number(o['camions'] ?? 0)} l="Camions" icone="camion" tone={tone} etape="cfs" />
+        <StatCard n={Number(o['conteneurs'] ?? 0)} l="Conteneurs" icone="conteneur" tone={tone} etape="t1" />
       </div>
     </div>;
   return <>
@@ -4973,8 +5478,8 @@ SCREENS.engagementsrap = ({ go }) => {
             <BoutonExcel titre={`Extraire en Excel les camions sous « ${nom} »`} onClick={() => extraire(nom)} />
           </div>
           <div className="stats">
-            <StatCard n={Number(n['camions'] ?? 0)} l="Camions" etape="cfs" onClick={() => setNature(nom)} />
-            <StatCard n={Number(n['conteneurs'] ?? 0)} l="Conteneurs" etape="t1" onClick={() => setNature(nom)} />
+            <StatCard n={Number(n['camions'] ?? 0)} l="Camions" icone="camion" etape="cfs" onClick={() => setNature(nom)} />
+            <StatCard n={Number(n['conteneurs'] ?? 0)} l="Conteneurs" icone="conteneur" etape="t1" onClick={() => setNature(nom)} />
             {Number(n['vehicules']) > 0 && <StatCard n={Number(n['vehicules'])} l="Véhicules" icone="voiture" />}
             <StatCard n={Number(n['enCours'] ?? 0)} l="Engagements en cours" tone="warn" />
             <StatCard n={Number(n['soldes'] ?? 0)} l="Soldés" tone="ok" />
@@ -5042,8 +5547,8 @@ SCREENS.amendes = ({ go }) => {
     </div>
     {loading ? <Spinner /> : <>
       <div className="card"><div className="stats">
-        <StatCard n={Number(k['camions'] ?? 0)} l="Camions" etape="cfs" onClick={() => setType('')} />
-        <StatCard n={Number(k['conteneurs'] ?? 0)} l="Conteneurs" etape="t1" />
+        <StatCard n={Number(k['camions'] ?? 0)} l="Camions" icone="camion" etape="cfs" onClick={() => setType('')} />
+        <StatCard n={Number(k['conteneurs'] ?? 0)} l="Conteneurs" icone="conteneur" etape="t1" />
         <StatCard n={fmtFcfa(k['montantTotal'])} l="Montant total" tone="ok" icone="document" />
         <StatCard n={Number(k['forfaits'] ?? 0)} l={`Forfaits ${fmtFcfa(AMENDE_EFFETS_FORFAIT)}`} onClick={() => setType('Forfait')} />
         <StatCard n={Number(k['autres'] ?? 0)} l="Autres montants" tone="warn" onClick={() => setType('Autre montant')} />
@@ -6461,6 +6966,143 @@ export { SCREENS };
  * La pagination est faite côté SQL : on ne remonte que la page affichée, jamais
  * la table entière (GOV-05).
  */
+/**
+ * UNE LIGNE D'ARCHIVE QUI DIT TOUT (2026-10-29, demande utilisateur :
+ * « on doit tout voir, absolument tout ce qui concerne ce camion »).
+ *
+ * Huit colonnes ne disaient ni les conteneurs, ni le parcours, ni
+ * l'engagement : il fallait ouvrir chaque fiche pour savoir de quoi on
+ * parlait, et l'archive servait surtout a retrouver un identifiant.
+ *
+ * LE DETAIL SE DEPLIE, il ne s'etale pas. Tout afficher d'emblee aurait fait
+ * des lignes de huit centimetres de haut sur cinquante dossiers, et la liste
+ * serait redevenue illisible - le defaut qu'on vient de corriger ailleurs. On
+ * ouvre donc ce qu'on veut lire, une ligne a la fois.
+ */
+function LigneArchive({ r, go }: { r: O; go: Nav['go'] }) {
+  const [ouvert, setOuvert] = useState(false);
+  const dets = parseConteneursDetails(r['conteneursDetails']);
+  /* LE N° DE BON DE SORTIE N'EST PAS TOUJOURS UNE CHAINE (bug vu a l'ecran,
+     2026-10-29 : « Bon de sortie : [object Object] »). La colonne est en
+     `jsonb` et porte, selon le cas, un numero unique ou UNE LIGNE PAR
+     CONTENEUR, `[{conteneur, t1, numero}]`. `String()` sur la liste donnait
+     « [object Object] ». */
+  const numeroBonSortie = (v: unknown): string => {
+    if (Array.isArray(v)) {
+      return v.map((x) => String((x as O)?.['numero'] ?? '')).filter(Boolean).join(' · ');
+    }
+    return v === null || v === undefined ? '' : String(v);
+  };
+  const kv = (lib: string, v: unknown, mono = false) => {
+    const t = v === null || v === undefined || v === '' ? '' : String(v);
+    return t ? <div className="kv"><b>{lib}</b><span className={mono ? 'mono' : ''}>{t}</span></div> : null;
+  };
+  return <>
+    <tr className="arc-ligne" onClick={() => setOuvert((o) => !o)}
+      title={ouvert ? 'Replier' : 'Voir tout ce qui concerne ce camion'}>
+      <td className="mono">
+        <span className={`arc-fleche${ouvert ? ' ouvert' : ''}`} aria-hidden="true">
+          <Icone nom="chevron" taille={13} />
+        </span>
+        {String(r['numeroCamion'] ?? '')}
+      </td>
+      <td className="mono help">{String(r['id'] ?? '')}</td>
+      <td>{String(r['typeOperation'] ?? '')}</td>
+      <td><Tag statut={String(r['statut'] ?? '')} o={r} /></td>
+      <td>{fmtJour(r['dateCreation'])}</td>
+      <td>{r['dateSortie'] ? fmtJour(r['dateSortie']) : '—'}</td>
+      <td>{String(r['declarant'] ?? '')}</td>
+      <td className="mono help">{String(r['numeroDeclaration'] ?? '')}</td>
+    </tr>
+    {ouvert && <tr className="arc-detail"><td colSpan={8}>
+      <div className="arc-tout">
+        <div className="arc-bloc">
+          <div className="section-title"><Icone nom="document" taille={14} />Déclaration</div>
+          <div className="fiche">
+            {kv('Déclarant', r['declarant'])}
+            {kv('Contact', r['contactDeclarant'])}
+            {kv('Déclaration', [r['numeroDeclaration'], r['anneeDeclaration'], r['bureauDeclaration'], r['typeDeclaration']].filter(Boolean).join(' · '), true)}
+            {kv('Destination', r['destinationMarchandise'])}
+            {kv('Marchandise', r['descriptionMarchandise'])}
+          </div>
+        </div>
+        <div className="arc-bloc">
+          <div className="section-title"><Icone nom="conteneur" taille={14} />
+            Conteneurs ({dets.conteneurs.length})</div>
+          {dets.conteneurs.length
+            ? <div className="tbl"><table>
+              <thead><tr><th>N°</th><th>Taille</th><th>Type</th><th>Scellé</th></tr></thead>
+              <tbody>{dets.conteneurs.map((ct: { num: string; taille: string; type: string; plomb: string }, i: number) => <tr key={i}>
+                <td className="mono">{ct.num}</td><td>{ct.taille || '—'}</td>
+                <td>{ct.type || '—'}</td>
+                <td className="mono">{ct.plomb || dets.scellesCamion[i] || '—'}</td>
+              </tr>)}</tbody></table></div>
+            : <div className="help">Aucun conteneur sur ce dossier.</div>}
+          {dets.scellesCamion.length > 0 && <div className="kv" style={{ marginTop: 6 }}>
+            <b>Scellés camion</b><span className="mono">{dets.scellesCamion.join(' · ')}</span></div>}
+        </div>
+        <div className="arc-bloc">
+          <div className="section-title"><Icone nom="flux" taille={14} />Parcours</div>
+          <div className="fiche">
+            {kv('Agent CFS', r['agentCfs'])}
+            {kv('Validé le', r['dateValidation'] ? fmtJour(r['dateValidation']) : '')}
+            {kv('T1 le', r['dateT1'] ? fmtJour(r['dateT1']) : '')}
+            {kv('Bon de sortie', [numeroBonSortie(r['bonSortieNumero']), r['dateBonSortie'] ? fmtJour(r['dateBonSortie']) : ''].filter(Boolean).join(' · '), true)}
+            {kv('Balise', [r['numeroGps'], r['datePoseGps'] ? fmtJour(r['datePoseGps']) : ''].filter(Boolean).join(' · '), true)}
+            {kv('Sorti le', r['dateSortie'] ? fmtJour(r['dateSortie']) : '')}
+          </div>
+        </div>
+        {(r['suiviEngagement'] === true || r['archive'] === true || r['archiveAuto'] === true) && <div className="arc-bloc">
+          <div className="section-title"><Icone nom="echeance" taille={14} />Engagement et archivage</div>
+          <div className="fiche">
+            {r['suiviEngagement'] === true ? <>
+              {kv('Engagement', r['engagementType'])}
+              {kv('Délai', r['engagementDelai'] ? fmtJour(r['engagementDelai']) : '')}
+              {kv('Régularisé le', r['engagementEffectueLe'] ? fmtJour(r['engagementEffectueLe']) : 'pas encore')}
+            </> : null}
+            {r['archive'] === true ? kv('Archivé (goulot)', r['archiveMotif'] || 'oui') : null}
+            {r['archiveAuto'] === true ? kv('Archivé', 'automatiquement, dossier terminé') : null}
+          </div>
+        </div>}
+      </div>
+      <div className="arc-pied">
+        <button className="ghost xs arc-btn" onClick={(e) => { e.stopPropagation(); go('detail', String(r['id'])); }}>
+          <Icone nom="oeil" taille={14} />Ouvrir la fiche complète
+        </button>
+      </div>
+    </td></tr>}
+  </>;
+}
+
+/**
+ * LE LOGO DANS SES ANNEAUX (2026-10-29, demande utilisateur).
+ *
+ * Meme grammaire que les autres emblemes : le `Spinner` fait tourner un
+ * conteneur, le verrou l'arrete contre une barriere, la soumission l'encadre
+ * d'un aller et d'un retour, le bon de chargement le pose sur un tapis. Ici,
+ * des feuilles tombent une a une et se rangent dans une boite, sous un anneau
+ * qui s'eloigne : c'est l'archivage lui-meme, le geste que fait l'ecran.
+ *
+ * LES ANNEAUX SEULS NE DISAIENT RIEN (premiere version, corrigee le jour
+ * meme) : ils parlaient du temps qui passe, pas du rangement. Un dessin qui
+ * illustre l'idee generale au lieu de l'action laisse le lecteur deviner.
+ *
+ * Six secondes par cycle, trois feuilles decalees d'un tiers : il y en a
+ * toujours une en vol, jamais plus d'une qui arrive. C'est un ecran de
+ * consultation, on y reste, et un defile rapide y deviendrait une gene.
+ */
+function LogoArchive({ taille = 52 }: { taille?: number }) {
+  return <div className="arc-logo" style={{ ['--t' as string]: taille + 'px' }} aria-hidden="true">
+    <span className="arc-onde" />
+    {/* Trois feuilles qui tombent et se rangent, decalees d'un tiers de
+        cycle : il y en a toujours une en vol. */}
+    <span className="arc-feuille" /><span className="arc-feuille" /><span className="arc-feuille" />
+    <span className="arc-boite"><i /></span>
+    <img className="logo-rond" src="/logo.png" alt=""
+      onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />
+  </div>;
+}
+
 SCREENS.archive = ({ go }) => {
   const [page, setPage] = useState(1);
   /* Ancienneté par défaut = réglage « archiveMois » tant que l'utilisateur n'a
@@ -6473,9 +7115,14 @@ SCREENS.archive = ({ go }) => {
   const choixMois = Array.from(new Set([params.archiveMois, 12, 24, 36, 60])).sort((a, b) => a - b);
   const [recherche, setRecherche] = useState('');
   const [q, setQ] = useState(''); // terme réellement envoyé (validé par Entrée)
+  /* DEUX LECTURES, ET LA BONNE PAR DEFAUT (2026-10-29, signalé par
+     l'utilisateur : « corrige le filtre »). L'écran ne savait lire que
+     l'ancienneté d'ENTRÉE et annonçait « 0 dossier » pendant que 19 615
+     dormaient dans l'archive, rangés sur leur date de SORTIE. */
+  const [vue, setVue] = useState('archives');
   const { data, loading, error } = useAsync<O>(
-    () => call('report.archive', { page, pageSize: 50, mois: moisChoisi ?? undefined, search: q }),
-    [page, moisChoisi, q],
+    () => call('report.archive', { page, pageSize: 50, vue, mois: moisChoisi ?? undefined, search: q }),
+    [page, vue, moisChoisi, q],
   );
 
   const rows = (data?.['rows'] as O[]) ?? [];
@@ -6483,32 +7130,46 @@ SCREENS.archive = ({ go }) => {
   const pages = Math.max(1, Math.ceil(total / 50));
 
   return <>
+    {/* LES FILTRES REMONTENT DANS LA BANDE (2026-10-29, demande utilisateur).
+        Ils occupaient un bloc entier sous le bandeau, qui repoussait la liste
+        sous la ligne de flottaison : on ouvrait l'archive et on ne voyait
+        aucun dossier. Le bandeau les porte, comme partout ailleurs. */}
     <BandeauModule icone="archive" titre="Archive"
-      sous={<>Dossiers entrés il y a plus de <b>{mois} mois</b>{data?.['total'] ? <>, <b>{String(data['total'])}</b> dossier(s)</> : null}</>} />
-    <div className="card">
-      <p className="help" style={{ marginTop: 0 }}>
-        Cargaisons entrées avant le <b>{fmtJour(data?.['seuil'])}</b>. Elles restent
-        entièrement consultables : cet écran est une vue par ancienneté, aucune
-        donnée n'a été déplacée ni retirée des recherches.
-      </p>
-      <div className="row" style={{ gap: 10, flexWrap: 'wrap', alignItems: 'end', marginTop: 8 }}>
-        <div>
-          <label className="help">Ancienneté</label>
-          <select value={mois} onChange={(e) => { setMois(Number(e.target.value)); setPage(1); }}>
-            {choixMois.map((m) => <option key={m} value={m}>
-              {m % 12 === 0 ? `Plus de ${m / 12} an${m > 12 ? 's' : ''}` : `Plus de ${m} mois`}
-            </option>)}
-          </select>
-        </div>
-        <div style={{ flex: 1, minWidth: 200 }}>
-          <label className="help">Rechercher un camion</label>
-          <input className="mono" value={recherche} placeholder="TG2489BK/2725BP"
+      sous={vue === 'archives'
+        ? <>Dossiers archivés{total ? <>, <b>{total}</b> au total</> : null}</>
+        : <>Dossiers entrés il y a plus de <b>{mois} mois</b>{total ? <>, <b>{total}</b> dossier(s)</> : null}</>}
+      action={<div className="bm-outils">
+        <select value={vue} onChange={(e) => { setVue(e.target.value); setPage(1); }}
+          title="Ce qui est archivé, ou une lecture par ancienneté d'entrée">
+          <option value="archives">Dossiers archivés</option>
+          <option value="anciennete">Par ancienneté d'entrée</option>
+        </select>
+        {vue === 'anciennete' && <select value={mois} title="Ancienneté"
+          onChange={(e) => { setMois(Number(e.target.value)); setPage(1); }}>
+          {choixMois.map((m) => <option key={m} value={m}>
+            {m % 12 === 0 ? `Plus de ${m / 12} an${m > 12 ? 's' : ''}` : `Plus de ${m} mois`}
+          </option>)}
+        </select>}
+        <span className="champ-loupe">
+          <Icone nom="loupe" taille={15} />
+          <input className="mono" value={recherche} placeholder="N° camion" style={{ width: 170 }}
             onChange={(e) => setRecherche(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') { setQ(recherche); setPage(1); } }} />
-        </div>
-        <button className="ghost" onClick={() => { setQ(recherche); setPage(1); }}>Rechercher</button>
-        {q && <button className="ghost" onClick={() => { setRecherche(''); setQ(''); setPage(1); }}>Effacer</button>}
-      </div>
+        </span>
+        <button onClick={() => { setQ(recherche); setPage(1); }}>Rechercher</button>
+        {q && <button onClick={() => { setRecherche(''); setQ(''); setPage(1); }}>Effacer</button>}
+      </div>} />
+
+    <div className="card filtres-verre arc-barre">
+      <LogoArchive taille={56} />
+      <p className="help arc-note">
+        {vue === 'archives'
+          ? <>Dossiers <b>sortis</b> depuis plus de {params.archiveAutoJours} jours, rangés chaque
+            nuit. Ils quittent les listes de travail mais restent <b>entièrement consultables</b>,
+            et les rapports continuent de les compter.</>
+          : <>Cargaisons entrées avant le <b>{fmtJour(data?.['seuil'])}</b>. Lecture par ancienneté :
+            aucune donnée n'a été déplacée ni retirée des recherches.</>}
+      </p>
     </div>
 
     {loading ? <Spinner /> : error ? <div className="err-msg">{error}</div> : <div className="card">
@@ -6520,21 +7181,17 @@ SCREENS.archive = ({ go }) => {
         <div style={{ overflowX: 'auto', marginTop: 8 }}>
           <table>
             <thead><tr>
-              <th>Camion</th><th>Dossier</th><th>Opération</th><th>Statut</th>
-              <th>Entré le</th><th>Sorti le</th><th>Déclarant</th><th>Décl.</th>
+              <th><span className="th-ic"><Icone nom="camion" taille={14} />Camion</span></th>
+              <th>Dossier</th>
+              <th><span className="th-ic"><Icone nom="conteneur" taille={14} />Opération</span></th>
+              <th>Statut</th>
+              <th><span className="th-ic"><Icone nom="echeance" taille={14} />Entré le</span></th>
+              <th><span className="th-ic"><Icone nom="sortie" taille={14} />Sorti le</span></th>
+              <th><span className="th-ic"><Icone nom="compte" taille={14} />Déclarant</span></th>
+              <th>Décl.</th>
             </tr></thead>
             <tbody>
-              {rows.map((r) => <tr key={String(r['id'])} style={{ cursor: 'pointer' }}
-                onClick={() => go('detail', String(r['id']))}>
-                <td className="mono">{String(r['numeroCamion'] ?? '')}</td>
-                <td className="mono help">{String(r['id'] ?? '')}</td>
-                <td>{String(r['typeOperation'] ?? '')}</td>
-                <td><Tag statut={String(r['statut'] ?? '')} o={r} /></td>
-                <td>{fmtJour(r['dateCreation'])}</td>
-                <td>{r['dateSortie'] ? fmtJour(r['dateSortie']) : '—'}</td>
-                <td>{String(r['declarant'] ?? '')}</td>
-                <td className="mono help">{String(r['numeroDeclaration'] ?? '')}</td>
-              </tr>)}
+              {rows.map((r) => <LigneArchive key={String(r['id'])} r={r} go={go} />)}
             </tbody>
           </table>
         </div>
