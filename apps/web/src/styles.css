@@ -4861,22 +4861,41 @@ button.modal-fermer:focus-visible{outline:2px solid #0e5a8a;outline-offset:2px}
  * poser dans une feuille, a droite. Elles vont vers la DROITE, dans le sens
  * de la lecture : une extraction qui irait vers la gauche se lirait comme un
  * import.
+ *
+ * ⚠ DEUX DEFAUTS CORRIGES LE JOUR MEME, signales par l'utilisateur :
+ *
+ * 1. L'ANIMATION NE SE VOYAIT PAS. Les lignes partaient du CENTRE du logo et
+ *    passaient donc dessous (le logo est au-dessus d'elles, et il le doit :
+ *    une ligne qui le traverserait salirait la marque). Elles naissent
+ *    desormais a son BORD DROIT, dans l'espace libre qui mene a la feuille,
+ *    ou rien ne les cache.
+ * 2. LE BLOC N'ETAIT PAS CENTRE. Le logo occupait la gauche de la bande et la
+ *    feuille debordait a droite sans que l'ensemble soit pose au milieu. Le
+ *    bloc declare donc sa largeur reelle, logo ET feuille comprises, et se
+ *    centre comme un tout.
  */
 .ext-tete{
-  display:grid;grid-template-columns:auto 1fr;gap:10px 18px;align-items:center;
+  display:flex;flex-direction:column;align-items:center;text-align:center;gap:8px;
   margin-bottom:14px;padding-bottom:13px;
   border-bottom:1px dashed rgba(15,45,70,.14);
 }
-.ext-note{grid-column:2;margin:0;max-width:72ch;font-size:13px}
+.ext-note{margin:0;max-width:72ch;font-size:13px}
 
+/* LA LARGEUR REELLE DU BLOC : le logo (0 → 1t), l'espace de vol (1t → 1.28t),
+   la feuille (1.28t → 1.72t). Sans cette largeur declaree, le centrage ne
+   portait que sur le logo et la feuille tirait l'ensemble vers la droite. */
 .ext-logo{
-  position:relative;width:var(--t);height:var(--t);
-  display:grid;place-items:center;
+  position:relative;
+  width:calc(var(--t) * 1.72);height:var(--t);
 }
-.ext-logo .logo-rond{position:relative;z-index:3;width:var(--t);height:var(--t)}
+.ext-logo .logo-rond{
+  position:absolute;left:0;top:0;z-index:3;
+  width:var(--t);height:var(--t);
+}
 /* Un halo qui respire : la source d'ou sortent les lignes. */
 .ext-halo{
-  position:absolute;inset:-5px;border-radius:50%;z-index:1;
+  position:absolute;left:-5px;top:-5px;width:calc(var(--t) + 10px);height:calc(var(--t) + 10px);
+  border-radius:50%;z-index:1;
   border:1.5px solid rgba(14,90,138,.3);
   animation:ext-halo 3.6s ease-in-out infinite;
 }
@@ -4885,12 +4904,12 @@ button.modal-fermer:focus-visible{outline:2px solid #0e5a8a;outline-offset:2px}
   55%    {transform:scale(1.12);opacity:.15}
 }
 
-/* LA FEUILLE qui recoit, a droite du logo. Trois traits, rien de plus : a
-   cette taille un tableau dessine devient une tache grise. */
+/* LA FEUILLE qui recoit. Trois traits, rien de plus : a cette taille un
+   tableau dessine devient une tache grise. */
 .ext-feuille{
-  position:absolute;left:calc(var(--t) * 0.92);top:50%;z-index:2;
+  position:absolute;left:calc(var(--t) * 1.28);top:50%;z-index:2;
   transform:translateY(-50%);
-  width:calc(var(--t) * 0.42);height:calc(var(--t) * 0.54);
+  width:calc(var(--t) * 0.44);height:calc(var(--t) * 0.56);
   border:1.5px solid var(--accent);border-radius:3px;
   background:linear-gradient(160deg,#fff,#e8f0f6);
   box-shadow:0 2px 6px rgba(15,35,55,.18);
@@ -4900,35 +4919,76 @@ button.modal-fermer:focus-visible{outline:2px solid #0e5a8a;outline-offset:2px}
 .ext-feuille i:nth-child(2){width:72%}
 .ext-feuille i:nth-child(3){width:48%}
 
-/* LES LIGNES QUI SORTENT, derriere le logo puis devant la feuille. Trois,
-   decalees d'un tiers de cycle : il y en a toujours une en route, jamais
-   deux qui arrivent ensemble. */
+/* LES LIGNES QUI SORTENT, du bord droit du logo jusqu'a la feuille. z-index 4
+   les met AU-DESSUS de la feuille : on les voit s'y poser. Trois, decalees
+   d'un tiers de cycle, pour qu'il y en ait toujours une en route. */
 .ext-ligne{
-  position:absolute;top:50%;left:calc(var(--t) * 0.5);z-index:2;
-  height:3px;border-radius:2px;
+  position:absolute;top:50%;left:var(--t);z-index:4;
+  width:calc(var(--t) * 0.26);height:3px;border-radius:2px;
   background:linear-gradient(90deg,rgba(14,90,138,0),var(--accent));
   animation:ext-ligne 2.4s ease-in-out infinite;
 }
-.ext-ligne:nth-of-type(2){animation-delay:.8s;margin-top:-6px}
-.ext-ligne:nth-of-type(3){animation-delay:1.6s;margin-top:6px}
+.ext-ligne:nth-of-type(2){animation-delay:.8s;margin-top:-7px}
+.ext-ligne:nth-of-type(3){animation-delay:1.6s;margin-top:7px}
 @keyframes ext-ligne{
-  0%  {width:0;opacity:0;transform:translateX(0)}
-  25% {width:calc(var(--t) * 0.3);opacity:1}
-  70% {width:calc(var(--t) * 0.3);opacity:1;transform:translateX(calc(var(--t) * 0.42))}
-  85% {width:0;opacity:0;transform:translateX(calc(var(--t) * 0.72))}
-  100%{width:0;opacity:0;transform:translateX(calc(var(--t) * 0.72))}
+  0%  {opacity:0;transform:translateX(-6px) scaleX(.2)}
+  18% {opacity:1;transform:translateX(0) scaleX(1)}
+  68% {opacity:1;transform:translateX(calc(var(--t) * 0.34)) scaleX(1)}
+  86% {opacity:0;transform:translateX(calc(var(--t) * 0.46)) scaleX(.3)}
+  100%{opacity:0;transform:translateX(calc(var(--t) * 0.46)) scaleX(.3)}
 }
-/* La feuille deborde a droite du logo : on lui laisse la place. */
-.ext-logo{margin-right:calc(var(--t) * 0.5)}
 
-/* Immobile, le dessin garde son sens : le logo, son halo, et la feuille
-   remplie a cote. */
+/* Immobile, le dessin garde son sens : le logo, son halo, une ligne en vol et
+   la feuille remplie a cote. */
 @media (prefers-reduced-motion:reduce){
   .ext-halo{animation:none}
-  .ext-ligne{animation:none;width:calc(var(--t) * 0.3);opacity:.5;transform:translateX(calc(var(--t) * 0.2))}
+  .ext-ligne{animation:none;opacity:.5}
+  .ext-ligne:nth-of-type(2),.ext-ligne:nth-of-type(3){opacity:.28}
 }
 
-@media (max-width:620px){
-  .ext-tete{grid-template-columns:1fr;justify-items:center;text-align:center}
-  .ext-note{grid-column:1}
+
+/* ===== LES ONGLETS D'ENTREPOT, DANS LA BANDE, 2026-10-29 ================
+ *
+ * Demande utilisateur, pour le Magasin/MAD ET l'Entrepot industriel : c'est
+ * le meme composant, une seule regle les sert tous les deux.
+ *
+ * Ils tenaient une carte a eux seuls, qui repoussait la saisie sous la ligne
+ * de flottaison. Dans la bande, ils forment un groupe en VERRE DEPOLI : sur
+ * le bleu profond du bandeau, quatre boutons clairs poses cote a cote se
+ * seraient lus comme quatre actions sans lien ; un cadre commun dit qu'ils
+ * s'excluent, et que l'un d'eux est l'ecran ouvert.
+ */
+.onglets-verre{
+  gap:4px !important;padding:4px;border-radius:999px;
+  background:rgba(255,255,255,.12);
+  border:1px solid rgba(255,255,255,.22);
+  backdrop-filter:blur(14px) saturate(150%);
+  -webkit-backdrop-filter:blur(14px) saturate(150%);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.2);
+}
+.bm-outils .onglet-mag{
+  display:inline-flex;align-items:center;gap:7px;
+  background:transparent !important;border-color:transparent !important;
+  color:rgba(255,255,255,.82) !important;
+  box-shadow:none !important;
+  padding:7px 13px;font-size:13px;font-weight:600;border-radius:999px;
+  transition:background .18s ease,color .18s ease;
+}
+.bm-outils .onglet-mag:hover:not(.actif){
+  background:rgba(255,255,255,.14) !important;color:#fff !important;transform:none;
+}
+/* L'ONGLET OUVERT EST PLEIN, et c'est le seul : sur du verre, une simple
+   nuance de clair ne suffit pas a dire « vous etes ici ». */
+.bm-outils .onglet-mag.actif{
+  background:#fff !important;color:var(--accent) !important;
+  box-shadow:0 2px 8px rgba(6,30,50,.25) !important;
+}
+.bm-outils .onglet-mag .ic{flex:0 0 auto}
+
+@media (max-width:820px){
+  /* Sur telephone la bande defile deja : le groupe suit, sans se casser. */
+  .onglets-verre{flex-wrap:nowrap}
+}
+@media (prefers-reduced-motion:reduce){
+  .bm-outils .onglet-mag{transition:none}
 }

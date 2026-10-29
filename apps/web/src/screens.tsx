@@ -1058,16 +1058,18 @@ function EcranEntrepot({ nav, type }: { nav: Nav; type: EntrepotType }) {
         l'identité du magasin et son UNITÉ D'APUREMENT, qui décide de tout ce
         qui suit, des colis d'un côté, des kilos de l'autre. */}
     <BandeauModule icone={estIndus(type) ? 'usine' : 'entrepot'} titre={titre}
-      sous={<>Apurement par <b>{estIndus(type) ? 'poids (kg)' : 'quantités (colis)'}</b> - {entrepots.length} magasin(s) en service</>} />
-    <div className="card"><div className="row" style={{ alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
-      {/* Chaque onglet porte son icône : entrée, sortie, chiffres, gestion,
-          quatre gestes distincts, qu'un libellé seul faisait lire comme quatre
-          mots de même poids. */}
-      {T.map(([k, l]) => <button key={k} className={`onglet-mag ${onglet === k ? '' : 'ghost'}`} onClick={() => setOnglet(k as never)}>
-        <Icone nom={({ entree: 'televerser', sortie: 'sortie', stats: 'rapport', gerer: 'entrepot' } as Record<string, string>)[k] ?? 'liste'} taille={15} />
-        {l}
-      </button>)}
-    </div></div>
+      sous={<>Apurement par <b>{estIndus(type) ? 'poids (kg)' : 'quantités (colis)'}</b> · {entrepots.length} magasin(s) en service</>}
+      action={<div className="bm-outils onglets-verre">
+        {/* Chaque onglet porte son icône : entrée, sortie, chiffres, gestion,
+            quatre gestes distincts, qu'un libellé seul faisait lire comme
+            quatre mots de même poids. */}
+        {T.map(([k, l]) => <button key={k} type="button"
+          className={`onglet-mag ${onglet === k ? 'actif' : ''}`}
+          aria-pressed={onglet === k} onClick={() => setOnglet(k as never)}>
+          <Icone nom={({ entree: 'televerser', sortie: 'sortie', stats: 'rapport', gerer: 'entrepot' } as Record<string, string>)[k] ?? 'liste'} taille={15} />
+          {l}
+        </button>)}
+      </div>} />
     {loading ? <Spinner /> : entrepots.length === 0 && onglet !== 'gerer'
       ? <div className="card"><div className="empty">Aucun entrepôt {titre}. {peutGerer ? 'Créez-en un dans l\'onglet « Entrepôts ».' : 'Demandez à un chef d\'en créer un.'}</div></div>
       : onglet === 'entree' ? <EntrepotEntree type={type} entrepots={entrepots} />
