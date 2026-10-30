@@ -19,7 +19,7 @@ import type { ReactNode } from 'react';
 import type { Nav } from './App.tsx';
 import { useNav } from './lib/contexte-nav.ts';
 import { ROLES, OPERATIONS, VEHICULE_DESTINATIONS, TYPES_DECLARATION, optionTypeDeclaration, STATUTS, SUIVENT_ENGAGEMENTS, ENGAGEMENTS, aRoleParmi,
-  nombreOuNull, ecartLigne, totauxTransmission, manqueAuDepart, manqueALArrivee, dateDansNJours, tcValide, fileAttente, estTypeSansT1, libelleTypeSansT1, exigeControlePoids, exigeAmendeEffets, AMENDE_EFFETS_FORFAIT, NATURES_RAPPORT_ENGAGEMENT, dureeLisible,
+  nombreOuNull, totauxApurement, manqueAuDepart, manqueDeclarationsC, dateDansNJours, tcValide, fileAttente, estTypeSansT1, libelleTypeSansT1, exigeControlePoids, exigeAmendeEffets, AMENDE_EFFETS_FORFAIT, NATURES_RAPPORT_ENGAGEMENT, dureeLisible,
   ROLES_TECHNIQUES, rangTechnique, extraireNumerosTC, aLeDroit, aPouvoirAdmin, parseConteneursDetails} from '../../../supabase/functions/_shared/domaine/src/index.ts';
 
 const STATUT_OPTIONS = Object.values(STATUTS);
@@ -1834,18 +1834,29 @@ SCREENS.completer = (nav) => <CargoList {...nav} filtre={{ etape: 'CFS' }} titre
  * informations étaient parties, jamais LESQUELLES. Un engagement soldé sans
  * trace de son contenu ne prouve rien lors d'un contrôle.
  *
- * DEUX VOLETS, ET DEUX MOMENTS. Le DÉPART se saisit quand on transmet, et
- * c'est lui qui solde l'engagement. L'ARRIVÉE se saisit plus tard, quand le
- * pays de destination répond, parfois des semaines après : la fiche se rouvre
- * autant de fois qu'il faut.
+ * DEUX VOLETS, ET DEUX MOMENTS. Le DÉPART se saisit quand on transmet. L'ARRIVÉE
+ * se saisit plus tard, quand le pays de destination répond, parfois des
+ * semaines après : la fiche se rouvre autant de fois qu'il faut.
  *
- * L'ÉCART NE S'AFFICHE QUE SUR CE QUI EST CONSTATÉ. Une ligne dont l'arrivée
- * est inconnue n'entre dans aucun total d'écart : la compter ferait apparaître
- * un manquant imaginaire, qui grossirait à chaque marchandise ajoutée.
+ * L'ARRIVÉE, CE SONT LES DÉCLARATIONS « C » (2026-10-30, demande utilisateur) :
+ * chaque C du pays de destination, avec sa date, sa désignation et sa
+ * quantité. Le PREMIER C apure l'engagement ; le départ seul ne le solde plus.
+ * Tant qu'aucun C n'est saisi, la différence reste « en attente » : ce n'est
+ * pas un manquant.
  * ====================================================================== */
 type LigneM = { designation: string; quantiteDepart: string; quantiteArrivee: string };
 
 const marchandiseVide = (): LigneM => ({ designation: '', quantiteDepart: '', quantiteArrivee: '' });
+
+/* DÉCLARATIONS « C » (2026-10-30, demande utilisateur) : à l'arrivée, on
+   saisit chaque C du pays de destination (« C 14985 » du 11/07/2026), avec la
+   désignation et la quantité qu'il couvre. Un engagement peut en ramener
+   plusieurs ; le premier APURE l'engagement. `quantiteArrivee` reste dans les
+   marchandises pour ne pas perdre les fiches saisies avant, mais ne se saisit
+   plus. */
+type LigneCSaisie = { numeroC: string; dateC: string; designation: string; quantite: string };
+const cVide = (): LigneCSaisie => ({ numeroC: '', dateC: '', designation: '', quantite: '' });
+const cEstVide = (c: LigneCSaisie) => !c.numeroC.trim() && !c.dateC && !c.designation.trim() && !c.quantite.trim();
 
 /**
  * LE LOGO ENTRE DEUX FLUX QUI PARTENT ET REVIENNENT.
@@ -1873,7 +1884,9 @@ function ModaleTransmission({ ligne, onClose, onFait }: { ligne: O; onClose: () 
   const [pays, setPays] = useState('');
   const [im4, setIm4] = useState('');
   const [lignes, setLignes] = useState<LigneM[]>([marchandiseVide()]);
+  const [cs, setCs] = useState<LigneCSaisie[]>([cVide()]);
   const [busy, setBusy] = useState('');
+  const apure = ligne['etat'] === 'solde';
   const [pret, setPret] = useState(false);
 
   // La fiche existante remplit le formulaire, une seule fois : après quoi
@@ -1890,6 +1903,14 @@ function ModaleTransmission({ ligne, onClose, onFait }: { ligne: O; onClose: () 
         quantiteArrivee: m['quantiteArrivee'] === null || m['quantiteArrivee'] === undefined ? '' : String(m['quantiteArrivee']),
       })));
     }
+    const dc = ((data['declarationsC'] ?? []) as O[]);
+    if (dc.length) {
+      setCs(dc.map((c) => ({
+        numeroC: String(c['numeroC'] ?? ''), dateC: String(c['dateC'] ?? '').slice(0, 10),
+        designation: String(c['designation'] ?? ''),
+        quantite: c['quantite'] === null || c['quantite'] === undefined ? '' : String(c['quantite']),
+      })));
+    }
     setPret(true);
   }, [data, loading, pret]);
 
@@ -1899,17 +1920,25 @@ function ModaleTransmission({ ligne, onClose, onFait }: { ligne: O; onClose: () 
     quantiteDepart: nombreOuNull(l.quantiteDepart) ?? 0,
     quantiteArrivee: nombreOuNull(l.quantiteArrivee),
   }));
-  const totaux = totauxTransmission(pourDomaine);
+  // Une ligne de C laissée entièrement vide ne compte pas : c'est la case qui attend la saisie.
+  const csSaisis = cs.filter((c) => !cEstVide(c)).map((c) => ({
+    numeroC: c.numeroC.trim(), dateC: c.dateC, designation: c.designation.trim(), quantite: nombreOuNull(c.quantite),
+  }));
+  const totaux = totauxApurement(pourDomaine, csSaisis);
   const manqueDepart = manqueAuDepart({ paysDestination: pays, numeroIm4: im4 }, pourDomaine);
-  const manqueArrivee = manqueALArrivee(pourDomaine);
+  const manqueArrivee = manqueDeclarationsC(csSaisis);
 
   const majLigne = (i: number, champ: keyof LigneM, v: string) =>
     setLignes((ls) => ls.map((l, k) => (k === i ? { ...l, [champ]: v } : l)));
+  const majC = (i: number, champ: keyof LigneCSaisie, v: string) =>
+    setCs((ls) => ls.map((l, k) => (k === i ? { ...l, [champ]: v } : l)));
 
   async function envoyer(action: 'engagement.depart' | 'engagement.arrivee', dit: string) {
     setBusy(action);
     try {
-      await call(action, { id, paysDestination: pays, numeroIm4: im4, marchandises: pourDomaine });
+      await call(action, action === 'engagement.depart'
+        ? { id, paysDestination: pays, numeroIm4: im4, marchandises: pourDomaine }
+        : { id, declarationsC: csSaisis });
       toast(dit, 'ok'); onFait();
     } catch (e) { toast((e as Error).message, 'err'); } finally { setBusy(''); }
   }
@@ -1939,10 +1968,8 @@ function ModaleTransmission({ ligne, onClose, onFait }: { ligne: O; onClose: () 
              restait vide des jours durant au milieu de la saisie du depart, et
              on ne savait plus ce qui restait a faire.
 
-             LA DESIGNATION NE SE SAISIT QU'UNE FOIS. Deux listes libres se
-             seraient desalignees des la premiere faute de frappe, et l'ecart
-             aurait compare deux marchandises differentes. Le volet d'arrivee
-             reprend donc les lignes du depart, et n'y ajoute que le constat. */}
+             Depuis le 2026-10-30, l'arrivee se saisit par les declarations C
+             du pays de destination ; la difference compare les totaux. */}
         <div className="trn-section trn-volet">
           <h3><Icone nom="televerser" taille={15} />Au départ
             <span className="help trn-compte">{lignes.length} marchandise(s)</span>
@@ -2011,9 +2038,9 @@ function ModaleTransmission({ ligne, onClose, onFait }: { ligne: O; onClose: () 
         </div>
 
         <div className="trn-section trn-volet trn-volet-arrivee">
-          <h3><Icone nom="telecharger" taille={15} />À l'arrivée
+          <h3><Icone nom="telecharger" taille={15} />À l'arrivée : déclarations C
             <span className="help trn-compte">
-              {totaux.enAttente ? `${totaux.enAttente} en attente` : 'tout est constaté'}
+              {totaux.nbC ? `${totaux.nbC} C saisi(s)` : 'en attente des C'}
             </span>
           </h3>
           {/* Les memes champs qu'au depart, sur les memes valeurs. */}
@@ -2033,39 +2060,51 @@ function ModaleTransmission({ ligne, onClose, onFait }: { ligne: O; onClose: () 
               </span>
             </label>
           </div>
-          <div className="trn-entetes trn-g3 help">
+          {/* UNE LIGNE PAR C (2026-10-30, demande utilisateur) : la référence
+              douane du pays de destination, sa date, et ce qu'il couvre. Un
+              engagement peut en ramener plusieurs : « Ajouter un C ». La
+              désignation est celle du C, pas forcément celle du départ (un C
+              peut regrouper ou détailler) : la comparaison se fait sur les
+              totaux. */}
+          <div className="trn-entetes trn-g4 help">
+            <span>N° du C</span>
+            <span>Date du C</span>
             <span>Désignation</span>
-            <span>Quantité constatée</span>
-            <span>Différence</span>
+            <span>Quantité</span>
+            <span />
           </div>
-          {lignes.map((l, i) => {
-            const e = ecartLigne(pourDomaine[i]!);
-            return <div className="trn-ligne trn-g3" key={i}>
-              {/* LE MEME CHAMP QU'AU DEPART, et non une copie : il ecrit sur la
-                  MEME ligne. Corriger la designation ici la corrige la-haut,
-                  et inversement. Deux listes independantes se seraient
-                  desalignees des la premiere faute de frappe, et la
-                  difference aurait compare deux marchandises differentes
-                  sans que rien ne le signale. */}
-              <span className="trn-champ">
-                <Icone nom="boites" taille={15} />
-                <input value={l.designation} placeholder="Désignation : riz 50 kg, sucre…" maxLength={200}
-                  onChange={(ev) => majLigne(i, 'designation', ev.target.value)} />
-              </span>
-              <span className="trn-champ">
-                <Icone nom="balance" taille={15} />
-                <input inputMode="decimal" value={l.quantiteArrivee} placeholder="Quantité constatée"
-                  title="À renseigner quand le pays de destination répond"
-                  onChange={(ev) => majLigne(i, 'quantiteArrivee', ev.target.value.replace(/[^0-9.,]/g, ''))} />
-              </span>
-              {/* La différence ne se saisit pas : elle se déduit. La rendre
-                  modifiable permettrait d'écrire un chiffre que les quantités
-                  démentent. */}
-              <span className={`trn-ecart ${e === null ? 'attente' : e < 0 ? 'manque' : e > 0 ? 'surplus' : 'juste'}`}>
-                {e === null ? 'en attente' : e > 0 ? `+${nombre(e)}` : nombre(e)}
-              </span>
-            </div>;
-          })}
+          {cs.map((c, i) => <div className="trn-ligne trn-g4" key={i}>
+            <span className="trn-champ">
+              <Icone nom="document" taille={15} />
+              <input className="mono" value={c.numeroC} placeholder="N° du C : C 14985" maxLength={40}
+                aria-label="Numéro du C" onChange={(ev) => majC(i, 'numeroC', ev.target.value)} />
+            </span>
+            <span className="trn-champ">
+              <Icone nom="echeance" taille={15} />
+              <input type="date" value={c.dateC} aria-label="Date du C"
+                max={new Date().toISOString().slice(0, 10)}
+                onChange={(ev) => majC(i, 'dateC', ev.target.value)} />
+            </span>
+            <span className="trn-champ">
+              <Icone nom="boites" taille={15} />
+              <input value={c.designation} placeholder="Désignation : tissus polyester imprimés…" maxLength={200}
+                aria-label="Désignation" onChange={(ev) => majC(i, 'designation', ev.target.value)} />
+            </span>
+            <span className="trn-champ">
+              <Icone nom="balance" taille={15} />
+              <input inputMode="decimal" value={c.quantite} placeholder="Quantité" aria-label="Quantité"
+                onChange={(ev) => majC(i, 'quantite', ev.target.value.replace(/[^0-9.,]/g, ''))} />
+            </span>
+            <button className="ghost xs acts-ic acts-suppr trn-retirer"
+              aria-label={cs.length > 1 ? 'Retirer ce C' : 'Vider cette ligne'}
+              data-bulle={cs.length > 1 ? 'Retirer' : 'Vider'}
+              onClick={() => setCs((ls) => (ls.length > 1 ? ls.filter((_, k) => k !== i) : [cVide()]))}>
+              <Icone nom="poubelle" taille={15} />
+            </button>
+          </div>)}
+          <button className="ghost xs trn-ajouter" onClick={() => setCs((ls) => [...ls, cVide()])}>
+            <Icone nom="plus" taille={14} />Ajouter un C
+          </button>
         </div>
 
         {/* ---- LE TROISIEME VOLET (2026-10-29, demande utilisateur) : la
@@ -2082,7 +2121,7 @@ function ModaleTransmission({ ligne, onClose, onFait }: { ligne: O; onClose: () 
             </div>
             <div className="trn-total trn-total-arrivee">
               <span className="trn-total-ic"><Icone nom="telecharger" taille={15} /></span>
-              <span className="help">Total à l'arrivée</span>
+              <span className="help">Total des C</span>
               <b>{nombre(totaux.arrivee)}</b>
             </div>
           </div>
@@ -2106,7 +2145,7 @@ function ModaleTransmission({ ligne, onClose, onFait }: { ligne: O; onClose: () 
                     : etatEcart === 'surplus' ? 'Surplus' : 'Conforme'}
               </span>
               <span className="help">
-                {etatEcart === 'attente' ? "aucune arrivée n'est encore constatée"
+                {etatEcart === 'attente' ? "aucun C n'est encore saisi"
                   : etatEcart === 'manque' ? `il manque ${nombre(Math.abs(totaux.ecart ?? 0))} à l'arrivée`
                     : etatEcart === 'surplus' ? `${nombre(totaux.ecart ?? 0)} de plus qu'au départ`
                       : "l'arrivée correspond exactement au départ"}
@@ -2116,9 +2155,9 @@ function ModaleTransmission({ ligne, onClose, onFait }: { ligne: O; onClose: () 
               {totaux.ecart === null ? '—' : totaux.ecart > 0 ? `+${nombre(totaux.ecart)}` : nombre(totaux.ecart)}
             </b>
           </div>
-        {totaux.enAttente > 0 && <div className="help trn-attente">
+        {!apure && <div className="help trn-attente">
           <Icone nom="sablier" taille={13} />
-          {totaux.enAttente} ligne(s) sans arrivée connue : elles ne comptent pas dans la différence.
+          L'engagement sera apuré au premier C enregistré.
         </div>}
         </div>
 
@@ -2128,16 +2167,16 @@ function ModaleTransmission({ ligne, onClose, onFait }: { ligne: O; onClose: () 
         <div className="trn-pied">
           <button className="ghost" disabled={!!busy} onClick={onClose}>Annuler</button>
           <button disabled={!!busy || !!manqueDepart}
-            onClick={() => envoyer('engagement.depart', existe ? 'Régularisation corrigée.' : 'Engagement régularisé.')}>
+            onClick={() => envoyer('engagement.depart', existe ? 'Départ corrigé.' : 'Départ enregistré : l\'engagement sera apuré au premier C.')}>
             <Icone nom="presse" taille={15} />
-            {busy === 'engagement.depart' ? 'Enregistrement…' : existe ? 'Corriger le départ' : 'Régulariser'}
+            {busy === 'engagement.depart' ? 'Enregistrement…' : existe ? 'Corriger le départ' : 'Enregistrer le départ'}
           </button>
           {/* L'arrivée ne s'enregistre qu'une fois le départ connu : sans lui,
               il n'y a rien à quoi comparer. */}
           {existe && <button className="trn-arrivee" disabled={!!busy || !!manqueArrivee}
-            onClick={() => envoyer('engagement.arrivee', 'Arrivée enregistrée.')}>
+            onClick={() => envoyer('engagement.arrivee', apure ? 'Déclarations C enregistrées.' : 'Engagement apuré.')}>
             <Icone nom="valider" taille={15} />
-            {busy === 'engagement.arrivee' ? 'Enregistrement…' : "Enregistrer l'arrivée"}
+            {busy === 'engagement.arrivee' ? 'Enregistrement…' : apure ? 'Enregistrer les C' : "Apurer l'engagement"}
           </button>}
         </div>
       </>}

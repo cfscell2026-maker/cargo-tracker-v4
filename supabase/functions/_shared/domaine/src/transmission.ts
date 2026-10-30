@@ -113,3 +113,87 @@ export function manqueALArrivee(lignes: MarchandiseTransmise[]): string | null {
   }
   return null;
 }
+
+/* ==========================================================================
+ *  DÉCLARATIONS « C » : L'ARRIVÉE ET L'APUREMENT (2026-10-30, demande
+ *  utilisateur).
+ *
+ *  La preuve qu'un engagement est tenu, c'est la mise à la consommation dans
+ *  le pays de destination : la déclaration du Burkina porte une référence
+ *  douane « C 14985 » et sa date. On saisit chaque C avec la désignation et la
+ *  quantité qu'il couvre ; un même engagement peut en ramener plusieurs.
+ *
+ *  Décisions utilisateur : les C SONT l'arrivée (le total à l'arrivée est la
+ *  somme de leurs quantités), et l'engagement est apuré au premier C.
+ * ========================================================================== */
+
+export interface DeclarationC {
+  /** Référence douane telle qu'imprimée : « C 14985 ». */
+  numeroC: string;
+  /** Date du C, AAAA-MM-JJ. */
+  dateC: string;
+  designation: string;
+  quantite: number | null;
+}
+
+/** Une date AAAA-MM-JJ qui existe au calendrier (pas de 31 juin). */
+export function dateCValide(v: unknown): boolean {
+  const t = String(v ?? '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(t)) return false;
+  const d = new Date(t + 'T00:00:00Z');
+  return !isNaN(d.getTime()) && d.toISOString().slice(0, 10) === t;
+}
+
+/** « c14985 », « C-14985 », « C 14985 » : le même C. Sert à repérer un doublon. */
+export function cleNumeroC(v: unknown): string {
+  return String(v ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+
+/**
+ * Ce qui manque pour enregistrer les C, dit en clair.
+ *
+ * AU MOINS UN C : c'est lui qui apure l'engagement ; enregistrer une liste vide
+ * ne prouverait rien. Un même C saisi deux fois compterait sa quantité deux
+ * fois dans le total à l'arrivée : on le refuse. Une date de C dans le futur
+ * est une faute de frappe (le C est forcément déjà délivré).
+ */
+export function manqueDeclarationsC(lignes: DeclarationC[], aujourdhui = new Date().toISOString().slice(0, 10)): string | null {
+  if (!lignes.length) return 'Ajoutez au moins une déclaration C.';
+  const vus = new Set<string>();
+  for (const [i, c] of lignes.entries()) {
+    const n = `Déclaration C ${i + 1}`;
+    if (!cleNumeroC(c.numeroC)) return `${n} : indiquez le numéro du C.`;
+    if (!String(c.dateC ?? '').trim()) return `${n} : indiquez la date du C.`;
+    if (!dateCValide(c.dateC)) return `${n} : la date du C n'est pas valide.`;
+    if (String(c.dateC) > aujourdhui) return `${n} : la date du C ne peut pas être dans le futur.`;
+    if (!String(c.designation ?? '').trim()) return `${n} : indiquez la désignation de la marchandise.`;
+    const q = nombreOuNull(c.quantite);
+    if (q === null) return `${n} : indiquez la quantité.`;
+    if (q <= 0) return `${n} : la quantité doit être supérieure à zéro.`;
+    const cle = cleNumeroC(c.numeroC);
+    if (vus.has(cle)) return `Le C « ${String(c.numeroC).trim()} » est saisi deux fois.`;
+    vus.add(cle);
+  }
+  return null;
+}
+
+export interface TotauxApurement {
+  /** Total déclaré au départ (toutes les marchandises). */
+  depart: number;
+  /** Somme des quantités des C. */
+  arrivee: number;
+  /** Arrivée moins départ ; `null` tant qu'aucun C n'est saisi. */
+  ecart: number | null;
+  /** Nombre de C. */
+  nbC: number;
+}
+
+/**
+ * Départ contre C. Tant qu'aucun C n'est saisi, l'écart reste `null` : on
+ * attend la réponse du pays de destination, ce n'est pas un manquant.
+ */
+export function totauxApurement(marchandises: MarchandiseTransmise[], cs: DeclarationC[]): TotauxApurement {
+  const depart = marchandises.reduce((n, m) => n + (nombreOuNull(m.quantiteDepart) ?? 0), 0);
+  const arrivee = cs.reduce((n, c) => n + (nombreOuNull(c.quantite) ?? 0), 0);
+  return { depart, arrivee, ecart: cs.length ? arrivee - depart : null, nbC: cs.length };
+}

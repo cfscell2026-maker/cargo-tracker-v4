@@ -4149,6 +4149,8 @@ button.modal-fermer:focus-visible{outline:2px solid #0e5a8a;outline-offset:2px}
    déclarée » s'y coupait en « Quantité déc… ». */
 .trn-g2{grid-template-columns:1fr 178px 31px}
 .trn-g3{grid-template-columns:1fr 178px 96px}
+/* Déclarations C : numéro, date, désignation, quantité, retrait. */
+.trn-g4{grid-template-columns:150px 158px 1fr 120px 31px}
 
 /* Le volet se detache du fond de la fenetre : sans cadre, les deux listes se
    suivaient sans qu'on voie ou l'une finissait. */
@@ -4291,6 +4293,8 @@ button.modal-fermer:focus-visible{outline:2px solid #0e5a8a;outline-offset:2px}
   .trn-g2 > .trn-champ:first-child{grid-column:1 / -1}
   .trn-g3{grid-template-columns:1fr auto;gap:6px}
   .trn-g3 > .trn-champ:first-child{grid-column:1 / -1}
+  .trn-g4{grid-template-columns:1fr 1fr;gap:6px}
+  .trn-g4 > .trn-champ:nth-child(3){grid-column:1 / -1}
   .trn-pied{flex-direction:column-reverse}
   .trn-pied button{width:100%;justify-content:center}
 }
