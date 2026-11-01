@@ -1,0 +1,116 @@
+# ============================================================================
+#  SAUVEGARDE NOCTURNE (2026-11-01, demande utilisateur)
+#
+#  Chaque nuit à 03:00 GMT (03:00 à Lomé) : export complet de la base de
+#  production, CHIFFRÉ, gardé 30 nuits hors de Supabase, et compte rendu par
+#  mail (le fichier chiffré est joint s'il est assez petit).
+#
+#  ⚠ LE DÉPÔT EST PUBLIC : les journaux d'exécution se lisent par tous. Rien de
+#  lisible n'y est écrit (ni comptages, ni données) ; seul le fichier CHIFFRÉ
+#  est conservé, et il est illisible sans le mot de passe de sauvegarde.
+#
+#  Mise en route et restauration : scripts/sauvegarde/LISEZMOI.md
+# ============================================================================
+name: Sauvegarde nocturne
+
+on:
+  schedule:
+    - cron: '0 3 * * *'   # 03:00 GMT. GitHub peut la lancer avec quelques minutes de retard.
+  workflow_dispatch:      # « Run workflow » : pour un essai immédiat.
+
+permissions:
+  contents: read
+
+# Deux sauvegardes ne se chevauchent jamais.
+concurrency:
+  group: sauvegarde-nocturne
+  cancel-in-progress: false
+
+jobs:
+  sauvegarde:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      DB_URL: ${{ secrets.SAUVEGARDE_DB_URL }}
+      MOT_DE_PASSE: ${{ secrets.SAUVEGARDE_MOT_DE_PASSE }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Vérifier les réglages
+        run: |
+          [ -n "$DB_URL" ] || { echo "::error::Secret SAUVEGARDE_DB_URL absent (voir scripts/sauvegarde/LISEZMOI.md)"; exit 1; }
+          [ ${#MOT_DE_PASSE} -ge 16 ] || { echo "::error::Secret SAUVEGARDE_MOT_DE_PASSE absent ou trop court (16 caractères minimum)"; exit 1; }
+
+      - name: Installer le client PostgreSQL 17
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-common > /dev/null
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y > /dev/null
+          sudo apt-get install -y -qq postgresql-client-17 > /dev/null
+          /usr/lib/postgresql/17/bin/pg_dump --version
+
+      - name: Exporter la base
+        id: export
+        run: |
+          set -euo pipefail
+          BIN=/usr/lib/postgresql/17/bin
+          JOUR=$(date -u +%F)
+          SORTIE="$RUNNER_TEMP/sauvegarde"
+          mkdir -p "$SORTIE" && chmod 700 "$SORTIE"
+
+          # Les données métier et le schéma `securite` (clé du scellement du
+          # journal d'audit : sans elle, le journal restauré ne se vérifie plus).
+          "$BIN/pg_dump" "$DB_URL" --format=custom --no-owner --no-privileges \
+            --schema=public --schema=securite --file="$SORTIE/base_$JOUR.dump"
+
+          # Les comptes de connexion (gérés par Supabase) : données seules.
+          # Un échec ici n'annule pas la sauvegarde des données, il est signalé dans le mail.
+          if "$BIN/pg_dump" "$DB_URL" --format=custom --data-only \
+               --table=auth.users --table=auth.identities --file="$SORTIE/comptes_$JOUR.dump" 2> "$SORTIE/comptes.err"; then
+            echo "comptes=ok" >> "$GITHUB_OUTPUT"
+          else
+            echo "comptes=echec" >> "$GITHUB_OUTPUT"
+            rm -f "$SORTIE/comptes_$JOUR.dump"
+          fi
+          rm -f "$SORTIE/comptes.err"
+
+          # Comptages pour le compte rendu : écrits dans un fichier, jamais dans le journal public.
+          "$BIN/psql" "$DB_URL" -X -q -At -F '|' -f scripts/sauvegarde/comptages.sql > "$RUNNER_TEMP/comptages.txt"
+
+          # Un seul fichier, chiffré AES-256. Le mot de passe passe par un fichier
+          # privé, jamais par la ligne de commande (visible dans la liste des processus).
+          umask 077
+          printf '%s' "$MOT_DE_PASSE" > "$RUNNER_TEMP/phrase"
+          FICHIER="$RUNNER_TEMP/cargo-tracker_$JOUR.tar.gpg"
+          tar -cf - -C "$SORTIE" . | gpg --batch --yes --quiet --pinentry-mode loopback \
+            --symmetric --cipher-algo AES256 --passphrase-file "$RUNNER_TEMP/phrase" -o "$FICHIER"
+          rm -rf "$SORTIE" "$RUNNER_TEMP/phrase"
+
+          echo "fichier=$FICHIER" >> "$GITHUB_OUTPUT"
+          echo "jour=$JOUR" >> "$GITHUB_OUTPUT"
+          echo "Sauvegarde chiffrée : $(du -h "$FICHIER" | cut -f1)"
+
+      - name: Conserver 30 nuits
+        uses: actions/upload-artifact@v4
+        with:
+          name: sauvegarde-${{ steps.export.outputs.jour }}
+          path: ${{ steps.export.outputs.fichier }}
+          retention-days: 30
+          compression-level: 0
+          if-no-files-found: error
+
+      - name: Compte rendu par mail
+        if: always()
+        env:
+          STATUT: ${{ job.status }}
+          FICHIER: ${{ steps.export.outputs.fichier }}
+          COMPTES: ${{ steps.export.outputs.comptes }}
+          COMPTAGES: ${{ runner.temp }}/comptages.txt
+          LIEN_EXECUTION: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          SMTP_SERVEUR: ${{ secrets.SMTP_SERVEUR }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_UTILISATEUR: ${{ secrets.SMTP_UTILISATEUR }}
+          SMTP_MOT_DE_PASSE: ${{ secrets.SMTP_MOT_DE_PASSE }}
+          MAIL_EXPEDITEUR: ${{ secrets.MAIL_EXPEDITEUR }}
+          MAIL_DESTINATAIRE: ${{ secrets.MAIL_DESTINATAIRE }}
+        run: python3 scripts/sauvegarde/compte_rendu.py
